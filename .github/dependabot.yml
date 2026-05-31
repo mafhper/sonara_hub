@@ -8,7 +8,10 @@ updates:
       day: "tuesday"
       time: "09:00"
       timezone: "America/Sao_Paulo"
-    open-pull-requests-limit: 5
+    # Temporarily keep routine version-update PRs quiet while the MVP is still
+    # stabilizing. Security alerts can still be reviewed from GitHub's security
+    # view and this limit can be raised again after v1.0.0.
+    open-pull-requests-limit: 0
     versioning-strategy: increase-if-necessary
     cooldown:
       default-days: 5
@@ -30,5 +33,6 @@ updates:
       day: "tuesday"
       time: "09:30"
       timezone: "America/Sao_Paulo"
+    open-pull-requests-limit: 0
     cooldown:
       default-days: 5

@@ -7,14 +7,17 @@ import NodeID3 from "node-id3";
 import sharp from "sharp";
 
 export function inferAudioTags(filePath) {
-  const parent = path.dirname(filePath);
-  const grandparent = path.dirname(parent);
-  const album = parent === "." ? "" : path.basename(parent);
+  const pathApi = /(^[a-z]:|\\)/i.test(String(filePath))
+    ? path.win32
+    : path.posix;
+  const parent = pathApi.dirname(filePath);
+  const grandparent = pathApi.dirname(parent);
+  const album = parent === "." ? "" : pathApi.basename(parent);
   const artist =
     grandparent === "." || grandparent === parent
       ? ""
-      : path.basename(grandparent);
-  const baseName = path.basename(filePath, path.extname(filePath)).trim();
+      : pathApi.basename(grandparent);
+  const baseName = pathApi.basename(filePath, pathApi.extname(filePath)).trim();
   const match = baseName.match(/^(\d{1,3})\s+(.+)$/);
   const trackNumber = Number(match?.[1] ?? 0);
   const withoutOrder = String(match?.[2] ?? baseName).trim();
