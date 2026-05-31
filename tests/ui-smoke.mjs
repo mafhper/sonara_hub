@@ -1,0 +1,282 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import ffmpegPath from "ffmpeg-static";
+import { chromium } from "playwright";
+import { fetchJsonWithRetry } from "../shared/local-api.mjs";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const screenshotDir = path.join(root, ".dev", "screenshots");
+const assetDir = path.join(root, ".dev", "ui-smoke-assets");
+await fs.mkdir(screenshotDir, { recursive: true });
+await fs.mkdir(assetDir, { recursive: true });
+const audioPath = path.join(assetDir, "ui-smoke.wav");
+const variationAudioPath = path.join(assetDir, "ui-smoke-variation.wav");
+const pngPath = path.join(assetDir, "layer.png");
+const svgPath = path.join(assetDir, "layer.svg");
+const videoPath = path.join(assetDir, "layer.webm");
+await fs.writeFile(audioPath, makeWave());
+await fs.writeFile(variationAudioPath, makeWave(330));
+await fs.writeFile(
+  pngPath,
+  Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAD0lEQVR42mNk+M+ABzDhkQAP/wL+zKxQfAAAAABJRU5ErkJggg==",
+    "base64",
+  ),
+);
+await fs.writeFile(
+  svgPath,
+  '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" rx="18" fill="#bfd1d9"/><circle cx="160" cy="90" r="54" fill="#556b78"/></svg>',
+);
+const ffmpeg = spawnSync(
+  ffmpegPath,
+  [
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    "color=c=0x526878:s=160x90:d=1",
+    "-c:v",
+    "libvpx",
+    "-pix_fmt",
+    "yuv420p",
+    videoPath,
+  ],
+  { windowsHide: true },
+);
+if (ffmpeg.status !== 0) throw new Error(ffmpeg.stderr.toString());
+await cleanupSmokePresets();
+
+const browser = await chromium.launch({ headless: true });
+const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
+const errors = [];
+const failedRequests = [];
+page.on("console", (message) => {
+  if (message.type() === "error") errors.push(message.text());
+});
+page.on("pageerror", (error) => errors.push(error.message));
+page.on("requestfailed", (request) => {
+  failedRequests.push(
+    `${request.method()} ${request.url()} ${request.failure()?.errorText}`,
+  );
+});
+
+try {
+  await page.goto("http://127.0.0.1:5173", { waitUntil: "networkidle" });
+  await page
+    .locator('input[accept="audio/*"]')
+    .first()
+    .setInputFiles(audioPath);
+  await page.getByText("ui-smoke").first().waitFor();
+  await page.getByText("Biblioteca de audio", { exact: true }).last().waitFor();
+  await page.getByText("LUFS integrado").waitFor();
+  await page.getByRole("button", { name: "Estudio visual" }).click();
+
+  const presetSelect = page.locator('select:has(option[value="vector-aura"])');
+  await presetSelect.selectOption("vector-aura");
+  await page.waitForTimeout(450);
+  const centerPixel = await page
+    .locator("canvas.scene-canvas")
+    .evaluate((canvas) => {
+      const context = canvas.getContext("2d");
+      return Array.from(
+        context.getImageData(canvas.width / 2, canvas.height / 2, 1, 1).data,
+      );
+    });
+  assert.ok(centerPixel.slice(0, 3).some((value) => value > 10));
+
+  await page.getByText("Ajustes avancados").click();
+  await page.getByText("Presenca").waitFor();
+  await page.getByRole("button", { name: "Tocar previa" }).click();
+  await page.waitForTimeout(350);
+  assert.equal(
+    await page.getByRole("button", { name: "Pausar previa" }).count(),
+    1,
+  );
+  await page.locator('input[aria-label="Posicao da previa"]').fill("0.5");
+
+  await page
+    .locator('input[type="file"][accept="image/*,video/*,.svg"]')
+    .setInputFiles([pngPath, svgPath, videoPath]);
+  await page.getByText("Camadas · 3/3").waitFor();
+  await page.locator(".layer-row summary").first().click();
+  await page.locator(".layer-row").first().getByText("Rotacao").waitFor();
+  await page
+    .locator(".layer-row")
+    .first()
+    .getByText("Desfoque da sombra")
+    .waitFor();
+  await page.locator(".layer-row summary").last().click();
+  await page.locator(".layer-row").last().getByText("Repetir video").waitFor();
+  await page.getByRole("button", { name: "Remover camada" }).first().click();
+  await page.getByRole("button", { name: "Desfazer" }).click();
+  await page.getByText("Camadas · 3/3").waitFor();
+  await page.getByText("Waveform", { exact: true }).click();
+  await page.getByText("Mostrar waveform").click();
+  const waveformSelect = page.locator(
+    'select:has(option[value="radial-ring"])',
+  );
+  assert.equal(await waveformSelect.locator("option").count(), 5);
+  for (const type of [
+    "single-line",
+    "filled-ribbon",
+    "spectrum-bars",
+    "radial-ring",
+    "mirror-line",
+  ]) {
+    await waveformSelect.selectOption(type);
+    await page.waitForTimeout(120);
+  }
+
+  await page.getByRole("button", { name: "Biblioteca de audio" }).click();
+  await page.getByRole("button", { name: "Lote" }).click();
+  await page.getByText("Dados comuns do lote").waitFor();
+  await page
+    .locator(".batch-toolbar label.field", { hasText: "Artista principal" })
+    .locator("input")
+    .fill("Matheus Lima");
+  await page
+    .locator(".batch-toolbar label.field", { hasText: "Comentario ID3" })
+    .locator("textarea")
+    .fill("Feito usando IA com curadoria humana.");
+  await page.getByRole("button", { name: "Aplicar aos selecionados" }).click();
+  await page.getByText("Dados comuns aplicados").waitFor();
+  await page
+    .locator(".batch-table tbody tr")
+    .first()
+    .locator('input[aria-label="Titulo"]')
+    .fill("Smoke Batch Title");
+  assert.equal(
+    await page
+      .locator(".batch-table tbody tr")
+      .first()
+      .locator('input[aria-label="Titulo"]')
+      .inputValue(),
+    "Smoke Batch Title",
+  );
+  assert.equal(
+    await page.locator('input[type="file"][webkitdirectory]').count(),
+    1,
+  );
+  await page.getByText("Processamento do lote").waitFor();
+  await page.getByRole("button", { name: "Pausar fila" }).waitFor();
+  await page.getByRole("button", { name: "Cancelar todos" }).waitFor();
+  await page.getByRole("button", { name: "Estudio visual" }).click();
+  await page.locator(".steps button").filter({ hasText: "Exportar" }).click();
+  await page.getByText("1 faixa selecionada", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Exportar lote" }).waitFor();
+  await page.getByRole("button", { name: "Faixa unica" }).click();
+  await page.getByText("Resumo da exportacao").waitFor();
+  await page.locator(".steps button").filter({ hasText: "Visual" }).click();
+  await page.getByRole("button", { name: "Recolher biblioteca" }).click();
+  await page.getByRole("button", { name: "Recolher inspetor" }).click();
+  await page.screenshot({
+    path: path.join(screenshotDir, "sonara-hub-fullscreen.png"),
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Recolher biblioteca" }).click();
+  await page.getByRole("button", { name: "Recolher inspetor" }).click();
+
+  page.once("dialog", async (dialog) => dialog.accept("Aura smoke UI"));
+  await page.getByRole("button", { name: "Duplicar" }).click();
+  await page.locator('option:has-text("Aura smoke UI")').waitFor({
+    state: "attached",
+  });
+  await page.reload({ waitUntil: "networkidle" });
+  assert.equal(
+    await page.locator('option:has-text("Aura smoke UI")').count(),
+    1,
+  );
+  await page.getByText("Camadas · 3/3").waitFor();
+  await page.screenshot({
+    path: path.join(screenshotDir, "sonara-hub-studio.png"),
+    fullPage: true,
+  });
+  await page.locator(".steps button").filter({ hasText: "Musica" }).click();
+  await page
+    .locator(".inspector-scroll label.field", { hasText: "Versao" })
+    .locator("input")
+    .fill("Original smoke");
+  await page.getByRole("button", { name: "Criar variacao" }).click();
+  await page
+    .locator(".inspector-scroll label.field", { hasText: "Versao" })
+    .locator("input")
+    .fill("Alternativa smoke");
+  await page
+    .locator('input[accept="audio/*"]:not([multiple])')
+    .nth(1)
+    .setInputFiles(variationAudioPath);
+  await page.waitForTimeout(1_600);
+  await page.reload({ waitUntil: "networkidle" });
+  assert.equal(
+    await page.locator(".track-row").count(),
+    2,
+    "variation with a replaced audio file should survive autosave",
+  );
+  assert.ok(
+    ((await page.locator(".track-row.selected .track-copy").boundingBox())
+      ?.width ?? 0) > 100,
+    "single-track rows should reserve useful width for title and version",
+  );
+  await page
+    .getByRole("button", { name: "Trocar audio desta versao" })
+    .waitFor();
+  await page.setViewportSize({ width: 760, height: 1080 });
+  await page.waitForTimeout(250);
+  await page.screenshot({
+    path: path.join(screenshotDir, "sonara-hub-narrow.png"),
+    fullPage: true,
+  });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(failedRequests, []);
+} finally {
+  await cleanupSmokePresets();
+  await browser.close();
+}
+
+function makeWave(frequency = 220) {
+  const sampleRate = 8000;
+  const seconds = 2;
+  const data = Buffer.alloc(sampleRate * seconds * 2);
+  for (let index = 0; index < sampleRate * seconds; index += 1) {
+    data.writeInt16LE(
+      Math.sin((index / sampleRate) * Math.PI * 2 * frequency) * 12000,
+      index * 2,
+    );
+  }
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write("WAVEfmt ", 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(data.length, 40);
+  return Buffer.concat([header, data]);
+}
+
+async function cleanupSmokePresets() {
+  const { presets } = await fetchJsonWithRetry(
+    "http://127.0.0.1:4175/api/visual-presets",
+    undefined,
+    { attempts: 5, delayMs: 300 },
+  );
+  await Promise.all(
+    presets
+      .filter((preset) => preset.name === "Aura smoke UI")
+      .map((preset) =>
+        fetchJsonWithRetry(
+          `http://127.0.0.1:4175/api/visual-presets/${preset.id}`,
+          { method: "DELETE" },
+          { attempts: 5, delayMs: 300 },
+        ),
+      ),
+  );
+}
