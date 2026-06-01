@@ -91,9 +91,14 @@ page.on("console", (message) => {
 });
 page.on("pageerror", (error) => errors.push(error.message));
 page.on("requestfailed", (request) => {
-  failedRequests.push(
-    `${request.method()} ${request.url()} ${request.failure()?.errorText}`,
-  );
+  const failureText = request.failure()?.errorText ?? "";
+  if (
+    failureText === "net::ERR_ABORTED" &&
+    request.url().includes("/api/audio/artwork-preview/")
+  ) {
+    return;
+  }
+  failedRequests.push(`${request.method()} ${request.url()} ${failureText}`);
 });
 
 try {

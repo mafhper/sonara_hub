@@ -146,13 +146,14 @@ export const builtinVisualPresets = [
     note: "Disco girando com arte central sobre um fundo ambiente escuro.",
     colors: { base: "#080808", effect: "#202124", light: "#b98b52" },
     common: { speed: 22, brightness: 34, direction: 0, audioReaction: 4 },
-    advanced: { discSize: 78, rpm: 34, x: 50, y: 52, shadow: 62 },
+    advanced: { discSize: 78, rpm: 34, x: 50, y: 52, shadow: 62, reaction: 28 },
     controls: [
       control("discSize", "Tamanho do disco"),
       control("rpm", "Rotação", 12, 64, " RPM"),
       control("x", "Posição horizontal"),
       control("y", "Posição vertical"),
       control("shadow", "Sombra"),
+      control("reaction", "Pulso da música"),
     ],
   }),
   preset({

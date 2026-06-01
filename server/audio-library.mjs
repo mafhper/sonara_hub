@@ -224,15 +224,50 @@ export function romanNumeral(value) {
 export async function createNumberedCover(
   basePath,
   outputPath,
-  { index = 1, style = "roman" } = {},
+  {
+    index = 1,
+    style = "roman",
+    label,
+    sublines = [],
+    fontSize = 112,
+    color = "#fffaf1",
+    opacity = 92,
+    x = 50,
+    y = 89,
+    letterSpacing = 18,
+  } = {},
 ) {
-  const numeral = style === "arabic" ? String(index) : romanNumeral(index);
+  const numeral =
+    label || (style === "arabic" ? String(index) : romanNumeral(index));
+  const safeSublines = sublines
+    .map((line) => String(line ?? "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  const mainY = Math.round(
+    (Math.max(8, Math.min(94, Number(y) || 89)) / 100) * 1600,
+  );
+  const mainX = Math.round(
+    (Math.max(8, Math.min(92, Number(x) || 50)) / 100) * 1600,
+  );
+  const safeFontSize = Math.max(38, Math.min(240, Number(fontSize) || 112));
+  const safeOpacity = Math.max(0.1, Math.min(1, (Number(opacity) || 92) / 100));
+  const safeLetterSpacing = Math.max(
+    0,
+    Math.min(80, Number(letterSpacing) || 18),
+  );
   const overlay = Buffer.from(`
     <svg width="1600" height="1600" xmlns="http://www.w3.org/2000/svg">
       <style>
-        .number { font-family: "Georgia", "Times New Roman", serif; font-size: 112px; font-weight: 400; letter-spacing: 18px; }
+        .number { font-family: "Georgia", "Times New Roman", serif; font-size: ${safeFontSize}px; font-weight: 400; letter-spacing: ${safeLetterSpacing}px; }
+        .meta { font-family: "Inter", "Arial", sans-serif; font-size: ${Math.max(28, safeFontSize * 0.24)}px; font-weight: 520; letter-spacing: 5px; }
       </style>
-      <text x="800" y="1430" text-anchor="middle" class="number" fill="#fffaf1" fill-opacity="0.92">${escapeXml(numeral)}</text>
+      <text x="${mainX}" y="${mainY}" text-anchor="middle" class="number" fill="${escapeXml(color)}" fill-opacity="${safeOpacity}">${escapeXml(numeral)}</text>
+      ${safeSublines
+        .map(
+          (line, index) =>
+            `<text x="${mainX}" y="${mainY + Math.round(safeFontSize * 0.48) + index * Math.round(safeFontSize * 0.34)}" text-anchor="middle" class="meta" fill="${escapeXml(color)}" fill-opacity="${Math.max(0.25, safeOpacity * 0.72)}">${escapeXml(line)}</text>`,
+        )
+        .join("")}
     </svg>
   `);
   await fs.mkdir(path.dirname(outputPath), { recursive: true });

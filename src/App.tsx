@@ -84,9 +84,11 @@ import type {
   AudioTagDraft,
   AudioTechnicalAnalysis,
   ArtworkSuggestion,
+  CoverSeriesSettings,
   MediaLayerV2,
   ProjectSnapshot,
   RenderJob,
+  TextOverlaySettings,
   TrackDraft,
   TrackMetadata,
 } from "./types";
@@ -151,6 +153,7 @@ type StorageUsage = {
   generated: { files: number; bytes: number };
   jobs: { active: number; terminal: number };
 };
+type CoverLayerPreset = "background" | "left" | "center" | "right" | "corner";
 
 const emptyBands: AudioBands = {
   energy: 0,
@@ -170,6 +173,7 @@ const outputPresets = [
 ];
 
 const PANEL_WIDTH_STORAGE_KEY = "sonara-hub-panel-widths";
+const COVER_SERIES_STORAGE_KEY = "sonara-hub-cover-series-settings";
 const DEFAULT_LEFT_RAIL_WIDTH = 256;
 const DEFAULT_RIGHT_RAIL_WIDTH = 456;
 const PANEL_MIN_PREVIEW_WIDTH = 520;
@@ -204,6 +208,125 @@ const defaultMetadata: TrackMetadata = {
   lyrics: "",
   lyricsLanguage: "und",
   normalizationEnabled: false,
+};
+const defaultTextSettings: TextOverlaySettings = {
+  fields: {
+    title: true,
+    artist: true,
+    album: false,
+    year: false,
+    version: false,
+  },
+  preset: "top-left",
+  fontFamily: "Inter",
+  fontSize: 42,
+  fontWeight: 650,
+  letterSpacing: 0,
+  lineHeight: 118,
+  color: "#f7f8fb",
+  opacity: 94,
+  x: 5,
+  y: 7,
+  align: "left",
+  shadow: 48,
+};
+const defaultCoverSeriesSettings: CoverSeriesSettings = {
+  enabled: true,
+  style: "roman",
+  sequence: "I, II, III, IV, V",
+  fontSize: 112,
+  color: "#fffaf1",
+  opacity: 92,
+  x: 50,
+  y: 89,
+  letterSpacing: 18,
+  includeAlbum: false,
+  includeArtist: false,
+  includeYear: false,
+};
+const coverLayerPresetLabels: Record<CoverLayerPreset, string> = {
+  background: "Fundo",
+  left: "Esquerda",
+  center: "Centro",
+  right: "Direita",
+  corner: "Canto",
+};
+const coverLayerPresets: Record<
+  CoverLayerPreset,
+  Pick<
+    MediaLayerV2,
+    | "opacity"
+    | "scale"
+    | "x"
+    | "y"
+    | "rotation"
+    | "blur"
+    | "maskOpacity"
+    | "fit"
+    | "blendMode"
+    | "shadow"
+  >
+> = {
+  background: {
+    opacity: 72,
+    scale: 156,
+    x: 50,
+    y: 50,
+    rotation: 0,
+    blur: 22,
+    maskOpacity: 46,
+    fit: "cover",
+    blendMode: "normal",
+    shadow: { opacity: 0, blur: 24, x: 0, y: 14 },
+  },
+  left: {
+    opacity: 100,
+    scale: 46,
+    x: 22,
+    y: 50,
+    rotation: 0,
+    blur: 0,
+    maskOpacity: 0,
+    fit: "contain",
+    blendMode: "normal",
+    shadow: { opacity: 48, blur: 34, x: 0, y: 18 },
+  },
+  center: {
+    opacity: 100,
+    scale: 52,
+    x: 50,
+    y: 50,
+    rotation: 0,
+    blur: 0,
+    maskOpacity: 0,
+    fit: "contain",
+    blendMode: "normal",
+    shadow: { opacity: 42, blur: 32, x: 0, y: 18 },
+  },
+  right: {
+    opacity: 100,
+    scale: 46,
+    x: 78,
+    y: 50,
+    rotation: 0,
+    blur: 0,
+    maskOpacity: 0,
+    fit: "contain",
+    blendMode: "normal",
+    shadow: { opacity: 48, blur: 34, x: 0, y: 18 },
+  },
+  corner: {
+    opacity: 96,
+    scale: 30,
+    x: 18,
+    y: 74,
+    rotation: 0,
+    blur: 0,
+    maskOpacity: 0,
+    fit: "contain",
+    blendMode: "normal",
+    shadow: { opacity: 38, blur: 26, x: 0, y: 14 },
+  },
 };
 
 function App() {
@@ -270,8 +393,8 @@ function App() {
     normalizationEnabled: false,
   });
   const [audioBands, setAudioBands] = useState<AudioBands>(emptyBands);
-  const [coverSeries, setCoverSeries] = useState(true);
-  const [coverStyle, setCoverStyle] = useState<"roman" | "arabic">("roman");
+  const [coverSeriesSettings, setCoverSeriesSettings] =
+    useState<CoverSeriesSettings>(() => loadCoverSeriesSettings());
   const [processedAudioOutputs, setProcessedAudioOutputs] = useState<
     Record<string, string>
   >({});
@@ -408,6 +531,7 @@ function App() {
     qualityProfile,
     showMetadata,
     cover,
+    coverSeriesSettings,
     workspaceMode,
     audioStageView,
     visualStageView,
@@ -800,6 +924,80 @@ function App() {
       : (track?.suggestedCover ?? null);
   }
 
+  function updateCoverSeriesSettingsPatch(patch: Partial<CoverSeriesSettings>) {
+    setCoverSeriesSettings((current) => ({ ...current, ...patch }));
+  }
+
+  function saveCoverSeriesDefault() {
+    saveCoverSeriesSettings(coverSeriesSettings);
+    setBatchFeedback("Série visual salva como padrão local.");
+  }
+
+  function updateTextSettings(patch: Partial<TextOverlaySettings>) {
+    if (!selectedTrack) return;
+    updateSelectedTrack({
+      textSettings: mergeTextSettings(selectedTrack.textSettings, patch),
+    });
+  }
+
+  function applyTextToBatch() {
+    if (!selectedTrack) return;
+    const template = cloneTextSettings(selectedTrack.textSettings);
+    setTracks((current) =>
+      current.map((track) =>
+        track.selectedForBatch
+          ? { ...track, textSettings: cloneTextSettings(template) }
+          : track,
+      ),
+    );
+    setBatchFeedback("Texto do vídeo aplicado ao lote selecionado.");
+  }
+
+  function addCoverLayerPreset(preset: CoverLayerPreset) {
+    if (!selectedTrack) return;
+    const nextLayers = layersWithCoverPreset(selectedTrack, preset);
+    if (!nextLayers) {
+      setError("Escolha uma capa planejada ou oferecida pela pasta antes.");
+      return;
+    }
+    updateSelectedTrack({ layers: nextLayers });
+  }
+
+  function applyCoverLayerPresetToBatch(preset: CoverLayerPreset) {
+    if (!selectedTrack) return;
+    const template = selectedTrack.layers.find(isCoverLayer);
+    let applied = 0;
+    setTracks((current) =>
+      current.map((track) => {
+        if (!track.selectedForBatch) return track;
+        const nextLayers = layersWithCoverPreset(track, preset, template);
+        if (!nextLayers) return track;
+        applied += 1;
+        return { ...track, layers: nextLayers };
+      }),
+    );
+    setBatchFeedback(
+      applied
+        ? `Capa aplicada a ${applied} faixa${applied === 1 ? "" : "s"} selecionada${applied === 1 ? "" : "s"}.`
+        : "Nenhuma faixa selecionada tinha capa disponível.",
+    );
+  }
+
+  function layersWithCoverPreset(
+    track: TrackDraft,
+    preset: CoverLayerPreset,
+    template?: MediaLayerV2,
+  ) {
+    const artwork = coverForTrack(track);
+    if (!artwork) return null;
+    const existing = track.layers.find(isCoverLayer);
+    const layer = coverLayerFromArtwork(artwork, preset, template ?? existing);
+    const remaining = track.layers.filter((item) => !isCoverLayer(item));
+    const ordered =
+      preset === "background" ? [layer, ...remaining] : [...remaining, layer];
+    return ordered.slice(0, 3).map((item, order) => ({ ...item, order }));
+  }
+
   function clearSelectedCover() {
     setCover(null);
     if (selectedTrack?.suggestedCover) {
@@ -990,8 +1188,9 @@ function App() {
       "draft",
       JSON.stringify(audioDraftFromMetadata(track.metadata)),
     );
-    formData.append("coverSeries", String(coverSeries));
-    formData.append("coverStyle", coverStyle);
+    formData.append("coverSeries", String(coverSeriesSettings.enabled));
+    formData.append("coverStyle", coverSeriesSettings.style);
+    formData.append("coverSeriesSettings", JSON.stringify(coverSeriesSettings));
     try {
       const data = await fetchJson<{ jobId: string }>("/api/audio/process", {
         method: "POST",
@@ -1088,6 +1287,7 @@ function App() {
         ...layer,
         id: crypto.randomUUID(),
       })),
+      textSettings: cloneTextSettings(selectedTrack.textSettings),
       selectedForBatch: true,
     };
     setTracks((current) => [...current, variation]);
@@ -1116,6 +1316,8 @@ function App() {
           x: 50,
           y: 50,
           rotation: 0,
+          blur: 0,
+          maskOpacity: 0,
           shadow: { opacity: 0, blur: 18, x: 0, y: 12 },
           fit: "contain",
           blendMode: "normal",
@@ -1359,7 +1561,10 @@ function App() {
     formData.append("visualSettings", JSON.stringify(track.scene));
     formData.append(
       "compositionSettings",
-      JSON.stringify({ mediaLayers: track.layers.map(stripLayerFile) }),
+      JSON.stringify({
+        mediaLayers: track.layers.map(stripLayerFile),
+        textSettings: track.textSettings,
+      }),
     );
     formData.append("preset", outputPreset);
     formData.append("qualityProfile", qualityProfile);
@@ -1638,6 +1843,7 @@ function App() {
       qualityProfile,
       showMetadata,
       coverFile: cover?.file,
+      coverSeriesSettings,
       tracks: tracks.map((track) => ({
         id: track.id,
         sourceKey: track.sourceKey,
@@ -1650,6 +1856,7 @@ function App() {
         sourceFile: track.sourceFile,
         audioInfo: track.audioInfo,
         layers: track.layers.map(({ src: _src, ...layer }) => layer),
+        textSettings: track.textSettings,
         selectedForBatch: track.selectedForBatch,
         packageStatus: track.packageStatus,
         useSuggestedCover: track.useSuggestedCover,
@@ -1668,6 +1875,9 @@ function App() {
     setOutputPreset(snapshot.outputPreset);
     setQualityProfile(snapshot.qualityProfile);
     setShowMetadata(snapshot.showMetadata);
+    setCoverSeriesSettings(
+      normalizeCoverSeriesClient(snapshot.coverSeriesSettings),
+    );
     if (snapshot.coverFile) {
       setCover({
         file: snapshot.coverFile,
@@ -2030,6 +2240,9 @@ function App() {
                 metadata={selectedTrack?.metadata ?? defaultMetadata}
                 scene={selectedScene}
                 showMetadata={showMetadata}
+                textSettings={
+                  selectedTrack?.textSettings ?? defaultTextSettings
+                }
               />
             </div>
           </div>
@@ -2080,10 +2293,9 @@ function App() {
                 analysis={selectedTrack.audioInfo?.analysis}
                 artworkHint={artworkConventionHint(selectedTrack)}
                 cover={selectedCover}
-                suggestedCover={selectedTrack.suggestedCover}
-                coverSeries={coverSeries}
-                coverStyle={coverStyle}
+                coverSeriesSettings={coverSeriesSettings}
                 metadata={selectedTrack.metadata}
+                suggestedCover={selectedTrack.suggestedCover}
                 workflowMode={workflowMode}
                 onAnalyze={() => void analyzeSelectedAudio()}
                 onApplySuggestions={() =>
@@ -2098,9 +2310,9 @@ function App() {
                 onChange={updateMetadata}
                 onChooseCover={() => coverInputRef.current?.click()}
                 onClearCover={clearSelectedCover}
-                onCoverSeries={setCoverSeries}
-                onCoverStyle={setCoverStyle}
+                onCoverSeriesSettings={updateCoverSeriesSettingsPatch}
                 onRestoreSuggestedCover={restoreSuggestedCover}
+                onSaveCoverSeriesDefault={saveCoverSeriesDefault}
                 onProcess={() => void processReviewedAudio()}
                 canOverwrite={Boolean(
                   selectedTrack.packageStatus !== "treated" &&
@@ -2152,6 +2364,12 @@ function App() {
                 scene={selectedScene}
                 onAddLayer={() => layerInputRef.current?.click()}
                 onAdvanced={updateAdvanced}
+                onApplyCoverLayer={addCoverLayerPreset}
+                onApplyCoverLayerBatch={
+                  workflowMode === "batch"
+                    ? applyCoverLayerPresetToBatch
+                    : undefined
+                }
                 onColors={updateColors}
                 onCommon={updateCommon}
                 onDeletePreset={() => void deletePreset()}
@@ -2172,9 +2390,14 @@ function App() {
                 metadata={selectedTrack.metadata}
                 scene={selectedScene}
                 showMetadata={showMetadata}
+                textSettings={selectedTrack.textSettings}
                 onChange={updateMetadata}
                 onCommon={updateCommon}
+                onTextSettings={updateTextSettings}
                 onToggle={setShowMetadata}
+                onApplyBatch={
+                  workflowMode === "batch" ? applyTextToBatch : undefined
+                }
               />
             ) : (
               <ExportInspector
@@ -3170,8 +3393,7 @@ function AudioLibraryInspector({
   analysis,
   artworkHint,
   cover,
-  coverSeries,
-  coverStyle,
+  coverSeriesSettings,
   metadata,
   workflowMode,
   onAnalyze,
@@ -3179,19 +3401,18 @@ function AudioLibraryInspector({
   onChange,
   onChooseCover,
   onClearCover,
-  onCoverSeries,
-  onCoverStyle,
+  onCoverSeriesSettings,
   canOverwrite,
   onOverwrite,
   onProcess,
   onRestoreSuggestedCover,
+  onSaveCoverSeriesDefault,
   suggestedCover,
 }: {
   analysis?: AudioTechnicalAnalysis;
   artworkHint: string;
   cover: { file: File; src: string } | null;
-  coverSeries: boolean;
-  coverStyle: "roman" | "arabic";
+  coverSeriesSettings: CoverSeriesSettings;
   metadata: TrackMetadata;
   workflowMode: "single" | "batch";
   onAnalyze: () => void;
@@ -3199,12 +3420,12 @@ function AudioLibraryInspector({
   onChange: (patch: Partial<TrackMetadata>) => void;
   onChooseCover: () => void;
   onClearCover: () => void;
-  onCoverSeries: (value: boolean) => void;
-  onCoverStyle: (value: "roman" | "arabic") => void;
+  onCoverSeriesSettings: (patch: Partial<CoverSeriesSettings>) => void;
   canOverwrite: boolean;
   onOverwrite: () => void;
   onProcess: () => void;
   onRestoreSuggestedCover: () => void;
+  onSaveCoverSeriesDefault: () => void;
   suggestedCover?: ArtworkSuggestion;
 }) {
   return (
@@ -3310,23 +3531,112 @@ function AudioLibraryInspector({
           </button>
         )}
         {!suggestedCover && <p className="helper-copy">{artworkHint}</p>}
-        <CheckField
-          label="Gerar serie numerada"
-          checked={coverSeries}
-          onChange={onCoverSeries}
-        />
-        {coverSeries && (
-          <SelectField
-            label="Numeracao"
-            value={coverStyle}
-            onChange={(value) =>
-              onCoverStyle(value === "arabic" ? "arabic" : "roman")
-            }
-          >
-            <option value="roman">Romana · I a V</option>
-            <option value="arabic">Arabica · 1 a 5</option>
-          </SelectField>
-        )}
+        <div className="inspector-subsection">
+          <p className="inspector-kicker">Série visual</p>
+          <CheckField
+            label="Gerar série numerada na capa tratada"
+            checked={coverSeriesSettings.enabled}
+            onChange={(enabled) => onCoverSeriesSettings({ enabled })}
+          />
+          {coverSeriesSettings.enabled && (
+            <>
+              <SelectField
+                label="Sequência"
+                value={coverSeriesSettings.style}
+                onChange={(value) =>
+                  onCoverSeriesSettings({
+                    style:
+                      value === "custom" || value === "arabic"
+                        ? value
+                        : "roman",
+                  })
+                }
+              >
+                <option value="roman">Romana · I, II, III</option>
+                <option value="arabic">Arábica · 1, 2, 3</option>
+                <option value="custom">Personalizada</option>
+              </SelectField>
+              {coverSeriesSettings.style === "custom" && (
+                <TextArea
+                  label="Itens personalizados"
+                  rows={3}
+                  value={coverSeriesSettings.sequence}
+                  onChange={(sequence) => onCoverSeriesSettings({ sequence })}
+                />
+              )}
+              <div className="two-columns">
+                <RangeField
+                  label="Tamanho"
+                  max={180}
+                  min={32}
+                  value={coverSeriesSettings.fontSize}
+                  onChange={(fontSize) => onCoverSeriesSettings({ fontSize })}
+                />
+                <ColorInput
+                  label="Cor"
+                  value={coverSeriesSettings.color}
+                  onChange={(color) => onCoverSeriesSettings({ color })}
+                />
+              </div>
+              <RangeField
+                label="Opacidade"
+                value={coverSeriesSettings.opacity}
+                onChange={(opacity) => onCoverSeriesSettings({ opacity })}
+              />
+              <div className="two-columns">
+                <RangeField
+                  label="Horizontal"
+                  value={coverSeriesSettings.x}
+                  onChange={(x) => onCoverSeriesSettings({ x })}
+                />
+                <RangeField
+                  label="Vertical"
+                  value={coverSeriesSettings.y}
+                  onChange={(y) => onCoverSeriesSettings({ y })}
+                />
+              </div>
+              <RangeField
+                label="Espaçamento"
+                max={48}
+                unit="px"
+                value={coverSeriesSettings.letterSpacing}
+                onChange={(letterSpacing) =>
+                  onCoverSeriesSettings({ letterSpacing })
+                }
+              />
+              <div className="check-stack">
+                <CheckField
+                  label="Adicionar nome do álbum"
+                  checked={coverSeriesSettings.includeAlbum}
+                  onChange={(includeAlbum) =>
+                    onCoverSeriesSettings({ includeAlbum })
+                  }
+                />
+                <CheckField
+                  label="Adicionar autor"
+                  checked={coverSeriesSettings.includeArtist}
+                  onChange={(includeArtist) =>
+                    onCoverSeriesSettings({ includeArtist })
+                  }
+                />
+                <CheckField
+                  label="Adicionar ano"
+                  checked={coverSeriesSettings.includeYear}
+                  onChange={(includeYear) =>
+                    onCoverSeriesSettings({ includeYear })
+                  }
+                />
+              </div>
+              <button
+                className="quiet-action"
+                type="button"
+                onClick={onSaveCoverSeriesDefault}
+              >
+                <Save /> Salvar como padrão
+              </button>
+            </>
+          )}
+        </div>
       </InspectorGroup>
       <InspectorGroup title="Letra">
         <TextArea
@@ -3387,6 +3697,7 @@ function ScenePreview({
   metadata,
   scene,
   showMetadata,
+  textSettings,
 }: {
   audioBandsRef: React.MutableRefObject<AudioBands>;
   coverSrc?: string;
@@ -3394,6 +3705,7 @@ function ScenePreview({
   metadata: TrackMetadata;
   scene: ScenePresetV3;
   showMetadata: boolean;
+  textSettings: TextOverlaySettings;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const runtimeRef = useRef<ReturnType<typeof createSceneRuntime> | undefined>(
@@ -3414,6 +3726,7 @@ function ScenePreview({
       layers: layers.map((layer) => ({ ...layer, src: layer.src })),
       metadata,
       showMetadata,
+      textSettings,
     }).then((composition) => {
       if (!active) return;
       compositionRef.current = composition;
@@ -3422,7 +3735,7 @@ function ScenePreview({
     return () => {
       active = false;
     };
-  }, [coverSrc, layers, metadata, showMetadata]);
+  }, [coverSrc, layers, metadata, showMetadata, textSettings]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -3599,6 +3912,7 @@ function VideoReviewGrid({
                       metadata={track.metadata}
                       scene={track.scene}
                       showMetadata={showMetadata}
+                      textSettings={track.textSettings}
                     />
                   ) : (
                     <ArtworkFrame artworkSrc={coverSrc} />
@@ -3667,6 +3981,7 @@ function CompositionThumbnail({
   metadata,
   scene,
   showMetadata,
+  textSettings,
 }: {
   coverSrc?: string;
   fingerprint: string;
@@ -3674,6 +3989,7 @@ function CompositionThumbnail({
   metadata: TrackMetadata;
   scene: ScenePresetV3;
   showMetadata: boolean;
+  textSettings: TextOverlaySettings;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = useState(false);
@@ -3697,6 +4013,7 @@ function CompositionThumbnail({
         layers: layers.map((layer) => ({ ...layer, src: layer.src })),
         metadata,
         showMetadata,
+        textSettings,
       })
         .then((composition) => {
           const canvas = canvasRef.current;
@@ -3726,7 +4043,15 @@ function CompositionThumbnail({
       window.clearTimeout(timeout);
       runtime?.destroy();
     };
-  }, [coverSrc, fingerprint, layers, metadata, scene, showMetadata]);
+  }, [
+    coverSrc,
+    fingerprint,
+    layers,
+    metadata,
+    scene,
+    showMetadata,
+    textSettings,
+  ]);
 
   if (failed) return <ArtworkFrame artworkSrc={coverSrc} />;
   if (previewSrc) {
@@ -4031,6 +4356,8 @@ function VisualInspector(props: {
   onAddLayer: () => void;
   onAdvanced: (key: string, value: number) => void;
   onApplyBatch?: () => void;
+  onApplyCoverLayer: (preset: CoverLayerPreset) => void;
+  onApplyCoverLayerBatch?: (preset: CoverLayerPreset) => void;
   onColors: (key: "base" | "effect" | "light", value: string) => void;
   onCommon: (key: string, value: number) => void;
   onDeletePreset: () => void;
@@ -4301,6 +4628,8 @@ function LayerEditor(props: {
   layers: MediaLayerV2[];
   lastRemovedLayer: MediaLayerV2 | null;
   onAddLayer: () => void;
+  onApplyCoverLayer: (preset: CoverLayerPreset) => void;
+  onApplyCoverLayerBatch?: (preset: CoverLayerPreset) => void;
   onMoveLayer: (id: string, direction: -1 | 1) => void;
   onRemoveLayer: (id: string) => void;
   onUndoLayer: () => void;
@@ -4321,6 +4650,35 @@ function LayerEditor(props: {
             <RotateCcw /> Desfazer
           </button>
         )}
+      </div>
+      <div className="inspector-subsection">
+        <p className="inspector-kicker">Capa no vídeo</p>
+        <div className="preset-chip-grid">
+          {(Object.keys(coverLayerPresetLabels) as CoverLayerPreset[]).map(
+            (preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => props.onApplyCoverLayer(preset)}
+              >
+                {coverLayerPresetLabels[preset]}
+              </button>
+            ),
+          )}
+        </div>
+        {props.onApplyCoverLayerBatch && (
+          <button
+            className="quiet-action"
+            type="button"
+            onClick={() => props.onApplyCoverLayerBatch?.("background")}
+          >
+            <Layers3 /> Aplicar fundo com capa ao lote
+          </button>
+        )}
+        <p className="helper-copy">
+          O lote preserva escala, posição, sombra e máscara, trocando apenas o
+          arquivo de capa de cada faixa quando disponível.
+        </p>
       </div>
       {props.layers.map((layer, index) => (
         <details className="layer-row" key={layer.id}>
@@ -4385,6 +4743,20 @@ function LayerEditor(props: {
             unit="°"
             value={layer.rotation}
             onChange={(rotation) => props.onUpdateLayer(layer.id, { rotation })}
+          />
+          <RangeField
+            label="Desfoque da camada"
+            max={48}
+            value={layer.blur}
+            onChange={(blur) => props.onUpdateLayer(layer.id, { blur })}
+          />
+          <RangeField
+            label="Máscara escura"
+            max={90}
+            value={layer.maskOpacity}
+            onChange={(maskOpacity) =>
+              props.onUpdateLayer(layer.id, { maskOpacity })
+            }
           />
           <RangeField
             label="Sombra"
@@ -4472,44 +4844,212 @@ function TextInspector({
   metadata,
   scene,
   showMetadata,
+  textSettings,
   onChange,
   onCommon,
+  onTextSettings,
   onToggle,
+  onApplyBatch,
 }: {
   metadata: TrackMetadata;
   scene: ScenePresetV3;
   showMetadata: boolean;
+  textSettings: TextOverlaySettings;
   onChange: (patch: Partial<TrackMetadata>) => void;
   onCommon: (key: string, value: number) => void;
+  onTextSettings: (patch: Partial<TextOverlaySettings>) => void;
   onToggle: (checked: boolean) => void;
+  onApplyBatch?: () => void;
 }) {
   return (
-    <InspectorGroup title="Texto no vídeo" open>
-      <CheckField
-        label="Mostrar titulo e artista"
-        checked={showMetadata}
-        onChange={onToggle}
-      />
-      <TextField
-        label="Título"
-        value={metadata.title}
-        onChange={(title) => onChange({ title })}
-      />
-      <TextField
-        label="Artista"
-        value={metadata.artist}
-        onChange={(artist) => onChange({ artist })}
-      />
-      <RangeField
-        label="Escurecimento do fundo"
-        value={scene.common.shade}
-        onChange={(value) => onCommon("shade", value)}
-      />
-      <p className="helper-copy">
-        O texto permanece discreto no topo esquerdo. A waveform, quando ativa,
-        ocupa a faixa inferior.
-      </p>
-    </InspectorGroup>
+    <>
+      <InspectorGroup title="Texto no vídeo" open>
+        <CheckField
+          label="Mostrar texto no vídeo"
+          checked={showMetadata}
+          onChange={onToggle}
+        />
+        <div className="check-stack">
+          <CheckField
+            label="Título"
+            checked={textSettings.fields.title}
+            onChange={(title) =>
+              onTextSettings({ fields: { ...textSettings.fields, title } })
+            }
+          />
+          <CheckField
+            label="Artista"
+            checked={textSettings.fields.artist}
+            onChange={(artist) =>
+              onTextSettings({ fields: { ...textSettings.fields, artist } })
+            }
+          />
+          <CheckField
+            label="Álbum"
+            checked={textSettings.fields.album}
+            onChange={(album) =>
+              onTextSettings({ fields: { ...textSettings.fields, album } })
+            }
+          />
+          <CheckField
+            label="Ano"
+            checked={textSettings.fields.year}
+            onChange={(year) =>
+              onTextSettings({ fields: { ...textSettings.fields, year } })
+            }
+          />
+          <CheckField
+            label="Versão"
+            checked={textSettings.fields.version}
+            onChange={(version) =>
+              onTextSettings({ fields: { ...textSettings.fields, version } })
+            }
+          />
+        </div>
+        <TextField
+          label="Título"
+          value={metadata.title}
+          onChange={(title) => onChange({ title })}
+        />
+        <TextField
+          label="Artista"
+          value={metadata.artist}
+          onChange={(artist) => onChange({ artist })}
+        />
+        <TextField
+          label="Álbum"
+          value={metadata.album}
+          onChange={(album) => onChange({ album })}
+        />
+        <div className="two-columns">
+          <TextField
+            label="Ano"
+            value={metadata.year}
+            onChange={(year) => onChange({ year })}
+          />
+          <TextField
+            label="Versão"
+            value={metadata.version}
+            onChange={(version) => onChange({ version })}
+          />
+        </div>
+      </InspectorGroup>
+      <InspectorGroup title="Tipografia e posição" open>
+        <SelectField
+          label="Preset"
+          value={textSettings.preset}
+          onChange={(preset) =>
+            onTextSettings(
+              textPresetPatch(preset as TextOverlaySettings["preset"]),
+            )
+          }
+        >
+          <option value="top-left">Topo esquerdo</option>
+          <option value="bottom-center">Base central</option>
+          <option value="cover-left">Capa à esquerda</option>
+        </SelectField>
+        <SelectField
+          label="Fonte"
+          value={textSettings.fontFamily}
+          onChange={(fontFamily) =>
+            onTextSettings({
+              fontFamily: fontFamily as TextOverlaySettings["fontFamily"],
+            })
+          }
+        >
+          <option value="Inter">Inter</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Arial">Arial</option>
+        </SelectField>
+        <div className="two-columns">
+          <RangeField
+            label="Tamanho"
+            max={88}
+            min={12}
+            unit="px"
+            value={textSettings.fontSize}
+            onChange={(fontSize) => onTextSettings({ fontSize })}
+          />
+          <RangeField
+            label="Peso"
+            max={900}
+            min={300}
+            value={textSettings.fontWeight}
+            onChange={(fontWeight) => onTextSettings({ fontWeight })}
+          />
+        </div>
+        <div className="two-columns">
+          <RangeField
+            label="Espaçamento"
+            max={24}
+            min={-2}
+            unit="px"
+            value={textSettings.letterSpacing}
+            onChange={(letterSpacing) => onTextSettings({ letterSpacing })}
+          />
+          <RangeField
+            label="Altura"
+            max={180}
+            min={90}
+            unit="%"
+            value={textSettings.lineHeight}
+            onChange={(lineHeight) => onTextSettings({ lineHeight })}
+          />
+        </div>
+        <ColorInput
+          label="Cor"
+          value={textSettings.color}
+          onChange={(color) => onTextSettings({ color })}
+        />
+        <RangeField
+          label="Opacidade"
+          value={textSettings.opacity}
+          onChange={(opacity) => onTextSettings({ opacity })}
+        />
+        <div className="two-columns">
+          <RangeField
+            label="Horizontal"
+            value={textSettings.x}
+            onChange={(x) => onTextSettings({ x })}
+          />
+          <RangeField
+            label="Vertical"
+            value={textSettings.y}
+            onChange={(y) => onTextSettings({ y })}
+          />
+        </div>
+        <SelectField
+          label="Alinhamento"
+          value={textSettings.align}
+          onChange={(align) =>
+            onTextSettings({ align: align as TextOverlaySettings["align"] })
+          }
+        >
+          <option value="left">Esquerda</option>
+          <option value="center">Centro</option>
+          <option value="right">Direita</option>
+        </SelectField>
+        <RangeField
+          label="Sombra"
+          value={textSettings.shadow}
+          onChange={(shadow) => onTextSettings({ shadow })}
+        />
+        <RangeField
+          label="Escurecimento do fundo"
+          value={scene.common.shade}
+          onChange={(value) => onCommon("shade", value)}
+        />
+        {onApplyBatch && (
+          <button
+            className="upload-action"
+            type="button"
+            onClick={onApplyBatch}
+          >
+            <Layers3 /> Aplicar texto ao lote
+          </button>
+        )}
+      </InspectorGroup>
+    </>
   );
 }
 
@@ -4964,6 +5504,7 @@ function trackFromInput(
     selectedForBatch: true,
     packageStatus: "original",
     thumbnailPreviewMode: "composition",
+    textSettings: cloneTextSettings(),
   };
 }
 
@@ -4995,6 +5536,7 @@ function trackFromFile(
     selectedForBatch: true,
     packageStatus: "original",
     thumbnailPreviewMode: "composition",
+    textSettings: cloneTextSettings(),
   };
 }
 
@@ -5010,8 +5552,11 @@ function restoreTrack(
     sourceUrl: sourceFile ? URL.createObjectURL(sourceFile) : base.sourceUrl,
     scene: normalizeVisualSettings(saved.scene),
     thumbnailPreviewMode: saved.thumbnailPreviewMode ?? "composition",
+    textSettings: cloneTextSettings(saved.textSettings),
     layers: saved.layers.map((layer) => ({
       ...layer,
+      blur: layer.blur ?? 0,
+      maskOpacity: layer.maskOpacity ?? 0,
       src: URL.createObjectURL(layer.file),
     })),
   };
@@ -5254,6 +5799,97 @@ function stripLayerFile(layer: MediaLayerV2) {
   return settings;
 }
 
+function cloneTextSettings(settings?: TextOverlaySettings) {
+  return mergeTextSettings(settings);
+}
+
+function mergeTextSettings(
+  base?: Partial<TextOverlaySettings>,
+  patch: Partial<TextOverlaySettings> = {},
+): TextOverlaySettings {
+  return {
+    ...defaultTextSettings,
+    ...base,
+    ...patch,
+    fields: {
+      ...defaultTextSettings.fields,
+      ...(base?.fields ?? {}),
+      ...(patch.fields ?? {}),
+    },
+  };
+}
+
+function textPresetPatch(
+  preset: TextOverlaySettings["preset"],
+): Partial<TextOverlaySettings> {
+  if (preset === "bottom-center") {
+    return {
+      preset,
+      x: 50,
+      y: 78,
+      align: "center",
+      fontSize: 34,
+      shadow: 58,
+    };
+  }
+  if (preset === "cover-left") {
+    return {
+      preset,
+      x: 58,
+      y: 34,
+      align: "left",
+      fontSize: 38,
+      shadow: 52,
+    };
+  }
+  return {
+    preset,
+    x: 5,
+    y: 7,
+    align: "left",
+    fontSize: 42,
+    shadow: 48,
+  };
+}
+
+function coverLayerFromArtwork(
+  artwork: { file: File; src: string },
+  preset: CoverLayerPreset,
+  template?: MediaLayerV2,
+): MediaLayerV2 {
+  const defaults = coverLayerPresets[preset];
+  return {
+    id:
+      template?.id && isCoverLayer(template)
+        ? template.id
+        : `cover-layer-${crypto.randomUUID()}`,
+    name: `Capa - ${coverLayerPresetLabels[preset]}`,
+    file: artwork.file,
+    src: artwork.src,
+    kind: "image",
+    visible: template?.visible ?? true,
+    opacity: template?.opacity ?? defaults.opacity,
+    scale: template?.scale ?? defaults.scale,
+    x: template?.x ?? defaults.x,
+    y: template?.y ?? defaults.y,
+    rotation: template?.rotation ?? defaults.rotation,
+    blur: template?.blur ?? defaults.blur,
+    maskOpacity: template?.maskOpacity ?? defaults.maskOpacity,
+    fit: template?.fit ?? defaults.fit,
+    blendMode: template?.blendMode ?? defaults.blendMode,
+    loop: false,
+    order: template?.order ?? 0,
+    shadow: {
+      ...defaults.shadow,
+      ...(template?.shadow ?? {}),
+    },
+  };
+}
+
+function isCoverLayer(layer: MediaLayerV2) {
+  return layer.id.startsWith("cover-layer-") || layer.name.startsWith("Capa -");
+}
+
 function groupPresets(presets: ScenePresetV3[]) {
   const groups = new Map<string, ScenePresetV3[]>();
   for (const preset of presets)
@@ -5292,6 +5928,46 @@ function loadPanelWidths() {
   } catch {
     return fallback;
   }
+}
+
+function loadCoverSeriesSettings(): CoverSeriesSettings {
+  if (typeof window === "undefined") return defaultCoverSeriesSettings;
+  try {
+    const raw = window.localStorage.getItem(COVER_SERIES_STORAGE_KEY);
+    if (!raw) return defaultCoverSeriesSettings;
+    return normalizeCoverSeriesClient(JSON.parse(raw));
+  } catch {
+    return defaultCoverSeriesSettings;
+  }
+}
+
+function saveCoverSeriesSettings(settings: CoverSeriesSettings) {
+  try {
+    window.localStorage.setItem(
+      COVER_SERIES_STORAGE_KEY,
+      JSON.stringify(settings),
+    );
+  } catch {
+    // A reusable visual-series preference is optional local state.
+  }
+}
+
+function normalizeCoverSeriesClient(value: unknown): CoverSeriesSettings {
+  const candidate =
+    value && typeof value === "object"
+      ? (value as Partial<CoverSeriesSettings>)
+      : {};
+  return {
+    ...defaultCoverSeriesSettings,
+    ...candidate,
+    enabled: candidate.enabled ?? defaultCoverSeriesSettings.enabled,
+    style: ["roman", "arabic", "custom"].includes(String(candidate.style))
+      ? (candidate.style as CoverSeriesSettings["style"])
+      : defaultCoverSeriesSettings.style,
+    color: /^#[0-9a-f]{6}$/i.test(String(candidate.color ?? ""))
+      ? String(candidate.color)
+      : defaultCoverSeriesSettings.color,
+  };
 }
 
 function savePanelWidths(widths: { left: number; right: number }) {
@@ -5371,6 +6047,8 @@ function thumbnailFingerprint(
       order: layer.order,
       rotation: layer.rotation,
       scale: layer.scale,
+      blur: layer.blur,
+      maskOpacity: layer.maskOpacity,
       visible: layer.visible,
       x: layer.x,
       y: layer.y,
@@ -5378,6 +6056,7 @@ function thumbnailFingerprint(
     metadata: track.metadata,
     scene: track.scene,
     showMetadata,
+    textSettings: track.textSettings,
   });
 }
 

@@ -183,6 +183,7 @@ export function createSceneRuntime(
         scene,
         composition.coverElement,
         composition.metadata ?? {},
+        audio,
         time,
       );
     }
@@ -190,7 +191,13 @@ export function createSceneRuntime(
       drawWaveform(context, width, height, scene.waveform, audio, time);
     }
     if (composition.showMetadata !== false) {
-      drawMetadata(context, width, height, composition.metadata ?? {});
+      drawMetadata(
+        context,
+        width,
+        height,
+        composition.metadata ?? {},
+        composition.textSettings ?? {},
+      );
     }
     if (scene.common?.shade) {
       context.fillStyle = `rgba(0, 0, 0, ${scene.common.shade / 310})`;
@@ -521,6 +528,7 @@ function drawMediaLayer(context, width, height, layer) {
   context.shadowOffsetY = shadow.y ?? 0;
   context.translate(x + drawWidth / 2, y + drawHeight / 2);
   context.rotate(((layer.rotation ?? 0) * Math.PI) / 180);
+  if (layer.blur) context.filter = `blur(${Math.max(0, layer.blur)}px)`;
   context.drawImage(
     element,
     -drawWidth / 2,
@@ -528,17 +536,38 @@ function drawMediaLayer(context, width, height, layer) {
     drawWidth,
     drawHeight,
   );
+  context.filter = "none";
+  if (layer.maskOpacity) {
+    context.fillStyle = `rgba(0,0,0,${Math.max(0, Math.min(100, layer.maskOpacity)) / 100})`;
+    context.fillRect(-drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+  }
   context.restore();
 }
 
-function drawVinyl(context, width, height, scene, cover, metadata, time) {
-  const size = (Math.min(width, height) * scene.advanced.discSize) / 100;
+function drawVinyl(
+  context,
+  width,
+  height,
+  scene,
+  cover,
+  metadata,
+  audio,
+  time,
+) {
+  const reaction =
+    (scene.advanced.reaction ?? scene.common.audioReaction ?? 0) / 100;
+  const bassPulse = Math.max(0, audio.bass ?? audio.energy ?? 0) * reaction;
+  const size =
+    ((Math.min(width, height) * scene.advanced.discSize) / 100) *
+    (1 + bassPulse * 0.045);
   const x = (width * scene.advanced.x) / 100;
   const y = (height * scene.advanced.y) / 100;
   const radius = size / 2;
   context.save();
   context.translate(x, y);
-  context.rotate(time * ((scene.advanced.rpm ?? 34) / 60) * Math.PI * 2);
+  context.rotate(
+    time * (((scene.advanced.rpm ?? 34) + bassPulse * 16) / 60) * Math.PI * 2,
+  );
   context.shadowColor = `rgba(0,0,0,${scene.advanced.shadow / 125})`;
   context.shadowBlur = radius * 0.16;
   context.shadowOffsetY = radius * 0.08;
@@ -838,29 +867,98 @@ function syntheticSpectrum(audio, time) {
   });
 }
 
-function drawMetadata(context, width, height, metadata) {
+const defaultTextSettings = {
+  fields: {
+    title: true,
+    artist: true,
+    album: false,
+    year: false,
+    version: false,
+  },
+  fontFamily: "Inter",
+  fontSize: 42,
+  fontWeight: 650,
+  letterSpacing: 0,
+  lineHeight: 118,
+  color: "#f7f8fb",
+  opacity: 94,
+  x: 5,
+  y: 7,
+  align: "left",
+  shadow: 48,
+};
+
+function drawMetadata(context, width, height, metadata, settings = {}) {
+  const textSettings = {
+    ...defaultTextSettings,
+    ...settings,
+    fields: { ...defaultTextSettings.fields, ...(settings.fields ?? {}) },
+  };
   const title = String(metadata.title ?? "").trim();
   const artist = String(metadata.artist ?? "").trim();
-  if (!title && !artist) return;
-  const x = Math.max(24, width * 0.036);
-  const y = Math.max(34, height * 0.065);
+  const album = String(metadata.album ?? "").trim();
+  const year = String(metadata.year ?? "").trim();
+  const version = String(metadata.version ?? "").trim();
+  const lines = [
+    textSettings.fields.title && title,
+    textSettings.fields.version && version,
+    textSettings.fields.artist && artist,
+    textSettings.fields.album && album,
+    textSettings.fields.year && year,
+  ].filter(Boolean);
+  if (!lines.length) return;
+  const scale = Math.max(0.2, width / 1920);
+  const fontSize = Math.max(9, textSettings.fontSize * scale);
+  const lineHeight = fontSize * ((textSettings.lineHeight ?? 118) / 100);
+  const x = (width * textSettings.x) / 100;
+  const y = (height * textSettings.y) / 100;
   context.save();
   context.textBaseline = "top";
-  context.shadowColor = "rgba(0,0,0,0.48)";
-  context.shadowBlur = Math.max(5, width * 0.004);
-  context.fillStyle = "rgba(248,249,251,0.94)";
-  context.font = `600 ${Math.max(18, width * 0.023)}px Inter, Arial, sans-serif`;
-  context.fillText(title, x, y);
-  if (artist) {
-    context.fillStyle = "rgba(227,230,235,0.78)";
-    context.font = `500 ${Math.max(12, width * 0.012)}px Inter, Arial, sans-serif`;
-    context.fillText(artist, x, y + Math.max(25, width * 0.031));
+  context.textAlign = textSettings.align;
+  context.shadowColor = `rgba(0,0,0,${Math.max(0, Math.min(100, textSettings.shadow)) / 100})`;
+  context.shadowBlur = Math.max(0, textSettings.shadow * scale * 0.4);
+  context.fillStyle = hexToRgba(
+    textSettings.color,
+    Math.max(0, Math.min(100, textSettings.opacity)) / 100,
+  );
+  context.font = `${Math.round(textSettings.fontWeight)} ${fontSize}px ${fontFamilyStack(textSettings.fontFamily)}`;
+  for (const [index, line] of lines.entries()) {
+    context.fillText(
+      applyLetterSpacing(line, textSettings.letterSpacing),
+      x,
+      y + index * lineHeight,
+      width * 0.7,
+    );
   }
   context.restore();
 }
 
+function fontFamilyStack(fontFamily) {
+  switch (fontFamily) {
+    case "Georgia":
+      return "Georgia, 'Times New Roman', serif";
+    case "Arial":
+      return "Arial, sans-serif";
+    case "Inter":
+    default:
+      return "Inter, Arial, sans-serif";
+  }
+}
+
+function applyLetterSpacing(value, spacing) {
+  const amount = Math.max(0, Number(spacing) || 0);
+  return amount > 0
+    ? String(value)
+        .split("")
+        .join(" ".repeat(Math.min(4, Math.round(amount / 2))))
+    : value;
+}
+
 function hexToRgb(hex) {
-  const value = Number.parseInt(hex.slice(1), 16);
+  const safeHex = /^#[0-9a-f]{6}$/i.test(String(hex ?? ""))
+    ? String(hex)
+    : "#ffffff";
+  const value = Number.parseInt(safeHex.slice(1), 16);
   return [
     ((value >> 16) & 255) / 255,
     ((value >> 8) & 255) / 255,

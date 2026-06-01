@@ -275,6 +275,7 @@ app.post(
       coverFile,
       coverSeries: String(req.body.coverSeries ?? "false") === "true",
       coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
+      coverSeriesSettings: parseJsonObject(req.body.coverSeriesSettings),
       draft,
       outputName,
       uploadedFiles: files,
@@ -323,6 +324,7 @@ app.post(
         coverFile,
         coverSeries: String(req.body.coverSeries ?? "false") === "true",
         coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
+        coverSeriesSettings: parseJsonObject(req.body.coverSeriesSettings),
         draft,
         outputName,
         uploadedFiles: [audioFile, coverFile],
@@ -779,6 +781,7 @@ async function processAudio({
   coverFile,
   coverSeries,
   coverStyle,
+  coverSeriesSettings,
   draft,
   outputName,
 }) {
@@ -792,13 +795,28 @@ async function processAudio({
   await fs.mkdir(jobWorkDir, { recursive: true });
   let coverPath = coverFile?.path ?? null;
   if (coverPath && coverSeries) {
+    const seriesSettings = normalizeCoverSeriesSettings(
+      coverSeriesSettings,
+      coverStyle,
+    );
     coverPath = await createNumberedCover(
       coverPath,
       path.join(
         jobWorkDir,
         `${String(draft.trackNumber).padStart(2, "0")}.jpg`,
       ),
-      { index: draft.trackNumber, style: coverStyle },
+      {
+        index: draft.trackNumber,
+        style: seriesSettings.style,
+        label: coverSeriesLabel(draft, seriesSettings),
+        sublines: coverSeriesSublines(draft, seriesSettings),
+        fontSize: seriesSettings.fontSize,
+        color: seriesSettings.color,
+        opacity: seriesSettings.opacity,
+        x: seriesSettings.x,
+        y: seriesSettings.y,
+        letterSpacing: seriesSettings.letterSpacing,
+      },
     );
   }
   assertJobNotCanceled(jobId);
@@ -917,6 +935,7 @@ async function renderVideo({
       coverSrc: cover?.path ? pathToFileURL(cover.path).href : "",
       metadata,
       showMetadata: settings.showMetadata,
+      textSettings: settings.compositionSettings.textSettings,
     },
     onProgress: (progress, message) => updateJob(jobId, { progress, message }),
   });
@@ -1240,6 +1259,8 @@ function normalizeCompositionSettings(body) {
         x: clampNumber(Number(layer.x ?? 50), 0, 100),
         y: clampNumber(Number(layer.y ?? 50), 0, 100),
         rotation: clampNumber(Number(layer.rotation ?? 0), -180, 180),
+        blur: clampNumber(Number(layer.blur ?? 0), 0, 48),
+        maskOpacity: clampNumber(Number(layer.maskOpacity ?? 0), 0, 90),
         shadow: {
           opacity: clampNumber(
             Number(layer.shadow?.opacity ?? layer.shadowOpacity ?? 0),
@@ -1273,7 +1294,85 @@ function normalizeCompositionSettings(body) {
         order: index,
       }))
     : [];
-  return { mediaLayers };
+  return {
+    mediaLayers,
+    textSettings: normalizeTextSettings(raw.textSettings),
+  };
+}
+
+function normalizeTextSettings(value = {}) {
+  const fields = value.fields ?? {};
+  return {
+    fields: {
+      title: fields.title !== false,
+      artist: fields.artist !== false,
+      album: fields.album === true,
+      year: fields.year === true,
+      version: fields.version === true,
+    },
+    preset: ["top-left", "bottom-center", "cover-left"].includes(value.preset)
+      ? value.preset
+      : "top-left",
+    fontFamily: ["Inter", "Georgia", "Arial"].includes(value.fontFamily)
+      ? value.fontFamily
+      : "Inter",
+    fontSize: clampNumber(Number(value.fontSize ?? 42), 18, 96),
+    fontWeight: clampNumber(Number(value.fontWeight ?? 650), 300, 850),
+    letterSpacing: clampNumber(Number(value.letterSpacing ?? 0), 0, 16),
+    lineHeight: clampNumber(Number(value.lineHeight ?? 118), 90, 180),
+    color: isHexColor(value.color) ? value.color : "#f7f8fb",
+    opacity: clampNumber(Number(value.opacity ?? 94), 20, 100),
+    x: clampNumber(Number(value.x ?? 5), 0, 100),
+    y: clampNumber(Number(value.y ?? 7), 0, 100),
+    align: ["left", "center", "right"].includes(value.align)
+      ? value.align
+      : "left",
+    shadow: clampNumber(Number(value.shadow ?? 48), 0, 100),
+  };
+}
+
+function normalizeCoverSeriesSettings(value = {}, fallbackStyle = "roman") {
+  return {
+    enabled: value.enabled !== false,
+    style: ["roman", "arabic", "custom"].includes(value.style)
+      ? value.style
+      : fallbackStyle === "arabic"
+        ? "arabic"
+        : "roman",
+    sequence: String(value.sequence ?? "I, II, III, IV, V").slice(0, 300),
+    fontSize: clampNumber(Number(value.fontSize ?? 112), 38, 240),
+    color: isHexColor(value.color) ? value.color : "#fffaf1",
+    opacity: clampNumber(Number(value.opacity ?? 92), 20, 100),
+    x: clampNumber(Number(value.x ?? 50), 8, 92),
+    y: clampNumber(Number(value.y ?? 89), 8, 94),
+    letterSpacing: clampNumber(Number(value.letterSpacing ?? 18), 0, 80),
+    includeAlbum: value.includeAlbum === true,
+    includeArtist: value.includeArtist === true,
+    includeYear: value.includeYear === true,
+  };
+}
+
+function coverSeriesLabel(draft, settings) {
+  if (settings.style !== "custom") return "";
+  const entries = settings.sequence
+    .split(/[\n,;|]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return (
+    entries[Math.max(0, Number(draft.trackNumber || 1) - 1)] ?? entries[0] ?? ""
+  );
+}
+
+function coverSeriesSublines(draft, settings) {
+  return [
+    settings.includeAlbum && draft.album,
+    settings.includeArtist && (draft.albumArtist || draft.artist),
+    settings.includeYear && draft.year,
+  ].filter(Boolean);
+}
+
+function isHexColor(value) {
+  return /^#[0-9a-f]{6}$/i.test(String(value ?? ""));
 }
 
 function normalizeMetadata(body) {
@@ -1504,6 +1603,8 @@ async function prepareMediaLayers(files, layerSettings, jobWorkDir, size) {
       x: settings.x ?? 50,
       y: settings.y ?? 50,
       rotation: settings.rotation ?? 0,
+      blur: settings.blur ?? 0,
+      maskOpacity: settings.maskOpacity ?? 0,
       shadow: {
         opacity: settings.shadow?.opacity ?? settings.shadowOpacity ?? 0,
         blur: settings.shadow?.blur ?? settings.shadowBlur ?? 18,

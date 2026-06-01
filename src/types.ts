@@ -92,11 +92,50 @@ export type MediaLayerV2 = {
   x: number;
   y: number;
   rotation: number;
+  blur: number;
+  maskOpacity: number;
   shadow: { opacity: number; blur: number; x: number; y: number };
   fit: "cover" | "contain";
   blendMode: "normal" | "screen" | "multiply" | "overlay";
   loop: boolean;
   order: number;
+};
+
+export type TextOverlaySettings = {
+  fields: {
+    title: boolean;
+    artist: boolean;
+    album: boolean;
+    year: boolean;
+    version: boolean;
+  };
+  preset: "top-left" | "bottom-center" | "cover-left";
+  fontFamily: "Inter" | "Georgia" | "Arial";
+  fontSize: number;
+  fontWeight: number;
+  letterSpacing: number;
+  lineHeight: number;
+  color: string;
+  opacity: number;
+  x: number;
+  y: number;
+  align: "left" | "center" | "right";
+  shadow: number;
+};
+
+export type CoverSeriesSettings = {
+  enabled: boolean;
+  style: "roman" | "arabic" | "custom";
+  sequence: string;
+  fontSize: number;
+  color: string;
+  opacity: number;
+  x: number;
+  y: number;
+  letterSpacing: number;
+  includeAlbum: boolean;
+  includeArtist: boolean;
+  includeYear: boolean;
 };
 
 export type ArtworkSuggestion = {
@@ -118,6 +157,7 @@ export type TrackDraft = {
   outputBaseName: string;
   scene: ScenePresetV3;
   layers: MediaLayerV2[];
+  textSettings: TextOverlaySettings;
   audioInfo?: AudioInfo;
   selectedForBatch: boolean;
   packageStatus?: "original" | "treated";
@@ -147,6 +187,7 @@ export type ProjectSnapshot = {
   activeStep: "music" | "visual" | "text" | "export";
   audioStageView?: "edit" | "catalog" | "videos";
   visualStageView?: "editor" | "videos";
+  coverSeriesSettings?: CoverSeriesSettings;
   selectedTrackId: string;
   outputPreset: string;
   qualityProfile: string;
@@ -164,6 +205,7 @@ export type ProjectSnapshot = {
     sourceFile?: File;
     audioInfo?: AudioInfo;
     layers: Array<Omit<MediaLayerV2, "src">>;
+    textSettings?: TextOverlaySettings;
     selectedForBatch: boolean;
     packageStatus?: TrackDraft["packageStatus"];
     useSuggestedCover?: boolean;

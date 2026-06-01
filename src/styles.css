@@ -1256,6 +1256,12 @@ svg {
   padding-top: 10px;
 }
 
+.inspector-subsection > .quiet-action,
+.inspector-subsection > .upload-action {
+  width: 100%;
+  margin-top: var(--space-3);
+}
+
 .inspector-kicker {
   margin: 0 0 5px;
   color: #727c89;
@@ -1340,6 +1346,34 @@ svg {
   margin-top: 9px;
   color: #a8afb9;
   font-size: 9px;
+}
+
+.check-stack {
+  display: grid;
+  gap: 1px;
+  margin: 8px 0 2px;
+}
+
+.preset-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.preset-chip-grid button {
+  min-height: 30px;
+  border: 1px solid var(--button-border);
+  border-radius: var(--radius);
+  background: var(--button-bg);
+  box-shadow: var(--button-shadow);
+  color: var(--button-text);
+  font-size: var(--font-sm);
+  font-weight: 680;
+}
+
+.preset-chip-grid button:hover {
+  border-color: var(--focus);
+  background: var(--button-hover-bg);
 }
 
 .check-field input {
