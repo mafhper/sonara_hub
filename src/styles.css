@@ -24,7 +24,7 @@
   --danger: #e08f8f;
   --radius: 5px;
   --rail-left: 228px;
-  --rail-right: 380px;
+  --rail-right: 420px;
   background: var(--app-bg);
   color: var(--text);
 }
@@ -576,7 +576,7 @@ svg {
 }
 
 .batch-table {
-  min-width: 1120px;
+  min-width: 1220px;
   width: 100%;
   border-collapse: collapse;
   color: #c9ced6;
@@ -607,6 +607,42 @@ svg {
 
 .batch-table tbody tr.selected {
   background: #272d36;
+}
+
+.batch-table-group + .batch-table-group .batch-group-row td {
+  padding-top: 14px;
+}
+
+.batch-group-row td {
+  border-bottom-color: #41454c;
+  padding: 8px 0 5px;
+}
+
+.batch-group-row button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 7px;
+  background: transparent;
+  color: #d9dde3;
+  padding: 0;
+  text-align: left;
+}
+
+.batch-group-row svg {
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+}
+
+.batch-group-row strong {
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.batch-group-row span {
+  color: #89929d;
+  font-size: 8px;
 }
 
 .batch-table input {
@@ -662,7 +698,7 @@ svg {
 
 .batch-toolbar {
   margin-top: 14px;
-  padding: 13px;
+  overflow: hidden;
 }
 
 .batch-toolbar-head {
@@ -670,7 +706,24 @@ svg {
   align-items: start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 10px;
+  list-style: none;
+  cursor: pointer;
+  padding: 13px;
+}
+
+.batch-toolbar-head::-webkit-details-marker {
+  display: none;
+}
+
+.batch-toolbar-head > svg {
+  width: 14px;
+  height: 14px;
+  color: #8d9aab;
+  transition: transform 140ms ease;
+}
+
+.batch-toolbar[open] .batch-toolbar-head > svg {
+  transform: rotate(180deg);
 }
 
 .batch-toolbar-head strong {
@@ -680,10 +733,49 @@ svg {
   font-size: 11px;
 }
 
-.batch-toolbar-head em {
-  color: var(--success);
+.batch-toolbar-body {
+  border-top: 1px solid #2b3037;
+  padding: 12px 13px 13px;
+}
+
+.batch-apply-mode {
+  display: inline-flex;
+  gap: 2px;
+  border: 1px solid #2c323a;
+  border-radius: 4px;
+  background: #101216;
+  padding: 2px;
+}
+
+.batch-apply-mode button,
+.batch-table-actions button {
+  border-radius: 3px;
+  background: transparent;
+  color: #909aa8;
+  padding: 5px 8px;
   font-size: 9px;
-  font-style: normal;
+}
+
+.batch-apply-mode button:hover,
+.batch-table-actions button:hover {
+  color: #eef2f8;
+}
+
+.batch-apply-mode button.active {
+  background: var(--accent-low);
+  color: #eef2f8;
+}
+
+.batch-mode-note,
+.batch-feedback {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.batch-feedback {
+  color: var(--success);
 }
 
 .batch-toolbar-grid {
@@ -716,6 +808,36 @@ svg {
 .batch-toolbar-actions .primary-action,
 .batch-toolbar-actions .upload-action {
   min-height: 31px;
+}
+
+.batch-toolbar-actions button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.batch-table-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #383b41;
+  padding: 0 0 8px;
+}
+
+.batch-table-toolbar strong {
+  display: block;
+  margin-top: 4px;
+  color: #dfe4eb;
+  font-size: 11px;
+}
+
+.batch-table-actions {
+  display: flex;
+  gap: 2px;
+  border: 1px solid #303641;
+  border-radius: 4px;
+  background: #17191e;
+  padding: 2px;
 }
 
 .batch-job-board {
@@ -765,6 +887,22 @@ svg {
   display: grid;
   gap: 8px;
   margin-top: 11px;
+}
+
+.batch-job-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 11px;
+  border-top: 1px solid #2b3037;
+  padding-top: 9px;
+  color: #89929d;
+  font-size: 8px;
+}
+
+.batch-job-summary b {
+  color: #dfe4eb;
+  font-size: 9px;
 }
 
 .batch-job-row {
@@ -1345,11 +1483,11 @@ svg {
 }
 
 .left-hidden {
-  grid-template-columns: 0 minmax(0, 1fr) 300px;
+  grid-template-columns: 0 minmax(0, 1fr) var(--rail-right);
 }
 
 .right-hidden {
-  grid-template-columns: 228px minmax(0, 1fr) 0;
+  grid-template-columns: var(--rail-left) minmax(0, 1fr) 0;
 }
 
 .left-hidden.right-hidden {

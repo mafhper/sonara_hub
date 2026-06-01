@@ -11,12 +11,15 @@ export function inferAudioTags(filePath) {
     ? path.win32
     : path.posix;
   const parent = pathApi.dirname(filePath);
-  const grandparent = pathApi.dirname(parent);
-  const album = parent === "." ? "" : pathApi.basename(parent);
+  const parentName = parent === "." ? "" : pathApi.basename(parent);
+  const side = parseDiscFolder(parentName);
+  const albumDir = side ? pathApi.dirname(parent) : parent;
+  const artistDir = albumDir === "." ? "." : pathApi.dirname(albumDir);
+  const album = albumDir === "." ? "" : pathApi.basename(albumDir);
   const artist =
-    grandparent === "." || grandparent === parent
+    artistDir === "." || artistDir === albumDir
       ? ""
-      : pathApi.basename(grandparent);
+      : pathApi.basename(artistDir);
   const baseName = pathApi.basename(filePath, pathApi.extname(filePath)).trim();
   const match = baseName.match(/^(\d{1,3})\s+(.+)$/);
   const trackNumber = Number(match?.[1] ?? 0);
@@ -24,7 +27,7 @@ export function inferAudioTags(filePath) {
   const albumPrefix = album
     ? new RegExp(`^${escapeRegex(album)}\\s*-\\s*`, "i")
     : null;
-  return {
+  const inferred = {
     title: albumPrefix
       ? withoutOrder.replace(albumPrefix, "").trim()
       : withoutOrder,
@@ -33,6 +36,20 @@ export function inferAudioTags(filePath) {
     albumArtist: artist,
     trackNumber,
   };
+  if (side) inferred.diskNumber = side;
+  return inferred;
+}
+
+function parseDiscFolder(value) {
+  const normalized = String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  const letter = normalized.match(/^(?:lado|side)\s*([a-z])$/i)?.[1];
+  if (letter) return letter.toLowerCase().charCodeAt(0) - 96;
+  const number = normalized.match(/^(?:disco|disc|disk|cd)\s*(\d{1,2})$/)?.[1];
+  return number ? Number(number) : 0;
 }
 
 export function buildTreatedFileName(tags) {

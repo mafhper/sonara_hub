@@ -57,6 +57,11 @@ import {
   localApiMessage,
 } from "../shared/local-api.mjs";
 import {
+  applyCommonMetadata,
+  groupAudioTracks,
+} from "../shared/audio-batch.mjs";
+import type { BatchApplyMode } from "../shared/audio-batch.mjs";
+import {
   loadDirectoryHandle,
   loadSnapshot,
   saveDirectoryHandle,
@@ -202,18 +207,20 @@ function App() {
   } | null>(null);
   const [batchFeedback, setBatchFeedback] = useState("");
   const [queuePaused, setQueuePaused] = useState(false);
+  const [batchApplyMode, setBatchApplyMode] =
+    useState<BatchApplyMode>("fill-empty");
   const [batchCommon, setBatchCommon] = useState({
     artist: "Matheus Lima",
-    album: "The Beauty of Almost",
+    album: "",
     albumArtist: "Matheus Lima",
     composer: "Matheus Lima",
     genre: "",
     year: "2026",
     copyright: "2026 Matheus Lima",
     comment: "Feito usando IA com curadoria humana.",
-    trackTotal: 5,
-    diskNumber: 1,
-    diskTotal: 1,
+    trackTotal: 0,
+    diskNumber: 0,
+    diskTotal: 0,
     normalizationEnabled: false,
   });
   const [audioBands, setAudioBands] = useState<AudioBands>(emptyBands);
@@ -382,12 +389,7 @@ function App() {
   ) {
     setError("");
     setFolderImportProgress({ current: 0, total: 0, name: "Lendo pasta" });
-    const entries: Array<{ name: string; file: File }> = [];
-    for await (const [name, entry] of handle.entries()) {
-      if (entry.kind !== "file" || !isAudioName(name)) continue;
-      const file = await entry.getFile();
-      entries.push({ name, file });
-    }
+    const entries = await collectAudioEntries(handle);
     const next: TrackDraft[] = [];
     setFolderImportProgress({
       current: 0,
@@ -398,10 +400,14 @@ function App() {
       setFolderImportProgress({
         current: index + 1,
         total: entries.length,
-        name: entry.name,
+        name: entry.relativePath,
       });
-      const info = await readUploadedAudioMetadata(entry.file);
-      next.push(trackFromFile(entry.file, info));
+      const info = await readUploadedAudioMetadata(
+        entry.file,
+        entry.relativePath,
+        true,
+      );
+      next.push(trackFromFile(entry.file, info, entry.relativePath));
     }
     next.sort((first, second) =>
       first.sourceKey.localeCompare(second.sourceKey, "pt-BR"),
@@ -411,14 +417,22 @@ function App() {
     setFolderImportProgress(null);
   }
 
-  async function readUploadedAudioMetadata(file: File) {
+  async function readUploadedAudioMetadata(
+    file: File,
+    relativePath?: string,
+    quick = false,
+  ) {
     const formData = new FormData();
     formData.append("audio", file);
-    formData.append("relativePath", file.webkitRelativePath || file.name);
+    formData.append(
+      "relativePath",
+      relativePath || file.webkitRelativePath || file.name,
+    );
+    formData.append("quick", String(quick));
     try {
       const payload = await fetchJsonWithRetry<{
         metadata: AudioInfo;
-        analysis: AudioTechnicalAnalysis;
+        analysis?: AudioTechnicalAnalysis | null;
         suggestions: Partial<AudioTagDraft>;
       }>(
         "/api/audio/analyze",
@@ -430,7 +444,7 @@ function App() {
       );
       return {
         ...payload.metadata,
-        analysis: payload.analysis,
+        analysis: payload.analysis ?? undefined,
         suggestions: payload.suggestions,
       };
     } catch (reason) {
@@ -443,9 +457,7 @@ function App() {
     const audioFiles = Array.from(files ?? []).filter(
       (file) =>
         isAudioName(file.name) &&
-        !file.webkitRelativePath
-          .split("/")
-          .some((segment) => ["Tratados", "art"].includes(segment)),
+        !isPrivateAudioPath(file.webkitRelativePath || file.name),
     );
     const next: TrackDraft[] = [];
     setFolderImportProgress({
@@ -459,7 +471,14 @@ function App() {
         total: audioFiles.length,
         name: file.name,
       });
-      next.push(trackFromFile(file, await readUploadedAudioMetadata(file)));
+      const relativePath = file.webkitRelativePath || file.name;
+      next.push(
+        trackFromFile(
+          file,
+          await readUploadedAudioMetadata(file, relativePath, true),
+          relativePath,
+        ),
+      );
     }
     setFolderName("Pasta selecionada");
     const finalized = finalizeImportedTracks(next);
@@ -839,28 +858,17 @@ function App() {
   }
 
   function applyBatchCommon() {
-    const patch: Partial<TrackMetadata> = {
-      artist: batchCommon.artist,
-      album: batchCommon.album,
-      albumArtist: batchCommon.albumArtist,
-      composer: batchCommon.composer,
-      genre: batchCommon.genre,
-      year: batchCommon.year,
-      copyright: batchCommon.copyright,
-      comment: batchCommon.comment,
-      trackTotal: batchCommon.trackTotal,
-      diskNumber: batchCommon.diskNumber,
-      diskTotal: batchCommon.diskTotal,
-      normalizationEnabled: batchCommon.normalizationEnabled,
-    };
+    const selectedCount = tracks.filter(
+      (track) => track.selectedForBatch,
+    ).length;
     setTracks((current) =>
-      current.map((track) =>
-        track.selectedForBatch
-          ? { ...track, metadata: { ...track.metadata, ...patch } }
-          : track,
-      ),
+      applyCommonMetadata(current, batchCommon, batchApplyMode),
     );
-    setBatchFeedback("Dados comuns aplicados aos arquivos selecionados.");
+    setBatchFeedback(
+      batchApplyMode === "fill-empty"
+        ? `${selectedCount} arquivo${selectedCount === 1 ? "" : "s"} atualizado${selectedCount === 1 ? "" : "s"} apenas onde havia campos vazios.`
+        : `${selectedCount} arquivo${selectedCount === 1 ? "" : "s"} atualizado${selectedCount === 1 ? "" : "s"} com sobrescrita dos campos informados.`,
+    );
   }
 
   function applyVisualToBatch() {
@@ -1553,6 +1561,7 @@ function App() {
         {workspaceMode === "audio" ? (
           <AudioLibraryWorkspace
             audioBands={audioBands}
+            batchApplyMode={batchApplyMode}
             batchCommon={batchCommon}
             batchFeedback={batchFeedback}
             folderImportProgress={folderImportProgress}
@@ -1563,6 +1572,7 @@ function App() {
             selectedTrackId={selectedTrackId}
             workflowMode={workflowMode}
             onApplyBatchCommon={applyBatchCommon}
+            onBatchApplyMode={setBatchApplyMode}
             onBatchCommon={setBatchCommon}
             onCancelAllJobs={() => void cancelAllJobs()}
             onCancelJob={(id) => void cancelJob(id)}
@@ -1571,6 +1581,15 @@ function App() {
             onResumeQueue={() => void resumeQueue()}
             onSelectTrack={setSelectedTrackId}
             onToggleTrack={toggleTrackBatchSelection}
+            onToggleTracks={(ids, selected) =>
+              setTracks((current) =>
+                current.map((track) =>
+                  ids.includes(track.id)
+                    ? { ...track, selectedForBatch: selected }
+                    : track,
+                ),
+              )
+            }
             onTrackMetadata={updateTrackMetadata}
           />
         ) : (
@@ -1801,11 +1820,13 @@ function App() {
 
 function AudioLibraryWorkspace({
   audioBands,
+  batchApplyMode,
   batchCommon,
   batchFeedback,
   folderImportProgress,
   jobs,
   onApplyBatchCommon,
+  onBatchApplyMode,
   onBatchCommon,
   onCancelAllJobs,
   onCancelJob,
@@ -1814,6 +1835,7 @@ function AudioLibraryWorkspace({
   onResumeQueue,
   onSelectTrack,
   onToggleTrack,
+  onToggleTracks,
   onTrackMetadata,
   queuePaused,
   selectedTrack,
@@ -1822,11 +1844,13 @@ function AudioLibraryWorkspace({
   workflowMode,
 }: {
   audioBands: AudioBands;
+  batchApplyMode: BatchApplyMode;
   batchCommon: BatchCommonDraft;
   batchFeedback: string;
   folderImportProgress: { current: number; total: number; name: string } | null;
   jobs: RenderJob[];
   onApplyBatchCommon: () => void;
+  onBatchApplyMode: (mode: BatchApplyMode) => void;
   onBatchCommon: (patch: BatchCommonDraft) => void;
   onCancelAllJobs: () => void;
   onCancelJob: (id: string) => void;
@@ -1835,6 +1859,7 @@ function AudioLibraryWorkspace({
   onResumeQueue: () => void;
   onSelectTrack: (id: string) => void;
   onToggleTrack: (id: string, selected: boolean) => void;
+  onToggleTracks: (ids: string[], selected: boolean) => void;
   onTrackMetadata: (id: string, patch: Partial<TrackMetadata>) => void;
   queuePaused: boolean;
   selectedTrack?: TrackDraft;
@@ -1842,10 +1867,18 @@ function AudioLibraryWorkspace({
   tracks: TrackDraft[];
   workflowMode: "single" | "batch";
 }) {
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   if (workflowMode === "batch") {
     const selectedCount = tracks.filter(
       (track) => track.selectedForBatch,
     ).length;
+    const groups = groupAudioTracks(tracks);
+    const toggleGroup = (id: string) =>
+      setCollapsedGroups((current) =>
+        current.includes(id)
+          ? current.filter((groupId) => groupId !== id)
+          : [...current, id],
+      );
     return (
       <div className="audio-library batch-library">
         <header className="audio-library-heading">
@@ -1864,98 +1897,131 @@ function AudioLibraryWorkspace({
             <strong>{folderImportProgress.name}</strong>
           </div>
         )}
-        <section className="batch-toolbar" aria-label="Dados comuns do lote">
-          <div className="batch-toolbar-head">
+        <details
+          className="batch-toolbar"
+          aria-label="Dados comuns do lote"
+          open
+        >
+          <summary className="batch-toolbar-head">
             <div>
               <span className="overline">Dados comuns do lote</span>
-              <strong>Aplicar sem sobrescrever titulo e ordem</strong>
+              <strong>Defina como os campos comuns serão aplicados</strong>
             </div>
-            {batchFeedback && <em>{batchFeedback}</em>}
+            <ChevronDown />
+          </summary>
+          <div className="batch-toolbar-body">
+            <div className="batch-apply-mode" aria-label="Modo de aplicação">
+              <button
+                className={batchApplyMode === "fill-empty" ? "active" : ""}
+                type="button"
+                onClick={() => onBatchApplyMode("fill-empty")}
+              >
+                Preencher vazios
+              </button>
+              <button
+                className={batchApplyMode === "overwrite" ? "active" : ""}
+                type="button"
+                onClick={() => onBatchApplyMode("overwrite")}
+              >
+                Sobrescrever informados
+              </button>
+            </div>
+            <p className="batch-mode-note">
+              {batchApplyMode === "fill-empty"
+                ? "Mantém valores já revisados em cada linha e completa somente lacunas."
+                : "Substitui os campos preenchidos abaixo nos arquivos selecionados."}
+            </p>
+            <div className="batch-toolbar-grid">
+              <TextField
+                label="Artista principal"
+                value={batchCommon.artist}
+                onChange={(artist) => onBatchCommon({ ...batchCommon, artist })}
+              />
+              <TextField
+                label="Album"
+                value={batchCommon.album}
+                onChange={(album) => onBatchCommon({ ...batchCommon, album })}
+              />
+              <TextField
+                label="Artista do album"
+                value={batchCommon.albumArtist}
+                onChange={(albumArtist) =>
+                  onBatchCommon({ ...batchCommon, albumArtist })
+                }
+              />
+              <TextField
+                label="Compositor"
+                value={batchCommon.composer}
+                onChange={(composer) =>
+                  onBatchCommon({ ...batchCommon, composer })
+                }
+              />
+              <TextField
+                label="Ano"
+                value={batchCommon.year}
+                onChange={(year) => onBatchCommon({ ...batchCommon, year })}
+              />
+              <TextField
+                label="Copyright"
+                value={batchCommon.copyright}
+                onChange={(copyright) =>
+                  onBatchCommon({ ...batchCommon, copyright })
+                }
+              />
+              <TextField
+                label="Genero"
+                value={batchCommon.genre}
+                onChange={(genre) => onBatchCommon({ ...batchCommon, genre })}
+              />
+              <TextArea
+                label="Comentario ID3"
+                rows={2}
+                value={batchCommon.comment}
+                onChange={(comment) =>
+                  onBatchCommon({ ...batchCommon, comment })
+                }
+              />
+            </div>
+            <div className="batch-toolbar-actions">
+              <CheckField
+                label="Normalizar copias"
+                checked={batchCommon.normalizationEnabled}
+                onChange={(normalizationEnabled) =>
+                  onBatchCommon({ ...batchCommon, normalizationEnabled })
+                }
+              />
+              <TextField
+                label="Total de faixas"
+                value={
+                  batchCommon.trackTotal ? String(batchCommon.trackTotal) : ""
+                }
+                onChange={(value) =>
+                  onBatchCommon({
+                    ...batchCommon,
+                    trackTotal: Math.max(0, Number(value) || 0),
+                  })
+                }
+              />
+              <button
+                className="primary-action"
+                disabled={selectedCount === 0}
+                type="button"
+                onClick={onApplyBatchCommon}
+              >
+                <Check /> Aplicar aos selecionados
+              </button>
+              <button
+                className="upload-action"
+                disabled={selectedCount === 0}
+                type="button"
+                onClick={onProcess}
+              >
+                <FileAudio /> Processar selecionados
+              </button>
+            </div>
+            {batchFeedback && <p className="batch-feedback">{batchFeedback}</p>}
           </div>
-          <div className="batch-toolbar-grid">
-            <TextField
-              label="Artista principal"
-              value={batchCommon.artist}
-              onChange={(artist) => onBatchCommon({ ...batchCommon, artist })}
-            />
-            <TextField
-              label="Album"
-              value={batchCommon.album}
-              onChange={(album) => onBatchCommon({ ...batchCommon, album })}
-            />
-            <TextField
-              label="Artista do album"
-              value={batchCommon.albumArtist}
-              onChange={(albumArtist) =>
-                onBatchCommon({ ...batchCommon, albumArtist })
-              }
-            />
-            <TextField
-              label="Compositor"
-              value={batchCommon.composer}
-              onChange={(composer) =>
-                onBatchCommon({ ...batchCommon, composer })
-              }
-            />
-            <TextField
-              label="Ano"
-              value={batchCommon.year}
-              onChange={(year) => onBatchCommon({ ...batchCommon, year })}
-            />
-            <TextField
-              label="Copyright"
-              value={batchCommon.copyright}
-              onChange={(copyright) =>
-                onBatchCommon({ ...batchCommon, copyright })
-              }
-            />
-            <TextField
-              label="Genero"
-              value={batchCommon.genre}
-              onChange={(genre) => onBatchCommon({ ...batchCommon, genre })}
-            />
-            <TextArea
-              label="Comentario ID3"
-              rows={2}
-              value={batchCommon.comment}
-              onChange={(comment) => onBatchCommon({ ...batchCommon, comment })}
-            />
-          </div>
-          <div className="batch-toolbar-actions">
-            <CheckField
-              label="Normalizar copias"
-              checked={batchCommon.normalizationEnabled}
-              onChange={(normalizationEnabled) =>
-                onBatchCommon({ ...batchCommon, normalizationEnabled })
-              }
-            />
-            <TextField
-              label="Total de faixas"
-              value={String(batchCommon.trackTotal)}
-              onChange={(value) =>
-                onBatchCommon({
-                  ...batchCommon,
-                  trackTotal: Math.max(1, Number(value) || 1),
-                })
-              }
-            />
-            <button
-              className="primary-action"
-              type="button"
-              onClick={onApplyBatchCommon}
-            >
-              <Check /> Aplicar aos selecionados
-            </button>
-            <button
-              className="upload-action"
-              disabled={selectedCount === 0}
-              type="button"
-              onClick={onProcess}
-            >
-              <FileAudio /> Processar selecionados
-            </button>
-          </div>
-        </section>
+        </details>
         <BatchJobBoard
           jobs={jobs}
           onCancelAll={onCancelAllJobs}
@@ -1965,11 +2031,45 @@ function AudioLibraryWorkspace({
           queuePaused={queuePaused}
         />
         <div className="batch-table-wrap">
+          <div className="batch-table-toolbar">
+            <div>
+              <span className="overline">Arquivos revisáveis</span>
+              <strong>
+                {tracks.length} arquivo{tracks.length === 1 ? "" : "s"} em{" "}
+                {groups.length} grupo{groups.length === 1 ? "" : "s"}
+              </strong>
+            </div>
+            <div className="batch-table-actions">
+              <button
+                type="button"
+                onClick={() =>
+                  onToggleTracks(
+                    tracks.map((track) => track.id),
+                    true,
+                  )
+                }
+              >
+                Selecionar todos
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  onToggleTracks(
+                    tracks.map((track) => track.id),
+                    false,
+                  )
+                }
+              >
+                Limpar seleção
+              </button>
+            </div>
+          </div>
           <table className="batch-table">
             <thead>
               <tr>
                 <th></th>
                 <th>Faixa</th>
+                <th>Disco</th>
                 <th>Titulo</th>
                 <th>Artista</th>
                 <th>Album</th>
@@ -1980,113 +2080,149 @@ function AudioLibraryWorkspace({
                 <th>Normalizar</th>
               </tr>
             </thead>
-            <tbody>
-              {tracks.map((track) => (
-                <tr
-                  className={track.id === selectedTrackId ? "selected" : ""}
-                  key={track.id}
-                  onClick={() => onSelectTrack(track.id)}
-                >
-                  <td>
-                    <input
-                      aria-label={`Selecionar ${track.metadata.title}`}
-                      checked={track.selectedForBatch}
-                      type="checkbox"
-                      onChange={(event) =>
-                        onToggleTrack(track.id, event.target.checked)
-                      }
-                      onClick={(event) => event.stopPropagation()}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      aria-label="Faixa"
-                      value={String(track.metadata.trackNumber)}
-                      onChange={(event) =>
-                        onTrackMetadata(track.id, {
-                          trackNumber: Math.max(
-                            1,
-                            Number(event.target.value) || 1,
-                          ),
-                        })
-                      }
-                    />
-                  </td>
-                  <td>
-                    <input
-                      aria-label="Titulo"
-                      value={track.metadata.title}
-                      onChange={(event) =>
-                        onTrackMetadata(track.id, {
-                          title: event.target.value,
-                        })
-                      }
-                    />
-                  </td>
-                  <td>
-                    <input
-                      aria-label="Artista"
-                      value={track.metadata.artist}
-                      onChange={(event) =>
-                        onTrackMetadata(track.id, {
-                          artist: event.target.value,
-                        })
-                      }
-                    />
-                  </td>
-                  <td>
-                    <input
-                      aria-label="Album"
-                      value={track.metadata.album}
-                      onChange={(event) =>
-                        onTrackMetadata(track.id, {
-                          album: event.target.value,
-                        })
-                      }
-                    />
-                  </td>
-                  <td>
-                    <span className="filename-preview">
-                      {previewTreatedFileName(track.metadata)}
-                    </span>
-                  </td>
-                  <td>
-                    <span
-                      className={`quality-badge ${track.packageStatus ?? "original"}`}
-                    >
-                      {track.packageStatus === "treated"
-                        ? "Tratado"
-                        : "Original"}
-                    </span>
-                  </td>
-                  <td>
-                    {formatMetric(
-                      track.audioInfo?.analysis?.integratedLufs,
-                      " LUFS",
-                    )}
-                  </td>
-                  <td>
-                    {formatMetric(
-                      track.audioInfo?.analysis?.truePeakDbtp,
-                      " dBTP",
-                    )}
-                  </td>
-                  <td>
-                    <input
-                      aria-label="Normalizar"
-                      checked={track.metadata.normalizationEnabled}
-                      type="checkbox"
-                      onChange={(event) =>
-                        onTrackMetadata(track.id, {
-                          normalizationEnabled: event.target.checked,
-                        })
-                      }
-                      onClick={(event) => event.stopPropagation()}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+            {groups.map((group) => {
+              const collapsed = collapsedGroups.includes(group.id);
+              return (
+                <tbody className="batch-table-group" key={group.id}>
+                  <tr className="batch-group-row">
+                    <td colSpan={11}>
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(group.id)}
+                      >
+                        {collapsed ? <ChevronRight /> : <ChevronDown />}
+                        <strong>{group.label}</strong>
+                        <span>
+                          {group.selectedCount}/{group.trackCount} selecionadas
+                        </span>
+                      </button>
+                    </td>
+                  </tr>
+                  {!collapsed &&
+                    group.tracks.map((track) => (
+                      <tr
+                        className={
+                          track.id === selectedTrackId ? "selected" : ""
+                        }
+                        key={track.id}
+                        onClick={() => onSelectTrack(track.id)}
+                      >
+                        <td>
+                          <input
+                            aria-label={`Selecionar ${track.metadata.title}`}
+                            checked={track.selectedForBatch}
+                            type="checkbox"
+                            onChange={(event) =>
+                              onToggleTrack(track.id, event.target.checked)
+                            }
+                            onClick={(event) => event.stopPropagation()}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            aria-label="Faixa"
+                            value={String(track.metadata.trackNumber)}
+                            onChange={(event) =>
+                              onTrackMetadata(track.id, {
+                                trackNumber: Math.max(
+                                  1,
+                                  Number(event.target.value) || 1,
+                                ),
+                              })
+                            }
+                          />
+                        </td>
+                        <td>
+                          <input
+                            aria-label="Disco"
+                            value={String(track.metadata.diskNumber)}
+                            onChange={(event) =>
+                              onTrackMetadata(track.id, {
+                                diskNumber: Math.max(
+                                  1,
+                                  Number(event.target.value) || 1,
+                                ),
+                              })
+                            }
+                          />
+                        </td>
+                        <td>
+                          <input
+                            aria-label="Titulo"
+                            value={track.metadata.title}
+                            onChange={(event) =>
+                              onTrackMetadata(track.id, {
+                                title: event.target.value,
+                              })
+                            }
+                          />
+                        </td>
+                        <td>
+                          <input
+                            aria-label="Artista"
+                            value={track.metadata.artist}
+                            onChange={(event) =>
+                              onTrackMetadata(track.id, {
+                                artist: event.target.value,
+                              })
+                            }
+                          />
+                        </td>
+                        <td>
+                          <input
+                            aria-label="Album"
+                            value={track.metadata.album}
+                            onChange={(event) =>
+                              onTrackMetadata(track.id, {
+                                album: event.target.value,
+                              })
+                            }
+                          />
+                        </td>
+                        <td>
+                          <span className="filename-preview">
+                            {previewTreatedFileName(track.metadata)}
+                          </span>
+                        </td>
+                        <td>
+                          <span
+                            className={`quality-badge ${track.packageStatus ?? "original"}`}
+                          >
+                            {track.packageStatus === "treated"
+                              ? "Tratado"
+                              : "Original"}
+                          </span>
+                        </td>
+                        <td>
+                          {formatMetric(
+                            track.audioInfo?.analysis?.integratedLufs,
+                            " LUFS",
+                          )}
+                        </td>
+                        <td>
+                          {formatMetric(
+                            track.audioInfo?.analysis?.truePeakDbtp,
+                            " dBTP",
+                          )}
+                        </td>
+                        <td>
+                          <input
+                            aria-label="Normalizar"
+                            checked={track.metadata.normalizationEnabled}
+                            type="checkbox"
+                            onChange={(event) =>
+                              onTrackMetadata(track.id, {
+                                normalizationEnabled: event.target.checked,
+                              })
+                            }
+                            onClick={(event) => event.stopPropagation()}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              );
+            })}
           </table>
         </div>
       </div>
@@ -2179,6 +2315,16 @@ function BatchJobBoard({
   queuePaused: boolean;
 }) {
   const activeJobs = jobs.filter((job) => job.kind === "audio-process");
+  const jobCounts = {
+    running: activeJobs.filter((job) => job.status === "running").length,
+    waiting: activeJobs.filter((job) =>
+      ["queued", "paused"].includes(job.status),
+    ).length,
+    done: activeJobs.filter((job) => job.status === "done").length,
+    failed: activeJobs.filter((job) =>
+      ["error", "canceled"].includes(job.status),
+    ).length,
+  };
   return (
     <section className="batch-job-board">
       <header>
@@ -2200,6 +2346,22 @@ function BatchJobBoard({
           </button>
         </div>
       </header>
+      {activeJobs.length > 0 && (
+        <div className="batch-job-summary">
+          <span>
+            <b>{jobCounts.running}</b> em andamento
+          </span>
+          <span>
+            <b>{jobCounts.waiting}</b> aguardando
+          </span>
+          <span>
+            <b>{jobCounts.done}</b> concluídos
+          </span>
+          <span>
+            <b>{jobCounts.failed}</b> interrompidos
+          </span>
+        </div>
+      )}
       {activeJobs.length === 0 ? (
         <p className="helper-copy">
           Ao processar, cada arquivo aparece aqui com etapa, progresso e
@@ -3560,7 +3722,11 @@ function trackFromInput(
   };
 }
 
-function trackFromFile(file: File, info?: AudioInfo): TrackDraft {
+function trackFromFile(
+  file: File,
+  info?: AudioInfo,
+  sourceKey = file.name,
+): TrackDraft {
   const metadata = metadataFromAudio(
     info,
     {
@@ -3571,7 +3737,7 @@ function trackFromFile(file: File, info?: AudioInfo): TrackDraft {
   );
   return {
     id: crypto.randomUUID(),
-    sourceKey: file.name,
+    sourceKey,
     sourceFile: file,
     sourceUrl: URL.createObjectURL(file),
     source: "folder",
@@ -3622,20 +3788,91 @@ function metadataFromAudio(
     composer: suggestions?.composer || fallback.composer,
     year: suggestions?.year || fallback.year,
     trackNumber: suggestions?.trackNumber || fallback.trackNumber,
+    diskNumber: suggestions?.diskNumber || fallback.diskNumber,
     useEmbeddedCover: Boolean(info?.hasEmbeddedCover),
   };
 }
 
 function finalizeImportedTracks(tracks: TrackDraft[]) {
-  const total = Math.max(1, tracks.length);
-  return tracks.map((track, index) => ({
-    ...track,
-    metadata: {
-      ...track.metadata,
-      trackNumber: track.metadata.trackNumber || index + 1,
-      trackTotal: total,
-    },
-  }));
+  const groups = new Map<string, TrackDraft[]>();
+  for (const track of tracks) {
+    const key = [
+      track.metadata.artist,
+      track.metadata.album,
+      track.metadata.albumArtist,
+    ].join("\u0000");
+    groups.set(key, [...(groups.get(key) ?? []), track]);
+  }
+  const finalized = new Map<string, TrackDraft>();
+  for (const group of groups.values()) {
+    const ordered = [...group].sort((first, second) =>
+      first.sourceKey.localeCompare(second.sourceKey, "pt-BR", {
+        numeric: true,
+        sensitivity: "base",
+      }),
+    );
+    const explicitNumbers = new Set(
+      ordered
+        .map((track) => Number(track.audioInfo?.suggestions?.trackNumber ?? 0))
+        .filter((value) => value > 0),
+    );
+    const duplicateExplicit = explicitNumbers.size !== ordered.length;
+    const diskNumbers = new Set(
+      ordered
+        .map((track) => Number(track.metadata.diskNumber || 1))
+        .filter((value) => value > 0),
+    );
+    for (const [index, track] of ordered.entries()) {
+      const explicit = Number(track.audioInfo?.suggestions?.trackNumber ?? 0);
+      finalized.set(track.id, {
+        ...track,
+        metadata: {
+          ...track.metadata,
+          trackNumber:
+            explicit > 0 && !duplicateExplicit ? explicit : index + 1,
+          trackTotal: ordered.length,
+          diskNumber: track.metadata.diskNumber || 1,
+          diskTotal: Math.max(1, diskNumbers.size),
+        },
+      });
+    }
+  }
+  return tracks.map((track) => finalized.get(track.id) ?? track);
+}
+
+async function collectAudioEntries(
+  handle: FileSystemDirectoryHandle,
+  prefix = "",
+): Promise<Array<{ file: File; relativePath: string }>> {
+  const entries: Array<{ file: File; relativePath: string }> = [];
+  for await (const [name, entry] of handle.entries()) {
+    const relativePath = prefix ? `${prefix}/${name}` : name;
+    if (isPrivateAudioPath(relativePath)) continue;
+    if (entry.kind === "file") {
+      if (!isAudioName(name)) continue;
+      entries.push({ file: await entry.getFile(), relativePath });
+      continue;
+    }
+    entries.push(...(await collectAudioEntries(entry, relativePath)));
+  }
+  return entries.sort((first, second) =>
+    first.relativePath.localeCompare(second.relativePath, "pt-BR", {
+      numeric: true,
+      sensitivity: "base",
+    }),
+  );
+}
+
+function isPrivateAudioPath(value: string) {
+  const segments = value
+    .split(/[\\/]+/)
+    .map((segment) => segment.trim().toLowerCase())
+    .filter(Boolean);
+  return segments.some((segment) =>
+    ["tratados", "art", "outputs", "input", ".dev", "node_modules"].includes(
+      segment,
+    ),
+  );
 }
 
 function audioDraftFromMetadata(metadata: TrackMetadata): AudioTagDraft {

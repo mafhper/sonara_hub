@@ -28,6 +28,28 @@ test("audio library infers album, artist, order and clean title from folders", (
   assert.equal(inferred.title, "The Light Through the Kitchen Window");
 });
 
+test("audio library treats side folders as disc folders, not as albums", () => {
+  const inferred = inferAudioTags(
+    "D:\\Music\\Matheus Lima\\Jardim dos Ventos\\Lado A\\O Menino e o Vento.mp3",
+  );
+
+  assert.equal(inferred.artist, "Matheus Lima");
+  assert.equal(inferred.album, "Jardim dos Ventos");
+  assert.equal(inferred.albumArtist, "Matheus Lima");
+  assert.equal(inferred.diskNumber, 1);
+  assert.equal(inferred.title, "O Menino e o Vento");
+});
+
+test("audio library understands POSIX side folders for CI parity", () => {
+  const inferred = inferAudioTags(
+    "/home/runner/Music/Matheus Lima/Jardim dos Ventos/Side B/O E que Não Queria Parar Quieto.mp3",
+  );
+
+  assert.equal(inferred.artist, "Matheus Lima");
+  assert.equal(inferred.album, "Jardim dos Ventos");
+  assert.equal(inferred.diskNumber, 2);
+});
+
 test("standalone uploads do not infer dot folders as metadata", () => {
   assert.deepEqual(inferAudioTags("01 Standalone title.mp3"), {
     title: "Standalone title",

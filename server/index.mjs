@@ -138,12 +138,18 @@ app.post("/api/audio/analyze", upload.single("audio"), async (req, res) => {
     return;
   }
   try {
+    const metadata = await readAudioMetadataSummary(audioPath);
+    const suggestions = inferAudioTags(
+      req.body.relativePath || req.file?.originalname || audioPath,
+    );
+    if (String(req.body.quick ?? "false") === "true") {
+      res.json({ metadata, suggestions, analysis: null });
+      return;
+    }
     res.json({
-      metadata: await readAudioMetadataSummary(audioPath),
+      metadata,
       analysis: await analyzeAudioQuality(audioPath),
-      suggestions: inferAudioTags(
-        req.body.relativePath || req.file?.originalname || audioPath,
-      ),
+      suggestions,
     });
   } catch (error) {
     res.status(422).json({

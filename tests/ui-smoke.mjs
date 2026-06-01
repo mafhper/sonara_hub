@@ -142,15 +142,32 @@ try {
     .locator("textarea")
     .fill("Feito usando IA com curadoria humana.");
   await page.getByRole("button", { name: "Aplicar aos selecionados" }).click();
-  await page.getByText("Dados comuns aplicados").waitFor();
+  await page.getByText("apenas onde havia campos vazios").waitFor();
+  await page.getByRole("button", { name: "Sobrescrever informados" }).click();
+  await page.getByRole("button", { name: "Aplicar aos selecionados" }).click();
+  await page.getByText("com sobrescrita dos campos informados").waitFor();
+  assert.equal(await page.locator(".batch-group-row").count(), 1);
+  await page.locator(".batch-group-row button").click();
+  assert.equal(await page.locator(".batch-table tbody tr").count(), 1);
+  await page.locator(".batch-group-row button").click();
+  await page.getByRole("button", { name: "Limpar seleção" }).click();
+  assert.equal(
+    await page.locator('.batch-table input[type="checkbox"]:checked').count(),
+    0,
+  );
+  await page.getByRole("button", { name: "Selecionar todos" }).click();
+  assert.equal(
+    await page.locator('.batch-table input[type="checkbox"]:checked').count(),
+    1,
+  );
   await page
-    .locator(".batch-table tbody tr")
+    .locator(".batch-table tbody tr:not(.batch-group-row)")
     .first()
     .locator('input[aria-label="Titulo"]')
     .fill("Smoke Batch Title");
   assert.equal(
     await page
-      .locator(".batch-table tbody tr")
+      .locator(".batch-table tbody tr:not(.batch-group-row)")
       .first()
       .locator('input[aria-label="Titulo"]')
       .inputValue(),
@@ -163,6 +180,10 @@ try {
   await page.getByText("Processamento do lote").waitFor();
   await page.getByRole("button", { name: "Pausar fila" }).waitFor();
   await page.getByRole("button", { name: "Cancelar todos" }).waitFor();
+  await page.screenshot({
+    path: path.join(screenshotDir, "sonara-hub-audio-batch.png"),
+    fullPage: true,
+  });
   await page.getByRole("button", { name: "Estudio visual" }).click();
   await page.locator(".steps button").filter({ hasText: "Exportar" }).click();
   await page.getByText("1 faixa selecionada", { exact: true }).waitFor();
@@ -185,6 +206,9 @@ try {
     state: "attached",
   });
   await page.reload({ waitUntil: "networkidle" });
+  await page.locator('option:has-text("Aura smoke UI")').waitFor({
+    state: "attached",
+  });
   assert.equal(
     await page.locator('option:has-text("Aura smoke UI")').count(),
     1,
