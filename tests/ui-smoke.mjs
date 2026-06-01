@@ -149,6 +149,38 @@ try {
   await page.getByRole("button", { name: "Estúdio visual" }).click();
 
   const presetSelect = page.locator('select:has(option[value="vector-aura"])');
+  assert.equal(
+    await presetSelect.locator('option[value="playful-shapes"]').count(),
+    1,
+  );
+  assert.equal(
+    await presetSelect.locator('option[value="color-mesh"]').count(),
+    1,
+  );
+  assert.equal(
+    await presetSelect.locator('option[value="piano-ribbons"]').count(),
+    1,
+  );
+  await presetSelect.selectOption("playful-shapes");
+  await page.getByText("Conteúdo lúdico", { exact: true }).waitFor();
+  await page.getByText("Retângulos", { exact: true }).waitFor();
+  await page
+    .locator(".inspector-scroll label.field", {
+      hasText: "Emojis personalizados",
+    })
+    .locator("input")
+    .fill("🎈 🎵");
+  await page
+    .locator('select:has(option[value="soft-rhythm"])')
+    .selectOption("play");
+  await page.getByRole("button", { name: "Jardim" }).click();
+  await presetSelect.selectOption("volumetric-clouds");
+  await page.getByText("Foco solar", { exact: true }).click();
+  await page
+    .locator(".inspector-group", { hasText: "Foco solar" })
+    .locator('input[type="checkbox"]')
+    .check();
+  await page.getByText("Intensidade solar").waitFor();
   await presetSelect.selectOption("vector-aura");
   await page.waitForTimeout(450);
   const centerPixel = await page

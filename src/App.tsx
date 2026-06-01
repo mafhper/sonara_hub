@@ -46,6 +46,8 @@ import {
   normalizeVisualSettings,
 } from "../shared/visual-effects.mjs";
 import type {
+  CloudLightSettings,
+  PlayfulContent,
   ScenePresetV3,
   WaveformType,
   WaveformV1,
@@ -154,6 +156,10 @@ type StorageUsage = {
   jobs: { active: number; terminal: number };
 };
 type CoverLayerPreset = "background" | "left" | "center" | "right" | "corner";
+type PlayfulPatch = Partial<Omit<PlayfulContent, "enabled" | "collections">> & {
+  enabled?: Partial<PlayfulContent["enabled"]>;
+  collections?: Partial<PlayfulContent["collections"]>;
+};
 
 const emptyBands: AudioBands = {
   energy: 0,
@@ -251,6 +257,23 @@ const coverLayerPresetLabels: Record<CoverLayerPreset, string> = {
   right: "Direita",
   corner: "Canto",
 };
+const childFriendlyPalettes: Array<{
+  name: string;
+  colors: ScenePresetV3["colors"];
+}> = [
+  {
+    name: "Jardim",
+    colors: { base: "#73b5c8", effect: "#ef8b7f", light: "#f4c85d" },
+  },
+  {
+    name: "Céu",
+    colors: { base: "#79b8db", effect: "#8d82cf", light: "#f6d36b" },
+  },
+  {
+    name: "Pomar",
+    colors: { base: "#7bbf9f", effect: "#ee9b73", light: "#f7d982" },
+  },
+];
 const coverLayerPresets: Record<
   CoverLayerPreset,
   Pick<
@@ -1131,6 +1154,39 @@ function App() {
       ...selectedScene,
       waveform: { ...selectedScene.waveform, ...patch },
     });
+  }
+
+  function updatePlayful(patch: PlayfulPatch) {
+    updateScene(
+      normalizeVisualSettings({
+        ...selectedScene,
+        playful: {
+          ...selectedScene.playful,
+          ...patch,
+          enabled: {
+            ...selectedScene.playful?.enabled,
+            ...patch.enabled,
+          },
+          collections: {
+            ...selectedScene.playful?.collections,
+            ...patch.collections,
+          },
+        },
+      }),
+    );
+  }
+
+  function updateCloudLight(patch: Partial<CloudLightSettings>) {
+    updateScene(
+      normalizeVisualSettings({
+        ...selectedScene,
+        cloudLight: { ...selectedScene.cloudLight, ...patch },
+      }),
+    );
+  }
+
+  function applyPalette(colors: ScenePresetV3["colors"]) {
+    updateScene({ ...selectedScene, colors });
   }
 
   async function analyzeSelectedAudio() {
@@ -2370,11 +2426,14 @@ function App() {
                     ? applyCoverLayerPresetToBatch
                     : undefined
                 }
+                onCloudLight={updateCloudLight}
                 onColors={updateColors}
                 onCommon={updateCommon}
                 onDeletePreset={() => void deletePreset()}
                 onDuplicatePreset={() => void duplicatePreset()}
                 onMoveLayer={moveLayer}
+                onPalette={applyPalette}
+                onPlayful={updatePlayful}
                 onRemoveLayer={removeLayer}
                 onSavePreset={() => void savePreset()}
                 onUndoLayer={undoRemoveLayer}
@@ -4358,11 +4417,14 @@ function VisualInspector(props: {
   onApplyBatch?: () => void;
   onApplyCoverLayer: (preset: CoverLayerPreset) => void;
   onApplyCoverLayerBatch?: (preset: CoverLayerPreset) => void;
+  onCloudLight: (patch: Partial<CloudLightSettings>) => void;
   onColors: (key: "base" | "effect" | "light", value: string) => void;
   onCommon: (key: string, value: number) => void;
   onDeletePreset: () => void;
   onDuplicatePreset: () => void;
   onMoveLayer: (id: string, direction: -1 | 1) => void;
+  onPalette: (colors: ScenePresetV3["colors"]) => void;
+  onPlayful: (patch: PlayfulPatch) => void;
   onRemoveLayer: (id: string) => void;
   onSavePreset: () => void;
   onSelectPreset: (id: string) => void;
@@ -4431,6 +4493,24 @@ function VisualInspector(props: {
             </label>
           ))}
         </div>
+        {["playful-shapes", "color-mesh", "piano-ribbons"].includes(
+          scene.rendererId,
+        ) && (
+          <div className="inspector-subsection">
+            <p className="inspector-kicker">Paletas infantis</p>
+            <div className="preset-chip-grid">
+              {childFriendlyPalettes.map((palette) => (
+                <button
+                  key={palette.name}
+                  type="button"
+                  onClick={() => props.onPalette(palette.colors)}
+                >
+                  {palette.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </InspectorGroup>
       <InspectorGroup title="Movimento" open>
         <RangeField
@@ -4469,6 +4549,133 @@ function VisualInspector(props: {
           />
         ))}
       </InspectorGroup>
+      {scene.rendererId === "playful-shapes" && scene.playful && (
+        <InspectorGroup title="Conteúdo lúdico" open>
+          <SelectField
+            label="Movimento"
+            value={scene.playful.motionMode}
+            onChange={(motionMode) =>
+              props.onPlayful({
+                motionMode: motionMode as PlayfulContent["motionMode"],
+              })
+            }
+          >
+            <option value="calm">Calmo</option>
+            <option value="soft-rhythm">Ritmo suave</option>
+            <option value="play">Brincadeira</option>
+          </SelectField>
+          <RangeField
+            label="Seed"
+            max={999999}
+            value={scene.playful.seed}
+            onChange={(seed) => props.onPlayful({ seed })}
+          />
+          <div className="check-stack">
+            <CheckField
+              label="Retângulos"
+              checked={scene.playful.enabled.rectangles}
+              onChange={(rectangles) =>
+                props.onPlayful({ enabled: { rectangles } })
+              }
+            />
+            <CheckField
+              label="Letras"
+              checked={scene.playful.enabled.letters}
+              onChange={(letters) => props.onPlayful({ enabled: { letters } })}
+            />
+            <CheckField
+              label="Números"
+              checked={scene.playful.enabled.numbers}
+              onChange={(numbers) => props.onPlayful({ enabled: { numbers } })}
+            />
+            <CheckField
+              label="Emojis"
+              checked={scene.playful.enabled.emojis}
+              onChange={(emojis) => props.onPlayful({ enabled: { emojis } })}
+            />
+          </div>
+          {scene.playful.enabled.letters && (
+            <TextField
+              label="Letras personalizadas"
+              value={scene.playful.collections.letters}
+              onChange={(letters) =>
+                props.onPlayful({ collections: { letters } })
+              }
+            />
+          )}
+          {scene.playful.enabled.numbers && (
+            <TextField
+              label="Números personalizados"
+              value={scene.playful.collections.numbers}
+              onChange={(numbers) =>
+                props.onPlayful({ collections: { numbers } })
+              }
+            />
+          )}
+          {scene.playful.enabled.emojis && (
+            <TextField
+              label="Emojis personalizados"
+              value={scene.playful.collections.emojis}
+              onChange={(emojis) =>
+                props.onPlayful({ collections: { emojis } })
+              }
+            />
+          )}
+          <button
+            className="quiet-action"
+            type="button"
+            onClick={() =>
+              props.onPlayful({
+                collections: {
+                  letters: "A B C D E",
+                  numbers: "1 2 3 4 5",
+                  emojis: "☀️ 🎈 🌱 ⭐ 🎵",
+                },
+              })
+            }
+          >
+            <RotateCcw /> Restaurar coleções
+          </button>
+        </InspectorGroup>
+      )}
+      {scene.rendererId === "volumetric-clouds" && scene.cloudLight && (
+        <InspectorGroup title="Foco solar">
+          <CheckField
+            label="Mostrar foco solar"
+            checked={scene.cloudLight.enabled}
+            onChange={(enabled) => props.onCloudLight({ enabled })}
+          />
+          {scene.cloudLight.enabled && (
+            <>
+              <RangeField
+                label="Intensidade solar"
+                value={scene.cloudLight.intensity}
+                onChange={(intensity) => props.onCloudLight({ intensity })}
+              />
+              <RangeField
+                label="Posição horizontal"
+                value={scene.cloudLight.x}
+                onChange={(x) => props.onCloudLight({ x })}
+              />
+              <RangeField
+                label="Posição vertical"
+                value={scene.cloudLight.y}
+                onChange={(y) => props.onCloudLight({ y })}
+              />
+              <RangeField
+                label="Raio"
+                value={scene.cloudLight.radius}
+                onChange={(radius) => props.onCloudLight({ radius })}
+              />
+              <RangeField
+                label="Difusão"
+                value={scene.cloudLight.diffusion}
+                onChange={(diffusion) => props.onCloudLight({ diffusion })}
+              />
+            </>
+          )}
+        </InspectorGroup>
+      )}
       <InspectorGroup title={`Camadas · ${props.layers.length}/3`} open>
         <LayerEditor {...props} />
       </InspectorGroup>
