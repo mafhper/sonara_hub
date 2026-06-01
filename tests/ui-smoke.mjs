@@ -350,7 +350,7 @@ try {
   await page.locator('option:has-text("Aura smoke UI")').waitFor({
     state: "attached",
   });
-  await page.reload({ waitUntil: "networkidle" });
+  await reloadApp(page);
   await ensurePanelOpen(page, "inspector");
   await page.locator('option:has-text("Aura smoke UI")').waitFor({
     state: "attached",
@@ -379,7 +379,7 @@ try {
     .nth(1)
     .setInputFiles(variationAudioPath);
   await page.waitForTimeout(1_600);
-  await page.reload({ waitUntil: "networkidle" });
+  await reloadApp(page);
   await ensurePanelOpen(page, "library");
   assert.equal(
     await page.locator(".track-row").count(),
@@ -479,6 +479,11 @@ async function cleanupSmokePresets() {
         ),
       ),
   );
+}
+
+async function reloadApp(page) {
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.locator(".studio-shell").waitFor();
 }
 
 async function assertLocalSettings(page) {
@@ -661,7 +666,7 @@ async function restoreDockedPanels(page) {
       JSON.stringify({ left: 256, right: 456 }),
     ),
   );
-  await page.reload({ waitUntil: "networkidle" });
+  await reloadApp(page);
   await page.waitForFunction(
     () =>
       !document
