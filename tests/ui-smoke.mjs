@@ -102,7 +102,8 @@ page.on("requestfailed", (request) => {
 });
 
 try {
-  await page.goto("http://127.0.0.1:5173", { waitUntil: "networkidle" });
+  await page.goto("http://127.0.0.1:5173", { waitUntil: "domcontentloaded" });
+  await page.locator(".studio-shell").waitFor();
   await assertLocalSettings(page);
   await page
     .locator('input[accept="audio/*"]')
