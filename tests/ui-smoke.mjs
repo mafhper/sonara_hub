@@ -98,6 +98,7 @@ page.on("requestfailed", (request) => {
 
 try {
   await page.goto("http://127.0.0.1:5173", { waitUntil: "networkidle" });
+  await assertLocalSettings(page);
   await page
     .locator('input[accept="audio/*"]')
     .first()
@@ -441,6 +442,38 @@ async function cleanupSmokePresets() {
         ),
       ),
   );
+}
+
+async function assertLocalSettings(page) {
+  const usageResponse = await fetch("http://127.0.0.1:4175/api/storage/usage");
+  assert.equal(usageResponse.status, 200);
+  assert.deepEqual(Object.keys(await usageResponse.json()).sort(), [
+    "generated",
+    "jobs",
+    "temporary",
+  ]);
+  const invalidCleanup = await fetch(
+    "http://127.0.0.1:4175/api/storage/cleanup",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope: "external" }),
+    },
+  );
+  assert.equal(invalidCleanup.status, 400);
+  const clearedJobs = await fetch(
+    "http://127.0.0.1:4175/api/jobs?scope=video-render",
+    { method: "DELETE" },
+  );
+  assert.equal(clearedJobs.status, 200);
+
+  await page.getByRole("button", { name: "Configurações locais" }).click();
+  await page.getByRole("dialog", { name: "Armazenamento e sessão" }).waitFor();
+  await page.getByText("Arquivos temporários", { exact: true }).waitFor();
+  await page.getByText("Arquivos gerados locais", { exact: true }).waitFor();
+  page.once("dialog", async (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Limpar temporários" }).click();
+  await page.getByRole("button", { name: "Fechar configurações" }).click();
 }
 
 async function assertArtworkPreviewApi(noCoverPath, coverPath) {

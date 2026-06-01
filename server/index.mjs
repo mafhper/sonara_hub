@@ -22,6 +22,10 @@ import { createPresetStore, PresetStoreError } from "./preset-store.mjs";
 import { loadJobHistory, saveJobHistory } from "./job-store.mjs";
 import { renderCanvasSize, renderTiming } from "./render-profile.mjs";
 import { safeSvgBuffer } from "./svg-safety.mjs";
+import {
+  cleanupOwnedStorage,
+  summarizeOwnedStorage,
+} from "./storage-cleanup.mjs";
 import { createTempFileRegistry } from "./temp-files.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
@@ -44,11 +48,6 @@ const customPresetPath = path.join(
 const jobHistoryPath = path.join(rootDir, "data", "jobs.local.json");
 const port = Number(process.env.PORT ?? 4175);
 
-await Promise.all([
-  fs.rm(uploadDir, { recursive: true, force: true }),
-  fs.rm(workDir, { recursive: true, force: true }),
-  fs.rm(artworkPreviewDir, { recursive: true, force: true }),
-]);
 await Promise.all([
   fs.mkdir(uploadDir, { recursive: true }),
   fs.mkdir(workDir, { recursive: true }),
@@ -555,9 +554,53 @@ app.get("/api/jobs/:id", (req, res) => {
 
 app.get("/api/jobs", (_req, res) => {
   res.json({
-    jobs: Array.from(jobs.values()).slice(-50).reverse(),
+    jobs: recentJobs(),
     queuePaused,
   });
+});
+
+app.delete("/api/jobs", async (req, res) => {
+  const scope = String(req.query.scope ?? "terminal");
+  if (!["terminal", "video-render"].includes(scope)) {
+    res.status(400).json({ error: "Escopo de histórico inválido." });
+    return;
+  }
+  let removed = 0;
+  for (const [jobId, job] of jobs) {
+    if (isActiveJob(job)) continue;
+    if (scope === "video-render" && job.kind !== "video-render") continue;
+    jobs.delete(jobId);
+    removed += 1;
+  }
+  await persistJobSnapshot();
+  res.json({ jobs: recentJobs(), queuePaused, removed });
+});
+
+app.get("/api/storage/usage", async (_req, res) => {
+  res.json(await storageUsage());
+});
+
+app.post("/api/storage/cleanup", async (req, res) => {
+  const scope = String(req.body?.scope ?? "");
+  if (!["temporary", "generated", "all"].includes(scope)) {
+    res.status(400).json({ error: "Escopo de limpeza inválido." });
+    return;
+  }
+  if (Array.from(jobs.values()).some(isActiveJob)) {
+    res.status(409).json({
+      error: "Aguarde ou cancele os processamentos ativos antes de limpar.",
+    });
+    return;
+  }
+  const deleted = await cleanupOwnedStorage({
+    scope,
+    uploadDir,
+    workDir,
+    artworkPreviewDir,
+    outputDir,
+    treatedOutputDir,
+  });
+  res.json({ scope, deleted, usage: await storageUsage() });
 });
 
 app.post("/api/jobs/pause", (_req, res) => {
@@ -590,7 +633,7 @@ app.post("/api/jobs/resume", (_req, res) => {
 
 app.post("/api/jobs/cancel-all", (_req, res) => {
   for (const job of jobs.values()) requestJobCancel(job.id);
-  res.json({ jobs: Array.from(jobs.values()).slice(-50).reverse() });
+  res.json({ jobs: recentJobs() });
 });
 
 app.post("/api/jobs/:id/cancel", (req, res) => {
@@ -1644,12 +1687,41 @@ function updateJob(jobId, patch) {
 
 function setJob(jobId, job) {
   jobs.set(jobId, job);
+  void persistJobSnapshot();
+}
+
+function persistJobSnapshot() {
   const snapshot = Array.from(jobs.values());
   jobHistoryWriteQueue = jobHistoryWriteQueue
     .then(() => saveJobHistory(jobHistoryPath, snapshot))
     .catch((error) => {
       console.error("Falha ao persistir historico de jobs:", error);
     });
+  return jobHistoryWriteQueue;
+}
+
+function recentJobs() {
+  return Array.from(jobs.values()).slice(-50).reverse();
+}
+
+function isActiveJob(job) {
+  return ["queued", "paused", "running"].includes(job.status);
+}
+
+async function storageUsage() {
+  return {
+    ...(await summarizeOwnedStorage({
+      uploadDir,
+      workDir,
+      artworkPreviewDir,
+      outputDir,
+    })),
+    jobs: {
+      active: Array.from(jobs.values()).filter(isActiveJob).length,
+      terminal: Array.from(jobs.values()).filter((job) => !isActiveJob(job))
+        .length,
+    },
+  };
 }
 
 function handlePresetStoreError(error, res) {

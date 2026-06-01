@@ -3306,6 +3306,104 @@ button:disabled {
   margin-top: var(--space-3);
 }
 
+.queue-clear-action {
+  margin-bottom: var(--space-2);
+}
+
+.settings-overlay {
+  position: fixed;
+  z-index: 20;
+  display: grid;
+  inset: 0;
+  place-items: center;
+  background: rgb(0 0 0 / 58%);
+}
+
+.settings-panel {
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 32px));
+  overflow: auto;
+  border: 1px solid var(--stage-border-strong);
+  border-radius: 7px;
+  background: var(--chrome);
+  box-shadow: 0 18px 52px rgb(0 0 0 / 48%);
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-4);
+}
+
+.settings-header h2,
+.settings-section h3,
+.settings-section p {
+  margin: 0;
+}
+
+.settings-header h2 {
+  margin-top: var(--space-1);
+  color: var(--text-primary);
+  font-size: 18px;
+  letter-spacing: 0;
+}
+
+.settings-body {
+  padding: 0 var(--space-4);
+}
+
+.settings-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  align-items: center;
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-4) 0;
+}
+
+.settings-section:last-child {
+  border-bottom: 0;
+}
+
+.settings-section h3 {
+  color: var(--text-primary);
+  font-size: var(--font-lg);
+}
+
+.settings-section p {
+  max-width: 52ch;
+  margin-top: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+}
+
+.settings-section small {
+  display: block;
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+
+.settings-action {
+  width: auto;
+  min-width: 184px;
+  padding: 0 var(--space-3);
+  white-space: nowrap;
+}
+
+.danger-action {
+  border-color: var(--status-danger-border);
+  color: var(--status-danger);
+}
+
+.quiet-action:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 @media (max-width: 740px) {
   .transport {
     grid-template-columns:
@@ -3334,5 +3432,13 @@ button:disabled {
 
   .artwork-square {
     width: 104px;
+  }
+
+  .settings-section {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-action {
+    width: 100%;
   }
 }

@@ -21,6 +21,7 @@ import {
   Plus,
   RotateCcw,
   Save,
+  Settings,
   SkipBack,
   SkipForward,
   SlidersHorizontal,
@@ -145,6 +146,11 @@ type AudioBands = {
   samples: number[];
   spectrum: number[];
 };
+type StorageUsage = {
+  temporary: { files: number; bytes: number };
+  generated: { files: number; bytes: number };
+  jobs: { active: number; terminal: number };
+};
 
 const emptyBands: AudioBands = {
   energy: 0,
@@ -218,6 +224,9 @@ function App() {
   const [showMetadata, setShowMetadata] = useState(true);
   const [cover, setCover] = useState<{ file: File; src: string } | null>(null);
   const [jobs, setJobs] = useState<RenderJob[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [storageUsage, setStorageUsage] = useState<StorageUsage | null>(null);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
   const [error, setError] = useState("");
   const [folderName, setFolderName] = useState("Pasta input");
   const [outputFolderName, setOutputFolderName] = useState("outputs interno");
@@ -466,6 +475,72 @@ function App() {
       }
     } catch (reason) {
       setError(localApiMessage(reason, "restaurar o historico de jobs"));
+    }
+  }
+
+  async function loadStorageUsage() {
+    try {
+      setStorageUsage(await fetchJson<StorageUsage>("/api/storage/usage"));
+    } catch (reason) {
+      setError(localApiMessage(reason, "consultar o armazenamento local"));
+    }
+  }
+
+  async function openLocalSettings() {
+    setSettingsOpen(true);
+    await loadStorageUsage();
+  }
+
+  async function clearCompletedJobs(scope: "terminal" | "video-render") {
+    try {
+      const payload = await fetchJson<{
+        jobs: RenderJob[];
+        queuePaused: boolean;
+        removed: number;
+      }>(`/api/jobs?scope=${scope}`, { method: "DELETE" });
+      setJobs(payload.jobs);
+      setQueuePaused(payload.queuePaused);
+      setBatchFeedback(
+        payload.removed === 1
+          ? "1 item concluído foi removido do histórico."
+          : `${payload.removed} itens concluídos foram removidos do histórico.`,
+      );
+      await loadStorageUsage();
+    } catch (reason) {
+      setError(localApiMessage(reason, "limpar o histórico concluído"));
+    }
+  }
+
+  async function cleanupLocalFiles(scope: "temporary" | "generated") {
+    const label =
+      scope === "temporary"
+        ? "arquivos temporários"
+        : "arquivos gerados locais que ainda permanecem no Sonara Hub";
+    if (
+      !window.confirm(
+        `Excluir ${label}? A sessão e os arquivos já movidos para pastas externas serão preservados.`,
+      )
+    ) {
+      return;
+    }
+    setCleanupBusy(true);
+    try {
+      const payload = await fetchJson<{
+        deleted: { files: number; bytes: number };
+        usage: StorageUsage;
+      }>("/api/storage/cleanup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scope }),
+      });
+      setStorageUsage(payload.usage);
+      setBatchFeedback(
+        `${formatFileCount(payload.deleted.files)} removido${payload.deleted.files === 1 ? "" : "s"} do armazenamento local.`,
+      );
+    } catch (reason) {
+      setError(localApiMessage(reason, "limpar os arquivos locais"));
+    } finally {
+      setCleanupBusy(false);
     }
   }
 
@@ -1698,6 +1773,12 @@ function App() {
           >
             <SlidersHorizontal />
           </IconButton>
+          <IconButton
+            label="Configurações locais"
+            onClick={() => void openLocalSettings()}
+          >
+            <Settings />
+          </IconButton>
           {workspaceMode === "visual" && (
             <button
               className="top-select"
@@ -2100,6 +2181,7 @@ function App() {
                 metadata={selectedTrack.metadata}
                 workflowMode={workflowMode}
                 onChooseOutput={() => void chooseOutputDirectory()}
+                onClearCompleted={() => void clearCompletedJobs("video-render")}
                 onExport={() => void exportSelected()}
                 onMetadata={updateMetadata}
                 onPreset={setOutputPreset}
@@ -2214,6 +2296,94 @@ function App() {
         }}
       />
       <audio ref={audioRef} src={audioSrc || undefined} />
+      {settingsOpen && (
+        <div
+          className="settings-overlay"
+          role="presentation"
+          onMouseDown={() => setSettingsOpen(false)}
+        >
+          <section
+            aria-labelledby="local-settings-title"
+            aria-modal="true"
+            className="settings-panel"
+            role="dialog"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="settings-header">
+              <div>
+                <span className="overline">Preferências locais</span>
+                <h2 id="local-settings-title">Armazenamento e sessão</h2>
+              </div>
+              <IconButton
+                label="Fechar configurações"
+                onClick={() => setSettingsOpen(false)}
+              >
+                <X />
+              </IconButton>
+            </header>
+            <div className="settings-body">
+              <section className="settings-section">
+                <div>
+                  <h3>Histórico da fila</h3>
+                  <p>
+                    Remova registros concluídos sem alterar a sessão, as faixas
+                    ou os arquivos locais.
+                  </p>
+                  <small>
+                    {storageUsage
+                      ? `${storageUsage.jobs.terminal} concluídos · ${storageUsage.jobs.active} ativos`
+                      : "Calculando uso local..."}
+                  </small>
+                </div>
+                <button
+                  className="quiet-action settings-action"
+                  type="button"
+                  onClick={() => void clearCompletedJobs("terminal")}
+                >
+                  <Trash2 /> Limpar histórico concluído
+                </button>
+              </section>
+              <section className="settings-section">
+                <div>
+                  <h3>Arquivos temporários</h3>
+                  <p>
+                    Limpe uploads transitórios, capturas interrompidas e prévias
+                    locais quando desejar.
+                  </p>
+                  <small>{formatUsage(storageUsage?.temporary)}</small>
+                </div>
+                <button
+                  className="quiet-action settings-action"
+                  disabled={cleanupBusy}
+                  type="button"
+                  onClick={() => void cleanupLocalFiles("temporary")}
+                >
+                  <Trash2 /> Limpar temporários
+                </button>
+              </section>
+              <section className="settings-section settings-section-danger">
+                <div>
+                  <h3>Arquivos gerados locais</h3>
+                  <p>
+                    Exclua vídeos, sidecars e cópias tratadas que permanecem no
+                    armazenamento interno. Arquivos movidos para pastas externas
+                    não serão tocados.
+                  </p>
+                  <small>{formatUsage(storageUsage?.generated)}</small>
+                </div>
+                <button
+                  className="quiet-action settings-action danger-action"
+                  disabled={cleanupBusy}
+                  type="button"
+                  onClick={() => void cleanupLocalFiles("generated")}
+                >
+                  <Trash2 /> Excluir arquivos gerados locais
+                </button>
+              </section>
+            </div>
+          </section>
+        </div>
+      )}
       {error && (
         <button
           className="error-toast"
@@ -4345,6 +4515,7 @@ function ExportInspector({
   scene,
   workflowMode,
   onChooseOutput,
+  onClearCompleted,
   onExport,
   onApplyBatch,
   onMetadata,
@@ -4363,6 +4534,7 @@ function ExportInspector({
   scene: ScenePresetV3;
   workflowMode: "single" | "batch";
   onChooseOutput: () => void;
+  onClearCompleted: () => void;
   onExport: () => void;
   onApplyBatch?: () => void;
   onMetadata: (patch: Partial<TrackMetadata>) => void;
@@ -4372,6 +4544,10 @@ function ExportInspector({
 }) {
   const resolution =
     outputPresets.find(([value]) => value === outputPreset) ?? outputPresets[1];
+  const renderJobs = jobs.filter((job) => job.kind === "video-render");
+  const hasCompletedRenderJobs = renderJobs.some((job) =>
+    ["done", "error", "canceled"].includes(job.status),
+  );
   return (
     <>
       <InspectorGroup title="Resumo da exportação" open>
@@ -4504,11 +4680,20 @@ function ExportInspector({
           fica para uma etapa posterior.
         </p>
       </InspectorGroup>
-      <InspectorGroup title={`Fila · ${jobs.length}`} open>
-        {jobs.length === 0 ? (
+      <InspectorGroup title={`Fila de exportação · ${renderJobs.length}`} open>
+        {hasCompletedRenderJobs && (
+          <button
+            className="quiet-action queue-clear-action"
+            type="button"
+            onClick={onClearCompleted}
+          >
+            <Trash2 /> Limpar concluídos
+          </button>
+        )}
+        {renderJobs.length === 0 ? (
           <p className="helper-copy">As exportações aparecem aqui.</p>
         ) : (
-          jobs.map((job) => (
+          renderJobs.map((job) => (
             <div className="job-row" key={job.id}>
               <span>
                 <strong>{readableJobMessage(job.message)}</strong>
@@ -5270,6 +5455,23 @@ function readableJobMessage(message: string) {
     .replaceAll("concluido", "concluído")
     .replaceAll("Analisando audio", "Analisando áudio")
     .replaceAll("Servidor local indisponivel", "Servidor local indisponível");
+}
+
+function formatUsage(usage?: { files: number; bytes: number }) {
+  if (!usage) return "Calculando uso local...";
+  return `${formatFileCount(usage.files)} · ${formatBytes(usage.bytes)}`;
+}
+
+function formatFileCount(files: number) {
+  return `${files} ${files === 1 ? "arquivo" : "arquivos"}`;
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
 async function copyUrlToDirectory(
