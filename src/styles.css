@@ -273,6 +273,7 @@ svg {
 
 .library-panel,
 .inspector-panel {
+  position: relative;
   min-width: 0;
   min-height: 0;
   background: var(--chrome);
@@ -283,6 +284,48 @@ svg {
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--line);
+}
+
+.panel-resize-handle {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  bottom: 0;
+  width: 13px;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  padding: 0;
+}
+
+.panel-resize-handle::before {
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: 6px;
+  width: 1px;
+  border-radius: 99px;
+  background: transparent;
+  content: "";
+  transition:
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.panel-resize-handle:hover::before,
+.panel-resize-handle:focus-visible::before,
+.panel-resize-handle.active::before,
+.resizing-panels .panel-resize-handle::before {
+  background: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-soft);
+}
+
+.library-resize {
+  right: -7px;
+}
+
+.inspector-resize {
+  left: -7px;
 }
 
 .library-header {
@@ -813,8 +856,8 @@ svg {
 }
 
 .batch-toolbar-actions {
-  display: grid;
-  grid-template-columns: minmax(150px, 1fr) 94px auto auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: end;
   gap: 9px;
   margin-top: 10px;
@@ -825,9 +868,23 @@ svg {
   margin-top: 0;
 }
 
+.batch-toolbar-actions .check-field {
+  flex: 1 1 170px;
+}
+
+.batch-toolbar-actions .field {
+  flex: 0 0 118px;
+}
+
 .batch-toolbar-actions .primary-action,
 .batch-toolbar-actions .upload-action {
+  flex: 1 1 260px;
+  min-width: 0;
   min-height: 31px;
+  justify-content: center;
+  line-height: 1.2;
+  text-align: center;
+  white-space: normal;
 }
 
 .batch-toolbar-actions button:disabled {
@@ -1519,6 +1576,26 @@ svg {
     var(--rail-left);
 }
 
+.panels-swapped .library-panel {
+  border-right: 0;
+  border-left: 1px solid var(--line);
+}
+
+.panels-swapped .inspector-panel {
+  border-right: 1px solid var(--line);
+  border-left: 0;
+}
+
+.panels-swapped .library-resize {
+  right: auto;
+  left: -7px;
+}
+
+.panels-swapped .inspector-resize {
+  right: -7px;
+  left: auto;
+}
+
 :where(button, input, select, textarea, summary):focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
@@ -1762,6 +1839,46 @@ button:disabled {
   font-size: var(--font-xl);
 }
 
+.audio-stage-section {
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+
+.audio-stage-section + .audio-stage-section {
+  margin-top: 18px;
+}
+
+.audio-stage-title {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 10px;
+}
+
+.audio-stage-title strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-primary);
+  font-size: var(--font-md);
+}
+
+.audio-stage-title small {
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+  text-align: right;
+}
+
+.waveform-section .analytic-stage {
+  min-height: 268px;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 0;
+}
+
+.metrics-section .metric-strip {
+  border-top: 1px solid var(--border-soft);
+}
+
 .audio-library-heading > strong,
 .batch-table-toolbar strong,
 .batch-toolbar-head strong,
@@ -1838,6 +1955,14 @@ button:disabled {
   background: transparent;
 }
 
+.batch-library .batch-toolbar,
+.batch-library .batch-job-board,
+.batch-table-wrap {
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
 .batch-toolbar-head,
 .batch-toolbar-body,
 .batch-job-board {
@@ -1866,6 +1991,16 @@ button:disabled {
 .batch-job-row > span {
   color: var(--text-muted);
   font-size: var(--font-xs);
+}
+
+.batch-table-actions button {
+  align-items: center;
+  gap: 6px;
+}
+
+.batch-table-actions svg {
+  width: 13px;
+  height: 13px;
 }
 
 .batch-job-row.done {
@@ -1925,7 +2060,58 @@ button:disabled {
 }
 
 .transport {
-  grid-template-columns: 34px 52px minmax(80px, 1fr) 52px auto;
+  grid-template-columns: auto minmax(168px, 0.34fr) 56px minmax(180px, 1fr) 56px;
+  min-height: 56px;
+  gap: 12px;
+  color: var(--text-muted);
+}
+
+.transport-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.transport-controls .icon-button {
+  background: var(--app-bg);
+}
+
+.transport-controls .icon-button:nth-child(2) {
+  border-color: var(--text-primary);
+  background: var(--text-primary);
+  color: #101216;
+}
+
+.transport-controls .icon-button:nth-child(2):hover {
+  border-color: var(--text-primary);
+  background: #ffffff;
+  color: #101216;
+}
+
+.transport-track {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.transport-track strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  font-weight: 660;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transport-track small,
+.transport-time {
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+
+.transport-time {
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .transport input[type="range"],
@@ -2089,6 +2275,18 @@ button:disabled {
   grid-template-columns: 0 minmax(0, 1fr) 0;
 }
 
+.studio-shell.panels-swapped.left-hidden {
+  grid-template-columns: var(--rail-right) minmax(0, 1fr) 0;
+}
+
+.studio-shell.panels-swapped.right-hidden {
+  grid-template-columns: 0 minmax(0, 1fr) var(--rail-left);
+}
+
+.studio-shell.panels-swapped.left-hidden.right-hidden {
+  grid-template-columns: 0 minmax(0, 1fr) 0;
+}
+
 .left-hidden .library-panel,
 .right-hidden .inspector-panel {
   overflow: hidden;
@@ -2117,6 +2315,10 @@ button:disabled {
     transition:
       transform 180ms ease,
       opacity 180ms ease;
+  }
+
+  .panel-resize-handle {
+    display: none;
   }
 
   .library-panel {
@@ -2199,12 +2401,21 @@ button:disabled {
   }
 
   .transport {
-    grid-template-columns: 28px 36px minmax(60px, 1fr) 36px;
-    gap: 7px;
+    grid-template-columns: auto minmax(90px, 1fr) 42px minmax(70px, 1.2fr) 42px;
+    gap: 6px;
     padding: 0 11px;
   }
 
-  .transport small {
+  .transport-controls {
+    gap: 3px;
+  }
+
+  .transport-controls .icon-button {
+    width: 30px;
+    min-height: 30px;
+  }
+
+  .transport-track small {
     display: none;
   }
 
@@ -2216,6 +2427,19 @@ button:disabled {
   .batch-toolbar-grid,
   .batch-toolbar-actions {
     grid-template-columns: 1fr;
+  }
+
+  .batch-toolbar-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .batch-toolbar-actions .check-field,
+  .batch-toolbar-actions .field,
+  .batch-toolbar-actions .primary-action,
+  .batch-toolbar-actions .upload-action {
+    flex: 1 1 auto;
+    width: 100%;
   }
 
   .batch-toolbar-grid .field:last-child {

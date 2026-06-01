@@ -51,6 +51,9 @@ await cleanupSmokePresets();
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
+await page.addInitScript(() =>
+  window.localStorage.removeItem("sonara-hub-panel-widths"),
+);
 const errors = [];
 const failedRequests = [];
 page.on("console", (message) => {
@@ -86,7 +89,10 @@ try {
     [".field input", 12],
     [".helper-copy", 12],
     [".transport", 12],
+    [".transport-track strong", 12],
+    [".transport-controls button", 12],
   ]);
+  await assertPanelResize(page);
   await assertFocusVisible(
     page,
     page.getByRole("button", { name: "Estudio visual" }),
@@ -276,6 +282,20 @@ try {
     2,
     "variation with a replaced audio file should survive autosave",
   );
+  await page.locator(".track-row").first().click();
+  await page.getByRole("button", { name: "Proxima faixa" }).click();
+  assert.match(
+    (await page.locator(".track-row").nth(1).getAttribute("class")) ?? "",
+    /selected/,
+    "transport next button should select the next track",
+  );
+  await page.getByRole("button", { name: "Faixa anterior" }).click();
+  assert.match(
+    (await page.locator(".track-row").first().getAttribute("class")) ?? "",
+    /selected/,
+    "transport previous button should return to the first track",
+  );
+  await page.getByRole("button", { name: "Proxima faixa" }).click();
   assert.ok(
     ((await page.locator(".track-row.selected .track-copy").boundingBox())
       ?.width ?? 0) > 100,
@@ -376,6 +396,69 @@ async function assertFocusVisible(page, locator) {
   assert.ok(
     focus.outlineWidth >= 2 || focus.boxShadow !== "none",
     `focused control should have a visible outline or ring, got ${JSON.stringify(focus)}`,
+  );
+}
+
+async function assertPanelResize(page) {
+  const libraryPanel = page.locator(".library-panel");
+  const libraryHandle = page.getByRole("button", {
+    name: "Redimensionar biblioteca",
+  });
+  const libraryBefore = await libraryPanel.boundingBox();
+  const libraryBox = await libraryHandle.boundingBox();
+  assert.ok(
+    libraryBefore && libraryBox,
+    "library panel and resize handle should be visible",
+  );
+  await page.mouse.move(
+    libraryBox.x + libraryBox.width / 2,
+    libraryBox.y + libraryBox.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    libraryBox.x + libraryBox.width / 2 + 72,
+    libraryBox.y + libraryBox.height / 2,
+  );
+  await page.mouse.up();
+  const libraryAfter = await libraryPanel.boundingBox();
+  assert.ok(
+    libraryAfter,
+    "library panel should still be measurable after resize",
+  );
+  assert.ok(
+    libraryAfter.width > libraryBefore.width + 32 && libraryAfter.width <= 380,
+    `library panel should resize within bounds, before=${libraryBefore.width}, after=${libraryAfter.width}`,
+  );
+
+  const inspectorPanel = page.locator(".inspector-panel");
+  const inspectorHandle = page.getByRole("button", {
+    name: "Redimensionar inspetor",
+  });
+  const inspectorBefore = await inspectorPanel.boundingBox();
+  const inspectorBox = await inspectorHandle.boundingBox();
+  assert.ok(
+    inspectorBefore && inspectorBox,
+    "inspector panel and resize handle should be visible",
+  );
+  await page.mouse.move(
+    inspectorBox.x + inspectorBox.width / 2,
+    inspectorBox.y + inspectorBox.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    inspectorBox.x + inspectorBox.width / 2 - 72,
+    inspectorBox.y + inspectorBox.height / 2,
+  );
+  await page.mouse.up();
+  const inspectorAfter = await inspectorPanel.boundingBox();
+  assert.ok(
+    inspectorAfter,
+    "inspector panel should still be measurable after resize",
+  );
+  assert.ok(
+    inspectorAfter.width > inspectorBefore.width + 32 &&
+      inspectorAfter.width <= 620,
+    `inspector panel should resize within bounds, before=${inspectorBefore.width}, after=${inspectorAfter.width}`,
   );
 }
 

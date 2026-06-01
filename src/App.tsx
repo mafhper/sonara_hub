@@ -21,6 +21,8 @@ import {
   Plus,
   RotateCcw,
   Save,
+  SkipBack,
+  SkipForward,
   SlidersHorizontal,
   Trash2,
   Upload,
@@ -30,6 +32,7 @@ import {
 import {
   type CSSProperties,
   type ChangeEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useEffect,
   useMemo,
@@ -154,6 +157,13 @@ const outputPresets = [
   ["youtube-2k", "2K", "2560 x 1440"],
   ["youtube-4k", "4K", "3840 x 2160"],
 ];
+
+const PANEL_WIDTH_STORAGE_KEY = "sonara-hub-panel-widths";
+const DEFAULT_LEFT_RAIL_WIDTH = 256;
+const DEFAULT_RIGHT_RAIL_WIDTH = 456;
+const PANEL_MIN_PREVIEW_WIDTH = 520;
+const LEFT_RAIL_BOUNDS = { min: 220, max: 380 };
+const RIGHT_RAIL_BOUNDS = { min: 360, max: 620 };
 const defaultMetadata: TrackMetadata = {
   title: "Nova faixa",
   version: "",
@@ -205,6 +215,15 @@ function App() {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [panelsSwapped, setPanelsSwapped] = useState(false);
+  const [leftRailWidth, setLeftRailWidth] = useState(
+    () => loadPanelWidths().left,
+  );
+  const [rightRailWidth, setRightRailWidth] = useState(
+    () => loadPanelWidths().right,
+  );
+  const [resizingPanel, setResizingPanel] = useState<
+    "library" | "inspector" | null
+  >(null);
   const [lastRemovedLayer, setLastRemovedLayer] = useState<MediaLayerV2 | null>(
     null,
   );
@@ -253,6 +272,9 @@ function App() {
 
   const selectedTrack =
     tracks.find((track) => track.id === selectedTrackId) ?? tracks[0];
+  const selectedTrackIndex = selectedTrack
+    ? tracks.findIndex((track) => track.id === selectedTrack.id)
+    : -1;
   const selectedCover = coverForTrack(selectedTrack);
   const selectedScene = selectedTrack?.scene ?? builtinVisualPresets[0];
   const selectedOutput =
@@ -263,6 +285,10 @@ function App() {
         ? `/api/audio/${encodeURIComponent(selectedTrack.sourceKey)}`
         : ""))
     : "";
+  const shellStyle = {
+    "--rail-left": `${leftRailWidth}px`,
+    "--rail-right": `${rightRailWidth}px`,
+  } as CSSProperties;
 
   useEffect(() => {
     void loadInitialWorkspace();
@@ -285,6 +311,10 @@ function App() {
   useEffect(() => {
     audioBandsRef.current = audioBands;
   }, [audioBands]);
+
+  useEffect(() => {
+    savePanelWidths({ left: leftRailWidth, right: rightRailWidth });
+  }, [leftRailWidth, rightRailWidth]);
 
   useEffect(() => {
     if (!tracks.length) return;
@@ -600,6 +630,61 @@ function App() {
     const next = !rightCollapsed;
     setRightCollapsed(next);
     if (!next && window.innerWidth <= 980) setLeftCollapsed(true);
+  }
+
+  function startPanelResize(
+    panel: "library" | "inspector",
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) {
+    if (window.innerWidth <= 980) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setResizingPanel(panel);
+
+    const startX = event.clientX;
+    const startWidth = panel === "library" ? leftRailWidth : rightRailWidth;
+    const otherWidth = panel === "library" ? rightRailWidth : leftRailWidth;
+    const bounds = panel === "library" ? LEFT_RAIL_BOUNDS : RIGHT_RAIL_BOUNDS;
+    const dragDirection =
+      panel === "library" ? (panelsSwapped ? -1 : 1) : panelsSwapped ? 1 : -1;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const delta = (moveEvent.clientX - startX) * dragDirection;
+      const nextWidth = clampPanelWidth(startWidth + delta, bounds, otherWidth);
+      if (panel === "library") {
+        setLeftRailWidth(nextWidth);
+      } else {
+        setRightRailWidth(nextWidth);
+      }
+    };
+    const stopResize = () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      setResizingPanel(null);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", stopResize);
+      window.removeEventListener("pointercancel", stopResize);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", stopResize);
+    window.addEventListener("pointercancel", stopResize);
+  }
+
+  function selectAdjacentTrack(direction: -1 | 1) {
+    if (!tracks.length) return;
+    const currentIndex = selectedTrackIndex >= 0 ? selectedTrackIndex : 0;
+    const nextTrack = tracks[currentIndex + direction];
+    if (!nextTrack) return;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setSelectedTrackId(nextTrack.id);
   }
 
   function updateMetadata(patch: Partial<TrackMetadata>) {
@@ -1438,7 +1523,8 @@ function App() {
 
   return (
     <main
-      className={`studio-shell ${leftCollapsed ? "left-hidden" : ""} ${rightCollapsed ? "right-hidden" : ""} ${panelsSwapped ? "panels-swapped" : ""}`}
+      className={`studio-shell ${leftCollapsed ? "left-hidden" : ""} ${rightCollapsed ? "right-hidden" : ""} ${panelsSwapped ? "panels-swapped" : ""} ${resizingPanel ? "resizing-panels" : ""}`}
+      style={shellStyle}
     >
       <header className="topbar">
         <div className="brand">SONARA HUB</div>
@@ -1518,7 +1604,7 @@ function App() {
           <div>
             <strong>{folderName}</strong>
             <button type="button" onClick={() => void chooseMusicDirectory()}>
-              Trocar
+              Trocar pasta
             </button>
           </div>
         </div>
@@ -1612,14 +1698,14 @@ function App() {
             type="button"
             onClick={() => fallbackFolderInputRef.current?.click()}
           >
-            <FolderOpen /> Importar pasta
+            <FolderOpen /> Importar pasta sem escrita
           </button>
           <button
             className="quiet-action"
             type="button"
             onClick={() => audioInputRef.current?.click()}
           >
-            <Plus /> Adicionar arquivo
+            <Plus /> Adicionar audio
           </button>
         </div>
         <input
@@ -1637,6 +1723,13 @@ function App() {
           accept="audio/*"
           {...({ webkitdirectory: "" } as Record<string, string>)}
           onChange={(event) => void onFallbackFolder(event.target.files)}
+        />
+        <PanelResizeHandle
+          active={resizingPanel === "library"}
+          className="library-resize"
+          label="Redimensionar biblioteca"
+          onPointerDown={(event) => startPanelResize("library", event)}
+          onReset={() => setLeftRailWidth(DEFAULT_LEFT_RAIL_WIDTH)}
         />
       </aside>
 
@@ -1692,11 +1785,28 @@ function App() {
         <Transport
           audioRef={audioRef}
           audioSrc={audioSrc}
+          canNext={
+            selectedTrackIndex >= 0 && selectedTrackIndex < tracks.length - 1
+          }
+          canPrevious={selectedTrackIndex > 0}
+          trackArtist={selectedTrack?.metadata.artist ?? ""}
+          trackCount={tracks.length}
+          trackIndex={selectedTrackIndex}
+          trackTitle={selectedTrack?.metadata.title ?? ""}
+          onNext={() => selectAdjacentTrack(1)}
+          onPrevious={() => selectAdjacentTrack(-1)}
           onToggle={() => void togglePlayback()}
         />
       </section>
 
       <aside className="inspector-panel">
+        <PanelResizeHandle
+          active={resizingPanel === "inspector"}
+          className="inspector-resize"
+          label="Redimensionar inspetor"
+          onPointerDown={(event) => startPanelResize("inspector", event)}
+          onReset={() => setRightRailWidth(DEFAULT_RIGHT_RAIL_WIDTH)}
+        />
         <div className="inspector-header">
           <strong>Ajustes</strong>
           <span>
@@ -1994,7 +2104,9 @@ function AudioLibraryWorkspace({
           <summary className="batch-toolbar-head">
             <div>
               <span className="overline">Dados comuns do lote</span>
-              <strong>Defina como os campos comuns serão aplicados</strong>
+              <strong>
+                Preencha uma vez e aplique nas linhas selecionadas
+              </strong>
             </div>
             <ChevronDown />
           </summary>
@@ -2138,7 +2250,7 @@ function AudioLibraryWorkspace({
                   )
                 }
               >
-                Selecionar todos
+                <Check /> Selecionar todos
               </button>
               <button
                 type="button"
@@ -2149,7 +2261,7 @@ function AudioLibraryWorkspace({
                   )
                 }
               >
-                Limpar seleção
+                <X /> Limpar seleção
               </button>
             </div>
           </div>
@@ -2342,28 +2454,49 @@ function AudioLibraryWorkspace({
           queuePaused={queuePaused}
         />
       )}
-      <div className="analytic-stage">
-        <AnalyticalWaveform samples={audioBands.samples} />
-      </div>
-      <dl className="metric-strip">
-        <Metric
-          label="LUFS integrado"
-          value={formatMetric(analysis?.integratedLufs, " LUFS")}
-        />
-        <Metric
-          label="True peak"
-          value={formatMetric(analysis?.truePeakDbtp, " dBTP")}
-        />
-        <Metric
-          label="Faixa dinamica"
-          value={formatMetric(analysis?.loudnessRangeLu, " LU")}
-        />
-        <Metric label="Codec" value={selectedTrack?.audioInfo?.codec || "--"} />
-        <Metric
-          label="Duracao"
-          value={formatDuration(selectedTrack?.audioInfo?.durationSeconds)}
-        />
-      </dl>
+      <section className="audio-stage-section waveform-section">
+        <div className="audio-stage-title">
+          <div>
+            <span className="overline">Forma de onda</span>
+            <strong>Preview tecnico da faixa</strong>
+          </div>
+          <small>{selectedTrack?.metadata.artist || "Sem artista"}</small>
+        </div>
+        <div className="analytic-stage">
+          <AnalyticalWaveform samples={audioBands.samples} />
+        </div>
+      </section>
+      <section className="audio-stage-section metrics-section">
+        <div className="audio-stage-title">
+          <div>
+            <span className="overline">Qualidade</span>
+            <strong>Leitura tecnica antes do tratamento</strong>
+          </div>
+          {analysis && <small>{riskLabel(analysis.risk)}</small>}
+        </div>
+        <dl className="metric-strip">
+          <Metric
+            label="LUFS integrado"
+            value={formatMetric(analysis?.integratedLufs, " LUFS")}
+          />
+          <Metric
+            label="True peak"
+            value={formatMetric(analysis?.truePeakDbtp, " dBTP")}
+          />
+          <Metric
+            label="Faixa dinamica"
+            value={formatMetric(analysis?.loudnessRangeLu, " LU")}
+          />
+          <Metric
+            label="Codec"
+            value={selectedTrack?.audioInfo?.codec || "--"}
+          />
+          <Metric
+            label="Duracao"
+            value={formatDuration(selectedTrack?.audioInfo?.durationSeconds)}
+          />
+        </dl>
+      </section>
     </div>
   );
 }
@@ -2785,10 +2918,26 @@ function ScenePreview({
 function Transport({
   audioRef,
   audioSrc,
+  canNext,
+  canPrevious,
+  trackArtist,
+  trackCount,
+  trackIndex,
+  trackTitle,
+  onNext,
+  onPrevious,
   onToggle,
 }: {
   audioRef: React.RefObject<HTMLAudioElement | null>;
   audioSrc: string;
+  canNext: boolean;
+  canPrevious: boolean;
+  trackArtist: string;
+  trackCount: number;
+  trackIndex: number;
+  trackTitle: string;
+  onNext: () => void;
+  onPrevious: () => void;
   onToggle: () => void;
 }) {
   const [playing, setPlaying] = useState(false);
@@ -2816,13 +2965,32 @@ function Transport({
 
   return (
     <div className="transport">
-      <IconButton
-        label={playing ? "Pausar previa" : "Tocar previa"}
-        onClick={onToggle}
-      >
-        {playing ? <Pause /> : <Play />}
-      </IconButton>
-      <strong>{formatDuration(time)}</strong>
+      <div className="transport-controls" aria-label="Navegacao da faixa">
+        <IconButton
+          disabled={!canPrevious}
+          label="Faixa anterior"
+          onClick={onPrevious}
+        >
+          <SkipBack />
+        </IconButton>
+        <IconButton
+          label={playing ? "Pausar previa" : "Tocar previa"}
+          onClick={onToggle}
+        >
+          {playing ? <Pause /> : <Play />}
+        </IconButton>
+        <IconButton disabled={!canNext} label="Proxima faixa" onClick={onNext}>
+          <SkipForward />
+        </IconButton>
+      </div>
+      <div className="transport-track">
+        <strong>{trackTitle || "Nenhuma faixa selecionada"}</strong>
+        <small>
+          {trackArtist || "Sem artista"}
+          {trackCount > 0 && ` · ${Math.max(0, trackIndex) + 1}/${trackCount}`}
+        </small>
+      </div>
+      <strong className="transport-time">{formatDuration(time)}</strong>
       <input
         aria-label="Posicao da previa"
         max={duration || 0}
@@ -2836,8 +3004,7 @@ function Transport({
           setTime(next);
         }}
       />
-      <span>{formatDuration(duration)}</span>
-      <small>Previa · Automatico</small>
+      <span className="transport-time">{formatDuration(duration)}</span>
     </div>
   );
 }
@@ -3813,6 +3980,36 @@ function ColorInput({
   );
 }
 
+function PanelResizeHandle({
+  active,
+  className,
+  label,
+  onPointerDown,
+  onReset,
+}: {
+  active: boolean;
+  className: string;
+  label: string;
+  onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onReset: () => void;
+}) {
+  return (
+    <button
+      aria-label={label}
+      aria-orientation="vertical"
+      className={`panel-resize-handle ${className} ${active ? "active" : ""}`}
+      title={`${label}. Duplo clique redefine o tamanho.`}
+      type="button"
+      onDoubleClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onReset();
+      }}
+      onPointerDown={onPointerDown}
+    />
+  );
+}
+
 function IconButton({
   children,
   disabled,
@@ -4163,6 +4360,58 @@ function groupPresets(presets: ScenePresetV3[]) {
 
 function isAudioName(name: string) {
   return /\.(mp3|wav|m4a|flac|aac|ogg)$/i.test(name);
+}
+
+function loadPanelWidths() {
+  const fallback = {
+    left: DEFAULT_LEFT_RAIL_WIDTH,
+    right: DEFAULT_RIGHT_RAIL_WIDTH,
+  };
+  try {
+    const raw = window.localStorage.getItem(PANEL_WIDTH_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<typeof fallback>;
+    return {
+      left: clampPanelWidth(
+        Number(parsed.left) || fallback.left,
+        LEFT_RAIL_BOUNDS,
+        Number(parsed.right) || fallback.right,
+      ),
+      right: clampPanelWidth(
+        Number(parsed.right) || fallback.right,
+        RIGHT_RAIL_BOUNDS,
+        Number(parsed.left) || fallback.left,
+      ),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function savePanelWidths(widths: { left: number; right: number }) {
+  try {
+    window.localStorage.setItem(
+      PANEL_WIDTH_STORAGE_KEY,
+      JSON.stringify(widths),
+    );
+  } catch {
+    // Local layout preference can be ignored when storage is unavailable.
+  }
+}
+
+function clampPanelWidth(
+  value: number,
+  bounds: { min: number; max: number },
+  otherWidth: number,
+) {
+  const viewportWidth =
+    typeof window === "undefined" ? 1440 : window.innerWidth;
+  const viewportLimitedMax = Math.max(
+    bounds.min,
+    viewportWidth - otherWidth - PANEL_MIN_PREVIEW_WIDTH,
+  );
+  const max = Math.min(bounds.max, viewportLimitedMax);
+  return Math.round(Math.min(Math.max(value, bounds.min), max));
 }
 
 function formatDuration(seconds?: number | null) {
