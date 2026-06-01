@@ -49,7 +49,7 @@ export function interpolateAudioEnvelope(envelope, seconds) {
 
 export async function sampleAudioEnvelope(audioPath, frameRate = 12) {
   if (!ffmpegPath) {
-    throw new Error("ffmpeg-static nao forneceu um binario de ffmpeg.");
+    throw new Error("ffmpeg-static não forneceu um binário de ffmpeg.");
   }
   const sampleRate = 8000;
   const chunks = await new Promise((resolve, reject) => {
@@ -79,7 +79,7 @@ export async function sampleAudioEnvelope(audioPath, frameRate = 12) {
     child.on("close", (code) =>
       code === 0
         ? resolve(output)
-        : reject(new Error(`Nao foi possivel analisar o audio: ${stderr}`)),
+        : reject(new Error(`Não foi possível analisar o áudio: ${stderr}`)),
     );
   });
   const pcm = Buffer.concat(chunks);

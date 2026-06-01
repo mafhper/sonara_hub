@@ -77,7 +77,7 @@ function preset({
 export const builtinVisualPresets = [
   preset({
     id: "liquid-mesh",
-    name: "Fluxo liquido",
+    name: "Fluxo líquido",
     category: "Superficies",
     note: "Reflexos amplos e lentos com profundidade de superficie.",
     colors: { base: "#101824", effect: "#536b86", light: "#d8c6ae" },
@@ -132,7 +132,7 @@ export const builtinVisualPresets = [
     common: { speed: 18, brightness: 44, direction: 138, audioReaction: 16 },
     advanced: { shapes: 58, scale: 62, blur: 74, drift: 34, glow: 36 },
     controls: [
-      control("shapes", "Presenca"),
+      control("shapes", "Presença"),
       control("scale", "Escala"),
       control("blur", "Desfoque"),
       control("drift", "Deriva"),
@@ -149,9 +149,9 @@ export const builtinVisualPresets = [
     advanced: { discSize: 78, rpm: 34, x: 50, y: 52, shadow: 62 },
     controls: [
       control("discSize", "Tamanho do disco"),
-      control("rpm", "Rotacao", 12, 64, " RPM"),
-      control("x", "Posicao horizontal"),
-      control("y", "Posicao vertical"),
+      control("rpm", "Rotação", 12, 64, " RPM"),
+      control("x", "Posição horizontal"),
+      control("y", "Posição vertical"),
       control("shadow", "Sombra"),
     ],
   }),
@@ -172,7 +172,7 @@ export const builtinVisualPresets = [
     advanced: { darkness: 86, pulse: 16, vignette: 74, drift: 10 },
     controls: [
       control("darkness", "Escuridao"),
-      control("pulse", "Respiracao"),
+      control("pulse", "Respiração"),
       control("vignette", "Vinheta"),
       control("drift", "Deriva"),
     ],

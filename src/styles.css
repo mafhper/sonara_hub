@@ -29,6 +29,7 @@
   --text-dim: #87919f;
   --border: #323740;
   --border-soft: #23272f;
+  --control-border: #5e6878;
   --focus: #b8ccff;
   --focus-soft: rgb(184 204 255 / 22%);
   --selection: #202838;
@@ -36,6 +37,17 @@
   --status-ok: #9bd8bb;
   --status-warn: #e2c36b;
   --status-danger: #f0a7a7;
+  --text-inverse: #101216;
+  --field-bg: #171b22;
+  --surface-hover: #151922;
+  --control-hover-bg: #1c2129;
+  --chip-bg: #20252d;
+  --canvas-border: #565b64;
+  --status-ok-border: #416b58;
+  --status-warn-border: #766235;
+  --status-danger-border: #78484b;
+  --error-bg: #2a1718;
+  --error-text: #ffd7d7;
   --font-xs: 10px;
   --font-sm: 12px;
   --font-md: 13px;
@@ -964,6 +976,22 @@ svg {
   display: grid;
   gap: 8px;
   margin-top: 11px;
+  max-height: min(316px, 34vh);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.batch-job-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.batch-job-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.batch-job-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .batch-job-summary {
@@ -1638,7 +1666,7 @@ button:disabled {
 .mode-switch,
 .batch-apply-mode,
 .batch-table-actions {
-  border-color: var(--border);
+  border-color: var(--control-border);
   background: var(--app-bg);
 }
 
@@ -1670,7 +1698,7 @@ button:disabled {
 .batch-job-actions button,
 .batch-job-row button {
   min-height: var(--control-height);
-  border-color: var(--border);
+  border-color: var(--control-border);
   background: var(--surface-raised);
   color: var(--text-secondary);
   font-size: var(--font-sm);
@@ -1690,13 +1718,13 @@ button:disabled {
 .batch-job-actions button:hover,
 .batch-job-row button:hover {
   border-color: var(--focus);
-  background: #1c2129;
+  background: var(--control-hover-bg);
   color: var(--text-primary);
 }
 
 .primary-action {
   min-height: 36px;
-  color: #101216;
+  color: var(--text-inverse);
   font-size: var(--font-sm);
 }
 
@@ -1748,7 +1776,7 @@ button:disabled {
 }
 
 .track-row:hover {
-  background: #151922;
+  background: var(--surface-hover);
   border-bottom-color: var(--border-soft);
 }
 
@@ -1822,7 +1850,7 @@ button:disabled {
 }
 
 .preview-frame {
-  border-color: #565b64;
+  border-color: var(--canvas-border);
 }
 
 .audio-library {
@@ -1914,7 +1942,7 @@ button:disabled {
 }
 
 .batch-table tbody tr:hover {
-  background: #292e37;
+  background: var(--selection);
 }
 
 .batch-table tbody tr.selected {
@@ -1927,8 +1955,8 @@ button:disabled {
 .field select,
 .field textarea {
   min-height: var(--control-height);
-  border-color: var(--border);
-  background: #171b22;
+  border-color: var(--control-border);
+  background: var(--field-bg);
   color: var(--text-primary);
   font-size: var(--font-sm);
 }
@@ -1978,7 +2006,7 @@ button:disabled {
 .batch-job-row {
   border-color: var(--border);
   border-radius: 4px;
-  background: #151922;
+  background: var(--surface-hover);
   padding: 10px 0 10px 12px;
 }
 
@@ -2015,7 +2043,7 @@ button:disabled {
 .quality-badge {
   gap: 6px;
   border-color: var(--border);
-  background: #20252d;
+  background: var(--chip-bg);
   color: var(--text-secondary);
   font-size: var(--font-xs);
 }
@@ -2044,18 +2072,18 @@ button:disabled {
 
 .quality-badge.treated,
 .quality-badge.safe {
-  border-color: #416b58;
+  border-color: var(--status-ok-border);
   color: var(--status-ok);
 }
 
 .quality-badge.reduced-headroom {
-  border-color: #766235;
+  border-color: var(--status-warn-border);
   color: var(--status-warn);
 }
 
 .quality-badge.overload,
 .quality-badge.decode-error {
-  border-color: #78484b;
+  border-color: var(--status-danger-border);
   color: var(--status-danger);
 }
 
@@ -2079,13 +2107,13 @@ button:disabled {
 .transport-controls .icon-button:nth-child(2) {
   border-color: var(--text-primary);
   background: var(--text-primary);
-  color: #101216;
+  color: var(--text-inverse);
 }
 
 .transport-controls .icon-button:nth-child(2):hover {
   border-color: var(--text-primary);
   background: #ffffff;
-  color: #101216;
+  color: var(--text-inverse);
 }
 
 .transport-track {
@@ -2118,6 +2146,7 @@ button:disabled {
 .range-field input[type="range"] {
   height: 4px;
   background: #3b4350;
+  font-size: var(--font-sm);
 }
 
 .transport input[type="range"]::-webkit-slider-thumb,
@@ -2258,9 +2287,9 @@ button:disabled {
 }
 
 .error-toast {
-  border-color: #78484b;
-  background: #2a1718;
-  color: #ffd7d7;
+  border-color: var(--status-danger-border);
+  background: var(--error-bg);
+  color: var(--error-text);
 }
 
 .left-hidden {

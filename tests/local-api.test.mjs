@@ -36,7 +36,7 @@ test("local API reports an actionable message when the server is offline", async
   const url = await listen(server);
   await new Promise((resolve) => server.close(resolve));
 
-  await assert.rejects(() => fetchJson(url), /servidor local.*indisponivel/i);
+  await assert.rejects(() => fetchJson(url), /servidor local.*indisponível/i);
 });
 
 test("optional file copy ignores a missing thumbnail", async () => {

@@ -80,7 +80,7 @@ export function normalizedMp3TruePeakTarget(attempt = 0) {
 export function validateNormalizedAnalysis(analysis) {
   if (analysis?.risk !== "safe") {
     throw new Error(
-      "A copia normalizada nao atingiu margem segura apos o encode MP3.",
+      "A cópia normalizada não atingiu margem segura após o encode MP3.",
     );
   }
 }
@@ -356,12 +356,12 @@ function parseLoudnormJson(stderr) {
       // Ignore unrelated ffmpeg output.
     }
   }
-  throw new Error("Nao foi possivel interpretar a analise loudnorm do ffmpeg.");
+  throw new Error("Não foi possível interpretar a análise loudnorm do ffmpeg.");
 }
 
 function runFfmpeg(args) {
   if (!ffmpegPath) {
-    throw new Error("ffmpeg-static nao forneceu um binario de ffmpeg.");
+    throw new Error("ffmpeg-static não forneceu um binário de ffmpeg.");
   }
   return new Promise((resolve, reject) => {
     let stderr = "";

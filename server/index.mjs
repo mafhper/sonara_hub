@@ -107,7 +107,7 @@ app.delete("/api/visual-presets/:id", async (req, res) => {
 app.get("/api/audio/:fileName", async (req, res) => {
   const audioPath = await resolveInputAudio(req.params.fileName);
   if (!audioPath) {
-    res.status(404).json({ error: "Audio nao encontrado." });
+    res.status(404).json({ error: "Áudio não encontrado." });
     return;
   }
   res.sendFile(audioPath);
@@ -137,7 +137,7 @@ app.get("/api/project", async (_req, res) => {
 
 app.post("/api/audio-metadata", upload.single("audio"), async (req, res) => {
   if (!req.file?.path) {
-    res.status(400).json({ error: "Envie um arquivo de audio." });
+    res.status(400).json({ error: "Envie um arquivo de áudio." });
     return;
   }
   try {
@@ -153,7 +153,7 @@ app.post("/api/audio/analyze", upload.single("audio"), async (req, res) => {
     (await resolveInputAudio(req.body.inputAudio)) ??
     (await findDefaultAudio());
   if (!audioPath) {
-    res.status(400).json({ error: "Envie um arquivo de audio." });
+    res.status(400).json({ error: "Envie um arquivo de áudio." });
     return;
   }
   try {
@@ -340,7 +340,7 @@ app.post(
 
     if (!audioPath) {
       await tempFiles.cleanup(files);
-      res.status(400).json({ error: "Nenhum audio foi encontrado." });
+      res.status(400).json({ error: "Nenhum áudio foi encontrado." });
       return;
     }
 
@@ -417,7 +417,7 @@ app.post(
 
     if (audioFiles.length === 0) {
       await tempFiles.cleanup(files);
-      res.status(400).json({ error: "Nenhum audio foi enviado para o lote." });
+      res.status(400).json({ error: "Nenhum áudio foi enviado para o lote." });
       return;
     }
 
@@ -491,7 +491,7 @@ app.post(
 app.get("/api/jobs/:id", (req, res) => {
   const job = jobs.get(req.params.id);
   if (!job) {
-    res.status(404).json({ error: "Job nao encontrado." });
+    res.status(404).json({ error: "Job não encontrado." });
     return;
   }
   res.json(job);
@@ -540,7 +540,7 @@ app.post("/api/jobs/cancel-all", (_req, res) => {
 app.post("/api/jobs/:id/cancel", (req, res) => {
   const job = requestJobCancel(req.params.id);
   if (!job) {
-    res.status(404).json({ error: "Job nao encontrado." });
+    res.status(404).json({ error: "Job não encontrado." });
     return;
   }
   res.json(job);
@@ -746,7 +746,7 @@ async function renderVideo({
   updateJob(jobId, {
     status: "running",
     progress: 1,
-    message: "Analisando audio",
+    message: "Analisando áudio",
   });
   const audio = await analyzeAudio(audioPath);
   const sourceAnalysis = await analyzeAudioQuality(audioPath);
@@ -862,7 +862,7 @@ async function renderVideo({
   updateJob(jobId, {
     status: "done",
     progress: 100,
-    message: "Renderizacao concluida",
+    message: "Renderização concluída",
     outputUrl: `/outputs/${outputName}`,
     sidecarUrl: `/outputs/${outputName}.youtube.json`,
     thumbnailUrl: thumbnailPath
@@ -1061,7 +1061,7 @@ function buildDefaultMetadata(lyrics, audio) {
   const description = [
     `${title} - ${lyrics.summary || genre}`,
     "",
-    "Musica criada com inteligencia artificial e visual ambientado gerado localmente pelo Sonara Hub.",
+    "Música criada com inteligência artificial e visual ambientado gerado localmente pelo Sonara Hub.",
     "",
     "Letra:",
     lyrics.lyricLines.slice(0, 16).join("\n"),
@@ -1338,7 +1338,7 @@ async function writeYoutubeSidecar(
       note: "Enviar a capa escolhida depois do upload do video, se aplicavel.",
     },
     youtubeMusic: {
-      note: "YouTube Music nao possui fluxo publico equivalente de upload de video via Data API; use os metadados de musica, capa e album como referencia para upload/distribuicao manual.",
+      note: "YouTube Music não possui fluxo público equivalente de upload de vídeo via Data API; use os metadados de música, capa e álbum como referência para upload/distribuição manual.",
     },
     export: {
       outputFileName: path.basename(outputPath),
@@ -1501,7 +1501,7 @@ ${events.join("\n")}
 
 function runFfmpeg(args, duration, onProgress) {
   if (!ffmpegPath) {
-    throw new Error("ffmpeg-static nao forneceu um binario de ffmpeg.");
+    throw new Error("ffmpeg-static não forneceu um binário de ffmpeg.");
   }
 
   return new Promise((resolve, reject) => {

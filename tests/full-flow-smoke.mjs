@@ -68,18 +68,18 @@ try {
     await page.getByText(track.title).first().waitFor({ timeout: 20_000 });
   }
 
-  await page.getByRole("button", { name: "Biblioteca de audio" }).click();
+  await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
   await page.getByRole("button", { name: "Lote" }).click();
   await page.getByRole("button", { name: "Selecionar todos" }).click();
 
   const batch = page.getByRole("group", { name: "Dados comuns do lote" });
   await batch.getByLabel("Artista principal").fill("QA Artist");
   await batch
-    .getByLabel("Album", { exact: true })
+    .getByLabel("Álbum", { exact: true })
     .fill(`QA Complete Flow ${runId}`);
-  await batch.getByLabel("Artista do album").fill("QA Artist");
+  await batch.getByLabel("Artista do álbum").fill("QA Artist");
   await batch
-    .getByLabel("Comentario ID3")
+    .getByLabel("Comentário ID3")
     .fill("Fluxo completo de QA gerado localmente.");
   await batch.getByRole("button", { name: "Sobrescrever informados" }).click();
   await batch.getByRole("button", { name: "Aplicar aos selecionados" }).click();
@@ -122,10 +122,10 @@ try {
     `expected at least 2 treated tracks, got ${treatedCount}`,
   );
 
-  await page.getByRole("button", { name: "Faixa unica" }).click();
+  await page.getByRole("button", { name: "Faixa única" }).click();
   await page.locator(".track-row", { hasText: "Tratado" }).first().click();
 
-  await page.getByRole("button", { name: "Estudio visual" }).click();
+  await page.getByRole("button", { name: "Estúdio visual" }).click();
   await page.locator(".steps button").filter({ hasText: "Visual" }).click();
   await page
     .locator('select:has(option[value="audio-dark"])')
@@ -141,7 +141,7 @@ try {
   });
 
   await page.locator(".steps button").filter({ hasText: "Exportar" }).click();
-  await page.getByLabel("Resolucao").selectOption("youtube-720p");
+  await page.getByLabel("Resolução").selectOption("youtube-720p");
   await page.getByLabel("Perfil de qualidade").selectOption("fast");
   const [response] = await Promise.all([
     page.waitForResponse(
@@ -163,7 +163,7 @@ try {
   await page.waitForFunction(
     () =>
       !document.body.textContent?.includes("Finalizando 98%") &&
-      document.body.textContent?.includes("Renderizacao concluida"),
+      document.body.textContent?.includes("Renderização concluída"),
     undefined,
     { timeout: 20_000 },
   );

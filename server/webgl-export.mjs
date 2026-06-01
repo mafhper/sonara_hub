@@ -139,14 +139,14 @@ export function buildRendererHtml({
     const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
     window.recordScene = async (durationSeconds, fps) => {
-      if (!window.MediaRecorder) throw new Error("MediaRecorder indisponivel no Chromium");
+      if (!window.MediaRecorder) throw new Error("MediaRecorder indisponível no Chromium");
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp8")
         ? "video/webm;codecs=vp8"
         : "video/webm";
       const stream = canvas.captureStream(0);
       const [track] = stream.getVideoTracks();
       if (typeof track?.requestFrame !== "function") {
-        throw new Error("Captura deterministica do canvas indisponivel no Chromium");
+        throw new Error("Captura determinística do canvas indisponível no Chromium");
       }
       const recorder = new MediaRecorder(stream, {
         mimeType,
@@ -244,7 +244,7 @@ function assertWebmDecodable(outputPath) {
         assertWebmDecodeReport(stderr);
         if (code !== 0) {
           throw new Error(
-            `Cena WebM nao pode ser decodificada: ${stderr.slice(-1200)}`,
+            `Cena WebM não pode ser decodificada: ${stderr.slice(-1200)}`,
           );
         }
         resolve();

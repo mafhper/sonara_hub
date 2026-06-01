@@ -422,7 +422,7 @@ function App() {
   async function chooseOutputDirectory() {
     if (!window.showDirectoryPicker) {
       setError(
-        "O navegador atual nao oferece escolha persistente de pasta de saida.",
+        "O navegador atual não oferece escolha persistente de pasta de saída.",
       );
       return;
     }
@@ -519,7 +519,7 @@ function App() {
         suggestions: payload.suggestions,
       };
     } catch (reason) {
-      setError(localApiMessage(reason, "ler os metadados do audio"));
+      setError(localApiMessage(reason, "ler os metadados do áudio"));
       return undefined;
     }
   }
@@ -769,7 +769,7 @@ function App() {
         },
       });
     } catch (reason) {
-      setError(localApiMessage(reason, "analisar a qualidade do audio"));
+      setError(localApiMessage(reason, "analisar a qualidade do áudio"));
     }
   }
 
@@ -819,7 +819,7 @@ function App() {
       setJobs((current) => [job, ...current]);
       pollJob(job.id);
     } catch (reason) {
-      setError(localApiMessage(reason, "iniciar o tratamento do audio"));
+      setError(localApiMessage(reason, "iniciar o tratamento do áudio"));
     }
   }
 
@@ -1081,7 +1081,7 @@ function App() {
           : track,
       ),
     );
-    setBatchFeedback("Dados de publicacao aplicados ao lote.");
+    setBatchFeedback("Dados de publicação aplicados ao lote.");
   }
 
   async function togglePlayback() {
@@ -1192,7 +1192,7 @@ function App() {
       setJobs((current) => [job, ...current]);
       pollJob(job.id);
     } catch (reason) {
-      setError(localApiMessage(reason, "iniciar a exportacao"));
+      setError(localApiMessage(reason, "iniciar a exportação"));
     }
   }
 
@@ -1221,7 +1221,7 @@ function App() {
         if (job.status === "done") {
           if (job.kind === "audio-process") {
             void integrateTreatedAudio(job).catch((reason) =>
-              setError(localApiMessage(reason, "integrar a copia tratada")),
+              setError(localApiMessage(reason, "integrar a cópia tratada")),
             );
           } else {
             void copyOutput(job).catch((reason) =>
@@ -1240,12 +1240,12 @@ function App() {
               ? {
                   ...item,
                   status: "error",
-                  message: "Servidor local indisponivel",
+                  message: "Servidor local indisponível",
                 }
               : item,
           ),
         );
-        setError(localApiMessage(reason, "acompanhar a exportacao"));
+        setError(localApiMessage(reason, "acompanhar a exportação"));
       }
     }, 900);
   }
@@ -1316,7 +1316,7 @@ function App() {
       permission = await handle.requestPermission?.({ mode: "readwrite" });
     }
     if (permission !== "granted") {
-      throw new Error("A pasta de saida precisa de permissao para escrita.");
+      throw new Error("A pasta de saída precisa de permissão para escrita.");
     }
     await copyUrlToDirectory(handle, job.outputUrl);
     await copyUrlToDirectory(handle, job.sidecarUrl);
@@ -1352,7 +1352,7 @@ function App() {
       }
     }
     const response = await fetchOptional(job.outputUrl);
-    if (!response) throw new Error("A copia tratada nao esta disponivel.");
+    if (!response) throw new Error("A cópia tratada não está disponível.");
     const blob = await response.blob();
     const fileName = decodeURIComponent(
       job.outputUrl.split("/").pop() ?? "tratado.mp3",
@@ -1414,7 +1414,7 @@ function App() {
       permission = await directory.requestPermission?.({ mode: "readwrite" });
     }
     if (permission !== "granted") {
-      throw new Error("A pasta de musicas precisa de permissao para escrita.");
+      throw new Error("A pasta de músicas precisa de permissão para escrita.");
     }
     const backupDirectory = await directory.getDirectoryHandle(
       "Backup-originais",
@@ -1539,14 +1539,14 @@ function App() {
               type="button"
               onClick={() => setWorkspaceMode("audio")}
             >
-              Biblioteca de audio
+              Biblioteca de áudio
             </button>
             <button
               className={workspaceMode === "visual" ? "active" : ""}
               type="button"
               onClick={() => setWorkspaceMode("visual")}
             >
-              Estudio visual
+              Estúdio visual
             </button>
           </div>
           <strong>
@@ -1593,7 +1593,7 @@ function App() {
               ? "Revisar e processar"
               : workflowMode === "batch"
                 ? "Revisar lote"
-                : "Revisar exportacao"}
+                : "Revisar exportação"}
           </button>
         </div>
       </header>
@@ -1618,7 +1618,7 @@ function App() {
             type="button"
             onClick={() => setWorkflowMode("single")}
           >
-            Faixa unica
+            Faixa única
           </button>
           <button
             className={workflowMode === "batch" ? "active" : ""}
@@ -1629,7 +1629,9 @@ function App() {
           </button>
         </div>
         <div className="library-caption">
-          <span>{tracks.length} musicas</span>
+          <span>
+            {tracks.length === 1 ? "1 música" : `${tracks.length} músicas`}
+          </span>
           {workflowMode === "batch" && (
             <span>
               {tracks.filter((track) => track.selectedForBatch).length}{" "}
@@ -1705,7 +1707,7 @@ function App() {
             type="button"
             onClick={() => audioInputRef.current?.click()}
           >
-            <Plus /> Adicionar audio
+            <Plus /> Adicionar áudio
           </button>
         </div>
         <input
@@ -1944,14 +1946,14 @@ function App() {
           </div>
         ) : (
           <div className="empty-inspector">
-            Abra uma pasta de musicas para iniciar.
+            Abra uma pasta de músicas para iniciar.
           </div>
         )}
       </aside>
 
       <footer className="statusbar">
         <span className="save-status">
-          <Check /> Alteracoes salvas
+          <Check /> Alterações salvas
         </span>
         {workspaceMode === "visual" ? (
           <nav className="steps" aria-label="Etapas do projeto">
@@ -1971,7 +1973,7 @@ function App() {
           </nav>
         ) : (
           <span className="audio-flow">
-            Analisar · revisar pacote · processar copia
+            Analisar · revisar pacote · processar cópia
           </span>
         )}
         <span className="project-state">Projeto atual · autosave local</span>
@@ -2082,8 +2084,8 @@ function AudioLibraryWorkspace({
       <div className="audio-library batch-library">
         <header className="audio-library-heading">
           <div>
-            <span className="overline">Biblioteca de audio</span>
-            <h1>Revisao e tratamento do lote</h1>
+            <span className="overline">Biblioteca de áudio</span>
+            <h1>Revisão e tratamento do lote</h1>
           </div>
           <strong>{selectedCount} selecionadas</strong>
         </header>
@@ -2139,12 +2141,12 @@ function AudioLibraryWorkspace({
                 onChange={(artist) => onBatchCommon({ ...batchCommon, artist })}
               />
               <TextField
-                label="Album"
+                label="Álbum"
                 value={batchCommon.album}
                 onChange={(album) => onBatchCommon({ ...batchCommon, album })}
               />
               <TextField
-                label="Artista do album"
+                label="Artista do álbum"
                 value={batchCommon.albumArtist}
                 onChange={(albumArtist) =>
                   onBatchCommon({ ...batchCommon, albumArtist })
@@ -2170,12 +2172,12 @@ function AudioLibraryWorkspace({
                 }
               />
               <TextField
-                label="Genero"
+                label="Gênero"
                 value={batchCommon.genre}
                 onChange={(genre) => onBatchCommon({ ...batchCommon, genre })}
               />
               <TextArea
-                label="Comentario ID3"
+                label="Comentário ID3"
                 rows={2}
                 value={batchCommon.comment}
                 onChange={(comment) =>
@@ -2185,7 +2187,7 @@ function AudioLibraryWorkspace({
             </div>
             <div className="batch-toolbar-actions">
               <CheckField
-                label="Normalizar copias"
+                label="Normalizar cópias"
                 checked={batchCommon.normalizationEnabled}
                 onChange={(normalizationEnabled) =>
                   onBatchCommon({ ...batchCommon, normalizationEnabled })
@@ -2434,7 +2436,7 @@ function AudioLibraryWorkspace({
     <div className="audio-library">
       <header className="audio-library-heading">
         <div>
-          <span className="overline">Biblioteca de audio</span>
+          <span className="overline">Biblioteca de áudio</span>
           <h1>{selectedTrack?.metadata.title || "Selecione uma faixa"}</h1>
         </div>
         {analysis && (
@@ -2458,7 +2460,7 @@ function AudioLibraryWorkspace({
         <div className="audio-stage-title">
           <div>
             <span className="overline">Forma de onda</span>
-            <strong>Preview tecnico da faixa</strong>
+            <strong>Preview técnico da faixa</strong>
           </div>
           <small>{selectedTrack?.metadata.artist || "Sem artista"}</small>
         </div>
@@ -2470,7 +2472,7 @@ function AudioLibraryWorkspace({
         <div className="audio-stage-title">
           <div>
             <span className="overline">Qualidade</span>
-            <strong>Leitura tecnica antes do tratamento</strong>
+            <strong>Leitura técnica antes do tratamento</strong>
           </div>
           {analysis && <small>{riskLabel(analysis.risk)}</small>}
         </div>
@@ -2607,9 +2609,12 @@ function BatchJobBoard({
           {activeJobs.map((job) => (
             <div className={`batch-job-row ${job.status}`} key={job.id}>
               <div>
-                <strong>{job.metadata?.title || job.message}</strong>
+                <strong>
+                  {job.metadata?.title || readableJobMessage(job.message)}
+                </strong>
                 <small>
-                  {jobStatusLabel(job.status)} · {job.message}
+                  {jobStatusLabel(job.status)} ·{" "}
+                  {readableJobMessage(job.message)}
                 </small>
               </div>
               <progress max={100} value={job.progress} />
@@ -2684,17 +2689,17 @@ function AudioLibraryInspector({
           onChange={(artist) => onChange({ artist })}
         />
         <TextField
-          label="Album"
+          label="Álbum"
           value={metadata.album}
           onChange={(album) => onChange({ album })}
         />
         <TextField
-          label="Artista do album"
+          label="Artista do álbum"
           value={metadata.albumArtist}
           onChange={(albumArtist) => onChange({ albumArtist })}
         />
         <TextField
-          label="Genero"
+          label="Gênero"
           value={metadata.genre}
           onChange={(genre) => onChange({ genre })}
         />
@@ -2704,7 +2709,7 @@ function AudioLibraryInspector({
           onChange={(composer) => onChange({ composer })}
         />
         <TextArea
-          label="Comentario ID3"
+          label="Comentário ID3"
           rows={3}
           value={metadata.comment}
           onChange={(comment) => onChange({ comment })}
@@ -2814,7 +2819,7 @@ function AudioLibraryInspector({
           </p>
         )}
         <CheckField
-          label="Normalizar copia tratada para -14 LUFS / -1 dBTP"
+          label="Normalizar cópia tratada para -14 LUFS / -1 dBTP"
           checked={metadata.normalizationEnabled}
           onChange={(normalizationEnabled) =>
             onChange({ normalizationEnabled })
@@ -2831,7 +2836,7 @@ function AudioLibraryInspector({
           <Check />{" "}
           {workflowMode === "batch"
             ? "Revisar e processar lote"
-            : "Revisar e processar copia"}
+            : "Revisar e processar cópia"}
         </button>
         {canOverwrite && (
           <button className="quiet-danger" type="button" onClick={onOverwrite}>
@@ -2974,7 +2979,7 @@ function Transport({
           <SkipBack />
         </IconButton>
         <IconButton
-          label={playing ? "Pausar previa" : "Tocar previa"}
+          label={playing ? "Pausar prévia" : "Tocar prévia"}
           onClick={onToggle}
         >
           {playing ? <Pause /> : <Play />}
@@ -2992,7 +2997,7 @@ function Transport({
       </div>
       <strong className="transport-time">{formatDuration(time)}</strong>
       <input
-        aria-label="Posicao da previa"
+        aria-label="Posição da prévia"
         max={duration || 0}
         min="0"
         step="0.1"
@@ -3050,7 +3055,7 @@ function MusicInspector({
           onChange={(artist) => onChange({ artist })}
         />
         <TextField
-          label="Album"
+          label="Álbum"
           value={metadata.album}
           onChange={(album) => onChange({ album })}
         />
@@ -3061,7 +3066,7 @@ function MusicInspector({
         />
         <div className="inline-actions">
           <button type="button" onClick={onApplySuggestions}>
-            <RotateCcw /> Usar dados do audio
+            <RotateCcw /> Usar dados do áudio
           </button>
           <button type="button" onClick={onCreateVariation}>
             <Copy /> Criar variacao
@@ -3073,7 +3078,7 @@ function MusicInspector({
             type="button"
             onClick={onReplaceAudio}
           >
-            <FileAudio /> Trocar audio desta versao
+            <FileAudio /> Trocar áudio desta versão
           </button>
         )}
         {onApplyCommonBatch && (
@@ -3082,11 +3087,11 @@ function MusicInspector({
             type="button"
             onClick={onApplyCommonBatch}
           >
-            <Layers3 /> Aplicar album e artista ao lote
+            <Layers3 /> Aplicar álbum e artista ao lote
           </button>
         )}
       </InspectorGroup>
-      <InspectorGroup title="Arte do album" open>
+      <InspectorGroup title="Arte do álbum" open>
         {cover ? (
           <div className="cover-preview">
             <img alt="" src={cover.src} />
@@ -3119,9 +3124,9 @@ function MusicInspector({
         )}
         {!suggestedCover && <p className="helper-copy">{artworkHint}</p>}
       </InspectorGroup>
-      <InspectorGroup title="Descricao e publicacao">
+      <InspectorGroup title="Descrição e publicação">
         <TextArea
-          label="Descricao / letra manual"
+          label="Descrição / letra manual"
           value={metadata.description}
           onChange={(description) => onChange({ description })}
         />
@@ -3229,19 +3234,19 @@ function VisualInspector(props: {
           onChange={(value) => props.onCommon("speed", value)}
         />
         <RangeField
-          label="Direcao"
+          label="Direção"
           max={360}
           unit="°"
           value={scene.common.direction}
           onChange={(value) => props.onCommon("direction", value)}
         />
         <RangeField
-          label="Reacao musical"
+          label="Reação musical"
           value={scene.common.audioReaction}
           onChange={(value) => props.onCommon("audioReaction", value)}
         />
       </InspectorGroup>
-      <InspectorGroup title="Ajustes avancados">
+      <InspectorGroup title="Ajustes avançados">
         {scene.controls.map((control) => (
           <RangeField
             key={control.key}
@@ -3282,7 +3287,7 @@ function VisualInspector(props: {
               </SelectField>
             </div>
             <div className="inspector-subsection">
-              <p className="inspector-kicker">Aparencia</p>
+              <p className="inspector-kicker">Aparência</p>
               <ColorInput
                 label="Cor"
                 value={scene.waveform.color}
@@ -3299,7 +3304,7 @@ function VisualInspector(props: {
                 onChange={(height) => props.onWaveform({ height })}
               />
               <RangeField
-                label="Posicao"
+                label="Posição"
                 value={scene.waveform.position}
                 onChange={(position) => props.onWaveform({ position })}
               />
@@ -3317,12 +3322,12 @@ function VisualInspector(props: {
                 onChange={(thickness) => props.onWaveform({ thickness })}
               />
               <RangeField
-                label="Suavizacao"
+                label="Suavização"
                 value={scene.waveform.smoothing}
                 onChange={(smoothing) => props.onWaveform({ smoothing })}
               />
               <RangeField
-                label="Reacao musical"
+                label="Reação musical"
                 value={scene.waveform.audioReaction}
                 onChange={(audioReaction) =>
                   props.onWaveform({ audioReaction })
@@ -3385,7 +3390,7 @@ function VisualInspector(props: {
                     }
                   />
                   <RangeField
-                    label="Rotacao"
+                    label="Rotação"
                     min={-180}
                     max={180}
                     unit="deg"
@@ -3491,7 +3496,7 @@ function LayerEditor(props: {
             onChange={(y) => props.onUpdateLayer(layer.id, { y })}
           />
           <RangeField
-            label="Rotacao"
+            label="Rotação"
             min={-180}
             max={180}
             unit="°"
@@ -3666,7 +3671,7 @@ function ExportInspector({
     outputPresets.find(([value]) => value === outputPreset) ?? outputPresets[1];
   return (
     <>
-      <InspectorGroup title="Resumo da exportacao" open>
+      <InspectorGroup title="Resumo da exportação" open>
         <dl className="export-summary">
           <div>
             <dt>{workflowMode === "batch" ? "Lote" : "Faixa"}</dt>
@@ -3710,7 +3715,7 @@ function ExportInspector({
           value={metadata.outputFileName}
           onChange={(outputFileName) => onMetadata({ outputFileName })}
         />
-        <SelectField label="Resolucao" value={outputPreset} onChange={onPreset}>
+        <SelectField label="Resolução" value={outputPreset} onChange={onPreset}>
           {outputPresets.map(([value, label, dimensions]) => (
             <option key={value} value={value}>
               {label} · {dimensions}
@@ -3738,7 +3743,7 @@ function ExportInspector({
           type="button"
           onClick={onUseDarkAudio}
         >
-          <Disc3 /> Usar tela escura com audio
+          <Disc3 /> Usar tela escura com áudio
         </button>
         <button
           className="primary-action wide"
@@ -3750,14 +3755,14 @@ function ExportInspector({
           {workflowMode === "batch" ? "Exportar lote" : "Exportar video"}
         </button>
       </InspectorGroup>
-      <InspectorGroup title="Publicacao YouTube">
+      <InspectorGroup title="Publicação YouTube">
         <SelectField
           label="Privacidade"
           value={metadata.visibility}
           onChange={(visibility) => onMetadata({ visibility })}
         >
           <option value="private">Privado</option>
-          <option value="unlisted">Nao listado</option>
+          <option value="unlisted">Não listado</option>
           <option value="public">Publico</option>
         </SelectField>
         <TextField
@@ -3766,7 +3771,7 @@ function ExportInspector({
           onChange={(language) => onMetadata({ language })}
         />
         <TextArea
-          label="Descricao"
+          label="Descrição"
           value={metadata.description}
           onChange={(description) => onMetadata({ description })}
         />
@@ -3788,22 +3793,22 @@ function ExportInspector({
             type="button"
             onClick={onApplyBatch}
           >
-            <Layers3 /> Aplicar publicacao ao lote
+            <Layers3 /> Aplicar publicação ao lote
           </button>
         )}
         <p className="helper-copy">
-          A exportacao inclui um arquivo `.youtube.json`. O upload por OAuth
+          A exportação inclui um arquivo `.youtube.json`. O upload por OAuth
           fica para uma etapa posterior.
         </p>
       </InspectorGroup>
       <InspectorGroup title={`Fila · ${jobs.length}`} open>
         {jobs.length === 0 ? (
-          <p className="helper-copy">As exportacoes aparecem aqui.</p>
+          <p className="helper-copy">As exportações aparecem aqui.</p>
         ) : (
           jobs.map((job) => (
             <div className="job-row" key={job.id}>
               <span>
-                <strong>{job.message}</strong>
+                <strong>{readableJobMessage(job.message)}</strong>
                 <small>
                   {job.progress}% · {jobStatusLabel(job.status)}
                 </small>
@@ -4316,7 +4321,7 @@ async function ensureAlbumArtworkDirectories(
 
 function artworkConventionHint(track: TrackDraft) {
   if (track.metadata.trackTotal > 1) {
-    return "Para automatizar as capas, use art/ na pasta do album. Arquivos iniciados pelo numero da faixa vencem a capa geral album.* ou cover.*.";
+    return "Para automatizar as capas, use art/ na pasta do álbum. Arquivos iniciados pelo número da faixa vencem a capa geral album.* ou cover.*.";
   }
   return `Para automatizar esta capa, use ${singleTrackArtworkFileName(track.sourceKey)} ao lado do MP3.`;
 }
@@ -4444,13 +4449,13 @@ function riskLabel(risk: AudioTechnicalAnalysis["risk"]) {
     safe: "Margem adequada",
     "reduced-headroom": "Margem reduzida",
     overload: "Sobrecarga detectada",
-    "decode-error": "Falha na analise",
+    "decode-error": "Falha na análise",
   }[risk];
 }
 
 function riskDescription(analysis: AudioTechnicalAnalysis) {
   if (analysis.risk === "reduced-headroom") {
-    return `Margem reduzida: pico verdadeiro em ${analysis.truePeakDbtp.toFixed(2)} dBTP. Nao ha clipping confirmado; considere normalizar a copia tratada.`;
+    return `Margem reduzida: pico verdadeiro em ${analysis.truePeakDbtp.toFixed(2)} dBTP. Não há clipping confirmado; considere normalizar a cópia tratada.`;
   }
   if (analysis.risk === "overload") {
     return `Sobrecarga detectada: pico verdadeiro em ${analysis.truePeakDbtp.toFixed(2)} dBTP. Revise antes de exportar.`;
@@ -4458,7 +4463,7 @@ function riskDescription(analysis: AudioTechnicalAnalysis) {
   if (analysis.risk === "safe") {
     return `Margem adequada: ${analysis.integratedLufs.toFixed(1)} LUFS e ${analysis.truePeakDbtp.toFixed(2)} dBTP.`;
   }
-  return "Nao foi possivel decodificar o audio para a analise tecnica.";
+  return "Não foi possível decodificar o áudio para a análise técnica.";
 }
 
 function waveformTypeLabel(type: WaveformType) {
@@ -4473,7 +4478,7 @@ function waveformTypeLabel(type: WaveformType) {
 
 function stepLabel(step: ActiveStep) {
   return {
-    music: "Musica",
+    music: "Música",
     visual: "Visual",
     text: "Texto",
     export: "Exportar",
@@ -4485,10 +4490,19 @@ function jobStatusLabel(status: RenderJob["status"]) {
     queued: "na fila",
     paused: "pausado",
     running: "processando",
-    done: "concluido",
+    done: "concluído",
     error: "falhou",
     canceled: "cancelado",
   }[status];
+}
+
+function readableJobMessage(message: string) {
+  return message
+    .replaceAll("Renderizacao", "Renderização")
+    .replaceAll("concluida", "concluída")
+    .replaceAll("concluido", "concluído")
+    .replaceAll("Analisando audio", "Analisando áudio")
+    .replaceAll("Servidor local indisponivel", "Servidor local indisponível");
 }
 
 async function copyUrlToDirectory(
@@ -4498,10 +4512,10 @@ async function copyUrlToDirectory(
 ) {
   const response = await fetchOptional(url);
   if (!response) {
-    throw new Error(`Arquivo exportado nao encontrado: ${url}`);
+    throw new Error(`Arquivo exportado não encontrado: ${url}`);
   }
   if (!response.body) {
-    throw new Error(`Arquivo exportado sem conteudo: ${url}`);
+    throw new Error(`Arquivo exportado sem conteúdo: ${url}`);
   }
   const fileName =
     fileNameOverride ??
