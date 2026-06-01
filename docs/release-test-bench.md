@@ -20,7 +20,7 @@ npm run test:release
 
 | Area              | Teste                                                                   | Nivel         |
 | ----------------- | ----------------------------------------------------------------------- | ------------- |
-| Contratos visuais | normalizacao V3, familias permitidas e descarte de efeitos legados      | PR            |
+| Contratos visuais | normalizacao V4, compatibilidade V3 e descarte de efeitos legados       | PR            |
 | Presets locais    | criar, atualizar, excluir e rejeitar IDs invalidos                      | PR            |
 | API local         | retry controlado e mensagem acionavel durante reinicio do servidor      | PR            |
 | Biblioteca MP3    | inferencia, pacote ID3 limpo, APIC, USLT, capas numeradas e margem      | PR            |
@@ -29,7 +29,7 @@ npm run test:release
 | Perfis de render  | interno 720p/1080p, 2K/4K final e FPS por perfil                        | PR            |
 | UI principal      | audio real, seek, camadas PNG/SVG/video, undo, waveform, lote e paineis | Release local |
 | Variações         | trocar audio, aguardar autosave, recarregar e manter a segunda versao   | Release local |
-| Renderizadores    | seis familias em 720p e amostras adicionais 1080p, 2K e 4K              | Release local |
+| Renderizadores    | nove familias em 720p e amostras adicionais 1080p, 2K e 4K              | Release local |
 | Waveforms         | cinco estilos decorativos em 720p e controles contextuais               | Release local |
 
 ## Jornadas obrigatorias
@@ -59,14 +59,17 @@ estabilizadas. Ate la, devem ser executadas manualmente em cada candidato.
 O smoke rapido cobre todas as familias em 720p. Antes da v1.0.0, manter pelo
 menos uma amostra decodificavel para cada combinacao de maior risco:
 
-| Caso | Visual        | Resolucao | Perfil     | Composicao                  |
-| ---- | ------------- | --------- | ---------- | --------------------------- |
-| E01  | Fluxo liquido | 4K        | Rapido     | SVG, waveform, texto e capa |
-| E02  | Nuvens amplas | 2K        | Automatico | video curto em loop e lote  |
-| E03  | Aurora        | 4K        | Final      | audio reativo               |
-| E04  | Aura vetorial | 1080p     | Final      | tres camadas e sombra       |
-| E05  | Vinil         | 1080p     | Final      | capa central e RPM          |
-| E06  | Tela escura   | 720p      | Rapido     | apenas audio                |
+| Caso | Visual          | Resolucao | Perfil     | Composicao                       |
+| ---- | --------------- | --------- | ---------- | -------------------------------- |
+| E01  | Fluxo liquido   | 4K        | Rapido     | SVG, waveform, texto e capa      |
+| E02  | Nuvens amplas   | 2K        | Automatico | foco solar, vídeo em loop e lote |
+| E03  | Aurora          | 4K        | Final      | audio reativo                    |
+| E04  | Aura vetorial   | 1080p     | Final      | tres camadas e sombra            |
+| E05  | Vinil           | 1080p     | Final      | capa central e RPM               |
+| E06  | Tela escura     | 720p      | Rapido     | apenas audio                     |
+| E07  | Formas lúdicas  | 1080p     | Final      | coleções temáticas e emojis      |
+| E08  | Mesh colorido   | 1080p     | Automático | paleta infantil e áudio reativo  |
+| E09  | Faixas de piano | 720p      | Rápido     | bandas amplas e deriva suave     |
 
 Cada MP4 deve ser validado com ffmpeg e conferido por largura, altura, FPS,
 duracao, stream de audio e tolerancia de duracao. O sidecar deve ser lido como
@@ -92,7 +95,7 @@ arquivos com FPS irregular.
    script de instalacao, executar `npm rebuild ffmpeg-static` antes dos testes
    locais de audio e render.
 2. Executar `npm run test:release` com `npm run dev` ativo.
-3. Executar J01-J10 e E01-E06.
+3. Executar J01-J10 e E01-E09.
 4. Revisar `git status` e o diff para excluir arquivos pessoais, `.env`,
    `.dev/`, `outputs/` e dados locais.
 5. Registrar artefatos, tempos e riscos aceitos no candidato a release.
