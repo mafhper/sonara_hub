@@ -11,9 +11,11 @@ import {
   createNumberedCover,
   inferAudioTags,
   isEditableMp3,
+  normalizedMp3TruePeakTarget,
   parseLoudnormReport,
   parseSamplePeakReport,
   romanNumeral,
+  validateNormalizedAnalysis,
   writeCleanMp3Tags,
 } from "../server/audio-library.mjs";
 
@@ -89,6 +91,19 @@ test("headroom classification distinguishes warning from confirmed overload", ()
     risk: "overload",
     recommendation: "consider-normalization",
   });
+});
+
+test("MP3 normalization reserves codec headroom and retries more conservatively", () => {
+  assert.equal(normalizedMp3TruePeakTarget(0), -2);
+  assert.equal(normalizedMp3TruePeakTarget(1), -2.5);
+});
+
+test("normalized MP3 validation rejects a package that still has reduced headroom", () => {
+  assert.throws(
+    () => validateNormalizedAnalysis({ risk: "reduced-headroom" }),
+    /margem segura/,
+  );
+  assert.doesNotThrow(() => validateNormalizedAnalysis({ risk: "safe" }));
 });
 
 test("clean MP3 package replaces old tags and writes cover plus unsynchronised lyrics", async () => {

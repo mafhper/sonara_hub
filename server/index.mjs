@@ -22,6 +22,7 @@ import { createPresetStore, PresetStoreError } from "./preset-store.mjs";
 import { renderCanvasSize, renderTiming } from "./render-profile.mjs";
 import { safeSvgBuffer } from "./svg-safety.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
+import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -786,6 +787,13 @@ async function renderVideo({
   );
   assertJobNotCanceled(jobId);
   await assertPlayableOutput(outputPath);
+  const outputAnalysis = await analyzeAudioQuality(outputPath);
+  try {
+    validateVideoAudioAnalysis(outputAnalysis);
+  } catch (error) {
+    await fs.rm(outputPath, { force: true });
+    throw error;
+  }
   const thumbnailPath = cover?.path ? `${outputPath}.cover.png` : null;
   if (thumbnailPath) {
     await fs.copyFile(cover.path, thumbnailPath);
@@ -796,6 +804,7 @@ async function renderVideo({
     settings,
     thumbnailPath,
     sourceAnalysis,
+    outputAnalysis,
   );
   updateJob(jobId, {
     status: "done",
@@ -1241,6 +1250,7 @@ async function writeYoutubeSidecar(
   settings,
   thumbnailPath = null,
   sourceAnalysis = null,
+  outputAnalysis = null,
 ) {
   const sidecar = {
     api: "YouTube Data API v3",
@@ -1290,6 +1300,9 @@ async function writeYoutubeSidecar(
         reducedHeadroomAcknowledged: Boolean(
           settings.reducedHeadroomAcknowledged,
         ),
+      },
+      audioOutput: {
+        analysis: outputAnalysis,
       },
     },
   };

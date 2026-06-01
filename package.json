@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
     "dev:client": "vite --host 127.0.0.1",
-    "dev:server": "node --watch server/index.mjs",
+    "dev:server": "node server/index.mjs",
+    "dev:server:watch": "node --watch server/index.mjs",
     "build": "npm run type-check && vite build",
     "format:check": "prettier --check .",
     "format": "prettier --write .",

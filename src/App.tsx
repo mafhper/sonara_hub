@@ -61,6 +61,7 @@ import {
   groupAudioTracks,
 } from "../shared/audio-batch.mjs";
 import type { BatchApplyMode } from "../shared/audio-batch.mjs";
+import { directoryImportPrefix } from "../shared/audio-import.mjs";
 import {
   loadDirectoryHandle,
   loadSnapshot,
@@ -389,7 +390,10 @@ function App() {
   ) {
     setError("");
     setFolderImportProgress({ current: 0, total: 0, name: "Lendo pasta" });
-    const entries = await collectAudioEntries(handle);
+    const entries = await collectAudioEntries(
+      handle,
+      directoryImportPrefix(handle.name),
+    );
     const next: TrackDraft[] = [];
     setFolderImportProgress({
       current: 0,

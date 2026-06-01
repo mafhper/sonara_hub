@@ -73,6 +73,18 @@ export function classifyAudioRisk(truePeakDbtp) {
   return { risk: "safe", recommendation: "none" };
 }
 
+export function normalizedMp3TruePeakTarget(attempt = 0) {
+  return attempt > 0 ? -2.5 : -2;
+}
+
+export function validateNormalizedAnalysis(analysis) {
+  if (analysis?.risk !== "safe") {
+    throw new Error(
+      "A copia normalizada nao atingiu margem segura apos o encode MP3.",
+    );
+  }
+}
+
 export async function writeCleanMp3Tags(filePath, draft, coverBuffer) {
   const tags = {
     title: String(draft.title ?? ""),
@@ -249,24 +261,35 @@ export async function processMp3Copy({
     `.${path.basename(outputPath)}.${crypto.randomUUID()}.tmp.mp3`,
   );
   try {
-    if (normalizationEnabled) {
-      await normalizeMp3(inputPath, temporaryPath);
-    } else {
-      await fs.copyFile(inputPath, temporaryPath);
-    }
     const coverBuffer = coverPath
       ? await sharp(coverPath)
           .resize(1600, 1600, { fit: "cover" })
           .jpeg({ quality: 92, chromaSubsampling: "4:4:4" })
           .toBuffer()
       : null;
-    await writeCleanMp3Tags(temporaryPath, draft, coverBuffer);
-    await assertDecodedAudio(temporaryPath);
-    const tags = NodeID3.read(temporaryPath);
-    if (String(tags.title ?? "") !== String(draft.title ?? "")) {
-      throw new Error("Validacao ID3 falhou para o titulo tratado.");
+    let analysis;
+    let tags;
+    const attempts = normalizationEnabled ? 2 : 1;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (normalizationEnabled) {
+        await normalizeMp3(
+          inputPath,
+          temporaryPath,
+          normalizedMp3TruePeakTarget(attempt),
+        );
+      } else {
+        await fs.copyFile(inputPath, temporaryPath);
+      }
+      await writeCleanMp3Tags(temporaryPath, draft, coverBuffer);
+      await assertDecodedAudio(temporaryPath);
+      tags = NodeID3.read(temporaryPath);
+      if (String(tags.title ?? "") !== String(draft.title ?? "")) {
+        throw new Error("Validacao ID3 falhou para o titulo tratado.");
+      }
+      analysis = await analyzeAudioQuality(temporaryPath);
+      if (!normalizationEnabled || analysis.risk === "safe") break;
     }
-    const analysis = await analyzeAudioQuality(temporaryPath);
+    if (normalizationEnabled) validateNormalizedAnalysis(analysis);
     await fs.rm(outputPath, { force: true });
     await fs.rename(temporaryPath, outputPath);
     return { outputPath, analysis, tags };
@@ -280,20 +303,20 @@ export function isEditableMp3(inputName) {
   return path.extname(inputName).toLowerCase() === ".mp3";
 }
 
-export async function normalizeMp3(inputPath, outputPath) {
+export async function normalizeMp3(inputPath, outputPath, truePeakDbtp = -2) {
   const firstPass = await runFfmpeg([
     "-hide_banner",
     "-i",
     inputPath,
     "-af",
-    "loudnorm=I=-14:TP=-1:LRA=11:print_format=json",
+    `loudnorm=I=-14:TP=${truePeakDbtp}:LRA=11:print_format=json`,
     "-f",
     "null",
     "-",
   ]);
   const report = parseLoudnormJson(firstPass.stderr);
   const filter = [
-    "loudnorm=I=-14:TP=-1:LRA=11",
+    `loudnorm=I=-14:TP=${truePeakDbtp}:LRA=11`,
     `measured_I=${report.input_i}`,
     `measured_LRA=${report.input_lra}`,
     `measured_TP=${report.input_tp}`,
