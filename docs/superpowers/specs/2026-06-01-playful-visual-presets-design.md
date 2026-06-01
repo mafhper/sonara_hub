@@ -69,6 +69,11 @@ type ScenePresetV4 = ScenePresetV3 & {
   playful?: PlayfulContent;
   cloudLight?: {
     enabled: boolean;
+    intensity: number;
+    x: number;
+    y: number;
+    radius: number;
+    diffusion: number;
   };
 };
 ```
@@ -140,7 +145,8 @@ reaction influences wave amplitude and lightness without abrupt flashing.
 
 ### Volumetric Clouds
 
-Add a contextual `Enable sun focus` toggle and advanced controls:
+Add a contextual `Enable sun focus` toggle and contextual controls stored in
+`cloudLight`:
 
 - sun intensity
 - sun horizontal position
