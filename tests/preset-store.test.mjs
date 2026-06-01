@@ -8,7 +8,7 @@ import {
   PresetStoreError,
 } from "../server/preset-store.mjs";
 
-test("custom preset store persists a duplicated V3 atmosphere", async () => {
+test("custom preset store persists a duplicated V4 atmosphere", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-hub-"));
   const store = createPresetStore(path.join(directory, "presets.json"));
   const created = await store.create({
@@ -21,6 +21,35 @@ test("custom preset store persists a duplicated V3 atmosphere", async () => {
   assert.equal(created.rendererId, "liquid-mesh");
   assert.match(created.id, /^custom-/);
   assert.equal((await store.list()).length, 1);
+});
+
+test("custom preset store persists playful thematic content", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-hub-"));
+  const store = createPresetStore(path.join(directory, "presets.json"));
+  const created = await store.create({
+    name: "Baloes",
+    rendererId: "playful-shapes",
+    playful: {
+      motionMode: "play",
+      enabled: {
+        rectangles: false,
+        letters: false,
+        numbers: false,
+        emojis: true,
+      },
+      collections: { emojis: "🎈, 🎵, 🎈" },
+    },
+  });
+
+  assert.equal(created.playful.motionMode, "play");
+  assert.deepEqual(created.playful.enabled, {
+    rectangles: false,
+    letters: false,
+    numbers: false,
+    emojis: true,
+  });
+  assert.equal(created.playful.collections.emojis, "🎈 🎵");
+  assert.equal((await store.list())[0].playful.collections.emojis, "🎈 🎵");
 });
 
 test("custom preset store rejects builtin identifiers and removed renderers", async () => {

@@ -37,8 +37,33 @@ export type VisualControl = {
   unit: string;
 };
 
-export type ScenePresetV3 = {
-  schemaVersion: 3;
+export type PlayfulContent = {
+  seed: number;
+  motionMode: "calm" | "soft-rhythm" | "play";
+  enabled: {
+    rectangles: boolean;
+    letters: boolean;
+    numbers: boolean;
+    emojis: boolean;
+  };
+  collections: {
+    letters: string;
+    numbers: string;
+    emojis: string;
+  };
+};
+
+export type CloudLightSettings = {
+  enabled: boolean;
+  intensity: number;
+  x: number;
+  y: number;
+  radius: number;
+  diffusion: number;
+};
+
+export type ScenePresetV4 = {
+  schemaVersion: 4;
   id: string;
   name: string;
   rendererId:
@@ -46,6 +71,9 @@ export type ScenePresetV3 = {
     | "volumetric-clouds"
     | "aurora-ribbons"
     | "vector-aura"
+    | "playful-shapes"
+    | "color-mesh"
+    | "piano-ribbons"
     | "vinyl"
     | "audio-dark";
   source: "builtin" | "custom";
@@ -56,18 +84,27 @@ export type ScenePresetV3 = {
   advanced: Record<string, number>;
   controls: VisualControl[];
   waveform: WaveformV2;
+  playful?: PlayfulContent;
+  cloudLight?: CloudLightSettings;
 };
 
+export type ScenePresetV3 = ScenePresetV4;
+
 export const VISUAL_SCHEMA_VERSION: number;
-export const builtinVisualPresets: ScenePresetV3[];
+export const builtinVisualPresets: ScenePresetV4[];
 export const effectIds: string[];
 export const removedEffectIds: string[];
-export function getBuiltinPreset(id: string): ScenePresetV3;
-export function normalizeVisualSettings(input?: unknown): ScenePresetV3;
+export function getBuiltinPreset(id: string): ScenePresetV4;
+export function normalizeVisualSettings(input?: unknown): ScenePresetV4;
+export function parseVisualCollection(
+  value: unknown,
+  fallback?: string,
+): string[];
 export function visualUniforms(settings?: unknown): {
-  rendererId: ScenePresetV3["rendererId"];
+  rendererId: ScenePresetV4["rendererId"];
   common: Record<string, number>;
   colors: { base: string; effect: string; light: string };
   advanced: number[];
   waveform: WaveformV2;
+  cloudLight?: CloudLightSettings;
 };
