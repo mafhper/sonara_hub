@@ -33,6 +33,7 @@ const rootDir = path.resolve(__dirname, "..");
 const inputDir = path.join(rootDir, "input");
 const uploadDir = path.join(rootDir, ".dev", "uploads");
 const workDir = path.join(rootDir, ".dev", "work");
+const artworkPreviewDir = path.join(rootDir, ".dev", "artwork-previews");
 const outputDir = path.join(rootDir, "outputs");
 const treatedOutputDir = path.join(outputDir, "audio");
 const customPresetPath = path.join(
@@ -46,10 +47,12 @@ const port = Number(process.env.PORT ?? 4175);
 await Promise.all([
   fs.rm(uploadDir, { recursive: true, force: true }),
   fs.rm(workDir, { recursive: true, force: true }),
+  fs.rm(artworkPreviewDir, { recursive: true, force: true }),
 ]);
 await Promise.all([
   fs.mkdir(uploadDir, { recursive: true }),
   fs.mkdir(workDir, { recursive: true }),
+  fs.mkdir(artworkPreviewDir, { recursive: true }),
   fs.mkdir(outputDir, { recursive: true }),
   fs.mkdir(treatedOutputDir, { recursive: true }),
 ]);
@@ -111,6 +114,59 @@ app.get("/api/audio/:fileName", async (req, res) => {
     return;
   }
   res.sendFile(audioPath);
+});
+
+app.post(
+  "/api/audio/artwork-preview",
+  upload.single("audio"),
+  async (req, res) => {
+    const audioPath =
+      req.file?.path || (await resolveInputAudio(req.body.inputAudio));
+    if (!audioPath) {
+      res
+        .status(400)
+        .json({ error: "Envie ou selecione um arquivo de áudio." });
+      return;
+    }
+    try {
+      const metadata = await parseFile(audioPath, { skipCovers: false });
+      const picture = metadata.common.picture?.[0];
+      if (!picture?.data) {
+        res.json({ artworkUrl: null });
+        return;
+      }
+      const token = `${crypto.randomUUID()}.jpg`;
+      await sharp(picture.data)
+        .resize(512, 512, { fit: "cover", position: "center" })
+        .jpeg({ quality: 88 })
+        .toFile(path.join(artworkPreviewDir, token));
+      res.json({
+        artworkUrl: `/api/audio/artwork-preview/${encodeURIComponent(token)}`,
+      });
+    } finally {
+      await tempFiles.cleanup(req.file);
+    }
+  },
+);
+
+app.get("/api/audio/artwork-preview/:token", async (req, res) => {
+  const token = String(req.params.token ?? "");
+  if (!/^[0-9a-f-]{36}\.jpg$/i.test(token)) {
+    res.status(404).json({ error: "Prévia de arte não encontrada." });
+    return;
+  }
+  const filePath = path.resolve(artworkPreviewDir, token);
+  if (!filePath.startsWith(`${artworkPreviewDir}${path.sep}`)) {
+    res.status(404).json({ error: "Prévia de arte não encontrada." });
+    return;
+  }
+  try {
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) throw new Error("not-file");
+    res.type("image/jpeg").send(await fs.readFile(filePath));
+  } catch {
+    res.status(404).json({ error: "Prévia de arte não encontrada." });
+  }
 });
 
 if (fssync.existsSync(path.join(rootDir, "dist"))) {

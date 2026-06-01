@@ -123,6 +123,7 @@ export type TrackDraft = {
   packageStatus?: "original" | "treated";
   suggestedCover?: ArtworkSuggestion;
   useSuggestedCover?: boolean;
+  thumbnailPreviewMode: "composition" | "cover";
 };
 
 export type RenderJob = {
@@ -140,10 +141,12 @@ export type RenderJob = {
 };
 
 export type ProjectSnapshot = {
-  schemaVersion: 3;
+  schemaVersion: 3 | 4;
   workspaceMode: "audio" | "visual";
   workflowMode: "single" | "batch";
   activeStep: "music" | "visual" | "text" | "export";
+  audioStageView?: "edit" | "catalog" | "videos";
+  visualStageView?: "editor" | "videos";
   selectedTrackId: string;
   outputPreset: string;
   qualityProfile: string;
@@ -164,5 +167,6 @@ export type ProjectSnapshot = {
     selectedForBatch: boolean;
     packageStatus?: TrackDraft["packageStatus"];
     useSuggestedCover?: boolean;
+    thumbnailPreviewMode?: TrackDraft["thumbnailPreviewMode"];
   }>;
 };

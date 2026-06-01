@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ffmpegPath from "ffmpeg-static";
+import NodeID3 from "node-id3";
 import { chromium } from "playwright";
 import { fetchJsonWithRetry } from "../shared/local-api.mjs";
 
@@ -13,6 +14,7 @@ const assetDir = path.join(root, ".dev", "ui-smoke-assets");
 await fs.mkdir(screenshotDir, { recursive: true });
 await fs.mkdir(assetDir, { recursive: true });
 const audioPath = path.join(assetDir, "ui-smoke.wav");
+const coveredAudioPath = path.join(assetDir, "ui-smoke-covered.mp3");
 const variationAudioPath = path.join(assetDir, "ui-smoke-variation.wav");
 const pngPath = path.join(assetDir, "layer.png");
 const svgPath = path.join(assetDir, "layer.svg");
@@ -26,6 +28,33 @@ await fs.writeFile(
     "base64",
   ),
 );
+const coveredAudio = spawnSync(
+  ffmpegPath,
+  [
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    "sine=frequency=220:duration=2",
+    "-q:a",
+    "2",
+    coveredAudioPath,
+  ],
+  { windowsHide: true },
+);
+if (coveredAudio.status !== 0) throw new Error(coveredAudio.stderr.toString());
+if (
+  !NodeID3.write(
+    {
+      artist: "Smoke Artist",
+      image: pngPath,
+      title: "ui-smoke",
+    },
+    coveredAudioPath,
+  )
+) {
+  throw new Error("Could not create APIC smoke fixture.");
+}
 await fs.writeFile(
   svgPath,
   '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" rx="18" fill="#bfd1d9"/><circle cx="160" cy="90" r="54" fill="#556b78"/></svg>',
@@ -48,6 +77,7 @@ const ffmpeg = spawnSync(
 );
 if (ffmpeg.status !== 0) throw new Error(ffmpeg.stderr.toString());
 await cleanupSmokePresets();
+await assertArtworkPreviewApi(audioPath, coveredAudioPath);
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
@@ -71,8 +101,16 @@ try {
   await page
     .locator('input[accept="audio/*"]')
     .first()
-    .setInputFiles(audioPath);
+    .setInputFiles(coveredAudioPath);
   await page.getByText("ui-smoke").first().waitFor();
+  await page.locator(".transport-artwork").getByText("Embutida").waitFor();
+  await page
+    .locator('input[type="file"][accept="image/*,.svg"]')
+    .setInputFiles(pngPath);
+  await page.locator(".transport-artwork").getByText("Planejada").waitFor();
+  await page.getByRole("button", { name: "Mostrar capa embutida" }).click();
+  await page.locator(".transport-artwork").getByText("Embutida").waitFor();
+  await page.getByRole("button", { name: "Mostrar capa planejada" }).click();
   await page.getByText("Biblioteca de áudio", { exact: true }).last().waitFor();
   await page.getByText("LUFS integrado").waitFor();
   await assertPortugueseLabels(page);
@@ -94,6 +132,8 @@ try {
     [".transport-controls button", 12],
   ]);
   await assertPanelResize(page);
+  await assertFloatingPanelFallback(page);
+  await ensurePanelOpen(page, "inspector");
   await assertFocusVisible(
     page,
     page.getByRole("button", { name: "Estúdio visual" }),
@@ -159,8 +199,11 @@ try {
     await page.waitForTimeout(120);
   }
 
+  await ensurePanelsClosed(page);
   await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
+  await ensurePanelOpen(page, "library");
   await page.getByRole("button", { name: "Lote" }).click();
+  await ensurePanelsClosed(page);
   await page.getByText("Dados comuns do lote").waitFor();
   await assertPortugueseLabels(page);
   const batchToolbar = page.getByRole("group", {
@@ -195,19 +238,29 @@ try {
     await page.locator('.batch-table input[type="checkbox"]:checked').count(),
     1,
   );
+  const batchTitleInput = await editableBatchTitleInput(page);
+  await batchTitleInput.fill("Smoke Batch Title");
+  assert.equal(await batchTitleInput.inputValue(), "Smoke Batch Title");
+  await assertNoMainStageHorizontalOverflow(page);
   await page
-    .locator(".batch-table tbody tr:not(.batch-group-row)")
-    .first()
-    .locator('input[aria-label="Título"]')
-    .fill("Smoke Batch Title");
-  assert.equal(
-    await page
-      .locator(".batch-table tbody tr:not(.batch-group-row)")
-      .first()
-      .locator('input[aria-label="Título"]')
-      .inputValue(),
-    "Smoke Batch Title",
-  );
+    .getByRole("button", { name: "Expandir detalhes de Smoke Batch Title" })
+    .click();
+  await page.getByText("Arquivo tratado", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Catálogo" }).click();
+  await page.getByText("Catálogo planejado").waitFor();
+  await page
+    .locator(".catalog-track-list")
+    .getByText("Smoke Batch Title", { exact: true })
+    .waitFor();
+  await page.getByRole("button", { name: "Vídeos" }).click();
+  await page.getByText("Grade de publicação").waitFor();
+  await page.locator(".composition-thumbnail").waitFor();
+  await page
+    .locator(".thumbnail-mode-switch")
+    .getByRole("button", { name: "Capa" })
+    .click();
+  await page.locator(".youtube-thumbnail .artwork-frame").waitFor();
+  await page.getByRole("button", { name: "Editar" }).click();
   assert.equal(
     await page.locator('input[type="file"][webkitdirectory]').count(),
     1,
@@ -225,35 +278,34 @@ try {
     [".batch-job-board header strong", 13],
     [".batch-job-actions button", 12],
   ]);
+  await ensurePanelOpen(page, "inspector");
   await assertInspectorControlSpacing(page);
-  await assertFocusVisible(
-    page,
-    page
-      .locator(".batch-table tbody tr:not(.batch-group-row)")
-      .first()
-      .locator('input[aria-label="Título"]'),
-  );
+  await ensurePanelsClosed(page);
+  await assertFocusVisible(page, batchTitleInput);
   await assertStatusIndicators(page);
   await page.screenshot({
     path: path.join(screenshotDir, "sonara-hub-audio-batch.png"),
     fullPage: true,
   });
   await page.getByRole("button", { name: "Estúdio visual" }).click();
+  await ensurePanelOpen(page, "inspector");
+  await page.getByRole("button", { name: "Conferir vídeos" }).click();
+  await page.getByText("Grade de publicação").waitFor();
   await page.locator(".steps button").filter({ hasText: "Exportar" }).click();
   await page.getByText("1 faixa selecionada", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Exportar lote" }).waitFor();
+  await ensurePanelOpen(page, "library");
   await page.getByRole("button", { name: "Faixa única" }).click();
+  await ensurePanelOpen(page, "inspector");
   await page.getByText("Resumo da exportação").waitFor();
   await assertPortugueseLabels(page);
   await page.locator(".steps button").filter({ hasText: "Visual" }).click();
-  await page.getByRole("button", { name: "Recolher biblioteca" }).click();
-  await page.getByRole("button", { name: "Recolher inspetor" }).click();
+  await ensurePanelsClosed(page);
   await page.screenshot({
     path: path.join(screenshotDir, "sonara-hub-fullscreen.png"),
     fullPage: true,
   });
-  await page.getByRole("button", { name: "Recolher biblioteca" }).click();
-  await page.getByRole("button", { name: "Recolher inspetor" }).click();
+  await ensurePanelOpen(page, "inspector");
 
   page.once("dialog", async (dialog) => dialog.accept("Aura smoke UI"));
   await page.getByRole("button", { name: "Duplicar" }).click();
@@ -261,6 +313,7 @@ try {
     state: "attached",
   });
   await page.reload({ waitUntil: "networkidle" });
+  await ensurePanelOpen(page, "inspector");
   await page.locator('option:has-text("Aura smoke UI")').waitFor({
     state: "attached",
   });
@@ -289,6 +342,7 @@ try {
     .setInputFiles(variationAudioPath);
   await page.waitForTimeout(1_600);
   await page.reload({ waitUntil: "networkidle" });
+  await ensurePanelOpen(page, "library");
   assert.equal(
     await page.locator(".track-row").count(),
     2,
@@ -313,9 +367,17 @@ try {
       ?.width ?? 0) > 100,
     "single-track rows should reserve useful width for title and version",
   );
+  await ensurePanelOpen(page, "inspector");
   await page
     .getByRole("button", { name: "Trocar áudio desta versão" })
     .waitFor();
+  await restoreDockedPanels(page);
+  await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
+  await ensurePanelOpen(page, "library");
+  await ensurePanelOpen(page, "inspector");
+  await page.getByRole("button", { name: "Lote" }).click();
+  await assertCompactAccordionRows(page);
+  await page.getByRole("button", { name: "Estúdio visual" }).click();
   await page.setViewportSize({ width: 760, height: 1080 });
   await page.waitForTimeout(250);
   assert.ok(
@@ -324,6 +386,7 @@ try {
     ),
     "narrow layout should not create document-level horizontal overflow",
   );
+  await assertNoMainStageHorizontalOverflow(page);
   await page.screenshot({
     path: path.join(screenshotDir, "sonara-hub-narrow.png"),
     fullPage: true,
@@ -378,6 +441,215 @@ async function cleanupSmokePresets() {
         ),
       ),
   );
+}
+
+async function assertArtworkPreviewApi(noCoverPath, coverPath) {
+  const noCover = new FormData();
+  noCover.append(
+    "audio",
+    new Blob([await fs.readFile(noCoverPath)], { type: "audio/wav" }),
+    path.basename(noCoverPath),
+  );
+  const noCoverResponse = await fetch(
+    "http://127.0.0.1:4175/api/audio/artwork-preview",
+    {
+      method: "POST",
+      body: noCover,
+    },
+  );
+  assert.equal(noCoverResponse.status, 200);
+  assert.deepEqual(await noCoverResponse.json(), { artworkUrl: null });
+
+  const cover = new FormData();
+  cover.append(
+    "audio",
+    new Blob([await fs.readFile(coverPath)], { type: "audio/mpeg" }),
+    path.basename(coverPath),
+  );
+  const coverResponse = await fetch(
+    "http://127.0.0.1:4175/api/audio/artwork-preview",
+    {
+      method: "POST",
+      body: cover,
+    },
+  );
+  assert.equal(coverResponse.status, 200);
+  const { artworkUrl } = await coverResponse.json();
+  assert.match(artworkUrl, /^\/api\/audio\/artwork-preview\/[0-9a-f-]+\.jpg$/);
+  assert.equal(
+    (await fetch(`http://127.0.0.1:4175${artworkUrl}`)).headers.get(
+      "content-type",
+    ),
+    "image/jpeg",
+  );
+  assert.equal(
+    (
+      await fetch(
+        "http://127.0.0.1:4175/api/audio/artwork-preview/token-invalido.jpg",
+      )
+    ).status,
+    404,
+  );
+}
+
+async function assertNoMainStageHorizontalOverflow(page) {
+  const overflow = await page.evaluate(() => {
+    const stage = document.querySelector(".preview-workspace");
+    const content = stage?.firstElementChild;
+    return {
+      contentClientWidth: content?.clientWidth ?? 0,
+      contentScrollWidth: content?.scrollWidth ?? 0,
+      stageClientWidth: stage?.clientWidth ?? 0,
+      stageScrollWidth: stage?.scrollWidth ?? 0,
+      tableClientWidth:
+        document.querySelector(".batch-table-wrap")?.clientWidth ?? 0,
+      tableScrollWidth:
+        document.querySelector(".batch-table-wrap")?.scrollWidth ?? 0,
+    };
+  });
+  assert.ok(
+    overflow.contentScrollWidth <= overflow.contentClientWidth,
+    `main stage content should adapt without horizontal overflow: ${JSON.stringify(overflow)}`,
+  );
+  assert.ok(
+    overflow.tableScrollWidth <= overflow.tableClientWidth,
+    `batch table should adapt without horizontal overflow: ${JSON.stringify(overflow)}`,
+  );
+  assert.ok(
+    overflow.stageScrollWidth <= overflow.stageClientWidth,
+    `preview workspace should not overflow horizontally: ${JSON.stringify(overflow)}`,
+  );
+}
+
+async function assertFloatingPanelFallback(page) {
+  await page.waitForFunction(() =>
+    document
+      .querySelector(".studio-shell")
+      ?.classList.contains("floating-panels"),
+  );
+  const initial = await page.locator(".studio-shell").evaluate((shell) => ({
+    leftHidden: shell.classList.contains("left-hidden"),
+    rightHidden: shell.classList.contains("right-hidden"),
+    stageWidth:
+      document.querySelector(".preview-workspace")?.getBoundingClientRect()
+        .width ?? 0,
+  }));
+  assert.equal(initial.leftHidden, true);
+  assert.equal(initial.rightHidden, true);
+  assert.ok(
+    initial.stageWidth >= 900,
+    `floating rails should preserve a broad main stage, got ${initial.stageWidth}px`,
+  );
+  await ensurePanelOpen(page, "inspector");
+  await page.getByRole("button", { name: "Fechar painel lateral" }).click();
+  await ensurePanelsClosed(page);
+}
+
+async function ensurePanelOpen(page, panel) {
+  const className = panel === "library" ? "left-hidden" : "right-hidden";
+  const label = panel === "library" ? "Mostrar biblioteca" : "Mostrar inspetor";
+  const isHidden = await page
+    .locator(".studio-shell")
+    .evaluate(
+      (shell, hiddenClass) => shell.classList.contains(hiddenClass),
+      className,
+    );
+  if (isHidden) {
+    await page.getByRole("button", { name: label }).click();
+    await page.waitForFunction(
+      ({ hiddenClass }) =>
+        !document
+          .querySelector(".studio-shell")
+          ?.classList.contains(hiddenClass),
+      { hiddenClass: className },
+    );
+  }
+}
+
+async function ensurePanelsClosed(page) {
+  const shell = page.locator(".studio-shell");
+  if (
+    !(await shell.evaluate((element) =>
+      element.classList.contains("left-hidden"),
+    ))
+  ) {
+    await page.getByRole("button", { name: "Ocultar biblioteca" }).click();
+  }
+  if (
+    !(await shell.evaluate((element) =>
+      element.classList.contains("right-hidden"),
+    ))
+  ) {
+    await page.getByRole("button", { name: "Ocultar inspetor" }).click();
+  }
+}
+
+async function restoreDockedPanels(page) {
+  await page.evaluate(() =>
+    window.localStorage.setItem(
+      "sonara-hub-panel-widths",
+      JSON.stringify({ left: 256, right: 456 }),
+    ),
+  );
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForFunction(
+    () =>
+      !document
+        .querySelector(".studio-shell")
+        ?.classList.contains("floating-panels"),
+  );
+  await ensurePanelOpen(page, "library");
+  await ensurePanelOpen(page, "inspector");
+}
+
+async function assertCompactAccordionRows(page) {
+  const rows = page.locator(".batch-main-row");
+  assert.ok(
+    (await rows.count()) >= 2,
+    "compact accordion regression requires at least two tracks",
+  );
+  await rows.nth(1).click();
+  const result = await page.evaluate(() => {
+    const wrap = document.querySelector(".batch-table-wrap");
+    const visibleDetails = [...document.querySelectorAll(".batch-detail-row")]
+      .filter((row) => getComputedStyle(row).display !== "none")
+      .map((row) => row.className);
+    return {
+      tableWidth: wrap?.clientWidth ?? 0,
+      visibleDetails,
+      focusedInputs: document.querySelectorAll(
+        ".batch-detail-row.is-focused input",
+      ).length,
+    };
+  });
+  assert.ok(
+    result.tableWidth <= 1060,
+    `accordion assertion should run in compact layout, got ${result.tableWidth}px`,
+  );
+  assert.equal(
+    result.visibleDetails.length,
+    1,
+    `compact layout should keep only the focused accordion open: ${JSON.stringify(result)}`,
+  );
+  assert.ok(
+    result.visibleDetails[0].includes("is-focused"),
+    "the visible compact accordion should follow the focused row",
+  );
+  assert.ok(
+    result.focusedInputs >= 5,
+    "focused compact accordion should expose stacked editable fields",
+  );
+}
+
+async function editableBatchTitleInput(page) {
+  const compact = page
+    .locator(".batch-detail-row.is-focused")
+    .locator('input[aria-label="Título detalhado"]');
+  if (await compact.isVisible()) return compact;
+  return page
+    .locator(".batch-main-row")
+    .first()
+    .locator('input[aria-label="Título"]');
 }
 
 async function assertReadableType(page, rules) {

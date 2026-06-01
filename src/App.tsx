@@ -30,6 +30,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  Fragment,
   type CSSProperties,
   type ChangeEvent,
   type PointerEvent as ReactPointerEvent,
@@ -120,6 +121,8 @@ declare global {
 
 type ActiveStep = "music" | "visual" | "text" | "export";
 type WorkspaceMode = "audio" | "visual";
+type AudioStageView = "edit" | "catalog" | "videos";
+type VisualStageView = "editor" | "videos";
 type BatchCommonDraft = {
   artist: string;
   album: string;
@@ -151,6 +154,8 @@ const emptyBands: AudioBands = {
   samples: [],
   spectrum: [],
 };
+const compositionThumbnailCache = new Map<string, string>();
+const COMPOSITION_THUMBNAIL_CACHE_LIMIT = 60;
 const outputPresets = [
   ["youtube-720p", "720p", "1280 x 720"],
   ["youtube-1080p", "1080p", "1920 x 1080"],
@@ -162,6 +167,7 @@ const PANEL_WIDTH_STORAGE_KEY = "sonara-hub-panel-widths";
 const DEFAULT_LEFT_RAIL_WIDTH = 256;
 const DEFAULT_RIGHT_RAIL_WIDTH = 456;
 const PANEL_MIN_PREVIEW_WIDTH = 520;
+const PANEL_FLOATING_STAGE_WIDTH = 620;
 const LEFT_RAIL_BOUNDS = { min: 220, max: 380 };
 const RIGHT_RAIL_BOUNDS = { min: 360, max: 620 };
 const defaultMetadata: TrackMetadata = {
@@ -202,6 +208,9 @@ function App() {
   );
   const [activeStep, setActiveStep] = useState<ActiveStep>("visual");
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("audio");
+  const [audioStageView, setAudioStageView] = useState<AudioStageView>("edit");
+  const [visualStageView, setVisualStageView] =
+    useState<VisualStageView>("editor");
   const [visualPresets, setVisualPresets] =
     useState<ScenePresetV3[]>(builtinVisualPresets);
   const [outputPreset, setOutputPreset] = useState("youtube-1080p");
@@ -215,6 +224,7 @@ function App() {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [panelsSwapped, setPanelsSwapped] = useState(false);
+  const [floatingPanels, setFloatingPanels] = useState(false);
   const [leftRailWidth, setLeftRailWidth] = useState(
     () => loadPanelWidths().left,
   );
@@ -256,6 +266,12 @@ function App() {
   const [processedAudioOutputs, setProcessedAudioOutputs] = useState<
     Record<string, string>
   >({});
+  const [embeddedArtworkByTrackId, setEmbeddedArtworkByTrackId] = useState<
+    Record<string, string | null>
+  >({});
+  const [playerArtworkSource, setPlayerArtworkSource] = useState<
+    "planned" | "embedded"
+  >("planned");
   const audioBandsRef = useRef(audioBands);
   const audioRef = useRef<HTMLAudioElement>(null);
   const layerInputRef = useRef<HTMLInputElement>(null);
@@ -267,6 +283,7 @@ function App() {
   const musicDirectoryRef = useRef<FileSystemDirectoryHandle | null>(null);
   const audioJobOriginsRef = useRef(new Map<string, string>());
   const integratedAudioJobsRef = useRef(new Set<string>());
+  const embeddedArtworkRequestsRef = useRef(new Set<string>());
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationRef = useRef(0);
 
@@ -276,6 +293,21 @@ function App() {
     ? tracks.findIndex((track) => track.id === selectedTrack.id)
     : -1;
   const selectedCover = coverForTrack(selectedTrack);
+  const embeddedArtworkSrc = selectedTrack
+    ? (embeddedArtworkByTrackId[selectedTrack.id] ?? "")
+    : "";
+  const plannedArtworkSrc = selectedCover?.src ?? "";
+  const playerArtworkSrc =
+    playerArtworkSource === "embedded" && embeddedArtworkSrc
+      ? embeddedArtworkSrc
+      : plannedArtworkSrc || embeddedArtworkSrc;
+  const playerArtworkLabel = playerArtworkSrc
+    ? playerArtworkSrc === embeddedArtworkSrc && !plannedArtworkSrc
+      ? "Embutida"
+      : playerArtworkSource === "embedded" && embeddedArtworkSrc
+        ? "Embutida"
+        : "Planejada"
+    : "";
   const selectedScene = selectedTrack?.scene ?? builtinVisualPresets[0];
   const selectedOutput =
     outputPresets.find(([value]) => value === outputPreset) ?? outputPresets[1];
@@ -289,6 +321,20 @@ function App() {
     "--rail-left": `${leftRailWidth}px`,
     "--rail-right": `${rightRailWidth}px`,
   } as CSSProperties;
+  const reviewTracks =
+    workflowMode === "batch"
+      ? tracks.filter((track) => track.selectedForBatch)
+      : selectedTrack
+        ? [selectedTrack]
+        : [];
+  const treatedTrackCount = tracks.filter(
+    (track) => track.packageStatus === "treated",
+  ).length;
+  const audioWarningCount = tracks.filter(
+    (track) =>
+      track.audioInfo?.analysis?.risk &&
+      track.audioInfo.analysis.risk !== "safe",
+  ).length;
 
   useEffect(() => {
     void loadInitialWorkspace();
@@ -297,20 +343,42 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const narrow = window.matchMedia("(max-width: 980px)");
-    const collapsePanels = () => {
-      if (!narrow.matches) return;
+    const syncPanelMode = () => {
+      const shouldFloat =
+        window.innerWidth <= 980 ||
+        window.innerWidth - leftRailWidth - rightRailWidth <
+          PANEL_FLOATING_STAGE_WIDTH;
+      setFloatingPanels((current) => {
+        if (shouldFloat && !current) {
+          setLeftCollapsed(true);
+          setRightCollapsed(true);
+        }
+        return shouldFloat;
+      });
+    };
+    syncPanelMode();
+    window.addEventListener("resize", syncPanelMode);
+    return () => window.removeEventListener("resize", syncPanelMode);
+  }, [leftRailWidth, rightRailWidth]);
+
+  useEffect(() => {
+    if (!floatingPanels) return;
+    if (!leftCollapsed && !rightCollapsed) {
       setLeftCollapsed(true);
       setRightCollapsed(true);
-    };
-    collapsePanels();
-    narrow.addEventListener("change", collapsePanels);
-    return () => narrow.removeEventListener("change", collapsePanels);
-  }, []);
+    }
+  }, [floatingPanels, leftCollapsed, rightCollapsed]);
 
   useEffect(() => {
     audioBandsRef.current = audioBands;
   }, [audioBands]);
+
+  useEffect(() => {
+    setPlayerArtworkSource("planned");
+    if (selectedTrack?.audioInfo?.hasEmbeddedCover) {
+      void loadEmbeddedArtwork(selectedTrack);
+    }
+  }, [selectedTrack?.id]);
 
   useEffect(() => {
     savePanelWidths({ left: leftRailWidth, right: rightRailWidth });
@@ -332,6 +400,8 @@ function App() {
     showMetadata,
     cover,
     workspaceMode,
+    audioStageView,
+    visualStageView,
   ]);
 
   async function loadInitialWorkspace() {
@@ -524,6 +594,46 @@ function App() {
     }
   }
 
+  async function loadEmbeddedArtwork(track: TrackDraft) {
+    if (
+      !track.audioInfo?.hasEmbeddedCover ||
+      embeddedArtworkRequestsRef.current.has(track.id) ||
+      Object.prototype.hasOwnProperty.call(embeddedArtworkByTrackId, track.id)
+    ) {
+      return;
+    }
+    embeddedArtworkRequestsRef.current.add(track.id);
+    const formData = new FormData();
+    if (track.sourceFile) {
+      formData.append("audio", track.sourceFile);
+    } else if (track.source === "input") {
+      formData.append("inputAudio", track.sourceKey);
+    } else {
+      embeddedArtworkRequestsRef.current.delete(track.id);
+      return;
+    }
+    try {
+      const payload = await fetchJson<{ artworkUrl: string | null }>(
+        "/api/audio/artwork-preview",
+        {
+          method: "POST",
+          body: formData,
+        },
+      );
+      setEmbeddedArtworkByTrackId((current) => ({
+        ...current,
+        [track.id]: payload.artworkUrl,
+      }));
+    } catch {
+      setEmbeddedArtworkByTrackId((current) => ({
+        ...current,
+        [track.id]: null,
+      }));
+    } finally {
+      embeddedArtworkRequestsRef.current.delete(track.id);
+    }
+  }
+
   async function onFallbackFolder(files: FileList | null) {
     const selectedFiles = Array.from(files ?? []);
     const audioFiles = selectedFiles.filter(
@@ -600,6 +710,14 @@ function App() {
     );
   }
 
+  function updateTrackDraft(trackId: string, patch: Partial<TrackDraft>) {
+    setTracks((current) =>
+      current.map((track) =>
+        track.id === trackId ? { ...track, ...patch } : track,
+      ),
+    );
+  }
+
   function coverForTrack(track?: TrackDraft) {
     if (cover) return cover;
     return track?.useSuggestedCover === false
@@ -623,20 +741,20 @@ function App() {
   function toggleLeftPanel() {
     const next = !leftCollapsed;
     setLeftCollapsed(next);
-    if (!next && window.innerWidth <= 980) setRightCollapsed(true);
+    if (!next && floatingPanels) setRightCollapsed(true);
   }
 
   function toggleRightPanel() {
     const next = !rightCollapsed;
     setRightCollapsed(next);
-    if (!next && window.innerWidth <= 980) setLeftCollapsed(true);
+    if (!next && floatingPanels) setLeftCollapsed(true);
   }
 
   function startPanelResize(
     panel: "library" | "inspector",
     event: ReactPointerEvent<HTMLButtonElement>,
   ) {
-    if (window.innerWidth <= 980) return;
+    if (floatingPanels) return;
     event.preventDefault();
     event.stopPropagation();
     setResizingPanel(panel);
@@ -1434,9 +1552,11 @@ function App() {
 
   function createSnapshot(): ProjectSnapshot {
     return {
-      schemaVersion: 3,
+      schemaVersion: 4,
       workspaceMode,
       workflowMode,
+      audioStageView,
+      visualStageView,
       activeStep,
       selectedTrackId,
       outputPreset,
@@ -1458,6 +1578,7 @@ function App() {
         selectedForBatch: track.selectedForBatch,
         packageStatus: track.packageStatus,
         useSuggestedCover: track.useSuggestedCover,
+        thumbnailPreviewMode: track.thumbnailPreviewMode,
       })),
     };
   }
@@ -1466,6 +1587,8 @@ function App() {
     if (!snapshot) return;
     setWorkflowMode(snapshot.workflowMode);
     setWorkspaceMode(snapshot.workspaceMode ?? "visual");
+    setAudioStageView(snapshot.audioStageView ?? "edit");
+    setVisualStageView(snapshot.visualStageView ?? "editor");
     setActiveStep(snapshot.activeStep);
     setOutputPreset(snapshot.outputPreset);
     setQualityProfile(snapshot.qualityProfile);
@@ -1523,7 +1646,7 @@ function App() {
 
   return (
     <main
-      className={`studio-shell ${leftCollapsed ? "left-hidden" : ""} ${rightCollapsed ? "right-hidden" : ""} ${panelsSwapped ? "panels-swapped" : ""} ${resizingPanel ? "resizing-panels" : ""}`}
+      className={`studio-shell ${leftCollapsed ? "left-hidden" : ""} ${rightCollapsed ? "right-hidden" : ""} ${panelsSwapped ? "panels-swapped" : ""} ${floatingPanels ? "floating-panels" : ""} ${resizingPanel ? "resizing-panels" : ""}`}
       style={shellStyle}
     >
       <header className="topbar">
@@ -1557,10 +1680,16 @@ function App() {
           )}
         </div>
         <div className="top-actions">
-          <IconButton label="Recolher biblioteca" onClick={toggleLeftPanel}>
+          <IconButton
+            label={leftCollapsed ? "Mostrar biblioteca" : "Ocultar biblioteca"}
+            onClick={toggleLeftPanel}
+          >
             {leftCollapsed ? <ChevronRight /> : <ChevronLeft />}
           </IconButton>
-          <IconButton label="Recolher inspetor" onClick={toggleRightPanel}>
+          <IconButton
+            label={rightCollapsed ? "Mostrar inspetor" : "Ocultar inspetor"}
+            onClick={toggleRightPanel}
+          >
             {rightCollapsed ? <ChevronLeft /> : <ChevronRight />}
           </IconButton>
           <IconButton
@@ -1597,6 +1726,18 @@ function App() {
           </button>
         </div>
       </header>
+
+      {floatingPanels && (!leftCollapsed || !rightCollapsed) && (
+        <button
+          aria-label="Fechar painel lateral"
+          className="floating-panel-backdrop"
+          type="button"
+          onClick={() => {
+            setLeftCollapsed(true);
+            setRightCollapsed(true);
+          }}
+        />
+      )}
 
       <aside className="library-panel">
         <div className="library-header">
@@ -1736,7 +1877,7 @@ function App() {
       </aside>
 
       <section className="preview-workspace">
-        {workspaceMode === "audio" ? (
+        {workspaceMode === "audio" && audioStageView === "edit" ? (
           <AudioLibraryWorkspace
             audioBands={audioBands}
             batchApplyMode={batchApplyMode}
@@ -1770,6 +1911,24 @@ function App() {
             }
             onTrackMetadata={updateTrackMetadata}
           />
+        ) : workspaceMode === "audio" && audioStageView === "catalog" ? (
+          <CatalogPreview
+            coverForTrack={coverForTrack}
+            onSelectTrack={setSelectedTrackId}
+            tracks={reviewTracks}
+          />
+        ) : (workspaceMode === "audio" && audioStageView === "videos") ||
+          (workspaceMode === "visual" && visualStageView === "videos") ? (
+          <VideoReviewGrid
+            coverForTrack={coverForTrack}
+            onSelectTrack={setSelectedTrackId}
+            onThumbnailMode={(trackId, thumbnailPreviewMode) =>
+              updateTrackDraft(trackId, { thumbnailPreviewMode })
+            }
+            outputLabel={selectedOutput[1]}
+            showMetadata={showMetadata}
+            tracks={reviewTracks}
+          />
         ) : (
           <div className="canvas-table">
             <div className="preview-frame">
@@ -1795,8 +1954,16 @@ function App() {
           trackCount={tracks.length}
           trackIndex={selectedTrackIndex}
           trackTitle={selectedTrack?.metadata.title ?? ""}
+          artworkLabel={playerArtworkLabel}
+          artworkSrc={playerArtworkSrc}
+          canToggleArtwork={Boolean(plannedArtworkSrc && embeddedArtworkSrc)}
           onNext={() => selectAdjacentTrack(1)}
           onPrevious={() => selectAdjacentTrack(-1)}
+          onToggleArtwork={() =>
+            setPlayerArtworkSource((current) =>
+              current === "planned" ? "embedded" : "planned",
+            )
+          }
           onToggle={() => void togglePlayback()}
         />
       </section>
@@ -1953,30 +2120,72 @@ function App() {
 
       <footer className="statusbar">
         <span className="save-status">
-          <Check /> Alterações salvas
+          <Check /> Alterações salvas localmente
         </span>
         {workspaceMode === "visual" ? (
           <nav className="steps" aria-label="Etapas do projeto">
             {(["music", "visual", "text", "export"] as ActiveStep[]).map(
               (step, index) => (
                 <button
-                  className={step === activeStep ? "active" : ""}
+                  className={
+                    visualStageView === "editor" && step === activeStep
+                      ? "active"
+                      : ""
+                  }
                   key={step}
                   type="button"
-                  onClick={() => setActiveStep(step)}
+                  onClick={() => {
+                    setVisualStageView("editor");
+                    setActiveStep(step);
+                  }}
                 >
                   <span>{index + 1}</span>
                   {stepLabel(step)}
                 </button>
               ),
             )}
+            <button
+              className={visualStageView === "videos" ? "active" : ""}
+              type="button"
+              onClick={() => setVisualStageView("videos")}
+            >
+              <Video />
+              Conferir vídeos
+            </button>
           </nav>
         ) : (
-          <span className="audio-flow">
-            Analisar · revisar pacote · processar cópia
-          </span>
+          <nav
+            className="stage-view-switch"
+            aria-label="Conferência da biblioteca"
+          >
+            <button
+              className={audioStageView === "edit" ? "active" : ""}
+              type="button"
+              onClick={() => setAudioStageView("edit")}
+            >
+              <SlidersHorizontal /> Editar
+            </button>
+            <button
+              className={audioStageView === "catalog" ? "active" : ""}
+              type="button"
+              onClick={() => setAudioStageView("catalog")}
+            >
+              <Disc3 /> Catálogo
+            </button>
+            <button
+              className={audioStageView === "videos" ? "active" : ""}
+              type="button"
+              onClick={() => setAudioStageView("videos")}
+            >
+              <Video /> Vídeos
+            </button>
+          </nav>
         )}
-        <span className="project-state">Projeto atual · autosave local</span>
+        <span className="project-state">
+          {workspaceMode === "audio"
+            ? `${reviewTracks.length} selecionada${reviewTracks.length === 1 ? "" : "s"} · ${treatedTrackCount} tratada${treatedTrackCount === 1 ? "" : "s"} · ${audioWarningCount} alerta${audioWarningCount === 1 ? "" : "s"}`
+            : `${selectedOutput[1]} · ${selectedTrack?.layers.length ?? 0}/3 camadas · waveform ${selectedScene.waveform.visible ? "ativa" : "desligada"}`}
+        </span>
       </footer>
 
       <input
@@ -2069,6 +2278,7 @@ function AudioLibraryWorkspace({
   workflowMode: "single" | "batch";
 }) {
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
+  const [expandedRows, setExpandedRows] = useState<string[]>([]);
   if (workflowMode === "batch") {
     const selectedCount = tracks.filter(
       (track) => track.selectedForBatch,
@@ -2078,6 +2288,12 @@ function AudioLibraryWorkspace({
       setCollapsedGroups((current) =>
         current.includes(id)
           ? current.filter((groupId) => groupId !== id)
+          : [...current, id],
+      );
+    const toggleRow = (id: string) =>
+      setExpandedRows((current) =>
+        current.includes(id)
+          ? current.filter((trackId) => trackId !== id)
           : [...current, id],
       );
     return (
@@ -2270,17 +2486,17 @@ function AudioLibraryWorkspace({
           <table className="batch-table">
             <thead>
               <tr>
-                <th></th>
-                <th>Faixa</th>
-                <th>Disco</th>
-                <th>Título</th>
-                <th>Artista</th>
-                <th>Álbum</th>
-                <th>Arquivo tratado</th>
-                <th>Pacote</th>
-                <th>LUFS</th>
-                <th>TP</th>
-                <th>Normalizar</th>
+                <th className="batch-col-select"></th>
+                <th className="batch-col-expand"></th>
+                <th className="batch-col-track">Faixa</th>
+                <th className="batch-col-disk">Disco</th>
+                <th className="batch-col-title">Título</th>
+                <th className="batch-col-artist">Artista</th>
+                <th className="batch-col-album">Álbum</th>
+                <th className="batch-col-package">Pacote</th>
+                <th className="batch-col-lufs">LUFS</th>
+                <th className="batch-col-tp">TP</th>
+                <th className="batch-col-normalize">Normalizar</th>
               </tr>
             </thead>
             {groups.map((group) => {
@@ -2302,127 +2518,258 @@ function AudioLibraryWorkspace({
                     </td>
                   </tr>
                   {!collapsed &&
-                    group.tracks.map((track) => (
-                      <tr
-                        className={
-                          track.id === selectedTrackId ? "selected" : ""
-                        }
-                        key={track.id}
-                        onClick={() => onSelectTrack(track.id)}
-                      >
-                        <td>
-                          <input
-                            aria-label={`Selecionar ${track.metadata.title}`}
-                            checked={track.selectedForBatch}
-                            type="checkbox"
-                            onChange={(event) =>
-                              onToggleTrack(track.id, event.target.checked)
-                            }
-                            onClick={(event) => event.stopPropagation()}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            aria-label="Faixa"
-                            value={String(track.metadata.trackNumber)}
-                            onChange={(event) =>
-                              onTrackMetadata(track.id, {
-                                trackNumber: Math.max(
-                                  1,
-                                  Number(event.target.value) || 1,
-                                ),
-                              })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <input
-                            aria-label="Disco"
-                            value={String(track.metadata.diskNumber)}
-                            onChange={(event) =>
-                              onTrackMetadata(track.id, {
-                                diskNumber: Math.max(
-                                  1,
-                                  Number(event.target.value) || 1,
-                                ),
-                              })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <input
-                            aria-label="Título"
-                            value={track.metadata.title}
-                            onChange={(event) =>
-                              onTrackMetadata(track.id, {
-                                title: event.target.value,
-                              })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <input
-                            aria-label="Artista"
-                            value={track.metadata.artist}
-                            onChange={(event) =>
-                              onTrackMetadata(track.id, {
-                                artist: event.target.value,
-                              })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <input
-                            aria-label="Álbum"
-                            value={track.metadata.album}
-                            onChange={(event) =>
-                              onTrackMetadata(track.id, {
-                                album: event.target.value,
-                              })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <span className="filename-preview">
-                            {previewTreatedFileName(track.metadata)}
-                          </span>
-                        </td>
-                        <td>
-                          <span
-                            className={`quality-badge ${track.packageStatus ?? "original"}`}
+                    group.tracks.map((track) => {
+                      const expanded = expandedRows.includes(track.id);
+                      return (
+                        <Fragment key={track.id}>
+                          <tr
+                            className={`batch-main-row ${track.id === selectedTrackId ? "selected" : ""} ${expanded ? "is-expanded" : ""}`}
+                            onClick={() => onSelectTrack(track.id)}
                           >
-                            {track.packageStatus === "treated"
-                              ? "Tratado"
-                              : "Original"}
-                          </span>
-                        </td>
-                        <td>
-                          {formatMetric(
-                            track.audioInfo?.analysis?.integratedLufs,
-                            " LUFS",
-                          )}
-                        </td>
-                        <td>
-                          {formatMetric(
-                            track.audioInfo?.analysis?.truePeakDbtp,
-                            " dBTP",
-                          )}
-                        </td>
-                        <td>
-                          <input
-                            aria-label="Normalizar"
-                            checked={track.metadata.normalizationEnabled}
-                            type="checkbox"
-                            onChange={(event) =>
-                              onTrackMetadata(track.id, {
-                                normalizationEnabled: event.target.checked,
-                              })
-                            }
-                            onClick={(event) => event.stopPropagation()}
-                          />
-                        </td>
-                      </tr>
-                    ))}
+                            <td className="batch-col-select">
+                              <input
+                                aria-label={`Selecionar ${track.metadata.title}`}
+                                checked={track.selectedForBatch}
+                                type="checkbox"
+                                onChange={(event) =>
+                                  onToggleTrack(track.id, event.target.checked)
+                                }
+                                onClick={(event) => event.stopPropagation()}
+                              />
+                            </td>
+                            <td className="batch-col-expand">
+                              <button
+                                aria-label={
+                                  expanded
+                                    ? `Recolher detalhes de ${track.metadata.title}`
+                                    : `Expandir detalhes de ${track.metadata.title}`
+                                }
+                                className="batch-row-expand"
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  onSelectTrack(track.id);
+                                  toggleRow(track.id);
+                                }}
+                              >
+                                <ChevronDown className="expand-closed-icon" />
+                                <ChevronUp className="expand-open-icon" />
+                              </button>
+                            </td>
+                            <td className="batch-col-track">
+                              <input
+                                aria-label="Faixa"
+                                className="batch-wide-field"
+                                value={String(track.metadata.trackNumber)}
+                                onChange={(event) =>
+                                  onTrackMetadata(track.id, {
+                                    trackNumber: Math.max(
+                                      1,
+                                      Number(event.target.value) || 1,
+                                    ),
+                                  })
+                                }
+                              />
+                              <span className="batch-compact-value">
+                                {track.metadata.trackNumber}
+                              </span>
+                            </td>
+                            <td className="batch-col-disk">
+                              <input
+                                aria-label="Disco"
+                                value={String(track.metadata.diskNumber)}
+                                onChange={(event) =>
+                                  onTrackMetadata(track.id, {
+                                    diskNumber: Math.max(
+                                      1,
+                                      Number(event.target.value) || 1,
+                                    ),
+                                  })
+                                }
+                              />
+                            </td>
+                            <td className="batch-col-title">
+                              <input
+                                aria-label="Título"
+                                className="batch-wide-field"
+                                value={track.metadata.title}
+                                onChange={(event) =>
+                                  onTrackMetadata(track.id, {
+                                    title: event.target.value,
+                                  })
+                                }
+                              />
+                              <strong className="batch-compact-value">
+                                {track.metadata.title || "Título ausente"}
+                              </strong>
+                            </td>
+                            <td className="batch-col-artist">
+                              <input
+                                aria-label="Artista"
+                                value={track.metadata.artist}
+                                onChange={(event) =>
+                                  onTrackMetadata(track.id, {
+                                    artist: event.target.value,
+                                  })
+                                }
+                              />
+                            </td>
+                            <td className="batch-col-album">
+                              <input
+                                aria-label="Álbum"
+                                value={track.metadata.album}
+                                onChange={(event) =>
+                                  onTrackMetadata(track.id, {
+                                    album: event.target.value,
+                                  })
+                                }
+                              />
+                            </td>
+                            <td className="batch-col-package">
+                              <span
+                                className={`quality-badge ${track.packageStatus ?? "original"}`}
+                              >
+                                {track.packageStatus === "treated"
+                                  ? "Tratado"
+                                  : "Original"}
+                              </span>
+                            </td>
+                            <td className="batch-col-lufs">
+                              {formatMetric(
+                                track.audioInfo?.analysis?.integratedLufs,
+                                " LUFS",
+                              )}
+                            </td>
+                            <td className="batch-col-tp">
+                              {formatMetric(
+                                track.audioInfo?.analysis?.truePeakDbtp,
+                                " dBTP",
+                              )}
+                            </td>
+                            <td className="batch-col-normalize">
+                              <input
+                                aria-label="Normalizar"
+                                checked={track.metadata.normalizationEnabled}
+                                type="checkbox"
+                                onChange={(event) =>
+                                  onTrackMetadata(track.id, {
+                                    normalizationEnabled: event.target.checked,
+                                  })
+                                }
+                                onClick={(event) => event.stopPropagation()}
+                              />
+                            </td>
+                          </tr>
+                          <tr
+                            className={`batch-detail-row ${expanded ? "is-expanded" : ""} ${track.id === selectedTrackId ? "is-focused" : ""}`}
+                          >
+                            <td colSpan={11}>
+                              <div className="batch-row-details">
+                                <label className="batch-detail-edit batch-detail-track">
+                                  <span>Faixa</span>
+                                  <input
+                                    aria-label="Faixa detalhada"
+                                    value={String(track.metadata.trackNumber)}
+                                    onChange={(event) =>
+                                      onTrackMetadata(track.id, {
+                                        trackNumber: Math.max(
+                                          1,
+                                          Number(event.target.value) || 1,
+                                        ),
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <label className="batch-detail-edit batch-detail-title">
+                                  <span>Título</span>
+                                  <input
+                                    aria-label="Título detalhado"
+                                    value={track.metadata.title}
+                                    onChange={(event) =>
+                                      onTrackMetadata(track.id, {
+                                        title: event.target.value,
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <label className="batch-detail-edit batch-detail-disk">
+                                  <span>Disco</span>
+                                  <input
+                                    aria-label="Disco detalhado"
+                                    value={String(track.metadata.diskNumber)}
+                                    onChange={(event) =>
+                                      onTrackMetadata(track.id, {
+                                        diskNumber: Math.max(
+                                          1,
+                                          Number(event.target.value) || 1,
+                                        ),
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <label className="batch-detail-edit batch-detail-artist">
+                                  <span>Artista</span>
+                                  <input
+                                    aria-label="Artista detalhado"
+                                    value={track.metadata.artist}
+                                    onChange={(event) =>
+                                      onTrackMetadata(track.id, {
+                                        artist: event.target.value,
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <label className="batch-detail-edit batch-detail-album">
+                                  <span>Álbum</span>
+                                  <input
+                                    aria-label="Álbum detalhado"
+                                    value={track.metadata.album}
+                                    onChange={(event) =>
+                                      onTrackMetadata(track.id, {
+                                        album: event.target.value,
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <div className="batch-detail-file">
+                                  <span>Arquivo tratado</span>
+                                  <strong>
+                                    {previewTreatedFileName(track.metadata)}
+                                  </strong>
+                                </div>
+                                <div className="batch-detail-metric">
+                                  <span>LUFS</span>
+                                  <strong>
+                                    {formatMetric(
+                                      track.audioInfo?.analysis?.integratedLufs,
+                                      " LUFS",
+                                    )}
+                                  </strong>
+                                </div>
+                                <div className="batch-detail-metric">
+                                  <span>TP</span>
+                                  <strong>
+                                    {formatMetric(
+                                      track.audioInfo?.analysis?.truePeakDbtp,
+                                      " dBTP",
+                                    )}
+                                  </strong>
+                                </div>
+                                <CheckField
+                                  label="Normalizar cópia"
+                                  checked={track.metadata.normalizationEnabled}
+                                  onChange={(normalizationEnabled) =>
+                                    onTrackMetadata(track.id, {
+                                      normalizationEnabled,
+                                    })
+                                  }
+                                />
+                              </div>
+                            </td>
+                          </tr>
+                        </Fragment>
+                      );
+                    })}
                 </tbody>
               );
             })}
@@ -2925,29 +3272,355 @@ function ScenePreview({
   return <canvas className="scene-canvas" ref={canvasRef} />;
 }
 
+function CatalogPreview({
+  coverForTrack,
+  onSelectTrack,
+  tracks,
+}: {
+  coverForTrack: (track?: TrackDraft) => { file: File; src: string } | null;
+  onSelectTrack: (trackId: string) => void;
+  tracks: TrackDraft[];
+}) {
+  const albums = groupCatalogTracks(tracks);
+  return (
+    <div className="review-stage catalog-review">
+      <header className="review-stage-header">
+        <div>
+          <span className="overline">Conferência musical</span>
+          <h1>Catálogo planejado</h1>
+          <p>Visualize as tags como uma página de álbum antes do tratamento.</p>
+        </div>
+        <strong>
+          {tracks.length} faixa{tracks.length === 1 ? "" : "s"}
+        </strong>
+      </header>
+      <div className="catalog-scroll">
+        {albums.length ? (
+          albums.map((album) => {
+            const artwork = coverForTrack(album.tracks[0])?.src;
+            return (
+              <section className="catalog-album" key={album.id}>
+                <header className="catalog-album-header">
+                  <ArtworkSquare artworkSrc={artwork} />
+                  <div>
+                    <span className="overline">Álbum</span>
+                    <h2>{album.album || "Álbum não informado"}</h2>
+                    <p>{album.artist || "Artista não informado"}</p>
+                    <small>
+                      {[
+                        album.year || "Ano ausente",
+                        album.genre || "Gênero ausente",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                      {" · "}
+                      {album.tracks.length} faixa
+                      {album.tracks.length === 1 ? "" : "s"}
+                    </small>
+                  </div>
+                </header>
+                <div className="catalog-track-list">
+                  {album.tracks.map((track) => (
+                    <button
+                      className="catalog-track"
+                      key={track.id}
+                      type="button"
+                      onClick={() => onSelectTrack(track.id)}
+                    >
+                      <span className="catalog-track-number">
+                        {track.metadata.diskNumber > 1
+                          ? `${track.metadata.diskNumber}.`
+                          : ""}
+                        {track.metadata.trackNumber || "–"}
+                      </span>
+                      <span>
+                        <strong>
+                          {track.metadata.title || "Título ausente"}
+                        </strong>
+                        <small>
+                          {track.metadata.version ||
+                            (track.packageStatus === "treated"
+                              ? "Cópia tratada"
+                              : "Arquivo original")}
+                        </small>
+                      </span>
+                      <span className="catalog-track-duration">
+                        {formatDuration(track.audioInfo?.durationSeconds)}
+                      </span>
+                      <em>
+                        {track.packageStatus === "treated"
+                          ? "Tratado"
+                          : "Original"}
+                      </em>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            );
+          })
+        ) : (
+          <EmptyReviewState />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function VideoReviewGrid({
+  coverForTrack,
+  onSelectTrack,
+  onThumbnailMode,
+  outputLabel,
+  showMetadata,
+  tracks,
+}: {
+  coverForTrack: (track?: TrackDraft) => { file: File; src: string } | null;
+  onSelectTrack: (trackId: string) => void;
+  onThumbnailMode: (
+    trackId: string,
+    mode: TrackDraft["thumbnailPreviewMode"],
+  ) => void;
+  outputLabel: string;
+  showMetadata: boolean;
+  tracks: TrackDraft[];
+}) {
+  return (
+    <div className="review-stage video-review">
+      <header className="review-stage-header">
+        <div>
+          <span className="overline">Conferência de vídeos</span>
+          <h1>Grade de publicação</h1>
+          <p>Confira títulos, capas e frames antes de exportar.</p>
+        </div>
+        <strong>
+          {tracks.length} vídeo{tracks.length === 1 ? "" : "s"}
+        </strong>
+      </header>
+      {tracks.length ? (
+        <div className="youtube-grid">
+          {tracks.map((track) => {
+            const coverSrc = coverForTrack(track)?.src;
+            return (
+              <article className="youtube-card" key={track.id}>
+                <button
+                  className="youtube-thumbnail"
+                  type="button"
+                  onClick={() => onSelectTrack(track.id)}
+                >
+                  {track.thumbnailPreviewMode === "composition" ? (
+                    <CompositionThumbnail
+                      coverSrc={coverSrc}
+                      fingerprint={thumbnailFingerprint(
+                        track,
+                        coverSrc,
+                        showMetadata,
+                      )}
+                      layers={track.layers}
+                      metadata={track.metadata}
+                      scene={track.scene}
+                      showMetadata={showMetadata}
+                    />
+                  ) : (
+                    <ArtworkFrame artworkSrc={coverSrc} />
+                  )}
+                  <span className="youtube-duration">
+                    {formatDuration(track.audioInfo?.durationSeconds)}
+                  </span>
+                </button>
+                <div className="youtube-card-copy">
+                  <strong>
+                    {track.metadata.title || "Título não informado"}
+                  </strong>
+                  <span>
+                    {track.metadata.artist || "Artista não informado"}
+                  </span>
+                  <small>
+                    {outputLabel} ·{" "}
+                    {track.metadata.visibility === "public"
+                      ? "Público"
+                      : track.metadata.visibility === "private"
+                        ? "Privado"
+                        : "Não listado"}
+                  </small>
+                </div>
+                <div
+                  className="thumbnail-mode-switch"
+                  role="group"
+                  aria-label={`Miniatura de ${track.metadata.title}`}
+                >
+                  <button
+                    className={
+                      track.thumbnailPreviewMode === "composition"
+                        ? "active"
+                        : ""
+                    }
+                    type="button"
+                    onClick={() => onThumbnailMode(track.id, "composition")}
+                  >
+                    Frame
+                  </button>
+                  <button
+                    className={
+                      track.thumbnailPreviewMode === "cover" ? "active" : ""
+                    }
+                    type="button"
+                    onClick={() => onThumbnailMode(track.id, "cover")}
+                  >
+                    Capa
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <EmptyReviewState />
+      )}
+    </div>
+  );
+}
+
+function CompositionThumbnail({
+  coverSrc,
+  fingerprint,
+  layers,
+  metadata,
+  scene,
+  showMetadata,
+}: {
+  coverSrc?: string;
+  fingerprint: string;
+  layers: MediaLayerV2[];
+  metadata: TrackMetadata;
+  scene: ScenePresetV3;
+  showMetadata: boolean;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [failed, setFailed] = useState(false);
+  const [previewSrc, setPreviewSrc] = useState(
+    () => compositionThumbnailCache.get(fingerprint) ?? "",
+  );
+
+  useEffect(() => {
+    let active = true;
+    let runtime: ReturnType<typeof createSceneRuntime> | undefined;
+    const cached = compositionThumbnailCache.get(fingerprint);
+    setFailed(false);
+    if (cached) {
+      setPreviewSrc(cached);
+      return;
+    }
+    setPreviewSrc("");
+    const timeout = window.setTimeout(() => {
+      void loadMediaElements({
+        coverSrc,
+        layers: layers.map((layer) => ({ ...layer, src: layer.src })),
+        metadata,
+        showMetadata,
+      })
+        .then((composition) => {
+          const canvas = canvasRef.current;
+          if (!active || !canvas) return;
+          runtime = createSceneRuntime(canvas, scene, composition);
+          runtime.resize(320, 180);
+          runtime.render(7.5);
+          const nextPreview = canvas.toDataURL("image/jpeg", 0.82);
+          compositionThumbnailCache.set(fingerprint, nextPreview);
+          if (
+            compositionThumbnailCache.size > COMPOSITION_THUMBNAIL_CACHE_LIMIT
+          ) {
+            compositionThumbnailCache.delete(
+              compositionThumbnailCache.keys().next().value ?? "",
+            );
+          }
+          setPreviewSrc(nextPreview);
+          runtime.destroy();
+          runtime = undefined;
+        })
+        .catch(() => {
+          if (active) setFailed(true);
+        });
+    }, 140);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+      runtime?.destroy();
+    };
+  }, [coverSrc, fingerprint, layers, metadata, scene, showMetadata]);
+
+  if (failed) return <ArtworkFrame artworkSrc={coverSrc} />;
+  if (previewSrc) {
+    return <img alt="" className="composition-thumbnail" src={previewSrc} />;
+  }
+  return (
+    <canvas
+      className="composition-thumbnail"
+      height="180"
+      ref={canvasRef}
+      width="320"
+    />
+  );
+}
+
+function ArtworkSquare({ artworkSrc }: { artworkSrc?: string }) {
+  return (
+    <span className="artwork-square">
+      {artworkSrc ? <img alt="" src={artworkSrc} /> : <Disc3 />}
+    </span>
+  );
+}
+
+function ArtworkFrame({ artworkSrc }: { artworkSrc?: string }) {
+  return (
+    <span className="artwork-frame">
+      {artworkSrc ? <img alt="" src={artworkSrc} /> : <Disc3 />}
+    </span>
+  );
+}
+
+function EmptyReviewState() {
+  return (
+    <div className="empty-review-state">
+      <Disc3 />
+      <strong>Nenhuma faixa no escopo atual</strong>
+      <span>
+        Selecione arquivos no lote ou escolha uma faixa na biblioteca.
+      </span>
+    </div>
+  );
+}
+
 function Transport({
   audioRef,
   audioSrc,
+  artworkLabel,
+  artworkSrc,
   canNext,
   canPrevious,
+  canToggleArtwork,
   trackArtist,
   trackCount,
   trackIndex,
   trackTitle,
   onNext,
   onPrevious,
+  onToggleArtwork,
   onToggle,
 }: {
   audioRef: React.RefObject<HTMLAudioElement | null>;
   audioSrc: string;
+  artworkLabel: string;
+  artworkSrc: string;
   canNext: boolean;
   canPrevious: boolean;
+  canToggleArtwork: boolean;
   trackArtist: string;
   trackCount: number;
   trackIndex: number;
   trackTitle: string;
   onNext: () => void;
   onPrevious: () => void;
+  onToggleArtwork: () => void;
   onToggle: () => void;
 }) {
   const [playing, setPlaying] = useState(false);
@@ -2992,6 +3665,31 @@ function Transport({
         <IconButton disabled={!canNext} label="Proxima faixa" onClick={onNext}>
           <SkipForward />
         </IconButton>
+      </div>
+      <div className="transport-artwork">
+        <button
+          aria-label={
+            canToggleArtwork
+              ? artworkLabel === "Planejada"
+                ? "Mostrar capa embutida"
+                : "Mostrar capa planejada"
+              : "Capa da faixa"
+          }
+          className="transport-artwork-button"
+          disabled={!canToggleArtwork}
+          title={
+            canToggleArtwork
+              ? artworkLabel === "Planejada"
+                ? "Mostrar capa embutida"
+                : "Mostrar capa planejada"
+              : artworkLabel || "Sem capa"
+          }
+          type="button"
+          onClick={onToggleArtwork}
+        >
+          {artworkSrc ? <img alt="" src={artworkSrc} /> : <Music2 />}
+        </button>
+        {artworkLabel && <small>{artworkLabel}</small>}
       </div>
       <div className="transport-track">
         <strong>{trackTitle || "Nenhuma faixa selecionada"}</strong>
@@ -4070,6 +4768,7 @@ function trackFromInput(
     audioInfo: info,
     selectedForBatch: true,
     packageStatus: "original",
+    thumbnailPreviewMode: "composition",
   };
 }
 
@@ -4100,6 +4799,7 @@ function trackFromFile(
     audioInfo: info,
     selectedForBatch: true,
     packageStatus: "original",
+    thumbnailPreviewMode: "composition",
   };
 }
 
@@ -4114,6 +4814,7 @@ function restoreTrack(
     sourceFile,
     sourceUrl: sourceFile ? URL.createObjectURL(sourceFile) : base.sourceUrl,
     scene: normalizeVisualSettings(saved.scene),
+    thumbnailPreviewMode: saved.thumbnailPreviewMode ?? "composition",
     layers: saved.layers.map((layer) => ({
       ...layer,
       src: URL.createObjectURL(layer.file),
@@ -4422,6 +5123,67 @@ function clampPanelWidth(
   );
   const max = Math.min(bounds.max, viewportLimitedMax);
   return Math.round(Math.min(Math.max(value, bounds.min), max));
+}
+
+function groupCatalogTracks(tracks: TrackDraft[]) {
+  const albums = new Map<
+    string,
+    {
+      id: string;
+      album: string;
+      artist: string;
+      genre: string;
+      year: string;
+      tracks: TrackDraft[];
+    }
+  >();
+  for (const track of tracks) {
+    const artist = track.metadata.albumArtist || track.metadata.artist;
+    const id = `${artist}\u0000${track.metadata.album}`;
+    const album = albums.get(id) ?? {
+      id,
+      album: track.metadata.album,
+      artist,
+      genre: track.metadata.genre,
+      year: track.metadata.year,
+      tracks: [],
+    };
+    album.tracks.push(track);
+    albums.set(id, album);
+  }
+  return [...albums.values()].map((album) => ({
+    ...album,
+    tracks: album.tracks.sort(
+      (first, second) =>
+        first.metadata.diskNumber - second.metadata.diskNumber ||
+        first.metadata.trackNumber - second.metadata.trackNumber ||
+        first.metadata.title.localeCompare(second.metadata.title, "pt-BR"),
+    ),
+  }));
+}
+
+function thumbnailFingerprint(
+  track: TrackDraft,
+  coverSrc: string | undefined,
+  showMetadata: boolean,
+) {
+  return JSON.stringify({
+    coverSrc,
+    layers: track.layers.map((layer) => ({
+      id: layer.id,
+      name: layer.name,
+      opacity: layer.opacity,
+      order: layer.order,
+      rotation: layer.rotation,
+      scale: layer.scale,
+      visible: layer.visible,
+      x: layer.x,
+      y: layer.y,
+    })),
+    metadata: track.metadata,
+    scene: track.scene,
+    showMetadata,
+  });
 }
 
 function formatDuration(seconds?: number | null) {
