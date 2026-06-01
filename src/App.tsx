@@ -2567,7 +2567,7 @@ function BatchJobBoard({
           <span className="overline">{title}</span>
           <strong>
             {activeJobs.length
-              ? `${activeJobs.length} item${activeJobs.length === 1 ? "" : "s"} na fila`
+              ? `${activeJobs.length} processamento${activeJobs.length === 1 ? "" : "s"} registrado${activeJobs.length === 1 ? "" : "s"}`
               : "Nenhum processamento iniciado"}
           </strong>
         </div>

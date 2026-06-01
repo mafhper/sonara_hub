@@ -159,18 +159,23 @@ try {
   await page.getByRole("button", { name: "Biblioteca de audio" }).click();
   await page.getByRole("button", { name: "Lote" }).click();
   await page.getByText("Dados comuns do lote").waitFor();
-  await page
-    .locator(".batch-toolbar label.field", { hasText: "Artista principal" })
-    .locator("input")
-    .fill("Matheus Lima");
-  await page
-    .locator(".batch-toolbar label.field", { hasText: "Comentario ID3" })
-    .locator("textarea")
+  const batchToolbar = page.getByRole("group", {
+    name: "Dados comuns do lote",
+  });
+  await batchToolbar.getByLabel("Artista principal").fill("Matheus Lima");
+  await batchToolbar
+    .getByLabel("Comentario ID3")
     .fill("Feito usando IA com curadoria humana.");
-  await page.getByRole("button", { name: "Aplicar aos selecionados" }).click();
+  await batchToolbar
+    .getByRole("button", { name: "Aplicar aos selecionados" })
+    .click();
   await page.getByText("apenas onde havia campos vazios").waitFor();
-  await page.getByRole("button", { name: "Sobrescrever informados" }).click();
-  await page.getByRole("button", { name: "Aplicar aos selecionados" }).click();
+  await batchToolbar
+    .getByRole("button", { name: "Sobrescrever informados" })
+    .click();
+  await batchToolbar
+    .getByRole("button", { name: "Aplicar aos selecionados" })
+    .click();
   await page.getByText("com sobrescrita dos campos informados").waitFor();
   assert.equal(await page.locator(".batch-group-row").count(), 1);
   await page.locator(".batch-group-row button").click();
