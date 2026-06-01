@@ -56,3 +56,6 @@ npm run test:release
 
 O escopo completo e a matriz exploratoria da `v1.0.0` estao em
 [`docs/release-test-bench.md`](docs/release-test-bench.md).
+
+Debitos tecnicos acompanhados ficam em
+[`docs/technical-debt.md`](docs/technical-debt.md).

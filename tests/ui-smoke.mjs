@@ -72,6 +72,26 @@ try {
   await page.getByText("ui-smoke").first().waitFor();
   await page.getByText("Biblioteca de audio", { exact: true }).last().waitFor();
   await page.getByText("LUFS integrado").waitFor();
+  await assertReadableType(page, [
+    [".brand", 12],
+    [".workspace-switch button", 12],
+    [".track-context", 12],
+    [".track-copy strong", 12],
+    [".track-copy small", 10],
+    [".audio-library-heading h1", 20],
+    [".metric-strip dt", 10],
+    [".metric-strip dd", 15],
+    [".inspector-header strong", 15],
+    [".inspector-group summary", 13],
+    [".field input", 12],
+    [".helper-copy", 12],
+    [".transport", 12],
+  ]);
+  await assertFocusVisible(
+    page,
+    page.getByRole("button", { name: "Estudio visual" }),
+  );
+  await assertTrackSelectionIsNotColorOnly(page);
   await page.getByRole("button", { name: "Estudio visual" }).click();
 
   const presetSelect = page.locator('select:has(option[value="vector-aura"])');
@@ -180,6 +200,23 @@ try {
   await page.getByText("Processamento do lote").waitFor();
   await page.getByRole("button", { name: "Pausar fila" }).waitFor();
   await page.getByRole("button", { name: "Cancelar todos" }).waitFor();
+  await assertReadableType(page, [
+    [".batch-table", 12],
+    [".batch-table th", 10],
+    [".batch-table input", 12],
+    [".batch-toolbar-head strong", 13],
+    [".batch-mode-note", 12],
+    [".batch-job-board header strong", 13],
+    [".batch-job-actions button", 12],
+  ]);
+  await assertFocusVisible(
+    page,
+    page
+      .locator(".batch-table tbody tr:not(.batch-group-row)")
+      .first()
+      .locator('input[aria-label="Titulo"]'),
+  );
+  await assertStatusIndicators(page);
   await page.screenshot({
     path: path.join(screenshotDir, "sonara-hub-audio-batch.png"),
     fullPage: true,
@@ -249,6 +286,12 @@ try {
     .waitFor();
   await page.setViewportSize({ width: 760, height: 1080 });
   await page.waitForTimeout(250);
+  assert.ok(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+    "narrow layout should not create document-level horizontal overflow",
+  );
   await page.screenshot({
     path: path.join(screenshotDir, "sonara-hub-narrow.png"),
     fullPage: true,
@@ -303,4 +346,76 @@ async function cleanupSmokePresets() {
         ),
       ),
   );
+}
+
+async function assertReadableType(page, rules) {
+  for (const [selector, minimum] of rules) {
+    const size = await page
+      .locator(selector)
+      .first()
+      .evaluate((element) =>
+        Number.parseFloat(getComputedStyle(element).fontSize),
+      );
+    assert.ok(
+      size >= minimum,
+      `${selector} should use at least ${minimum}px, got ${size}px`,
+    );
+  }
+}
+
+async function assertFocusVisible(page, locator) {
+  await locator.focus();
+  const focus = await locator.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      outlineWidth: Number.parseFloat(style.outlineWidth),
+      outlineStyle: style.outlineStyle,
+      boxShadow: style.boxShadow,
+    };
+  });
+  assert.ok(
+    focus.outlineWidth >= 2 || focus.boxShadow !== "none",
+    `focused control should have a visible outline or ring, got ${JSON.stringify(focus)}`,
+  );
+}
+
+async function assertTrackSelectionIsNotColorOnly(page) {
+  const selected = await page
+    .locator(".track-row.selected")
+    .first()
+    .evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        borderLeftWidth: Number.parseFloat(style.borderLeftWidth),
+        backgroundColor: style.backgroundColor,
+      };
+    });
+  assert.ok(selected.borderLeftWidth >= 3);
+  assert.notEqual(selected.backgroundColor, "rgba(0, 0, 0, 0)");
+}
+
+async function assertStatusIndicators(page) {
+  const indicators = await page.evaluate(() => {
+    const host = document.createElement("div");
+    host.innerHTML = `
+      <div class="batch-job-row done"><span></span></div>
+      <div class="batch-job-row error"><span></span></div>
+      <div class="batch-job-row canceled"><span></span></div>
+      <span class="quality-badge safe">Seguro</span>
+      <span class="quality-badge reduced-headroom">Margem reduzida</span>
+      <span class="quality-badge overload">Sobrecarga</span>
+    `;
+    document.body.append(host);
+    const rows = [...host.querySelectorAll(".batch-job-row")].map((element) => {
+      const style = getComputedStyle(element);
+      return Number.parseFloat(style.borderLeftWidth);
+    });
+    const badges = [...host.querySelectorAll(".quality-badge")].map(
+      (element) => getComputedStyle(element, "::before").content,
+    );
+    host.remove();
+    return { rows, badges };
+  });
+  assert.ok(indicators.rows.every((width) => width >= 4));
+  assert.deepEqual(indicators.badges, ['"✓"', '"!"', '"×"']);
 }

@@ -1577,7 +1577,11 @@ function App() {
                 />
               )}
               <span className="track-cover">
-                <Music2 />
+                {coverForTrack(track)?.src ? (
+                  <img alt="" src={coverForTrack(track)?.src} />
+                ) : (
+                  <Music2 />
+                )}
               </span>
               <span className="track-copy">
                 <strong>{track.metadata.title}</strong>
