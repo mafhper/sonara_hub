@@ -50,7 +50,7 @@ export function groupAudioTracks(tracks) {
   const groups = new Map();
   for (const track of tracks) {
     const artist = String(track.metadata.artist || "Artista desconhecido");
-    const album = String(track.metadata.album || "Album sem nome");
+    const album = String(track.metadata.album || "Álbum sem nome");
     const diskNumber = Math.max(1, Number(track.metadata.diskNumber) || 1);
     const id = [artist, album, diskNumber].map(normalizeKey).join("\u0000");
     const current = groups.get(id) ?? {

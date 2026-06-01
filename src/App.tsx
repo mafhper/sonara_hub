@@ -2273,9 +2273,9 @@ function AudioLibraryWorkspace({
                 <th></th>
                 <th>Faixa</th>
                 <th>Disco</th>
-                <th>Titulo</th>
+                <th>Título</th>
                 <th>Artista</th>
-                <th>Album</th>
+                <th>Álbum</th>
                 <th>Arquivo tratado</th>
                 <th>Pacote</th>
                 <th>LUFS</th>
@@ -2351,7 +2351,7 @@ function AudioLibraryWorkspace({
                         </td>
                         <td>
                           <input
-                            aria-label="Titulo"
+                            aria-label="Título"
                             value={track.metadata.title}
                             onChange={(event) =>
                               onTrackMetadata(track.id, {
@@ -2373,7 +2373,7 @@ function AudioLibraryWorkspace({
                         </td>
                         <td>
                           <input
-                            aria-label="Album"
+                            aria-label="Álbum"
                             value={track.metadata.album}
                             onChange={(event) =>
                               onTrackMetadata(track.id, {
@@ -2679,7 +2679,7 @@ function AudioLibraryInspector({
     <>
       <InspectorGroup title="Dados" open>
         <TextField
-          label="Titulo"
+          label="Título"
           value={metadata.title}
           onChange={(title) => onChange({ title })}
         />
@@ -2740,7 +2740,7 @@ function AudioLibraryInspector({
           type="button"
           onClick={onApplySuggestions}
         >
-          Aplicar sugestoes do arquivo
+          Aplicar sugestões do arquivo
         </button>
       </InspectorGroup>
       <InspectorGroup title="Arte">
@@ -3045,7 +3045,7 @@ function MusicInspector({
     <>
       <InspectorGroup title="Faixa" open>
         <TextField
-          label="Titulo"
+          label="Título"
           value={metadata.title}
           onChange={(title) => onChange({ title })}
         />
@@ -3060,7 +3060,7 @@ function MusicInspector({
           onChange={(album) => onChange({ album })}
         />
         <TextField
-          label="Versao"
+          label="Versão"
           value={metadata.version}
           onChange={(version) => onChange({ version })}
         />
@@ -3069,7 +3069,7 @@ function MusicInspector({
             <RotateCcw /> Usar dados do áudio
           </button>
           <button type="button" onClick={onCreateVariation}>
-            <Copy /> Criar variacao
+            <Copy /> Criar variação
           </button>
         </div>
         {onReplaceAudio && (
@@ -3546,7 +3546,7 @@ function LayerEditor(props: {
           />
           {layer.kind === "video" && (
             <CheckField
-              label="Repetir video"
+              label="Repetir vídeo"
               checked={layer.loop}
               onChange={(loop) => props.onUpdateLayer(layer.id, { loop })}
             />
@@ -3601,14 +3601,14 @@ function TextInspector({
   onToggle: (checked: boolean) => void;
 }) {
   return (
-    <InspectorGroup title="Texto no video" open>
+    <InspectorGroup title="Texto no vídeo" open>
       <CheckField
         label="Mostrar titulo e artista"
         checked={showMetadata}
         onChange={onToggle}
       />
       <TextField
-        label="Titulo"
+        label="Título"
         value={metadata.title}
         onChange={(title) => onChange({ title })}
       />
@@ -3752,7 +3752,7 @@ function ExportInspector({
           onClick={onExport}
         >
           <Video />{" "}
-          {workflowMode === "batch" ? "Exportar lote" : "Exportar video"}
+          {workflowMode === "batch" ? "Exportar lote" : "Exportar vídeo"}
         </button>
       </InspectorGroup>
       <InspectorGroup title="Publicação YouTube">

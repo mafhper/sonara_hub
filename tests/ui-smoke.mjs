@@ -99,6 +99,7 @@ try {
     page.getByRole("button", { name: "Estúdio visual" }),
   );
   await assertTrackSelectionIsNotColorOnly(page);
+  await assertButtonAffordance(page);
   await page.getByRole("button", { name: "Estúdio visual" }).click();
 
   const presetSelect = page.locator('select:has(option[value="vector-aura"])');
@@ -137,7 +138,7 @@ try {
     .getByText("Desfoque da sombra")
     .waitFor();
   await page.locator(".layer-row summary").last().click();
-  await page.locator(".layer-row").last().getByText("Repetir video").waitFor();
+  await page.locator(".layer-row").last().getByText("Repetir vídeo").waitFor();
   await page.getByRole("button", { name: "Remover camada" }).first().click();
   await page.getByRole("button", { name: "Desfazer" }).click();
   await page.getByText("Camadas · 3/3").waitFor();
@@ -197,13 +198,13 @@ try {
   await page
     .locator(".batch-table tbody tr:not(.batch-group-row)")
     .first()
-    .locator('input[aria-label="Titulo"]')
+    .locator('input[aria-label="Título"]')
     .fill("Smoke Batch Title");
   assert.equal(
     await page
       .locator(".batch-table tbody tr:not(.batch-group-row)")
       .first()
-      .locator('input[aria-label="Titulo"]')
+      .locator('input[aria-label="Título"]')
       .inputValue(),
     "Smoke Batch Title",
   );
@@ -223,12 +224,13 @@ try {
     [".batch-job-board header strong", 13],
     [".batch-job-actions button", 12],
   ]);
+  await assertInspectorControlSpacing(page);
   await assertFocusVisible(
     page,
     page
       .locator(".batch-table tbody tr:not(.batch-group-row)")
       .first()
-      .locator('input[aria-label="Titulo"]'),
+      .locator('input[aria-label="Título"]'),
   );
   await assertStatusIndicators(page);
   await page.screenshot({
@@ -272,12 +274,12 @@ try {
   });
   await page.locator(".steps button").filter({ hasText: "Música" }).click();
   await page
-    .locator(".inspector-scroll label.field", { hasText: "Versao" })
+    .locator(".inspector-scroll label.field", { hasText: "Versão" })
     .locator("input")
     .fill("Original smoke");
-  await page.getByRole("button", { name: "Criar variacao" }).click();
+  await page.getByRole("button", { name: "Criar variação" }).click();
   await page
-    .locator(".inspector-scroll label.field", { hasText: "Versao" })
+    .locator(".inspector-scroll label.field", { hasText: "Versão" })
     .locator("input")
     .fill("Alternativa smoke");
   await page
@@ -400,6 +402,12 @@ async function assertPortugueseLabels(page) {
       "Faixa unica",
       "Adicionar audio",
       "Trocar audio",
+      "Album sem nome",
+      "variacao",
+      "Aplicar sugestoes",
+      "Repetir video",
+      "Texto no video",
+      "Exportar video",
       "Artista do album",
       "Comentario ID3",
       "Ajustes avancados",
@@ -438,6 +446,7 @@ async function assertPortugueseLabels(page) {
         rect.height > 0
       );
     };
+    const exactControlPatterns = ["Titulo", "Album", "Versao"];
     return [
       ...document.querySelectorAll(
         "button,label,summary,h1,h2,h3,span,p,th,dt,strong,small,option",
@@ -446,12 +455,124 @@ async function assertPortugueseLabels(page) {
       .filter(isVisible)
       .flatMap((element) => {
         const text = (element.textContent ?? "").replace(/\s+/g, " ").trim();
-        return patterns
+        const patternMatches = patterns
           .filter((pattern) => text.includes(pattern))
           .map((pattern) => ({ pattern, text }));
+        if (
+          element.matches("label,th,dt,option,summary,button") &&
+          exactControlPatterns.includes(text)
+        ) {
+          patternMatches.push({ pattern: text, text });
+        }
+        return patternMatches;
       });
   });
   assert.deepEqual(issues, []);
+}
+
+async function assertInspectorControlSpacing(page) {
+  const issues = await page.evaluate(() => {
+    const isVisible = (element) => {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number(style.opacity) !== 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    };
+    return [...document.querySelectorAll(".inspector-body .two-columns")]
+      .filter(isVisible)
+      .flatMap((row) => {
+        const sibling = row.nextElementSibling;
+        if (
+          !sibling ||
+          !isVisible(sibling) ||
+          !sibling.matches(".quiet-action, .upload-action, .inline-actions")
+        ) {
+          return [];
+        }
+        const rowRect = row.getBoundingClientRect();
+        const siblingRect = sibling.getBoundingClientRect();
+        const gap = siblingRect.top - rowRect.bottom;
+        if (gap >= 8) return [];
+        return [
+          {
+            action: sibling.textContent?.replace(/\s+/g, " ").trim(),
+            gap: Math.round(gap * 100) / 100,
+            rowBottom: Math.round(rowRect.bottom * 100) / 100,
+            actionTop: Math.round(siblingRect.top * 100) / 100,
+          },
+        ];
+      });
+  });
+  assert.deepEqual(issues, []);
+}
+
+async function assertButtonAffordance(page) {
+  const styles = await page.evaluate(() => {
+    const host = document.createElement("div");
+    host.style.position = "absolute";
+    host.style.left = "-1000px";
+    host.innerHTML = `
+      <label class="field"><span>Campo</span><input value="valor" /></label>
+      <button class="quiet-action" type="button">Ação secundária</button>
+      <button class="primary-action" type="button">Ação primária</button>
+    `;
+    document.body.append(host);
+    const field = host.querySelector("input");
+    const secondary = host.querySelector(".quiet-action");
+    const primary = host.querySelector(".primary-action");
+    const pick = (element) => {
+      const style = getComputedStyle(element);
+      return {
+        background: style.backgroundColor,
+        border: style.borderColor,
+        color: style.color,
+        fontWeight: Number.parseFloat(style.fontWeight),
+      };
+    };
+    const luminance = (rgb) => {
+      const [red, green, blue] = rgb.match(/\d+/g).map(Number);
+      const channel = (value) => {
+        const normalized = value / 255;
+        return normalized <= 0.03928
+          ? normalized / 12.92
+          : ((normalized + 0.055) / 1.055) ** 2.4;
+      };
+      return (
+        0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue)
+      );
+    };
+    const result = {
+      field: pick(field),
+      secondary: pick(secondary),
+      primary: pick(primary),
+      primaryLuminance: luminance(getComputedStyle(primary).backgroundColor),
+    };
+    host.remove();
+    return result;
+  });
+  assert.notEqual(
+    styles.secondary.background,
+    styles.field.background,
+    "secondary buttons should not use the same background as inputs",
+  );
+  assert.notEqual(
+    styles.secondary.border,
+    styles.field.border,
+    "secondary buttons should not use the same border as inputs",
+  );
+  assert.ok(
+    styles.secondary.fontWeight > styles.field.fontWeight,
+    "button text should carry more action weight than editable fields",
+  );
+  assert.ok(
+    styles.primaryLuminance < 0.18,
+    `primary action should not become a bright slab in dark inspectors, got luminance ${styles.primaryLuminance}`,
+  );
 }
 
 async function assertFocusVisible(page, locator) {

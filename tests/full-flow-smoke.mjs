@@ -149,7 +149,7 @@ try {
         res.url().endsWith("/api/render") && res.request().method() === "POST",
       { timeout: 20_000 },
     ),
-    page.getByRole("button", { name: "Exportar video" }).click(),
+    page.getByRole("button", { name: "Exportar vídeo" }).click(),
   ]);
   assert.ok(response.ok(), `render response status ${response.status()}`);
   const { jobId } = await response.json();
