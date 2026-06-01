@@ -63,6 +63,12 @@ import {
 import type { BatchApplyMode } from "../shared/audio-batch.mjs";
 import { directoryImportPrefix } from "../shared/audio-import.mjs";
 import {
+  albumArtworkDirectoryPaths,
+  chooseArtworkForTrack,
+  isArtworkName,
+  singleTrackArtworkFileName,
+} from "../shared/artwork-convention.mjs";
+import {
   loadDirectoryHandle,
   loadSnapshot,
   saveDirectoryHandle,
@@ -72,6 +78,7 @@ import type {
   AudioInfo,
   AudioTagDraft,
   AudioTechnicalAnalysis,
+  ArtworkSuggestion,
   MediaLayerV2,
   ProjectSnapshot,
   RenderJob,
@@ -246,6 +253,7 @@ function App() {
 
   const selectedTrack =
     tracks.find((track) => track.id === selectedTrackId) ?? tracks[0];
+  const selectedCover = coverForTrack(selectedTrack);
   const selectedScene = selectedTrack?.scene ?? builtinVisualPresets[0];
   const selectedOutput =
     outputPresets.find(([value]) => value === outputPreset) ?? outputPresets[1];
@@ -259,6 +267,7 @@ function App() {
   useEffect(() => {
     void loadInitialWorkspace();
     void restoreOutputDirectory();
+    void restoreJobHistory();
   }, []);
 
   useEffect(() => {
@@ -342,6 +351,24 @@ function App() {
     setOutputFolderName(handle.name);
   }
 
+  async function restoreJobHistory() {
+    try {
+      const payload = await fetchJsonWithRetry<{
+        jobs: RenderJob[];
+        queuePaused: boolean;
+      }>("/api/jobs");
+      setJobs(payload.jobs);
+      setQueuePaused(payload.queuePaused);
+      for (const job of payload.jobs) {
+        if (["queued", "paused", "running"].includes(job.status)) {
+          pollJob(job.id);
+        }
+      }
+    } catch (reason) {
+      setError(localApiMessage(reason, "restaurar o historico de jobs"));
+    }
+  }
+
   async function chooseMusicDirectory() {
     if (!window.showDirectoryPicker) {
       fallbackFolderInputRef.current?.click();
@@ -390,20 +417,27 @@ function App() {
   ) {
     setError("");
     setFolderImportProgress({ current: 0, total: 0, name: "Lendo pasta" });
-    const entries = await collectAudioEntries(
+    const { audioEntries, artworkEntries } = await collectDirectoryAssets(
       handle,
       directoryImportPrefix(handle.name),
+    );
+    await ensureAlbumArtworkDirectories(
+      handle,
+      directoryImportPrefix(handle.name),
+      albumArtworkDirectoryPaths(
+        audioEntries.map((entry) => entry.relativePath),
+      ),
     );
     const next: TrackDraft[] = [];
     setFolderImportProgress({
       current: 0,
-      total: entries.length,
+      total: audioEntries.length,
       name: handle.name,
     });
-    for (const [index, entry] of entries.entries()) {
+    for (const [index, entry] of audioEntries.entries()) {
       setFolderImportProgress({
         current: index + 1,
-        total: entries.length,
+        total: audioEntries.length,
         name: entry.relativePath,
       });
       const info = await readUploadedAudioMetadata(
@@ -417,7 +451,10 @@ function App() {
       first.sourceKey.localeCompare(second.sourceKey, "pt-BR"),
     );
     setFolderName(handle.name);
-    setWorkspaceTracks(finalizeImportedTracks(next), snapshot);
+    setWorkspaceTracks(
+      attachSuggestedArtwork(finalizeImportedTracks(next), artworkEntries),
+      snapshot,
+    );
     setFolderImportProgress(null);
   }
 
@@ -458,11 +495,22 @@ function App() {
   }
 
   async function onFallbackFolder(files: FileList | null) {
-    const audioFiles = Array.from(files ?? []).filter(
+    const selectedFiles = Array.from(files ?? []);
+    const audioFiles = selectedFiles.filter(
       (file) =>
         isAudioName(file.name) &&
         !isPrivateAudioPath(file.webkitRelativePath || file.name),
     );
+    const artworkEntries = selectedFiles
+      .filter(
+        (file) =>
+          isArtworkName(file.name) &&
+          !isPrivateAssetPath(file.webkitRelativePath || file.name),
+      )
+      .map((file) => ({
+        file,
+        relativePath: file.webkitRelativePath || file.name,
+      }));
     const next: TrackDraft[] = [];
     setFolderImportProgress({
       current: 0,
@@ -485,7 +533,10 @@ function App() {
       );
     }
     setFolderName("Pasta selecionada");
-    const finalized = finalizeImportedTracks(next);
+    const finalized = attachSuggestedArtwork(
+      finalizeImportedTracks(next),
+      artworkEntries,
+    );
     setTracks(finalized);
     setSelectedTrackId(finalized[0]?.id ?? "");
     setFolderImportProgress(null);
@@ -517,6 +568,26 @@ function App() {
         track.id === selectedTrack.id ? { ...track, ...patch } : track,
       ),
     );
+  }
+
+  function coverForTrack(track?: TrackDraft) {
+    if (cover) return cover;
+    return track?.useSuggestedCover === false
+      ? null
+      : (track?.suggestedCover ?? null);
+  }
+
+  function clearSelectedCover() {
+    setCover(null);
+    if (selectedTrack?.suggestedCover) {
+      updateSelectedTrack({ useSuggestedCover: false });
+    }
+  }
+
+  function restoreSuggestedCover() {
+    if (!selectedTrack?.suggestedCover) return;
+    setCover(null);
+    updateSelectedTrack({ useSuggestedCover: true });
   }
 
   function toggleLeftPanel() {
@@ -635,7 +706,8 @@ function App() {
     const formData = new FormData();
     if (track.sourceFile) formData.append("audio", track.sourceFile);
     else formData.append("inputAudio", track.sourceKey);
-    if (cover) formData.append("cover", cover.file);
+    const trackCover = coverForTrack(track);
+    if (trackCover) formData.append("cover", trackCover.file);
     formData.append(
       "draft",
       JSON.stringify(audioDraftFromMetadata(track.metadata)),
@@ -1004,7 +1076,8 @@ function App() {
     else formData.append("inputAudio", track.sourceKey);
     for (const layer of track.layers)
       formData.append("mediaLayers", layer.file);
-    if (cover) formData.append("cover", cover.file);
+    const trackCover = coverForTrack(track);
+    if (trackCover) formData.append("cover", trackCover.file);
     formData.append("visualSettings", JSON.stringify(track.scene));
     formData.append(
       "compositionSettings",
@@ -1208,6 +1281,7 @@ function App() {
       ...current,
       [origin.id]: job.outputUrl!,
     }));
+    const originCover = coverForTrack(origin);
     const treated: TrackDraft = {
       ...origin,
       id: crypto.randomUUID(),
@@ -1221,7 +1295,7 @@ function App() {
       metadata: {
         ...origin.metadata,
         version: origin.metadata.version || "Tratado",
-        useEmbeddedCover: Boolean(cover),
+        useEmbeddedCover: Boolean(originCover),
       },
       audioInfo: {
         ...origin.audioInfo,
@@ -1229,7 +1303,7 @@ function App() {
         durationSeconds: origin.audioInfo?.durationSeconds ?? null,
         bitrate: origin.audioInfo?.bitrate ?? null,
         codec: origin.audioInfo?.codec ?? null,
-        hasEmbeddedCover: Boolean(cover),
+        hasEmbeddedCover: Boolean(originCover),
         analysis: job.analysis,
       },
       selectedForBatch: false,
@@ -1298,6 +1372,7 @@ function App() {
         layers: track.layers.map(({ src: _src, ...layer }) => layer),
         selectedForBatch: track.selectedForBatch,
         packageStatus: track.packageStatus,
+        useSuggestedCover: track.useSuggestedCover,
       })),
     };
   }
@@ -1601,7 +1676,7 @@ function App() {
             <div className="preview-frame">
               <ScenePreview
                 audioBandsRef={audioBandsRef}
-                coverSrc={cover?.src}
+                coverSrc={selectedCover?.src}
                 layers={selectedTrack?.layers ?? []}
                 metadata={selectedTrack?.metadata ?? defaultMetadata}
                 scene={selectedScene}
@@ -1629,7 +1704,9 @@ function App() {
             {workspaceMode === "audio" ? (
               <AudioLibraryInspector
                 analysis={selectedTrack.audioInfo?.analysis}
-                cover={cover}
+                artworkHint={artworkConventionHint(selectedTrack)}
+                cover={selectedCover}
+                suggestedCover={selectedTrack.suggestedCover}
                 coverSeries={coverSeries}
                 coverStyle={coverStyle}
                 metadata={selectedTrack.metadata}
@@ -1646,9 +1723,10 @@ function App() {
                 }
                 onChange={updateMetadata}
                 onChooseCover={() => coverInputRef.current?.click()}
-                onClearCover={() => setCover(null)}
+                onClearCover={clearSelectedCover}
                 onCoverSeries={setCoverSeries}
                 onCoverStyle={setCoverStyle}
+                onRestoreSuggestedCover={restoreSuggestedCover}
                 onProcess={() => void processReviewedAudio()}
                 canOverwrite={Boolean(
                   selectedTrack.packageStatus !== "treated" &&
@@ -1665,7 +1743,9 @@ function App() {
               />
             ) : activeStep === "music" ? (
               <MusicInspector
-                cover={cover}
+                artworkHint={artworkConventionHint(selectedTrack)}
+                cover={selectedCover}
+                suggestedCover={selectedTrack.suggestedCover}
                 metadata={selectedTrack.metadata}
                 onApplySuggestions={() =>
                   updateMetadata(
@@ -1678,8 +1758,9 @@ function App() {
                 }
                 onChange={updateMetadata}
                 onChooseCover={() => coverInputRef.current?.click()}
-                onClearCover={() => setCover(null)}
+                onClearCover={clearSelectedCover}
                 onCreateVariation={createVariation}
+                onRestoreSuggestedCover={restoreSuggestedCover}
                 onApplyCommonBatch={
                   workflowMode === "batch" ? applyMusicToBatch : undefined
                 }
@@ -1723,7 +1804,7 @@ function App() {
               />
             ) : (
               <ExportInspector
-                coverName={cover?.file.name}
+                coverName={selectedCover?.file.name}
                 batchCount={
                   tracks.filter((track) => track.selectedForBatch).length
                 }
@@ -2246,6 +2327,17 @@ function AudioLibraryWorkspace({
           </span>
         )}
       </header>
+      {jobs.some((job) => job.kind === "audio-process") && (
+        <BatchJobBoard
+          jobs={jobs}
+          title="Historico de processamento"
+          onCancelAll={onCancelAllJobs}
+          onCancelJob={onCancelJob}
+          onPause={onPauseQueue}
+          onResume={onResumeQueue}
+          queuePaused={queuePaused}
+        />
+      )}
       <div className="analytic-stage">
         <AnalyticalWaveform samples={audioBands.samples} />
       </div>
@@ -2305,6 +2397,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function BatchJobBoard({
   jobs,
+  title = "Processamento do lote",
   onCancelAll,
   onCancelJob,
   onPause,
@@ -2312,6 +2405,7 @@ function BatchJobBoard({
   queuePaused,
 }: {
   jobs: RenderJob[];
+  title?: string;
   onCancelAll: () => void;
   onCancelJob: (id: string) => void;
   onPause: () => void;
@@ -2333,7 +2427,7 @@ function BatchJobBoard({
     <section className="batch-job-board">
       <header>
         <div>
-          <span className="overline">Processamento do lote</span>
+          <span className="overline">{title}</span>
           <strong>
             {activeJobs.length
               ? `${activeJobs.length} item${activeJobs.length === 1 ? "" : "s"} na fila`
@@ -2400,6 +2494,7 @@ function BatchJobBoard({
 
 function AudioLibraryInspector({
   analysis,
+  artworkHint,
   cover,
   coverSeries,
   coverStyle,
@@ -2415,8 +2510,11 @@ function AudioLibraryInspector({
   canOverwrite,
   onOverwrite,
   onProcess,
+  onRestoreSuggestedCover,
+  suggestedCover,
 }: {
   analysis?: AudioTechnicalAnalysis;
+  artworkHint: string;
   cover: { file: File; src: string } | null;
   coverSeries: boolean;
   coverStyle: "roman" | "arabic";
@@ -2432,6 +2530,8 @@ function AudioLibraryInspector({
   canOverwrite: boolean;
   onOverwrite: () => void;
   onProcess: () => void;
+  onRestoreSuggestedCover: () => void;
+  suggestedCover?: ArtworkSuggestion;
 }) {
   return (
     <>
@@ -2521,6 +2621,21 @@ function AudioLibraryInspector({
             <Image /> Escolher arte
           </button>
         )}
+        {suggestedCover && (
+          <p className="helper-copy">
+            Arte oferecida pela pasta: {suggestedCover.relativePath}
+          </p>
+        )}
+        {suggestedCover && cover?.file !== suggestedCover.file && (
+          <button
+            className="quiet-action"
+            type="button"
+            onClick={onRestoreSuggestedCover}
+          >
+            <RotateCcw /> Usar arte oferecida
+          </button>
+        )}
+        {!suggestedCover && <p className="helper-copy">{artworkHint}</p>}
         <CheckField
           label="Gerar serie numerada"
           checked={coverSeries}
@@ -2724,6 +2839,7 @@ function Transport({
 }
 
 function MusicInspector({
+  artworkHint,
   cover,
   metadata,
   onApplySuggestions,
@@ -2733,7 +2849,10 @@ function MusicInspector({
   onClearCover,
   onCreateVariation,
   onReplaceAudio,
+  onRestoreSuggestedCover,
+  suggestedCover,
 }: {
+  artworkHint: string;
   cover: { file: File; src: string } | null;
   metadata: TrackMetadata;
   onApplyCommonBatch?: () => void;
@@ -2743,6 +2862,8 @@ function MusicInspector({
   onClearCover: () => void;
   onCreateVariation: () => void;
   onReplaceAudio?: () => void;
+  onRestoreSuggestedCover: () => void;
+  suggestedCover?: ArtworkSuggestion;
 }) {
   return (
     <>
@@ -2811,6 +2932,21 @@ function MusicInspector({
             <Image /> Escolher capa
           </button>
         )}
+        {suggestedCover && (
+          <p className="helper-copy">
+            Arte oferecida pela pasta: {suggestedCover.relativePath}
+          </p>
+        )}
+        {suggestedCover && cover?.file !== suggestedCover.file && (
+          <button
+            className="quiet-action"
+            type="button"
+            onClick={onRestoreSuggestedCover}
+          >
+            <RotateCcw /> Usar arte oferecida
+          </button>
+        )}
+        {!suggestedCover && <p className="helper-copy">{artworkHint}</p>}
       </InspectorGroup>
       <InspectorGroup title="Descricao e publicacao">
         <TextArea
@@ -3844,39 +3980,144 @@ function finalizeImportedTracks(tracks: TrackDraft[]) {
   return tracks.map((track) => finalized.get(track.id) ?? track);
 }
 
-async function collectAudioEntries(
+type DirectoryAssetEntry = { file: File; relativePath: string };
+
+async function collectDirectoryAssets(
   handle: FileSystemDirectoryHandle,
   prefix = "",
-): Promise<Array<{ file: File; relativePath: string }>> {
-  const entries: Array<{ file: File; relativePath: string }> = [];
+): Promise<{
+  audioEntries: DirectoryAssetEntry[];
+  artworkEntries: DirectoryAssetEntry[];
+}> {
+  const audioEntries: DirectoryAssetEntry[] = [];
+  const artworkEntries: DirectoryAssetEntry[] = [];
   for await (const [name, entry] of handle.entries()) {
     const relativePath = prefix ? `${prefix}/${name}` : name;
-    if (isPrivateAudioPath(relativePath)) continue;
     if (entry.kind === "file") {
-      if (!isAudioName(name)) continue;
-      entries.push({ file: await entry.getFile(), relativePath });
+      if (isPrivateAssetPath(relativePath)) continue;
+      if (isArtworkName(name)) {
+        artworkEntries.push({ file: await entry.getFile(), relativePath });
+      } else if (isAudioName(name) && !isPrivateAudioPath(relativePath)) {
+        audioEntries.push({ file: await entry.getFile(), relativePath });
+      }
       continue;
     }
-    entries.push(...(await collectAudioEntries(entry, relativePath)));
+    if (isPrivateAssetPath(relativePath)) continue;
+    const nested = await collectDirectoryAssets(entry, relativePath);
+    audioEntries.push(...nested.audioEntries);
+    artworkEntries.push(...nested.artworkEntries);
   }
-  return entries.sort((first, second) =>
-    first.relativePath.localeCompare(second.relativePath, "pt-BR", {
-      numeric: true,
-      sensitivity: "base",
-    }),
-  );
+  return {
+    audioEntries: audioEntries.sort(compareDirectoryEntries),
+    artworkEntries: artworkEntries.sort(compareDirectoryEntries),
+  };
 }
 
 function isPrivateAudioPath(value: string) {
+  return (
+    isPrivateAssetPath(value) ||
+    pathSegments(value).some((segment) => segment === "art")
+  );
+}
+
+function isPrivateAssetPath(value: string) {
+  return pathSegments(value).some((segment) =>
+    [
+      "tratados",
+      "backup-originais",
+      "outputs",
+      "input",
+      ".dev",
+      "node_modules",
+    ].includes(segment),
+  );
+}
+
+function pathSegments(value: string) {
   const segments = value
     .split(/[\\/]+/)
     .map((segment) => segment.trim().toLowerCase())
     .filter(Boolean);
-  return segments.some((segment) =>
-    ["tratados", "art", "outputs", "input", ".dev", "node_modules"].includes(
-      segment,
-    ),
+  return segments;
+}
+
+function compareDirectoryEntries(
+  first: DirectoryAssetEntry,
+  second: DirectoryAssetEntry,
+) {
+  return first.relativePath.localeCompare(second.relativePath, "pt-BR", {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function attachSuggestedArtwork(
+  tracks: TrackDraft[],
+  artworkEntries: DirectoryAssetEntry[],
+) {
+  const audioPaths = tracks.map((track) => track.sourceKey);
+  const artworkByPath = new Map(
+    artworkEntries.map((entry) => [entry.relativePath, entry]),
   );
+  const srcByPath = new Map<string, string>();
+  return tracks.map((track) => {
+    const relativePath = chooseArtworkForTrack({
+      audioPath: track.sourceKey,
+      audioPaths,
+      artworkPaths: artworkEntries.map((entry) => entry.relativePath),
+      trackNumber: track.metadata.trackNumber,
+    });
+    if (!relativePath) return track;
+    const artwork = artworkByPath.get(relativePath);
+    if (!artwork) return track;
+    let src = srcByPath.get(relativePath);
+    if (!src) {
+      src = URL.createObjectURL(artwork.file);
+      srcByPath.set(relativePath, src);
+    }
+    return {
+      ...track,
+      suggestedCover: {
+        file: artwork.file,
+        src,
+        relativePath,
+        source: "folder" as const,
+      },
+      useSuggestedCover: track.useSuggestedCover ?? true,
+    };
+  });
+}
+
+async function ensureAlbumArtworkDirectories(
+  handle: FileSystemDirectoryHandle,
+  rootPrefix: string,
+  directoryPaths: string[],
+) {
+  const permission = await handle.queryPermission?.({ mode: "readwrite" });
+  if (permission !== "granted") return;
+  const prefix = pathSegments(rootPrefix);
+  for (const directoryPath of directoryPaths) {
+    const segments = directoryPath.split(/[\\/]+/).filter(Boolean);
+    const relativeSegments = segments
+      .slice(0, prefix.length)
+      .every(
+        (segment, index) =>
+          segment.toLowerCase() === prefix[index]?.toLowerCase(),
+      )
+      ? segments.slice(prefix.length)
+      : segments;
+    let current = handle;
+    for (const segment of relativeSegments) {
+      current = await current.getDirectoryHandle(segment, { create: true });
+    }
+  }
+}
+
+function artworkConventionHint(track: TrackDraft) {
+  if (track.metadata.trackTotal > 1) {
+    return "Para automatizar as capas, use art/ na pasta do album. Arquivos iniciados pelo numero da faixa vencem a capa geral album.* ou cover.*.";
+  }
+  return `Para automatizar esta capa, use ${singleTrackArtworkFileName(track.sourceKey)} ao lado do MP3.`;
 }
 
 function audioDraftFromMetadata(metadata: TrackMetadata): AudioTagDraft {

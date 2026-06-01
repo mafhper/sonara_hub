@@ -8,6 +8,7 @@ test-results/
 .superpowers/
 .worktrees/
 data/custom-presets.local.json
+data/jobs.local.json
 .env
 AGENTS.md
 GEMINI.md

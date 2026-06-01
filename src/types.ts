@@ -99,6 +99,13 @@ export type MediaLayerV2 = {
   order: number;
 };
 
+export type ArtworkSuggestion = {
+  file: File;
+  src: string;
+  relativePath: string;
+  source: "folder";
+};
+
 export type TrackDraft = {
   id: string;
   sourceKey: string;
@@ -114,6 +121,8 @@ export type TrackDraft = {
   audioInfo?: AudioInfo;
   selectedForBatch: boolean;
   packageStatus?: "original" | "treated";
+  suggestedCover?: ArtworkSuggestion;
+  useSuggestedCover?: boolean;
 };
 
 export type RenderJob = {
@@ -154,5 +163,6 @@ export type ProjectSnapshot = {
     layers: Array<Omit<MediaLayerV2, "src">>;
     selectedForBatch: boolean;
     packageStatus?: TrackDraft["packageStatus"];
+    useSuggestedCover?: boolean;
   }>;
 };

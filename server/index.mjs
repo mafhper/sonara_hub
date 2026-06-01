@@ -19,8 +19,10 @@ import {
   processMp3Copy,
 } from "./audio-library.mjs";
 import { createPresetStore, PresetStoreError } from "./preset-store.mjs";
+import { loadJobHistory, saveJobHistory } from "./job-store.mjs";
 import { renderCanvasSize, renderTiming } from "./render-profile.mjs";
 import { safeSvgBuffer } from "./svg-safety.mjs";
+import { createTempFileRegistry } from "./temp-files.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
@@ -38,8 +40,13 @@ const customPresetPath = path.join(
   "data",
   "custom-presets.local.json",
 );
+const jobHistoryPath = path.join(rootDir, "data", "jobs.local.json");
 const port = Number(process.env.PORT ?? 4175);
 
+await Promise.all([
+  fs.rm(uploadDir, { recursive: true, force: true }),
+  fs.rm(workDir, { recursive: true, force: true }),
+]);
 await Promise.all([
   fs.mkdir(uploadDir, { recursive: true }),
   fs.mkdir(workDir, { recursive: true }),
@@ -52,7 +59,14 @@ const upload = multer({
   dest: uploadDir,
   limits: { fileSize: 250 * 1024 * 1024 },
 });
-const jobs = new Map();
+const tempFiles = createTempFileRegistry(uploadDir);
+const jobs = new Map(
+  (await loadJobHistory(jobHistoryPath)).map((job) => [job.id, job]),
+);
+let jobHistoryWriteQueue = Promise.resolve();
+if (jobs.size) {
+  await saveJobHistory(jobHistoryPath, Array.from(jobs.values()));
+}
 let queuePaused = false;
 const queueWaiters = new Set();
 const presetStore = createPresetStore(customPresetPath);
@@ -126,7 +140,11 @@ app.post("/api/audio-metadata", upload.single("audio"), async (req, res) => {
     res.status(400).json({ error: "Envie um arquivo de audio." });
     return;
   }
-  res.json(await readAudioMetadataSummary(req.file.path));
+  try {
+    res.json(await readAudioMetadataSummary(req.file.path));
+  } finally {
+    await tempFiles.cleanup(req.file);
+  }
 });
 
 app.post("/api/audio/analyze", upload.single("audio"), async (req, res) => {
@@ -156,6 +174,8 @@ app.post("/api/audio/analyze", upload.single("audio"), async (req, res) => {
     res.status(422).json({
       error: error instanceof Error ? error.message : String(error),
     });
+  } finally {
+    await tempFiles.cleanup(req.file);
   }
 });
 
@@ -174,13 +194,14 @@ app.post(
       (await resolveInputAudio(req.body.inputAudio)) ??
       (await findDefaultAudio());
     if (!audioPath) {
+      await tempFiles.cleanup(files);
       res.status(400).json({ error: "Envie um arquivo MP3 para tratar." });
       return;
     }
     const draft = normalizeAudioDraft(req.body.draft, audioPath);
     const jobId = crypto.randomUUID();
     const outputName = buildTreatedFileName(draft);
-    jobs.set(jobId, {
+    setJob(jobId, {
       id: jobId,
       kind: "audio-process",
       status: "queued",
@@ -201,6 +222,7 @@ app.post(
       coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
       draft,
       outputName,
+      uploadedFiles: files,
     });
     res.json({ jobId });
   },
@@ -218,6 +240,7 @@ app.post(
     const coverFile = Array.isArray(files.cover) ? files.cover[0] : null;
     const drafts = parseJsonArray(req.body.drafts);
     if (!audioFiles.length) {
+      await tempFiles.cleanup(files);
       res.status(400).json({ error: "Envie ao menos um MP3 para o lote." });
       return;
     }
@@ -226,7 +249,7 @@ app.post(
       const draft = normalizeAudioDraft(drafts[index], audioFile.originalname);
       const jobId = crypto.randomUUID();
       const outputName = buildTreatedFileName(draft);
-      jobs.set(jobId, {
+      setJob(jobId, {
         id: jobId,
         kind: "audio-process",
         status: "queued",
@@ -247,6 +270,7 @@ app.post(
         coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
         draft,
         outputName,
+        uploadedFiles: [audioFile, coverFile],
       });
       jobIds.push(jobId);
     }
@@ -276,10 +300,14 @@ app.post(
         : String(req.body.lyrics ?? "")) ||
       (await readTextIfExists(path.join(rootDir, "lyrics.txt")));
 
-    res.json({
-      audio: audioPath ? await analyzeAudio(audioPath) : null,
-      lyrics: parseLyrics(lyricsText),
-    });
+    try {
+      res.json({
+        audio: audioPath ? await analyzeAudio(audioPath) : null,
+        lyrics: parseLyrics(lyricsText),
+      });
+    } finally {
+      await tempFiles.cleanup(files);
+    }
   },
 );
 
@@ -311,6 +339,7 @@ app.post(
       (await findDefaultAudio());
 
     if (!audioPath) {
+      await tempFiles.cleanup(files);
       res.status(400).json({ error: "Nenhum audio foi encontrado." });
       return;
     }
@@ -326,7 +355,7 @@ app.post(
     const outputName = buildOutputFileName(metadata);
     const outputPath = path.join(outputDir, outputName);
 
-    jobs.set(jobId, {
+    setJob(jobId, {
       id: jobId,
       kind: "video-render",
       status: "queued",
@@ -350,6 +379,7 @@ app.post(
       metadata,
       outputPath,
       outputName,
+      uploadedFiles: files,
     });
 
     res.json({ jobId });
@@ -386,6 +416,7 @@ app.post(
       : [];
 
     if (audioFiles.length === 0) {
+      await tempFiles.cleanup(files);
       res.status(400).json({ error: "Nenhum audio foi enviado para o lote." });
       return;
     }
@@ -419,7 +450,7 @@ app.post(
       const outputName = buildOutputFileName(metadata, index + 1);
       const outputPath = path.join(outputDir, outputName);
 
-      jobs.set(jobId, {
+      setJob(jobId, {
         id: jobId,
         kind: "video-render",
         status: "queued",
@@ -444,6 +475,12 @@ app.post(
         metadata,
         outputPath,
         outputName,
+        uploadedFiles: [
+          uploadedAudioFiles[index],
+          backgroundFile,
+          coverFile,
+          mediaLayerFiles,
+        ],
       });
     }
 
@@ -523,6 +560,7 @@ app.listen(port, "127.0.0.1", () => {
 });
 
 function enqueueRender(options) {
+  const releaseTempFiles = tempFiles.retain(options.uploadedFiles);
   renderQueue = renderQueue
     .then(() => runQueuedJob(options.jobId, () => renderVideo(options)))
     .catch((error) => {
@@ -531,10 +569,18 @@ function enqueueRender(options) {
         status: "error",
         message: error instanceof Error ? error.message : String(error),
       });
+    })
+    .finally(async () => {
+      await releaseTempFiles();
+      await fs.rm(path.join(workDir, options.jobId), {
+        recursive: true,
+        force: true,
+      });
     });
 }
 
 function enqueueAudioProcess(options) {
+  const releaseTempFiles = tempFiles.retain(options.uploadedFiles);
   renderQueue = renderQueue
     .then(() => runQueuedJob(options.jobId, () => processAudio(options)))
     .catch((error) => {
@@ -542,6 +588,13 @@ function enqueueAudioProcess(options) {
       updateJob(options.jobId, {
         status: "error",
         message: error instanceof Error ? error.message : String(error),
+      });
+    })
+    .finally(async () => {
+      await releaseTempFiles();
+      await fs.rm(path.join(workDir, options.jobId), {
+        recursive: true,
+        force: true,
       });
     });
 }
@@ -590,7 +643,7 @@ function requestJobCancel(jobId) {
           cancelRequested: true,
           message: "Cancelado",
         };
-  jobs.set(jobId, { ...next, updatedAt: new Date().toISOString() });
+  setJob(jobId, { ...next, updatedAt: new Date().toISOString() });
   for (const resume of queueWaiters) resume();
   queueWaiters.clear();
   return jobs.get(jobId);
@@ -1526,11 +1579,21 @@ function updateJob(jobId, patch) {
   if (!current) {
     return;
   }
-  jobs.set(jobId, {
+  setJob(jobId, {
     ...current,
     ...patch,
     updatedAt: new Date().toISOString(),
   });
+}
+
+function setJob(jobId, job) {
+  jobs.set(jobId, job);
+  const snapshot = Array.from(jobs.values());
+  jobHistoryWriteQueue = jobHistoryWriteQueue
+    .then(() => saveJobHistory(jobHistoryPath, snapshot))
+    .catch((error) => {
+      console.error("Falha ao persistir historico de jobs:", error);
+    });
 }
 
 function handlePresetStoreError(error, res) {
