@@ -2606,28 +2606,33 @@ function BatchJobBoard({
         </p>
       ) : (
         <div className="batch-job-list">
-          {activeJobs.map((job) => (
-            <div className={`batch-job-row ${job.status}`} key={job.id}>
-              <div>
-                <strong>
-                  {job.metadata?.title || readableJobMessage(job.message)}
-                </strong>
-                <small>
-                  {jobStatusLabel(job.status)} ·{" "}
-                  {readableJobMessage(job.message)}
-                </small>
+          {activeJobs.map((job) => {
+            const terminal = ["done", "error", "canceled"].includes(job.status);
+            return (
+              <div className={`batch-job-row ${job.status}`} key={job.id}>
+                <div>
+                  <strong>
+                    {job.metadata?.title || readableJobMessage(job.message)}
+                  </strong>
+                  <small>
+                    {jobStatusLabel(job.status)} ·{" "}
+                    {readableJobMessage(job.message)}
+                  </small>
+                </div>
+                <progress max={100} value={job.progress} />
+                <span>{job.progress}%</span>
+                {terminal ? (
+                  <span className="job-terminal-state">
+                    {jobStatusLabel(job.status)}
+                  </span>
+                ) : (
+                  <button type="button" onClick={() => onCancelJob(job.id)}>
+                    <X /> Cancelar
+                  </button>
+                )}
               </div>
-              <progress max={100} value={job.progress} />
-              <span>{job.progress}%</span>
-              <button
-                disabled={["done", "error", "canceled"].includes(job.status)}
-                type="button"
-                onClick={() => onCancelJob(job.id)}
-              >
-                <X /> Cancelar
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>

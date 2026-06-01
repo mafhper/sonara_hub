@@ -215,6 +215,7 @@ try {
   await page.getByText("Processamento do lote").waitFor();
   await page.getByRole("button", { name: "Pausar fila" }).waitFor();
   await page.getByRole("button", { name: "Cancelar todos" }).waitFor();
+  await assertMainStageSectionSurfaces(page);
   await assertReadableType(page, [
     [".batch-table", 12],
     [".batch-table th", 10],
@@ -575,6 +576,48 @@ async function assertButtonAffordance(page) {
   );
 }
 
+async function assertMainStageSectionSurfaces(page) {
+  const result = await page.evaluate(() => {
+    const styleFor = (selector) => {
+      const element = document.querySelector(selector);
+      if (!element) return null;
+      const style = getComputedStyle(element);
+      return {
+        background: style.backgroundColor,
+        border: style.borderColor,
+        radius: Number.parseFloat(style.borderRadius),
+      };
+    };
+    const doneRowsWithCancel = [
+      ...document.querySelectorAll(".batch-job-row.done button"),
+    ].length;
+    return {
+      stage: styleFor(".audio-library"),
+      toolbar: styleFor(".batch-toolbar"),
+      jobs: styleFor(".batch-job-board"),
+      table: styleFor(".batch-table-wrap"),
+      doneRowsWithCancel,
+    };
+  });
+  for (const selector of ["toolbar", "jobs", "table"]) {
+    assert.ok(result[selector], `${selector} section should be present`);
+    assert.notEqual(
+      result[selector].background,
+      result.stage.background,
+      `${selector} section should sit on a darker interactive surface`,
+    );
+    assert.ok(
+      result[selector].radius >= 5,
+      `${selector} section should have a subtle continuous surface radius`,
+    );
+  }
+  assert.equal(
+    result.doneRowsWithCancel,
+    0,
+    "completed job rows should not expose cancel actions",
+  );
+}
+
 async function assertFocusVisible(page, locator) {
   await locator.focus();
   const focus = await locator.evaluate((element) => {
@@ -683,7 +726,7 @@ async function assertStatusIndicators(page) {
     document.body.append(host);
     const rows = [...host.querySelectorAll(".batch-job-row")].map((element) => {
       const style = getComputedStyle(element);
-      return Number.parseFloat(style.borderLeftWidth);
+      return style.boxShadow;
     });
     const badges = [...host.querySelectorAll(".quality-badge")].map(
       (element) => getComputedStyle(element, "::before").content,
@@ -691,6 +734,6 @@ async function assertStatusIndicators(page) {
     host.remove();
     return { rows, badges };
   });
-  assert.ok(indicators.rows.every((width) => width >= 4));
+  assert.ok(indicators.rows.every((shadow) => shadow !== "none"));
   assert.deepEqual(indicators.badges, ['"✓"', '"!"', '"×"']);
 }

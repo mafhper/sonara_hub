@@ -13,6 +13,14 @@
   --surface: #0c0c0e;
   --surface-raised: #111216;
   --canvas-table: #292b2f;
+  --stage-bg: #202329;
+  --stage-surface: #161a20;
+  --stage-surface-low: #12161c;
+  --stage-row-bg: #111722;
+  --stage-row-hover: #1d2631;
+  --stage-row-selected: #243044;
+  --stage-border: #3a4350;
+  --stage-border-strong: #626c7d;
   --line: #25272b;
   --line-soft: #191b1f;
   --text: #f4f5f6;
@@ -1905,7 +1913,7 @@ button:disabled {
 
 .audio-library {
   padding: 32px 38px 28px;
-  background: #202329;
+  background: var(--stage-bg);
 }
 
 .audio-library-heading {
@@ -2027,38 +2035,50 @@ button:disabled {
 .batch-progress-note,
 .batch-toolbar,
 .batch-job-board {
-  border-color: var(--border);
-  border-right: 0;
-  border-left: 0;
-  border-radius: 0;
-  background: transparent;
+  border: 1px solid var(--stage-border);
+  border-radius: 6px;
+  background: var(--stage-surface);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 3%);
 }
 
 .batch-library .batch-toolbar,
 .batch-library .batch-job-board,
 .batch-table-wrap {
-  margin-top: 18px;
-  border-top: 1px solid var(--border);
-  padding-top: 14px;
+  margin-top: 20px;
 }
 
-.batch-toolbar-head,
-.batch-toolbar-body,
-.batch-job-board {
-  padding-right: 0;
-  padding-left: 0;
+.batch-table-wrap {
+  border: 1px solid var(--stage-border);
+  border-radius: 6px;
+  background: var(--stage-surface);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 3%);
+  padding: 16px 18px 18px;
+}
+
+.batch-toolbar-head {
+  padding: 15px 18px;
+}
+
+.batch-toolbar-body {
+  padding: 16px 18px 18px;
 }
 
 .batch-toolbar-body,
 .batch-job-summary {
-  border-top-color: var(--border-soft);
+  border-top-color: var(--stage-border);
+}
+
+.batch-table-toolbar {
+  border-bottom-color: var(--stage-border);
+  padding-bottom: 12px;
 }
 
 .batch-job-row {
-  border-color: var(--border);
-  border-radius: 4px;
-  background: var(--surface-hover);
-  padding: 10px 0 10px 12px;
+  border-color: var(--stage-border);
+  border-radius: 5px;
+  background: var(--stage-row-bg);
+  box-shadow: inset 3px 0 0 var(--stage-border-strong);
+  padding: 10px 12px;
 }
 
 .batch-job-row strong {
@@ -2070,6 +2090,51 @@ button:disabled {
 .batch-job-row > span {
   color: var(--text-muted);
   font-size: var(--font-xs);
+}
+
+.batch-job-row progress {
+  appearance: none;
+  height: 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: #252c37;
+}
+
+.batch-job-row progress::-webkit-progress-bar {
+  border-radius: 999px;
+  background: #252c37;
+}
+
+.batch-job-row progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: #91a2c5;
+}
+
+.batch-job-row.done {
+  border-color: var(--stage-border);
+  box-shadow: inset 3px 0 0 var(--status-ok);
+}
+
+.batch-job-row.error,
+.batch-job-row.canceled {
+  border-color: var(--stage-border);
+  box-shadow: inset 3px 0 0 var(--status-danger);
+}
+
+.batch-job-row.done progress::-webkit-progress-value {
+  background: #738198;
+}
+
+.job-terminal-state {
+  justify-self: end;
+  border: 1px solid var(--stage-border);
+  border-radius: 999px;
+  background: var(--stage-surface-low);
+  color: var(--text-muted);
+  padding: 5px 9px;
+  font-size: var(--font-xs);
+  font-weight: 650;
 }
 
 .batch-table-actions button {
