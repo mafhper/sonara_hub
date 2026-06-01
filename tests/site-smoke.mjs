@@ -76,6 +76,32 @@ try {
     .filter({ hasText: /Prepare, organize and visualize/i })
     .waitFor();
   assert.equal(
+    await page.locator('link[rel="icon"][href$="brand/favicon.svg"]').count(),
+    1,
+    "SVG favicon is not linked.",
+  );
+  assert.equal(
+    await page
+      .locator(
+        'link[rel="apple-touch-icon"][href$="brand/apple-touch-icon.png"]',
+      )
+      .count(),
+    1,
+    "Apple touch icon is not linked.",
+  );
+  const brandLoaded = await page
+    .locator(".brand-logo")
+    .first()
+    .evaluate((image) => {
+      const element = image;
+      return (
+        element instanceof HTMLImageElement &&
+        element.complete &&
+        element.naturalWidth > 0
+      );
+    });
+  assert.equal(brandLoaded, true, "Brand logo did not load.");
+  assert.equal(
     await page.locator("text=/lovable/i").count(),
     0,
     "Lovable text is visible.",

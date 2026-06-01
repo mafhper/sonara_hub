@@ -5,6 +5,7 @@ import liquidFlow from "./assets/liquid-flow.jpg";
 import vinylTexture from "./assets/vinyl-texture.jpg";
 
 const GITHUB_URL = "https://github.com/mafhper/sonara_hub";
+const BRAND_MARK_URL = `${import.meta.env.BASE_URL}brand/sonara-mark.svg`;
 
 type IconProps = {
   className?: string;
@@ -50,7 +51,14 @@ function Header() {
   return (
     <header className="topbar" aria-label="Site navigation">
       <a className="brand" href="#top" aria-label="Sonara Hub home">
-        <span className="brand-mark" aria-hidden="true" />
+        <img
+          className="brand-logo"
+          src={BRAND_MARK_URL}
+          alt=""
+          width="28"
+          height="28"
+          aria-hidden="true"
+        />
         <span>Sonara Hub</span>
       </a>
       <nav className="nav-links" aria-label="Primary navigation">
@@ -825,7 +833,14 @@ function Footer() {
   return (
     <footer className="footer">
       <a className="brand" href="#top" aria-label="Sonara Hub home">
-        <span className="brand-mark" aria-hidden="true" />
+        <img
+          className="brand-logo"
+          src={BRAND_MARK_URL}
+          alt=""
+          width="28"
+          height="28"
+          aria-hidden="true"
+        />
         <span>Sonara Hub</span>
       </a>
       <span>Open-source project</span>

@@ -1725,7 +1725,17 @@ function App() {
       style={shellStyle}
     >
       <header className="topbar">
-        <div className="brand">SONARA HUB</div>
+        <div className="brand" aria-label="Sonara Hub">
+          <img
+            className="brand-logo"
+            src="/brand/sonara-mark.svg"
+            alt=""
+            width="24"
+            height="24"
+            aria-hidden="true"
+          />
+          <span>SONARA HUB</span>
+        </div>
         <div className="track-context">
           <div
             className="workspace-switch"

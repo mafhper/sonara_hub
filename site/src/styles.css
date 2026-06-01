@@ -129,21 +129,12 @@ svg {
   text-transform: uppercase;
 }
 
-.brand-mark {
-  position: relative;
+.brand-logo {
   width: 28px;
   height: 28px;
-  border: 1px solid rgba(214, 157, 84, 0.44);
+  flex: 0 0 auto;
   border-radius: 50%;
-  background:
-    radial-gradient(circle at 50% 50%, var(--accent) 0 2px, transparent 3px),
-    radial-gradient(
-      circle at 50% 50%,
-      transparent 0 6px,
-      rgba(214, 157, 84, 0.22) 7px,
-      transparent 8px
-    ),
-    var(--surface-2);
+  filter: drop-shadow(0 0 14px rgba(124, 207, 206, 0.18));
 }
 
 .nav-links {

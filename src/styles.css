@@ -146,11 +146,22 @@ svg {
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding-left: 14px;
   color: #f7f8fa;
   font-size: 11px;
   font-weight: 780;
   letter-spacing: 0.1em;
+}
+
+.brand-logo {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  filter: drop-shadow(0 0 10px rgb(124 207 206 / 16%));
 }
 
 .track-context {
