@@ -1,8 +1,17 @@
-import { type ReactElement, useEffect, useMemo, useRef } from "react";
-import auroraWave from "./assets/aurora-wave.jpg";
-import heroAmbient from "./assets/hero-ambient.jpg";
-import liquidFlow from "./assets/liquid-flow.jpg";
-import vinylTexture from "./assets/vinyl-texture.jpg";
+import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import auroraWave from "./assets/aurora-wave.webp";
+import heroAmbient from "./assets/hero-ambient.webp";
+import heroCoverAzul from "./assets/hero-cover-azul.webp";
+import heroCoverBeauty from "./assets/hero-cover-beauty.webp";
+import heroCoverJardim from "./assets/hero-cover-jardim.webp";
+import liquidFlow from "./assets/liquid-flow.webp";
+import shotAudioLibrary from "./assets/shot-audio-library.webp";
+import shotAzulFrame from "./assets/shot-azul-frame.webp";
+import shotAzulVisual from "./assets/shot-azul-visual.webp";
+import shotCatalog from "./assets/shot-catalog.webp";
+import shotJardimCatalog from "./assets/shot-jardim-catalog.webp";
+import shotVideoGrid from "./assets/shot-video-grid.webp";
+import shotVisualStudio from "./assets/shot-visual-studio.webp";
 
 const GITHUB_URL = "https://github.com/mafhper/sonara_hub";
 const BRAND_MARK_URL = `${import.meta.env.BASE_URL}brand/sonara-mark.svg`;
@@ -113,7 +122,93 @@ function Hero() {
           </a>
         </div>
       </div>
+      <HeroShowcase />
     </section>
+  );
+}
+
+type ShowcaseCard = {
+  kind: "cover" | "screen" | "video";
+  label: string;
+  image: string;
+};
+
+const showcaseDescriptors: Record<ShowcaseCard["kind"], string> = {
+  cover: "Album cover",
+  screen: "Inside the app",
+  video: "Exported to YouTube",
+};
+
+function HeroShowcase() {
+  const cards: ShowcaseCard[] = useMemo(
+    () => [
+      { kind: "cover", label: "The Beauty of Almost", image: heroCoverBeauty },
+      { kind: "screen", label: "Visual Studio", image: shotAzulVisual },
+      { kind: "video", label: "Music video", image: shotAzulFrame },
+      { kind: "cover", label: "Azul de Roda", image: heroCoverAzul },
+      { kind: "screen", label: "Album catalog", image: shotJardimCatalog },
+      { kind: "cover", label: "Jardim dos Ventos", image: heroCoverJardim },
+    ],
+    [],
+  );
+  const [active, setActive] = useState(0);
+  const [paused, setPaused] = useState(false);
+
+  useEffect(() => {
+    if (paused) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const id = window.setInterval(() => {
+      setActive((current) => (current + 1) % cards.length);
+    }, 3800);
+    return () => window.clearInterval(id);
+  }, [cards.length, paused]);
+
+  return (
+    <div
+      className="hero-showcase"
+      aria-hidden="true"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+    >
+      <div className="showcase-stage">
+        {cards.map((card, index) => {
+          const depth = (index - active + cards.length) % cards.length;
+          const float = { animationDelay: `${index * -1.3}s` };
+          return (
+            <figure
+              key={card.label}
+              className={`showcase-card showcase-${card.kind}`}
+              data-depth={depth > 2 ? "back" : String(depth)}
+            >
+              {card.kind === "video" ? (
+                <div className="showcase-video" style={float}>
+                  <img src={card.image} alt="" loading="lazy" />
+                  <span className="showcase-play" />
+                  <span className="showcase-bar" />
+                </div>
+              ) : card.kind === "screen" ? (
+                <div className="showcase-window" style={float}>
+                  <span className="showcase-dots">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  <img src={card.image} alt="" loading="lazy" />
+                </div>
+              ) : (
+                <div className="showcase-cd" style={float}>
+                  <img src={card.image} alt="" loading="lazy" />
+                </div>
+              )}
+              <figcaption className="card-info">
+                <strong>{card.label}</strong>
+                <span>{showcaseDescriptors[card.kind]}</span>
+              </figcaption>
+            </figure>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -437,7 +532,7 @@ function Workspaces() {
           eyebrow="01 - Audio Library"
           title="Prepare the record."
           description="Import folders, analyze MP3 quality, review ID3 tags, manage lyrics and generate treated copies before publication."
-          image={vinylTexture}
+          image={shotAudioLibrary}
           tone="audio"
           features={[
             "Metadata and lyrics",
@@ -452,7 +547,7 @@ function Workspaces() {
           eyebrow="02 - Visual Studio"
           title="Build the atmosphere."
           description="Create ambient visualizers with layered images, videos, waveforms and curated motion families from 720p to 4K."
-          image={auroraWave}
+          image={shotVisualStudio}
           tone="visual"
           features={[
             "Ambient scenes",
@@ -538,11 +633,27 @@ function Workflow() {
 }
 
 function ScreenshotGallery() {
-  const slots = [
-    ["Audio Library", "Batch review, tags, cover art and processing status."],
-    ["Catalog preview", "A record-page view to confirm album identity."],
-    ["Video grid", "YouTube-style thumbnails before rendering the set."],
-    ["Visual Studio", "A dominant canvas with focused inspectors around it."],
+  const slots: Array<{ title: string; caption: string; image: string }> = [
+    {
+      title: "Audio Library",
+      caption: "Batch review, tags, cover art and processing status.",
+      image: shotAudioLibrary,
+    },
+    {
+      title: "Catalog preview",
+      caption: "A record-page view to confirm album identity.",
+      image: shotCatalog,
+    },
+    {
+      title: "Video grid",
+      caption: "YouTube-style thumbnails before rendering the set.",
+      image: shotVideoGrid,
+    },
+    {
+      title: "Visual Studio",
+      caption: "A dominant canvas with focused inspectors around it.",
+      image: shotVisualStudio,
+    },
   ];
 
   return (
@@ -553,32 +664,25 @@ function ScreenshotGallery() {
           <h2>An instrument, not a dashboard.</h2>
         </div>
         <p>
-          Screenshot slots are ready for the MVP. Until then, the site carries
-          the same dark surfaces and editorial rhythm as the app.
+          Real captures from the studio, loaded with an album: the same dark
+          surfaces and editorial rhythm carried end to end.
         </p>
       </div>
       <div className="screenshot-grid">
-        {slots.map(([title, caption], index) => (
-          <figure
-            className={
-              index === 0 || index === 3
-                ? "screenshot-slot wide"
-                : "screenshot-slot"
-            }
-            key={title}
-          >
-            <div className="window-dots" aria-hidden="true">
-              <span />
-              <span />
-              <span />
+        {slots.map((slot) => (
+          <article className="workspace-card" key={slot.title}>
+            <div className="workspace-media">
+              <img
+                src={slot.image}
+                alt={`${slot.title} — Sonara Hub`}
+                loading="lazy"
+              />
             </div>
-            <div className="slot-grid" aria-hidden="true" />
-            <div className="slot-content">
-              <DiscIcon className="slot-icon" />
-              <strong>{title}</strong>
-              <span>{caption}</span>
+            <div className="workspace-body">
+              <h3>{slot.title}</h3>
+              <p>{slot.caption}</p>
             </div>
-          </figure>
+          </article>
         ))}
       </div>
     </section>
@@ -865,16 +969,6 @@ function BrushIcon({ className = "" }: IconProps) {
     <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
       <path d="M14 5l5 5M13 6l-8 8c-1.5 1.5-1.5 4 0 5.5 1.6 1.6 4 .9 5.4-.5l8-8" />
       <path d="M4 20c2 .2 3.7-.2 5.1-1.5" />
-    </svg>
-  );
-}
-
-function DiscIcon({ className = "" }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="2.2" />
-      <path d="M12 3a9 9 0 0 1 9 9" />
     </svg>
   );
 }
