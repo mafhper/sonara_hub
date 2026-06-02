@@ -27,13 +27,13 @@ function walkSvg(value, key = "") {
       normalizedKey,
     )
   ) {
-    throw new Error("SVG contem elemento nao permitido.");
+    throw new Error("SVG contém elemento não permitido.");
   }
   if (!value || typeof value !== "object") return;
   for (const [childKey, childValue] of Object.entries(value)) {
     const attribute = childKey.replace(/^@_/, "").toLowerCase();
     if (childKey.startsWith("@_") && attribute.startsWith("on")) {
-      throw new Error("SVG contem evento nao permitido.");
+      throw new Error("SVG contém evento não permitido.");
     }
     if (
       childKey.startsWith("@_") &&
@@ -42,14 +42,14 @@ function walkSvg(value, key = "") {
       childValue &&
       !childValue.startsWith("#")
     ) {
-      throw new Error("SVG contem referencia externa nao permitida.");
+      throw new Error("SVG contém referência externa não permitida.");
     }
     if (
       childKey.startsWith("@_") &&
       typeof childValue === "string" &&
       /url\s*\(\s*['"]?(?:https?:|file:|\/\/)/i.test(childValue)
     ) {
-      throw new Error("SVG contem URL externa nao permitida.");
+      throw new Error("SVG contém URL externa não permitida.");
     }
     walkSvg(childValue, childKey);
   }

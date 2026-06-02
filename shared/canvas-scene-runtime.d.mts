@@ -11,6 +11,8 @@ export type RuntimeMediaLayer = {
   x: number;
   y: number;
   rotation: number;
+  blur?: number;
+  maskOpacity?: number;
   shadow: { opacity: number; blur: number; x: number; y: number };
   fit: "cover" | "contain";
   blendMode: "normal" | "screen" | "multiply" | "overlay";
@@ -22,8 +24,15 @@ export type SceneComposition = {
   layers?: RuntimeMediaLayer[];
   coverSrc?: string;
   coverElement?: HTMLImageElement | null;
-  metadata?: { title?: string; artist?: string };
+  metadata?: {
+    title?: string;
+    artist?: string;
+    album?: string;
+    year?: string;
+    version?: string;
+  };
   showMetadata?: boolean;
+  textSettings?: Record<string, unknown>;
 };
 
 export function loadMediaElements(

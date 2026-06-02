@@ -26,6 +26,12 @@ uniform float u_param2;
 uniform float u_param3;
 uniform float u_param4;
 uniform float u_param5;
+uniform float u_cloudSunEnabled;
+uniform float u_cloudSunIntensity;
+uniform float u_cloudSunX;
+uniform float u_cloudSunY;
+uniform float u_cloudSunRadius;
+uniform float u_cloudSunDiffusion;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
 float noise(vec2 p) {
@@ -86,10 +92,16 @@ void main() {
   float softDetail = fbm(p * 3.25 + drift.yx * 0.28);
   float threshold = mix(0.8, 0.42, u_param0);
   float cloud = smoothstep(threshold - 0.16, threshold + mix(0.32, 0.18, u_param2), broad * 0.58 + body * 0.48 + softDetail * 0.1);
-  float sun = smoothstep(0.58, 0.02, distance(uv, vec2(0.28, 0.28)));
+  vec2 sunPosition = vec2(u_cloudSunX, u_cloudSunY);
+  float sunDistance = distance(uv, sunPosition);
+  float sunRadius = mix(0.08, 0.46, u_cloudSunRadius);
+  float sunDiffusion = mix(0.12, 0.78, u_cloudSunDiffusion);
+  float sunCore = smoothstep(sunRadius, sunRadius * 0.12, sunDistance);
+  float sunGlow = smoothstep(sunRadius + sunDiffusion, sunRadius * 0.32, sunDistance);
+  float sun = u_cloudSunEnabled * u_cloudSunIntensity * (sunCore * 0.62 + sunGlow * 0.38);
   vec3 sky = mix(u_colorA * 0.7, u_colorA + u_colorB * 0.12, uv.y);
   vec3 color = mix(sky, mix(u_colorB * 0.62, u_colorB, cloud), cloud * (0.3 + u_intensity * 0.42));
-  color += u_accentColor * sun * u_param3 * 0.2 * pulse(u_audioMid, 0.2);
+  color += u_accentColor * sun * (0.16 + u_param3 * 0.28) * pulse(u_audioMid, 0.2);
   gl_FragColor = vec4(finish(color, uv), 1.0);
 }`,
   "aurora-ribbons": `${shaderPrelude}
@@ -104,6 +116,25 @@ void main() {
   float haze = fbm(vec2(uv.x * 2.2, uv.y * 4.5 - t * 0.22));
   vec3 color = mix(u_colorA, u_colorB, haze * 0.22);
   color += u_accentColor * (ribbon + echo * 0.42) * (0.22 + u_param4 * 0.62) * pulse(u_audioMid, 0.32);
+  gl_FragColor = vec4(finish(color, uv), 1.0);
+}`,
+  "color-mesh": `${shaderPrelude}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  vec2 ratio = vec2(u_resolution.x / u_resolution.y, 1.0);
+  float t = u_time * (0.06 + u_speed * 0.34);
+  vec2 drift = direction() * t * (0.08 + u_param4 * 0.26);
+  vec2 p = uv * ratio * (0.8 + u_param0 * 1.9);
+  float broad = fbm(p + drift);
+  float folded = fbm(p * (1.18 + u_param2 * 0.48) - drift * 0.7 + broad * (0.22 + u_param1 * 0.82));
+  float wave = sin((uv.x + uv.y * 0.72) * (2.8 + u_param0 * 4.4) + t + folded * 2.4);
+  float blendA = smoothstep(0.08, 0.92, broad * 0.58 + folded * 0.42);
+  float blendB = smoothstep(-0.72, 0.78, wave + folded * 0.56);
+  vec3 color = mix(u_colorA, u_colorB, blendA * (0.42 + u_param3 * 0.48));
+  color = mix(color, u_accentColor, blendB * (0.14 + u_param3 * 0.34));
+  float softness = mix(0.08, 0.28, u_param5);
+  float light = smoothstep(0.92 - softness, 0.36 - softness, distance(uv, vec2(0.24, 0.24)));
+  color += u_accentColor * light * 0.12 * pulse(u_audioMid, 0.18);
   gl_FragColor = vec4(finish(color, uv), 1.0);
 }`,
 };
@@ -165,6 +196,10 @@ export function createSceneRuntime(
       context.drawImage(webglCanvas, 0, 0, width, height);
     } else if (scene.rendererId === "vector-aura") {
       drawVectorAura(context, width, height, scene, audio, time);
+    } else if (scene.rendererId === "playful-shapes") {
+      drawPlayfulShapes(context, width, height, scene, audio, time);
+    } else if (scene.rendererId === "piano-ribbons") {
+      drawPianoRibbons(context, width, height, scene, audio, time);
     } else {
       drawDarkSurface(context, width, height, scene, audio, time);
     }
@@ -183,6 +218,7 @@ export function createSceneRuntime(
         scene,
         composition.coverElement,
         composition.metadata ?? {},
+        audio,
         time,
       );
     }
@@ -190,7 +226,13 @@ export function createSceneRuntime(
       drawWaveform(context, width, height, scene.waveform, audio, time);
     }
     if (composition.showMetadata !== false) {
-      drawMetadata(context, width, height, composition.metadata ?? {});
+      drawMetadata(
+        context,
+        width,
+        height,
+        composition.metadata ?? {},
+        composition.textSettings ?? {},
+      );
     }
     if (scene.common?.shade) {
       context.fillStyle = `rgba(0, 0, 0, ${scene.common.shade / 310})`;
@@ -309,6 +351,12 @@ function createWebglRenderer(canvas) {
       "param3",
       "param4",
       "param5",
+      "cloudSunEnabled",
+      "cloudSunIntensity",
+      "cloudSunX",
+      "cloudSunY",
+      "cloudSunRadius",
+      "cloudSunDiffusion",
     ];
     const uniforms = Object.fromEntries(
       names.map((name) => [name, gl.getUniformLocation(program, `u_${name}`)]),
@@ -346,6 +394,13 @@ function createWebglRenderer(canvas) {
     for (let index = 0; index < 6; index += 1) {
       set1f(`param${index}`, values[index] ?? 0);
     }
+    const cloudLight = scene.cloudLight ?? {};
+    set1f("cloudSunEnabled", cloudLight.enabled ? 1 : 0);
+    set1f("cloudSunIntensity", (cloudLight.intensity ?? 0) / 100);
+    set1f("cloudSunX", (cloudLight.x ?? 28) / 100);
+    set1f("cloudSunY", (cloudLight.y ?? 24) / 100);
+    set1f("cloudSunRadius", (cloudLight.radius ?? 32) / 100);
+    set1f("cloudSunDiffusion", (cloudLight.diffusion ?? 68) / 100);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     function set1f(name, value) {
@@ -388,7 +443,10 @@ function createShader(gl, type, source) {
   gl.shaderSource(shader, source);
   gl.compileShader(shader);
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    throw new Error(gl.getShaderInfoLog(shader));
+    throw new Error(
+      gl.getShaderInfoLog(shader) ||
+        `Falha ao compilar shader WebGL. Contexto perdido: ${gl.isContextLost()}`,
+    );
   }
   return shader;
 }
@@ -470,6 +528,262 @@ function drawVectorAura(context, width, height, scene, audio, time) {
   context.restore();
 }
 
+function drawPlayfulShapes(context, width, height, scene, audio, time) {
+  drawPlayfulBackground(context, width, height, scene, audio);
+  const playful = scene.playful ?? {};
+  const categories = playfulCategories(playful);
+  const quantity = Math.round(4 + ((scene.advanced.quantity ?? 48) / 100) * 10);
+  const direction = ((scene.common.direction ?? 0) * Math.PI) / 180;
+  const speed = 0.12 + (scene.common.speed ?? 22) / 72;
+  const depthAmount = (scene.advanced.depth ?? 54) / 100;
+  const randomness = (scene.advanced.randomness ?? 56) / 100;
+  const diversity = (scene.advanced.diversity ?? 72) / 100;
+  const rotation = (scene.advanced.rotation ?? 42) / 100;
+  const drift = (scene.advanced.drift ?? 38) / 100;
+  const scale = 0.72 + (scene.advanced.scale ?? 56) / 150;
+  const reaction =
+    ((scene.common.audioReaction ?? 22) / 100) * (audio.energy ?? 0);
+  const mode = playfulMotion(playful.motionMode);
+  const seed = Math.round(playful.seed ?? 37);
+  const palette = [scene.colors.light, scene.colors.effect, "#ffffff"];
+  const minDimension = Math.min(width, height);
+
+  context.save();
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  for (let index = 0; index < quantity; index += 1) {
+    const depth = 0.34 + seeded(seed, index, 1) * (0.34 + depthAmount * 0.44);
+    const phase = seeded(seed, index, 2) * Math.PI * 2;
+    const pace = speed * (0.55 + depth * 0.86);
+    const travel = minDimension * (0.025 + drift * 0.105) * mode.travel;
+    const lift =
+      Math.sin(time * pace + phase) * travel +
+      Math.sin(time * pace * 0.48 + phase * 1.7) * travel * 0.32;
+    const sway =
+      Math.cos(time * pace * 0.78 + phase) * travel +
+      Math.sin(time * pace * 0.32 + phase) * travel * 0.42;
+    const baseX =
+      width * (0.08 + seeded(seed, index, 3) * (0.84 + randomness * 0.04));
+    const baseY =
+      height * (0.1 + seeded(seed, index, 4) * (0.76 + randomness * 0.04));
+    const x = baseX + sway * Math.cos(direction) - lift * Math.sin(direction);
+    const y = baseY + sway * Math.sin(direction) + lift * Math.cos(direction);
+    const size =
+      minDimension *
+      (0.07 + seeded(seed, index, 5) * 0.065) *
+      scale *
+      (0.68 + depth * 0.52) *
+      (1 + (audio.bass ?? 0) * mode.bassPulse * 0.08);
+    const angle =
+      (seeded(seed, index, 6) - 0.5) * rotation * 0.7 +
+      Math.sin(time * pace * 0.62 + phase) *
+        rotation *
+        mode.rotation *
+        (0.42 + (audio.mid ?? 0) * 0.14);
+    const category =
+      categories[
+        Math.floor(
+          seeded(seed, index, 7) *
+            Math.max(1, Math.ceil(categories.length * diversity)),
+        ) % categories.length
+      ];
+    const color = palette[index % palette.length];
+    const alpha =
+      0.38 +
+      depth * 0.42 +
+      Math.min(0.12, (audio.high ?? 0) * mode.highlight * 0.16);
+    context.save();
+    context.translate(x, y);
+    context.rotate(angle);
+    context.globalAlpha = Math.min(0.96, alpha);
+    context.shadowColor = "rgba(35, 46, 72, 0.18)";
+    context.shadowBlur = minDimension * 0.025 * depth;
+    context.shadowOffsetY = minDimension * 0.012 * depth;
+    drawPlayfulElement(
+      context,
+      category,
+      size * (1 + reaction * mode.energy * 0.1),
+      color,
+      playful,
+      seed,
+      index,
+    );
+    context.restore();
+  }
+  context.restore();
+}
+
+function drawPlayfulBackground(context, width, height, scene, audio) {
+  const gradient = context.createLinearGradient(0, 0, width, height);
+  gradient.addColorStop(0, scene.colors.base);
+  gradient.addColorStop(0.58, hexToRgba(scene.colors.effect, 0.82));
+  gradient.addColorStop(1, hexToRgba(scene.colors.light, 0.92));
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, width, height);
+  const glow = context.createRadialGradient(
+    width * 0.22,
+    height * 0.18,
+    0,
+    width * 0.22,
+    height * 0.18,
+    width * 0.62,
+  );
+  glow.addColorStop(0, `rgba(255,255,255,${0.18 + (audio.high ?? 0) * 0.04})`);
+  glow.addColorStop(1, "rgba(255,255,255,0)");
+  context.fillStyle = glow;
+  context.fillRect(0, 0, width, height);
+}
+
+function playfulCategories(playful) {
+  const enabled = playful.enabled ?? {};
+  const categories = [];
+  if (enabled.rectangles !== false) categories.push("rectangle");
+  if (enabled.letters !== false) categories.push("letter");
+  if (enabled.numbers !== false) categories.push("number");
+  if (enabled.emojis !== false) categories.push("emoji");
+  return categories.length ? categories : ["rectangle"];
+}
+
+function playfulMotion(value) {
+  if (value === "calm") {
+    return {
+      travel: 0.64,
+      rotation: 0.58,
+      bassPulse: 0.42,
+      energy: 0.48,
+      highlight: 0.58,
+    };
+  }
+  if (value === "play") {
+    return {
+      travel: 1.34,
+      rotation: 1.24,
+      bassPulse: 0.94,
+      energy: 1.12,
+      highlight: 1.08,
+    };
+  }
+  return {
+    travel: 0.92,
+    rotation: 0.84,
+    bassPulse: 0.68,
+    energy: 0.78,
+    highlight: 0.82,
+  };
+}
+
+function drawPlayfulElement(
+  context,
+  category,
+  size,
+  color,
+  playful,
+  seed,
+  index,
+) {
+  if (category === "rectangle") {
+    const width = size * (0.9 + seeded(seed, index, 8) * 0.42);
+    const height = size * (0.72 + seeded(seed, index, 9) * 0.34);
+    roundedRectPath(
+      context,
+      -width / 2,
+      -height / 2,
+      width,
+      height,
+      size * 0.18,
+    );
+    context.fillStyle = hexToRgba(color, color === "#ffffff" ? 0.28 : 0.9);
+    context.fill();
+    return;
+  }
+  const collection =
+    category === "letter"
+      ? splitVisualCollection(playful.collections?.letters, "A B C D E")
+      : category === "number"
+        ? splitVisualCollection(playful.collections?.numbers, "1 2 3 4 5")
+        : splitVisualCollection(playful.collections?.emojis, "☀️ 🎈 🌱 ⭐ 🎵");
+  const glyph = safeGlyph(collection[index % collection.length]);
+  context.fillStyle =
+    category === "emoji" ? "rgba(255,255,255,0.2)" : hexToRgba(color, 0.88);
+  context.beginPath();
+  context.arc(0, 0, size * 0.52, 0, Math.PI * 2);
+  context.fill();
+  context.shadowColor = "transparent";
+  context.fillStyle =
+    category === "emoji" ? "#ffffff" : "rgba(255,255,255,0.92)";
+  context.font =
+    category === "emoji"
+      ? `${size * 0.64}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`
+      : `760 ${size * 0.58}px Inter, Arial, sans-serif`;
+  context.fillText(glyph, 0, size * 0.02, size * 0.88);
+}
+
+function drawPianoRibbons(context, width, height, scene, audio, time) {
+  const background = context.createLinearGradient(0, 0, width, height);
+  background.addColorStop(0, scene.colors.base);
+  background.addColorStop(1, hexToRgba(scene.colors.effect, 0.82));
+  context.fillStyle = background;
+  context.fillRect(0, 0, width, height);
+
+  const bandCount = Math.round(6 + ((scene.advanced.bands ?? 54) / 100) * 8);
+  const gap = 0.12 + ((scene.advanced.gap ?? 26) / 100) * 0.34;
+  const widthScale = 0.74 + ((scene.advanced.bandWidth ?? 58) / 100) * 0.68;
+  const curvature = ((scene.advanced.curvature ?? 46) / 100) * height * 0.22;
+  const depth = (scene.advanced.depth ?? 54) / 100;
+  const drift = (scene.advanced.drift ?? 34) / 100;
+  const speed = 0.16 + (scene.common.speed ?? 24) / 82;
+  const direction = ((scene.common.direction ?? 0) * Math.PI) / 180;
+  const available = width * 1.16;
+  const step = available / bandCount;
+  const bandWidth = step * widthScale * (1 - gap * 0.38);
+  const palette = [
+    scene.colors.light,
+    "#f7f1dd",
+    scene.colors.effect,
+    "#76b7d6",
+  ];
+  context.save();
+  context.translate(width / 2, height / 2);
+  context.rotate(Math.sin(direction) * 0.08);
+  context.translate(-width / 2, -height / 2);
+  for (let index = 0; index < bandCount; index += 1) {
+    const spectrum =
+      audio.spectrum?.[index % (audio.spectrum?.length || 1)] ??
+      audio.energy ??
+      0;
+    const phase = time * speed + index * 0.54;
+    const wave =
+      Math.sin(phase) * curvature * (0.46 + drift * 0.7) +
+      spectrum * curvature * (scene.common.audioReaction / 70);
+    const x = -width * 0.08 + index * step;
+    const foreground = index % 3 !== 1;
+    context.globalAlpha = 0.56 + (foreground ? 0.26 : depth * 0.18);
+    context.fillStyle = palette[index % palette.length];
+    context.beginPath();
+    context.moveTo(x, height * 1.12);
+    context.bezierCurveTo(
+      x - bandWidth * 0.12,
+      height * 0.72 + wave,
+      x + bandWidth * 0.18,
+      height * 0.28 - wave * 0.58,
+      x + bandWidth * 0.5,
+      -height * 0.12,
+    );
+    context.lineTo(x + bandWidth * 1.18, -height * 0.12);
+    context.bezierCurveTo(
+      x + bandWidth * 0.84,
+      height * 0.28 - wave * 0.58,
+      x + bandWidth * 0.92,
+      height * 0.72 + wave,
+      x + bandWidth,
+      height * 1.12,
+    );
+    context.closePath();
+    context.fill();
+  }
+  context.restore();
+}
+
 function drawDarkSurface(context, width, height, scene, audio, time) {
   const pulse =
     ((0.5 + Math.sin(time * (0.18 + scene.common.speed / 170)) * 0.5) *
@@ -521,6 +835,7 @@ function drawMediaLayer(context, width, height, layer) {
   context.shadowOffsetY = shadow.y ?? 0;
   context.translate(x + drawWidth / 2, y + drawHeight / 2);
   context.rotate(((layer.rotation ?? 0) * Math.PI) / 180);
+  if (layer.blur) context.filter = `blur(${Math.max(0, layer.blur)}px)`;
   context.drawImage(
     element,
     -drawWidth / 2,
@@ -528,17 +843,38 @@ function drawMediaLayer(context, width, height, layer) {
     drawWidth,
     drawHeight,
   );
+  context.filter = "none";
+  if (layer.maskOpacity) {
+    context.fillStyle = `rgba(0,0,0,${Math.max(0, Math.min(100, layer.maskOpacity)) / 100})`;
+    context.fillRect(-drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+  }
   context.restore();
 }
 
-function drawVinyl(context, width, height, scene, cover, metadata, time) {
-  const size = (Math.min(width, height) * scene.advanced.discSize) / 100;
+function drawVinyl(
+  context,
+  width,
+  height,
+  scene,
+  cover,
+  metadata,
+  audio,
+  time,
+) {
+  const reaction =
+    (scene.advanced.reaction ?? scene.common.audioReaction ?? 0) / 100;
+  const bassPulse = Math.max(0, audio.bass ?? audio.energy ?? 0) * reaction;
+  const size =
+    ((Math.min(width, height) * scene.advanced.discSize) / 100) *
+    (1 + bassPulse * 0.045);
   const x = (width * scene.advanced.x) / 100;
   const y = (height * scene.advanced.y) / 100;
   const radius = size / 2;
   context.save();
   context.translate(x, y);
-  context.rotate(time * ((scene.advanced.rpm ?? 34) / 60) * Math.PI * 2);
+  context.rotate(
+    time * (((scene.advanced.rpm ?? 34) + bassPulse * 16) / 60) * Math.PI * 2,
+  );
   context.shadowColor = `rgba(0,0,0,${scene.advanced.shadow / 125})`;
   context.shadowBlur = radius * 0.16;
   context.shadowOffsetY = radius * 0.08;
@@ -607,8 +943,17 @@ function drawWaveform(context, width, height, waveform, audio, time) {
     ? audio.spectrum
     : syntheticSpectrum(audio, time);
   context.save();
-  context.strokeStyle = hexToRgba(waveform.color, waveform.opacity / 100);
-  context.fillStyle = hexToRgba(waveform.color, waveform.opacity / 100);
+  const lineStyle = waveformPaint(
+    context,
+    waveform,
+    startX,
+    centerY - amplitude,
+    startX + visualWidth,
+    centerY + amplitude,
+    waveform.opacity / 100,
+  );
+  context.strokeStyle = lineStyle;
+  context.fillStyle = lineStyle;
   context.lineWidth = waveform.thickness;
   context.lineJoin = "round";
   context.lineCap = "round";
@@ -644,6 +989,7 @@ function drawWaveform(context, width, height, waveform, audio, time) {
         centerY,
         amplitude,
         waveform,
+        time,
       );
       break;
     case "radial-ring":
@@ -655,6 +1001,7 @@ function drawWaveform(context, width, height, waveform, audio, time) {
         centerY,
         amplitude,
         waveform,
+        time,
       );
       break;
     default:
@@ -721,8 +1068,13 @@ function drawFilledRibbon(
     context.lineTo(x, centerY + sample * amplitude);
   });
   context.closePath();
-  context.fillStyle = hexToRgba(
-    waveform.color,
+  context.fillStyle = waveformPaint(
+    context,
+    waveform,
+    startX,
+    centerY - amplitude,
+    startX + width,
+    centerY + amplitude,
     (waveform.opacity / 100) * ((waveform.advanced?.fillOpacity ?? 28) / 100),
   );
   context.fill();
@@ -737,6 +1089,7 @@ function drawSpectrumBars(
   centerY,
   amplitude,
   waveform,
+  time,
 ) {
   const gap = Math.max(
     1,
@@ -747,9 +1100,19 @@ function drawSpectrumBars(
     barWidth / 2,
     (waveform.advanced?.barRadius ?? 62) / 10,
   );
+  const peakHold =
+    Math.max(0, Math.min(100, waveform.advanced?.barPeakHold ?? 0)) / 100;
+  const peakDecay =
+    Math.max(0, Math.min(100, waveform.advanced?.barPeakDecay ?? 56)) / 100;
   spectrum.forEach((value, index) => {
     const x = startX + index * (barWidth + gap);
     const barHeight = Math.max(waveform.thickness, value * amplitude * 2);
+    context.fillStyle = waveformBandPaint(
+      waveform,
+      index,
+      spectrum.length,
+      waveform.opacity / 100,
+    );
     roundedRect(
       context,
       x,
@@ -758,6 +1121,36 @@ function drawSpectrumBars(
       barHeight,
       radius,
     );
+    if (peakHold > 0.02) {
+      const phase = Math.sin(time * (0.7 + peakDecay * 1.6) + index * 0.91);
+      const peakHeight = Math.min(
+        amplitude * 2.1,
+        barHeight + amplitude * peakHold * (0.45 + phase * 0.18),
+      );
+      const capHeight = Math.max(2, waveform.thickness * 1.2);
+      context.fillStyle = waveformBandPaint(
+        waveform,
+        index,
+        spectrum.length,
+        Math.min(1, waveform.opacity / 70),
+      );
+      roundedRect(
+        context,
+        x,
+        centerY - peakHeight / 2 - capHeight * 1.15,
+        barWidth,
+        capHeight,
+        Math.min(radius, capHeight / 2),
+      );
+      roundedRect(
+        context,
+        x,
+        centerY + peakHeight / 2 + capHeight * 0.35,
+        barWidth,
+        capHeight,
+        Math.min(radius, capHeight / 2),
+      );
+    }
   });
 }
 
@@ -769,17 +1162,59 @@ function drawRadialRing(
   centerY,
   amplitude,
   waveform,
+  time,
 ) {
   const arc = ((waveform.advanced?.radialArc ?? 100) / 100) * Math.PI * 2;
   const rotation =
     (((waveform.advanced?.radialRotation ?? 0) - 90) * Math.PI) / 180;
   const radius =
     Math.min(width, height) * ((waveform.advanced?.radialRadius ?? 32) / 100);
+  const glow = Math.max(0, Math.min(100, waveform.advanced?.radialGlow ?? 0));
   context.save();
   context.translate(width / 2, centerY);
+  if (glow > 0) {
+    context.shadowBlur = (glow / 100) * Math.min(width, height) * 0.045;
+    context.shadowColor = waveformBandPaint(waveform, 1, 3, 0.72);
+  }
+  context.strokeStyle = waveformPaint(
+    context,
+    waveform,
+    -radius,
+    0,
+    radius,
+    0,
+    Math.min(0.46, waveform.opacity / 210),
+  );
+  context.lineWidth = Math.max(1, waveform.thickness * 0.74);
+  context.beginPath();
+  context.arc(0, 0, radius, rotation, rotation + arc);
+  context.stroke();
+  context.strokeStyle = waveformPaint(
+    context,
+    waveform,
+    -radius,
+    0,
+    radius,
+    0,
+    Math.min(0.28, waveform.opacity / 320),
+  );
+  context.lineWidth = Math.max(1, waveform.thickness * 0.42);
+  context.beginPath();
+  context.arc(0, 0, radius * 0.965, rotation, rotation + arc);
+  context.stroke();
+  context.lineWidth = waveform.thickness;
   spectrum.forEach((value, index) => {
     const angle = rotation + (index / Math.max(1, spectrum.length - 1)) * arc;
-    const barHeight = Math.max(waveform.thickness, value * amplitude);
+    const barHeight = Math.max(
+      waveform.thickness,
+      value * amplitude * (1 + Math.sin(time * 0.65 + index * 0.37) * 0.06),
+    );
+    context.strokeStyle = waveformBandPaint(
+      waveform,
+      index,
+      spectrum.length,
+      waveform.opacity / 100,
+    );
     context.beginPath();
     context.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
     context.lineTo(
@@ -789,6 +1224,48 @@ function drawRadialRing(
     context.stroke();
   });
   context.restore();
+}
+
+function waveformPaint(context, waveform, x0, y0, x1, y1, alpha) {
+  if (waveform.colorMode !== "gradient") {
+    return hexToRgba(waveform.color, alpha);
+  }
+  const gradient = context.createLinearGradient(x0, y0, x1, y1);
+  gradient.addColorStop(0, hexToRgba(waveform.color, alpha));
+  gradient.addColorStop(0.54, hexToRgba(waveform.secondaryColor, alpha));
+  gradient.addColorStop(1, hexToRgba(waveform.tertiaryColor, alpha));
+  return gradient;
+}
+
+function waveformBandPaint(waveform, index, total, alpha) {
+  if (waveform.colorMode === "single") return hexToRgba(waveform.color, alpha);
+  const palette = [
+    waveform.color,
+    waveform.secondaryColor,
+    waveform.tertiaryColor,
+  ];
+  if (waveform.colorMode === "bands") {
+    return hexToRgba(palette[index % palette.length], alpha);
+  }
+  const t = total <= 1 ? 0 : index / (total - 1);
+  const first = t < 0.5 ? palette[0] : palette[1];
+  const second = t < 0.5 ? palette[1] : palette[2];
+  return rgbToRgba(
+    mixRgb(hexToRgb(first), hexToRgb(second), t < 0.5 ? t * 2 : (t - 0.5) * 2),
+    alpha,
+  );
+}
+
+function mixRgb(first, second, amount) {
+  const t = Math.max(0, Math.min(1, amount));
+  return first.map((value, index) => value + (second[index] - value) * t);
+}
+
+function rgbToRgba(rgb, alpha) {
+  const [red, green, blue] = rgb.map((value) =>
+    Math.round(Math.max(0, Math.min(1, value)) * 255),
+  );
+  return `rgba(${red},${green},${blue},${alpha})`;
 }
 
 function roundedRect(context, x, y, width, height, radius) {
@@ -838,29 +1315,189 @@ function syntheticSpectrum(audio, time) {
   });
 }
 
-function drawMetadata(context, width, height, metadata) {
+const defaultTextSettings = {
+  fields: {
+    title: true,
+    artist: true,
+    album: false,
+    year: false,
+    version: false,
+  },
+  fontFamily: "Inter",
+  fontSize: 42,
+  fontWeight: 650,
+  letterSpacing: 0,
+  lineHeight: 118,
+  color: "#f7f8fb",
+  opacity: 94,
+  x: 5,
+  y: 7,
+  align: "left",
+  verticalAnchor: "top",
+  shadow: 48,
+};
+
+function drawMetadata(context, width, height, metadata, settings = {}) {
+  const textSettings = {
+    ...defaultTextSettings,
+    ...settings,
+    fields: { ...defaultTextSettings.fields, ...(settings.fields ?? {}) },
+  };
   const title = String(metadata.title ?? "").trim();
   const artist = String(metadata.artist ?? "").trim();
-  if (!title && !artist) return;
-  const x = Math.max(24, width * 0.036);
-  const y = Math.max(34, height * 0.065);
+  const album = String(metadata.album ?? "").trim();
+  const year = String(metadata.year ?? "").trim();
+  const version = String(metadata.version ?? "").trim();
+  const lines = [
+    textSettings.fields.title && title,
+    textSettings.fields.version && version,
+    textSettings.fields.artist && artist,
+    textSettings.fields.album && album,
+    textSettings.fields.year && year,
+  ].filter(Boolean);
+  if (!lines.length) return;
+  const scale = Math.max(0.2, width / 1920);
+  const fontSize = Math.max(9, textSettings.fontSize * scale);
+  const lineHeight = fontSize * ((textSettings.lineHeight ?? 118) / 100);
+  const x = (width * textSettings.x) / 100;
+  let y = (height * textSettings.y) / 100;
+  const blockHeight = Math.max(
+    fontSize,
+    (lines.length - 1) * lineHeight + fontSize,
+  );
+  if (textSettings.verticalAnchor === "middle") y -= blockHeight / 2;
+  if (textSettings.verticalAnchor === "bottom") y -= blockHeight;
   context.save();
   context.textBaseline = "top";
-  context.shadowColor = "rgba(0,0,0,0.48)";
-  context.shadowBlur = Math.max(5, width * 0.004);
-  context.fillStyle = "rgba(248,249,251,0.94)";
-  context.font = `600 ${Math.max(18, width * 0.023)}px Inter, Arial, sans-serif`;
-  context.fillText(title, x, y);
-  if (artist) {
-    context.fillStyle = "rgba(227,230,235,0.78)";
-    context.font = `500 ${Math.max(12, width * 0.012)}px Inter, Arial, sans-serif`;
-    context.fillText(artist, x, y + Math.max(25, width * 0.031));
+  context.textAlign =
+    textSettings.align === "justify" ? "left" : textSettings.align;
+  context.shadowColor = `rgba(0,0,0,${Math.max(0, Math.min(100, textSettings.shadow)) / 100})`;
+  context.shadowBlur = Math.max(0, textSettings.shadow * scale * 0.4);
+  context.fillStyle = hexToRgba(
+    textSettings.color,
+    Math.max(0, Math.min(100, textSettings.opacity)) / 100,
+  );
+  context.font = `${Math.round(textSettings.fontWeight)} ${fontSize}px ${fontFamilyStack(textSettings.fontFamily)}`;
+  for (const [index, line] of lines.entries()) {
+    drawMetadataLine(
+      context,
+      line,
+      x,
+      y + index * lineHeight,
+      width * 0.7,
+      textSettings,
+    );
   }
   context.restore();
 }
 
+function drawMetadataLine(context, line, x, y, maxWidth, textSettings) {
+  if (textSettings.align !== "justify") {
+    context.fillText(
+      applyLetterSpacing(line, textSettings.letterSpacing),
+      x,
+      y,
+      maxWidth,
+    );
+    return;
+  }
+  const words = String(line).trim().split(/\s+/u).filter(Boolean);
+  if (words.length < 2) {
+    context.fillText(
+      applyLetterSpacing(line, textSettings.letterSpacing),
+      x,
+      y,
+      maxWidth,
+    );
+    return;
+  }
+  const measured = words.map((word) => ({
+    word: applyLetterSpacing(word, textSettings.letterSpacing),
+    width: context.measureText(
+      applyLetterSpacing(word, textSettings.letterSpacing),
+    ).width,
+  }));
+  const totalWidth = measured.reduce((sum, item) => sum + item.width, 0);
+  const gap = Math.max(4, (maxWidth - totalWidth) / (words.length - 1));
+  let cursor = x;
+  for (const item of measured) {
+    context.fillText(item.word, cursor, y);
+    cursor += item.width + gap;
+  }
+}
+
+function fontFamilyStack(fontFamily) {
+  switch (fontFamily) {
+    case "Georgia":
+      return "Georgia, 'Times New Roman', serif";
+    case "Arial":
+      return "Arial, sans-serif";
+    case "Inter":
+    default:
+      return "Inter, Arial, sans-serif";
+  }
+}
+
+function applyLetterSpacing(value, spacing) {
+  const amount = Math.max(0, Number(spacing) || 0);
+  return amount > 0
+    ? String(value)
+        .split("")
+        .join(" ".repeat(Math.min(4, Math.round(amount / 2))))
+    : value;
+}
+
+function seeded(seed, index, salt = 0) {
+  return fract(
+    Math.sin(seed * 12.9898 + index * 78.233 + salt * 37.719) * 43758.5453,
+  );
+}
+
+function fract(value) {
+  return value - Math.floor(value);
+}
+
+function roundedRectPath(context, x, y, width, height, radius) {
+  const safeRadius = Math.max(0, Math.min(radius, width / 2, height / 2));
+  context.beginPath();
+  context.moveTo(x + safeRadius, y);
+  context.lineTo(x + width - safeRadius, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+  context.lineTo(x + width, y + height - safeRadius);
+  context.quadraticCurveTo(
+    x + width,
+    y + height,
+    x + width - safeRadius,
+    y + height,
+  );
+  context.lineTo(x + safeRadius, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+  context.lineTo(x, y + safeRadius);
+  context.quadraticCurveTo(x, y, x + safeRadius, y);
+  context.closePath();
+}
+
+function splitVisualCollection(value, fallback) {
+  const items = String(value ?? "")
+    .split(/[\s,;]+/u)
+    .map(safeGlyph)
+    .filter(Boolean);
+  return items.length ? items : String(fallback).split(/\s+/u);
+}
+
+function safeGlyph(value) {
+  const glyph = Array.from(String(value ?? ""))
+    .filter((character) => character >= " ")
+    .slice(0, 8)
+    .join("");
+  return glyph || "•";
+}
+
 function hexToRgb(hex) {
-  const value = Number.parseInt(hex.slice(1), 16);
+  const safeHex = /^#[0-9a-f]{6}$/i.test(String(hex ?? ""))
+    ? String(hex)
+    : "#ffffff";
+  const value = Number.parseInt(safeHex.slice(1), 16);
   return [
     ((value >> 16) & 255) / 255,
     ((value >> 8) & 255) / 255,

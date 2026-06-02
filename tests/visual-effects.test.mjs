@@ -4,6 +4,7 @@ import {
   builtinVisualPresets,
   effectIds,
   normalizeVisualSettings,
+  parseVisualCollection,
   removedEffectIds,
 } from "../shared/visual-effects.mjs";
 
@@ -12,11 +13,14 @@ const expectedIds = [
   "volumetric-clouds",
   "aurora-ribbons",
   "vector-aura",
+  "playful-shapes",
+  "color-mesh",
+  "piano-ribbons",
   "vinyl",
   "audio-dark",
 ];
 
-test("catalog exposes six broad visual families without particle presets", () => {
+test("catalog exposes nine broad visual families without particle presets", () => {
   assert.deepEqual(effectIds, expectedIds);
   assert.deepEqual(
     builtinVisualPresets.map((preset) => preset.id),
@@ -27,7 +31,7 @@ test("catalog exposes six broad visual families without particle presets", () =>
   assert.equal(new Set(expectedIds).size, builtinVisualPresets.length);
 });
 
-test("legacy visual fields normalize into the V3 contract", () => {
+test("legacy visual fields normalize into the V4 contract", () => {
   const visual = normalizeVisualSettings({
     effect: "fire",
     intensity: "75",
@@ -39,13 +43,89 @@ test("legacy visual fields normalize into the V3 contract", () => {
     accentColor: "#ffd36b",
   });
 
-  assert.equal(visual.schemaVersion, 3);
+  assert.equal(visual.schemaVersion, 4);
   assert.equal(visual.rendererId, "liquid-mesh");
   assert.equal(visual.common.intensity, 75);
   assert.equal(visual.common.direction, 360);
   assert.equal(visual.colors.light, "#ffd36b");
   assert.equal(visual.waveform.visible, false);
   assert.equal(visual.waveform.type, "mirror-line");
+});
+
+test("V3 presets normalize into V4 playful and cloud-light defaults", () => {
+  const visual = normalizeVisualSettings({
+    schemaVersion: 3,
+    rendererId: "playful-shapes",
+  });
+  const clouds = normalizeVisualSettings({
+    schemaVersion: 3,
+    rendererId: "volumetric-clouds",
+  });
+
+  assert.equal(visual.schemaVersion, 4);
+  assert.equal(visual.playful.motionMode, "soft-rhythm");
+  assert.equal(visual.playful.enabled.emojis, true);
+  assert.equal(clouds.cloudLight.enabled, false);
+  assert.equal(clouds.cloudLight.intensity, 54);
+});
+
+test("playful collections sanitize separators, duplicates and unsafe size", () => {
+  assert.deepEqual(
+    parseVisualCollection(
+      "A, B; A\nPALAVRA-MUITO-LONGA C D E F G H I J K L M N",
+      "X Y",
+    ),
+    ["A", "B", "PALAVRA-", "C", "D", "E", "F", "G", "H", "I", "J", "K"],
+  );
+
+  const visual = normalizeVisualSettings({
+    rendererId: "playful-shapes",
+    playful: {
+      seed: 1000000,
+      motionMode: "not-real",
+      enabled: {
+        rectangles: false,
+        letters: false,
+        numbers: false,
+        emojis: false,
+      },
+      collections: {
+        letters: "",
+        numbers: "1, 2, 2, 3",
+        emojis: "☀️, 🎈, 🌱",
+      },
+    },
+  });
+
+  assert.equal(visual.playful.seed, 999999);
+  assert.equal(visual.playful.motionMode, "soft-rhythm");
+  assert.equal(visual.playful.enabled.rectangles, true);
+  assert.equal(visual.playful.collections.letters, "A B C D E");
+  assert.equal(visual.playful.collections.numbers, "1 2 3");
+  assert.equal(visual.playful.collections.emojis, "☀️ 🎈 🌱");
+});
+
+test("cloud sun focus normalizes into safe bounds", () => {
+  const visual = normalizeVisualSettings({
+    rendererId: "volumetric-clouds",
+    cloudLight: {
+      enabled: true,
+      intensity: 160,
+      x: -10,
+      y: 130,
+      radius: 2,
+      diffusion: 72,
+    },
+  });
+
+  assert.deepEqual(visual.cloudLight, {
+    enabled: true,
+    intensity: 100,
+    x: 0,
+    y: 100,
+    radius: 8,
+    diffusion: 72,
+  });
 });
 
 test("waveform fields normalize into the V2 catalog with safe constraints", () => {
@@ -58,7 +138,16 @@ test("waveform fields normalize into the V2 catalog with safe constraints", () =
       smoothing: -2,
       width: 160,
       audioReaction: -4,
-      advanced: { barGap: 120, radialRadius: -5 },
+      colorMode: "bands",
+      secondaryColor: "invalid",
+      tertiaryColor: "#f2b870",
+      advanced: {
+        barGap: 120,
+        barPeakHold: 140,
+        barPeakDecay: -10,
+        radialRadius: -5,
+        radialGlow: 120,
+      },
     },
   });
 
@@ -69,8 +158,14 @@ test("waveform fields normalize into the V2 catalog with safe constraints", () =
   assert.equal(visual.waveform.smoothing, 0);
   assert.equal(visual.waveform.width, 100);
   assert.equal(visual.waveform.audioReaction, 0);
+  assert.equal(visual.waveform.colorMode, "bands");
+  assert.match(visual.waveform.secondaryColor, /^#[0-9a-f]{6}$/i);
+  assert.equal(visual.waveform.tertiaryColor, "#f2b870");
   assert.equal(visual.waveform.advanced.barGap, 100);
+  assert.equal(visual.waveform.advanced.barPeakHold, 100);
+  assert.equal(visual.waveform.advanced.barPeakDecay, 0);
   assert.equal(visual.waveform.advanced.radialRadius, 0);
+  assert.equal(visual.waveform.advanced.radialGlow, 100);
 });
 
 test("unknown waveform styles fall back to the legacy mirrored line", () => {

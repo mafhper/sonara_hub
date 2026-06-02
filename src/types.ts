@@ -92,11 +92,78 @@ export type MediaLayerV2 = {
   x: number;
   y: number;
   rotation: number;
+  blur: number;
+  maskOpacity: number;
   shadow: { opacity: number; blur: number; x: number; y: number };
   fit: "cover" | "contain";
   blendMode: "normal" | "screen" | "multiply" | "overlay";
   loop: boolean;
   order: number;
+};
+
+export type TextOverlaySettings = {
+  fields: {
+    title: boolean;
+    artist: boolean;
+    album: boolean;
+    year: boolean;
+    version: boolean;
+  };
+  preset:
+    | "top-left"
+    | "bottom-center"
+    | "cover-left"
+    | "side-left"
+    | "side-right";
+  fontFamily: "Inter" | "Georgia" | "Arial";
+  fontSize: number;
+  fontWeight: number;
+  letterSpacing: number;
+  lineHeight: number;
+  color: string;
+  opacity: number;
+  x: number;
+  y: number;
+  align: "left" | "center" | "right" | "justify";
+  verticalAnchor: "top" | "middle" | "bottom";
+  shadow: number;
+};
+
+export type CoverSeriesSettings = {
+  enabled: boolean;
+  style: "roman" | "arabic" | "custom";
+  sequence: string;
+  fontSize: number;
+  color: string;
+  opacity: number;
+  x: number;
+  y: number;
+  letterSpacing: number;
+  includeTitle: boolean;
+  includeAlbum: boolean;
+  includeArtist: boolean;
+  includeYear: boolean;
+  metaOrder: string;
+  metaFontSize: number;
+  metaGap: number;
+  metaStyles: Record<CoverSeriesMetaKey, CoverSeriesMetaStyle>;
+};
+
+export type CoverSeriesMetaKey = "title" | "album" | "artist" | "year";
+
+export type CoverSeriesMetaStyle = {
+  fontSize: number;
+  color: string;
+  opacity: number;
+  offsetX: number;
+  offsetY: number;
+};
+
+export type ArtworkSuggestion = {
+  file: File;
+  src: string;
+  relativePath: string;
+  source: "folder";
 };
 
 export type TrackDraft = {
@@ -111,9 +178,13 @@ export type TrackDraft = {
   outputBaseName: string;
   scene: ScenePresetV3;
   layers: MediaLayerV2[];
+  textSettings: TextOverlaySettings;
   audioInfo?: AudioInfo;
   selectedForBatch: boolean;
   packageStatus?: "original" | "treated";
+  suggestedCover?: ArtworkSuggestion;
+  useSuggestedCover?: boolean;
+  thumbnailPreviewMode: "composition" | "cover";
 };
 
 export type RenderJob = {
@@ -131,10 +202,13 @@ export type RenderJob = {
 };
 
 export type ProjectSnapshot = {
-  schemaVersion: 3;
+  schemaVersion: 3 | 4;
   workspaceMode: "audio" | "visual";
   workflowMode: "single" | "batch";
   activeStep: "music" | "visual" | "text" | "export";
+  audioStageView?: "edit" | "catalog" | "videos";
+  visualStageView?: "editor" | "videos";
+  coverSeriesSettings?: CoverSeriesSettings;
   selectedTrackId: string;
   outputPreset: string;
   qualityProfile: string;
@@ -152,7 +226,10 @@ export type ProjectSnapshot = {
     sourceFile?: File;
     audioInfo?: AudioInfo;
     layers: Array<Omit<MediaLayerV2, "src">>;
+    textSettings?: TextOverlaySettings;
     selectedForBatch: boolean;
     packageStatus?: TrackDraft["packageStatus"];
+    useSuggestedCover?: boolean;
+    thumbnailPreviewMode?: TrackDraft["thumbnailPreviewMode"];
   }>;
 };

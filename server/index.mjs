@@ -19,9 +19,16 @@ import {
   processMp3Copy,
 } from "./audio-library.mjs";
 import { createPresetStore, PresetStoreError } from "./preset-store.mjs";
+import { loadJobHistory, saveJobHistory } from "./job-store.mjs";
 import { renderCanvasSize, renderTiming } from "./render-profile.mjs";
 import { safeSvgBuffer } from "./svg-safety.mjs";
+import {
+  cleanupOwnedStorage,
+  summarizeOwnedStorage,
+} from "./storage-cleanup.mjs";
+import { createTempFileRegistry } from "./temp-files.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
+import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -30,6 +37,7 @@ const rootDir = path.resolve(__dirname, "..");
 const inputDir = path.join(rootDir, "input");
 const uploadDir = path.join(rootDir, ".dev", "uploads");
 const workDir = path.join(rootDir, ".dev", "work");
+const artworkPreviewDir = path.join(rootDir, ".dev", "artwork-previews");
 const outputDir = path.join(rootDir, "outputs");
 const treatedOutputDir = path.join(outputDir, "audio");
 const customPresetPath = path.join(
@@ -37,11 +45,13 @@ const customPresetPath = path.join(
   "data",
   "custom-presets.local.json",
 );
+const jobHistoryPath = path.join(rootDir, "data", "jobs.local.json");
 const port = Number(process.env.PORT ?? 4175);
 
 await Promise.all([
   fs.mkdir(uploadDir, { recursive: true }),
   fs.mkdir(workDir, { recursive: true }),
+  fs.mkdir(artworkPreviewDir, { recursive: true }),
   fs.mkdir(outputDir, { recursive: true }),
   fs.mkdir(treatedOutputDir, { recursive: true }),
 ]);
@@ -51,7 +61,14 @@ const upload = multer({
   dest: uploadDir,
   limits: { fileSize: 250 * 1024 * 1024 },
 });
-const jobs = new Map();
+const tempFiles = createTempFileRegistry(uploadDir);
+const jobs = new Map(
+  (await loadJobHistory(jobHistoryPath)).map((job) => [job.id, job]),
+);
+let jobHistoryWriteQueue = Promise.resolve();
+if (jobs.size) {
+  await saveJobHistory(jobHistoryPath, Array.from(jobs.values()));
+}
 let queuePaused = false;
 const queueWaiters = new Set();
 const presetStore = createPresetStore(customPresetPath);
@@ -92,10 +109,63 @@ app.delete("/api/visual-presets/:id", async (req, res) => {
 app.get("/api/audio/:fileName", async (req, res) => {
   const audioPath = await resolveInputAudio(req.params.fileName);
   if (!audioPath) {
-    res.status(404).json({ error: "Audio nao encontrado." });
+    res.status(404).json({ error: "Áudio não encontrado." });
     return;
   }
   res.sendFile(audioPath);
+});
+
+app.post(
+  "/api/audio/artwork-preview",
+  upload.single("audio"),
+  async (req, res) => {
+    const audioPath =
+      req.file?.path || (await resolveInputAudio(req.body.inputAudio));
+    if (!audioPath) {
+      res
+        .status(400)
+        .json({ error: "Envie ou selecione um arquivo de áudio." });
+      return;
+    }
+    try {
+      const metadata = await parseFile(audioPath, { skipCovers: false });
+      const picture = metadata.common.picture?.[0];
+      if (!picture?.data) {
+        res.json({ artworkUrl: null });
+        return;
+      }
+      const token = `${crypto.randomUUID()}.jpg`;
+      await sharp(picture.data)
+        .resize(512, 512, { fit: "cover", position: "center" })
+        .jpeg({ quality: 88 })
+        .toFile(path.join(artworkPreviewDir, token));
+      res.json({
+        artworkUrl: `/api/audio/artwork-preview/${encodeURIComponent(token)}`,
+      });
+    } finally {
+      await tempFiles.cleanup(req.file);
+    }
+  },
+);
+
+app.get("/api/audio/artwork-preview/:token", async (req, res) => {
+  const token = String(req.params.token ?? "");
+  if (!/^[0-9a-f-]{36}\.jpg$/i.test(token)) {
+    res.status(404).json({ error: "Prévia de arte não encontrada." });
+    return;
+  }
+  const filePath = path.resolve(artworkPreviewDir, token);
+  if (!filePath.startsWith(`${artworkPreviewDir}${path.sep}`)) {
+    res.status(404).json({ error: "Prévia de arte não encontrada." });
+    return;
+  }
+  try {
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) throw new Error("not-file");
+    res.type("image/jpeg").send(await fs.readFile(filePath));
+  } catch {
+    res.status(404).json({ error: "Prévia de arte não encontrada." });
+  }
 });
 
 if (fssync.existsSync(path.join(rootDir, "dist"))) {
@@ -122,10 +192,14 @@ app.get("/api/project", async (_req, res) => {
 
 app.post("/api/audio-metadata", upload.single("audio"), async (req, res) => {
   if (!req.file?.path) {
-    res.status(400).json({ error: "Envie um arquivo de audio." });
+    res.status(400).json({ error: "Envie um arquivo de áudio." });
     return;
   }
-  res.json(await readAudioMetadataSummary(req.file.path));
+  try {
+    res.json(await readAudioMetadataSummary(req.file.path));
+  } finally {
+    await tempFiles.cleanup(req.file);
+  }
 });
 
 app.post("/api/audio/analyze", upload.single("audio"), async (req, res) => {
@@ -134,21 +208,29 @@ app.post("/api/audio/analyze", upload.single("audio"), async (req, res) => {
     (await resolveInputAudio(req.body.inputAudio)) ??
     (await findDefaultAudio());
   if (!audioPath) {
-    res.status(400).json({ error: "Envie um arquivo de audio." });
+    res.status(400).json({ error: "Envie um arquivo de áudio." });
     return;
   }
   try {
+    const metadata = await readAudioMetadataSummary(audioPath);
+    const suggestions = inferAudioTags(
+      req.body.relativePath || req.file?.originalname || audioPath,
+    );
+    if (String(req.body.quick ?? "false") === "true") {
+      res.json({ metadata, suggestions, analysis: null });
+      return;
+    }
     res.json({
-      metadata: await readAudioMetadataSummary(audioPath),
+      metadata,
       analysis: await analyzeAudioQuality(audioPath),
-      suggestions: inferAudioTags(
-        req.body.relativePath || req.file?.originalname || audioPath,
-      ),
+      suggestions,
     });
   } catch (error) {
     res.status(422).json({
       error: error instanceof Error ? error.message : String(error),
     });
+  } finally {
+    await tempFiles.cleanup(req.file);
   }
 });
 
@@ -167,13 +249,14 @@ app.post(
       (await resolveInputAudio(req.body.inputAudio)) ??
       (await findDefaultAudio());
     if (!audioPath) {
+      await tempFiles.cleanup(files);
       res.status(400).json({ error: "Envie um arquivo MP3 para tratar." });
       return;
     }
     const draft = normalizeAudioDraft(req.body.draft, audioPath);
     const jobId = crypto.randomUUID();
     const outputName = buildTreatedFileName(draft);
-    jobs.set(jobId, {
+    setJob(jobId, {
       id: jobId,
       kind: "audio-process",
       status: "queued",
@@ -192,8 +275,10 @@ app.post(
       coverFile,
       coverSeries: String(req.body.coverSeries ?? "false") === "true",
       coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
+      coverSeriesSettings: parseJsonObject(req.body.coverSeriesSettings),
       draft,
       outputName,
+      uploadedFiles: files,
     });
     res.json({ jobId });
   },
@@ -211,6 +296,7 @@ app.post(
     const coverFile = Array.isArray(files.cover) ? files.cover[0] : null;
     const drafts = parseJsonArray(req.body.drafts);
     if (!audioFiles.length) {
+      await tempFiles.cleanup(files);
       res.status(400).json({ error: "Envie ao menos um MP3 para o lote." });
       return;
     }
@@ -219,7 +305,7 @@ app.post(
       const draft = normalizeAudioDraft(drafts[index], audioFile.originalname);
       const jobId = crypto.randomUUID();
       const outputName = buildTreatedFileName(draft);
-      jobs.set(jobId, {
+      setJob(jobId, {
         id: jobId,
         kind: "audio-process",
         status: "queued",
@@ -238,8 +324,10 @@ app.post(
         coverFile,
         coverSeries: String(req.body.coverSeries ?? "false") === "true",
         coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
+        coverSeriesSettings: parseJsonObject(req.body.coverSeriesSettings),
         draft,
         outputName,
+        uploadedFiles: [audioFile, coverFile],
       });
       jobIds.push(jobId);
     }
@@ -269,10 +357,14 @@ app.post(
         : String(req.body.lyrics ?? "")) ||
       (await readTextIfExists(path.join(rootDir, "lyrics.txt")));
 
-    res.json({
-      audio: audioPath ? await analyzeAudio(audioPath) : null,
-      lyrics: parseLyrics(lyricsText),
-    });
+    try {
+      res.json({
+        audio: audioPath ? await analyzeAudio(audioPath) : null,
+        lyrics: parseLyrics(lyricsText),
+      });
+    } finally {
+      await tempFiles.cleanup(files);
+    }
   },
 );
 
@@ -304,7 +396,8 @@ app.post(
       (await findDefaultAudio());
 
     if (!audioPath) {
-      res.status(400).json({ error: "Nenhum audio foi encontrado." });
+      await tempFiles.cleanup(files);
+      res.status(400).json({ error: "Nenhum áudio foi encontrado." });
       return;
     }
 
@@ -319,7 +412,7 @@ app.post(
     const outputName = buildOutputFileName(metadata);
     const outputPath = path.join(outputDir, outputName);
 
-    jobs.set(jobId, {
+    setJob(jobId, {
       id: jobId,
       kind: "video-render",
       status: "queued",
@@ -343,6 +436,7 @@ app.post(
       metadata,
       outputPath,
       outputName,
+      uploadedFiles: files,
     });
 
     res.json({ jobId });
@@ -379,7 +473,8 @@ app.post(
       : [];
 
     if (audioFiles.length === 0) {
-      res.status(400).json({ error: "Nenhum audio foi enviado para o lote." });
+      await tempFiles.cleanup(files);
+      res.status(400).json({ error: "Nenhum áudio foi enviado para o lote." });
       return;
     }
 
@@ -412,7 +507,7 @@ app.post(
       const outputName = buildOutputFileName(metadata, index + 1);
       const outputPath = path.join(outputDir, outputName);
 
-      jobs.set(jobId, {
+      setJob(jobId, {
         id: jobId,
         kind: "video-render",
         status: "queued",
@@ -437,6 +532,12 @@ app.post(
         metadata,
         outputPath,
         outputName,
+        uploadedFiles: [
+          uploadedAudioFiles[index],
+          backgroundFile,
+          coverFile,
+          mediaLayerFiles,
+        ],
       });
     }
 
@@ -447,7 +548,7 @@ app.post(
 app.get("/api/jobs/:id", (req, res) => {
   const job = jobs.get(req.params.id);
   if (!job) {
-    res.status(404).json({ error: "Job nao encontrado." });
+    res.status(404).json({ error: "Job não encontrado." });
     return;
   }
   res.json(job);
@@ -455,9 +556,53 @@ app.get("/api/jobs/:id", (req, res) => {
 
 app.get("/api/jobs", (_req, res) => {
   res.json({
-    jobs: Array.from(jobs.values()).slice(-50).reverse(),
+    jobs: recentJobs(),
     queuePaused,
   });
+});
+
+app.delete("/api/jobs", async (req, res) => {
+  const scope = String(req.query.scope ?? "terminal");
+  if (!["terminal", "video-render"].includes(scope)) {
+    res.status(400).json({ error: "Escopo de histórico inválido." });
+    return;
+  }
+  let removed = 0;
+  for (const [jobId, job] of jobs) {
+    if (isActiveJob(job)) continue;
+    if (scope === "video-render" && job.kind !== "video-render") continue;
+    jobs.delete(jobId);
+    removed += 1;
+  }
+  await persistJobSnapshot();
+  res.json({ jobs: recentJobs(), queuePaused, removed });
+});
+
+app.get("/api/storage/usage", async (_req, res) => {
+  res.json(await storageUsage());
+});
+
+app.post("/api/storage/cleanup", async (req, res) => {
+  const scope = String(req.body?.scope ?? "");
+  if (!["temporary", "generated", "all"].includes(scope)) {
+    res.status(400).json({ error: "Escopo de limpeza inválido." });
+    return;
+  }
+  if (Array.from(jobs.values()).some(isActiveJob)) {
+    res.status(409).json({
+      error: "Aguarde ou cancele os processamentos ativos antes de limpar.",
+    });
+    return;
+  }
+  const deleted = await cleanupOwnedStorage({
+    scope,
+    uploadDir,
+    workDir,
+    artworkPreviewDir,
+    outputDir,
+    treatedOutputDir,
+  });
+  res.json({ scope, deleted, usage: await storageUsage() });
 });
 
 app.post("/api/jobs/pause", (_req, res) => {
@@ -490,13 +635,13 @@ app.post("/api/jobs/resume", (_req, res) => {
 
 app.post("/api/jobs/cancel-all", (_req, res) => {
   for (const job of jobs.values()) requestJobCancel(job.id);
-  res.json({ jobs: Array.from(jobs.values()).slice(-50).reverse() });
+  res.json({ jobs: recentJobs() });
 });
 
 app.post("/api/jobs/:id/cancel", (req, res) => {
   const job = requestJobCancel(req.params.id);
   if (!job) {
-    res.status(404).json({ error: "Job nao encontrado." });
+    res.status(404).json({ error: "Job não encontrado." });
     return;
   }
   res.json(job);
@@ -516,6 +661,7 @@ app.listen(port, "127.0.0.1", () => {
 });
 
 function enqueueRender(options) {
+  const releaseTempFiles = tempFiles.retain(options.uploadedFiles);
   renderQueue = renderQueue
     .then(() => runQueuedJob(options.jobId, () => renderVideo(options)))
     .catch((error) => {
@@ -524,10 +670,18 @@ function enqueueRender(options) {
         status: "error",
         message: error instanceof Error ? error.message : String(error),
       });
+    })
+    .finally(async () => {
+      await releaseTempFiles();
+      await fs.rm(path.join(workDir, options.jobId), {
+        recursive: true,
+        force: true,
+      });
     });
 }
 
 function enqueueAudioProcess(options) {
+  const releaseTempFiles = tempFiles.retain(options.uploadedFiles);
   renderQueue = renderQueue
     .then(() => runQueuedJob(options.jobId, () => processAudio(options)))
     .catch((error) => {
@@ -535,6 +689,13 @@ function enqueueAudioProcess(options) {
       updateJob(options.jobId, {
         status: "error",
         message: error instanceof Error ? error.message : String(error),
+      });
+    })
+    .finally(async () => {
+      await releaseTempFiles();
+      await fs.rm(path.join(workDir, options.jobId), {
+        recursive: true,
+        force: true,
       });
     });
 }
@@ -583,7 +744,7 @@ function requestJobCancel(jobId) {
           cancelRequested: true,
           message: "Cancelado",
         };
-  jobs.set(jobId, { ...next, updatedAt: new Date().toISOString() });
+  setJob(jobId, { ...next, updatedAt: new Date().toISOString() });
   for (const resume of queueWaiters) resume();
   queueWaiters.clear();
   return jobs.get(jobId);
@@ -620,6 +781,7 @@ async function processAudio({
   coverFile,
   coverSeries,
   coverStyle,
+  coverSeriesSettings,
   draft,
   outputName,
 }) {
@@ -633,13 +795,30 @@ async function processAudio({
   await fs.mkdir(jobWorkDir, { recursive: true });
   let coverPath = coverFile?.path ?? null;
   if (coverPath && coverSeries) {
+    const seriesSettings = normalizeCoverSeriesSettings(
+      coverSeriesSettings,
+      coverStyle,
+    );
     coverPath = await createNumberedCover(
       coverPath,
       path.join(
         jobWorkDir,
         `${String(draft.trackNumber).padStart(2, "0")}.jpg`,
       ),
-      { index: draft.trackNumber, style: coverStyle },
+      {
+        index: draft.trackNumber,
+        style: seriesSettings.style,
+        label: coverSeriesLabel(draft, seriesSettings),
+        sublines: coverSeriesSublines(draft, seriesSettings),
+        fontSize: seriesSettings.fontSize,
+        color: seriesSettings.color,
+        opacity: seriesSettings.opacity,
+        x: seriesSettings.x,
+        y: seriesSettings.y,
+        letterSpacing: seriesSettings.letterSpacing,
+        metaFontSize: seriesSettings.metaFontSize,
+        metaGap: seriesSettings.metaGap,
+      },
     );
   }
   assertJobNotCanceled(jobId);
@@ -686,7 +865,7 @@ async function renderVideo({
   updateJob(jobId, {
     status: "running",
     progress: 1,
-    message: "Analisando audio",
+    message: "Analisando áudio",
   });
   const audio = await analyzeAudio(audioPath);
   const sourceAnalysis = await analyzeAudioQuality(audioPath);
@@ -758,6 +937,7 @@ async function renderVideo({
       coverSrc: cover?.path ? pathToFileURL(cover.path).href : "",
       metadata,
       showMetadata: settings.showMetadata,
+      textSettings: settings.compositionSettings.textSettings,
     },
     onProgress: (progress, message) => updateJob(jobId, { progress, message }),
   });
@@ -780,6 +960,13 @@ async function renderVideo({
   );
   assertJobNotCanceled(jobId);
   await assertPlayableOutput(outputPath);
+  const outputAnalysis = await analyzeAudioQuality(outputPath);
+  try {
+    validateVideoAudioAnalysis(outputAnalysis);
+  } catch (error) {
+    await fs.rm(outputPath, { force: true });
+    throw error;
+  }
   const thumbnailPath = cover?.path ? `${outputPath}.cover.png` : null;
   if (thumbnailPath) {
     await fs.copyFile(cover.path, thumbnailPath);
@@ -790,11 +977,12 @@ async function renderVideo({
     settings,
     thumbnailPath,
     sourceAnalysis,
+    outputAnalysis,
   );
   updateJob(jobId, {
     status: "done",
     progress: 100,
-    message: "Renderizacao concluida",
+    message: "Renderização concluída",
     outputUrl: `/outputs/${outputName}`,
     sidecarUrl: `/outputs/${outputName}.youtube.json`,
     thumbnailUrl: thumbnailPath
@@ -993,7 +1181,7 @@ function buildDefaultMetadata(lyrics, audio) {
   const description = [
     `${title} - ${lyrics.summary || genre}`,
     "",
-    "Musica criada com inteligencia artificial e visual ambientado gerado localmente pelo Sonara Hub.",
+    "Música criada com inteligência artificial e visual ambientado gerado localmente pelo Sonara Hub.",
     "",
     "Letra:",
     lyrics.lyricLines.slice(0, 16).join("\n"),
@@ -1073,6 +1261,8 @@ function normalizeCompositionSettings(body) {
         x: clampNumber(Number(layer.x ?? 50), 0, 100),
         y: clampNumber(Number(layer.y ?? 50), 0, 100),
         rotation: clampNumber(Number(layer.rotation ?? 0), -180, 180),
+        blur: clampNumber(Number(layer.blur ?? 0), 0, 48),
+        maskOpacity: clampNumber(Number(layer.maskOpacity ?? 0), 0, 90),
         shadow: {
           opacity: clampNumber(
             Number(layer.shadow?.opacity ?? layer.shadowOpacity ?? 0),
@@ -1106,7 +1296,152 @@ function normalizeCompositionSettings(body) {
         order: index,
       }))
     : [];
-  return { mediaLayers };
+  return {
+    mediaLayers,
+    textSettings: normalizeTextSettings(raw.textSettings),
+  };
+}
+
+function normalizeTextSettings(value = {}) {
+  const fields = value.fields ?? {};
+  return {
+    fields: {
+      title: fields.title !== false,
+      artist: fields.artist !== false,
+      album: fields.album === true,
+      year: fields.year === true,
+      version: fields.version === true,
+    },
+    preset: ["top-left", "bottom-center", "cover-left"].includes(value.preset)
+      ? value.preset
+      : "top-left",
+    fontFamily: ["Inter", "Georgia", "Arial"].includes(value.fontFamily)
+      ? value.fontFamily
+      : "Inter",
+    fontSize: clampNumber(Number(value.fontSize ?? 42), 18, 96),
+    fontWeight: clampNumber(Number(value.fontWeight ?? 650), 300, 850),
+    letterSpacing: clampNumber(Number(value.letterSpacing ?? 0), 0, 16),
+    lineHeight: clampNumber(Number(value.lineHeight ?? 118), 90, 180),
+    color: isHexColor(value.color) ? value.color : "#f7f8fb",
+    opacity: clampNumber(Number(value.opacity ?? 94), 20, 100),
+    x: clampNumber(Number(value.x ?? 5), 0, 100),
+    y: clampNumber(Number(value.y ?? 7), 0, 100),
+    align: ["left", "center", "right"].includes(value.align)
+      ? value.align
+      : "left",
+    shadow: clampNumber(Number(value.shadow ?? 48), 0, 100),
+  };
+}
+
+function normalizeCoverSeriesSettings(value = {}, fallbackStyle = "roman") {
+  const metaFontSize = clampNumber(Number(value.metaFontSize ?? 34), 18, 72);
+  const metaStyles = {
+    title: normalizeCoverSeriesMetaStyle(value.metaStyles?.title, {
+      fontSize: Math.max(38, metaFontSize),
+      color: value.color,
+      opacity: 88,
+    }),
+    album: normalizeCoverSeriesMetaStyle(value.metaStyles?.album, {
+      fontSize: metaFontSize,
+      color: value.color,
+      opacity: 76,
+    }),
+    artist: normalizeCoverSeriesMetaStyle(value.metaStyles?.artist, {
+      fontSize: Math.max(18, metaFontSize - 2),
+      color: value.color,
+      opacity: 72,
+    }),
+    year: normalizeCoverSeriesMetaStyle(value.metaStyles?.year, {
+      fontSize: Math.max(18, metaFontSize - 6),
+      color: value.color,
+      opacity: 68,
+    }),
+  };
+  return {
+    enabled: value.enabled !== false,
+    style: ["roman", "arabic", "custom"].includes(value.style)
+      ? value.style
+      : fallbackStyle === "arabic"
+        ? "arabic"
+        : "roman",
+    sequence: String(value.sequence ?? "I, II, III, IV, V").slice(0, 300),
+    fontSize: clampNumber(Number(value.fontSize ?? 112), 38, 240),
+    color: isHexColor(value.color) ? value.color : "#fffaf1",
+    opacity: clampNumber(Number(value.opacity ?? 92), 20, 100),
+    x: clampNumber(Number(value.x ?? 50), 8, 92),
+    y: clampNumber(Number(value.y ?? 89), 8, 94),
+    letterSpacing: clampNumber(Number(value.letterSpacing ?? 18), 0, 80),
+    includeTitle: value.includeTitle === true,
+    includeAlbum: value.includeAlbum === true,
+    includeArtist: value.includeArtist === true,
+    includeYear: value.includeYear === true,
+    metaOrder: normalizeCoverSeriesMetaOrder(value.metaOrder),
+    metaFontSize,
+    metaGap: clampNumber(Number(value.metaGap ?? 10), 0, 48),
+    metaStyles,
+  };
+}
+
+function normalizeCoverSeriesMetaStyle(value = {}, fallback = {}) {
+  return {
+    fontSize: clampNumber(
+      Number(value.fontSize ?? fallback.fontSize ?? 34),
+      18,
+      72,
+    ),
+    color: isHexColor(value.color)
+      ? value.color
+      : isHexColor(fallback.color)
+        ? fallback.color
+        : "#fffaf1",
+    opacity: clampNumber(
+      Number(value.opacity ?? fallback.opacity ?? 76),
+      20,
+      100,
+    ),
+    offsetX: clampNumber(Number(value.offsetX ?? 0), -320, 320),
+    offsetY: clampNumber(Number(value.offsetY ?? 0), -320, 320),
+  };
+}
+
+function normalizeCoverSeriesMetaOrder(value) {
+  const allowed = new Set(["title", "album", "artist", "year"]);
+  const entries = String(value ?? "title, album, artist, year")
+    .split(/[\n,;|]+/)
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => allowed.has(entry));
+  return [...new Set([...entries, "title", "album", "artist", "year"])];
+}
+
+function coverSeriesLabel(draft, settings) {
+  if (settings.style !== "custom") return "";
+  const entries = settings.sequence
+    .split(/[\n,;|]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return (
+    entries[Math.max(0, Number(draft.trackNumber || 1) - 1)] ?? entries[0] ?? ""
+  );
+}
+
+function coverSeriesSublines(draft, settings) {
+  const values = {
+    title: settings.includeTitle && draft.title,
+    album: settings.includeAlbum && draft.album,
+    artist: settings.includeArtist && (draft.albumArtist || draft.artist),
+    year: settings.includeYear && draft.year,
+  };
+  return settings.metaOrder
+    .filter((role) => values[role])
+    .map((role) => ({
+      role,
+      text: values[role],
+      ...settings.metaStyles[role],
+    }));
+}
+
+function isHexColor(value) {
+  return /^#[0-9a-f]{6}$/i.test(String(value ?? ""));
 }
 
 function normalizeMetadata(body) {
@@ -1235,6 +1570,7 @@ async function writeYoutubeSidecar(
   settings,
   thumbnailPath = null,
   sourceAnalysis = null,
+  outputAnalysis = null,
 ) {
   const sidecar = {
     api: "YouTube Data API v3",
@@ -1269,7 +1605,7 @@ async function writeYoutubeSidecar(
       note: "Enviar a capa escolhida depois do upload do video, se aplicavel.",
     },
     youtubeMusic: {
-      note: "YouTube Music nao possui fluxo publico equivalente de upload de video via Data API; use os metadados de musica, capa e album como referencia para upload/distribuicao manual.",
+      note: "YouTube Music não possui fluxo público equivalente de upload de vídeo via Data API; use os metadados de música, capa e álbum como referência para upload/distribuição manual.",
     },
     export: {
       outputFileName: path.basename(outputPath),
@@ -1284,6 +1620,9 @@ async function writeYoutubeSidecar(
         reducedHeadroomAcknowledged: Boolean(
           settings.reducedHeadroomAcknowledged,
         ),
+      },
+      audioOutput: {
+        analysis: outputAnalysis,
       },
     },
   };
@@ -1333,6 +1672,8 @@ async function prepareMediaLayers(files, layerSettings, jobWorkDir, size) {
       x: settings.x ?? 50,
       y: settings.y ?? 50,
       rotation: settings.rotation ?? 0,
+      blur: settings.blur ?? 0,
+      maskOpacity: settings.maskOpacity ?? 0,
       shadow: {
         opacity: settings.shadow?.opacity ?? settings.shadowOpacity ?? 0,
         blur: settings.shadow?.blur ?? settings.shadowBlur ?? 18,
@@ -1429,7 +1770,7 @@ ${events.join("\n")}
 
 function runFfmpeg(args, duration, onProgress) {
   if (!ffmpegPath) {
-    throw new Error("ffmpeg-static nao forneceu um binario de ffmpeg.");
+    throw new Error("ffmpeg-static não forneceu um binário de ffmpeg.");
   }
 
   return new Promise((resolve, reject) => {
@@ -1507,11 +1848,50 @@ function updateJob(jobId, patch) {
   if (!current) {
     return;
   }
-  jobs.set(jobId, {
+  setJob(jobId, {
     ...current,
     ...patch,
     updatedAt: new Date().toISOString(),
   });
+}
+
+function setJob(jobId, job) {
+  jobs.set(jobId, job);
+  void persistJobSnapshot();
+}
+
+function persistJobSnapshot() {
+  const snapshot = Array.from(jobs.values());
+  jobHistoryWriteQueue = jobHistoryWriteQueue
+    .then(() => saveJobHistory(jobHistoryPath, snapshot))
+    .catch((error) => {
+      console.error("Falha ao persistir historico de jobs:", error);
+    });
+  return jobHistoryWriteQueue;
+}
+
+function recentJobs() {
+  return Array.from(jobs.values()).slice(-50).reverse();
+}
+
+function isActiveJob(job) {
+  return ["queued", "paused", "running"].includes(job.status);
+}
+
+async function storageUsage() {
+  return {
+    ...(await summarizeOwnedStorage({
+      uploadDir,
+      workDir,
+      artworkPreviewDir,
+      outputDir,
+    })),
+    jobs: {
+      active: Array.from(jobs.values()).filter(isActiveJob).length,
+      terminal: Array.from(jobs.values()).filter((job) => !isActiveJob(job))
+        .length,
+    },
+  };
 }
 
 function handlePresetStoreError(error, res) {

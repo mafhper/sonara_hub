@@ -1,12 +1,53 @@
 # Sonara Hub
 
-Ferramenta local com dois workspaces compartilhados. A `Biblioteca de audio`
-analisa MP3s, revisa tags, letras e capas e gera copias tratadas. O `Estudio
-visual` transforma as faixas em videos ambientes prontos para publicacao,
-combinando cena suave, ate tres camadas enviadas, waveform opcional e textos
-discretos em um unico canvas compartilhado pela previa e pela exportacao.
+Sonara Hub é um estúdio local para preparar músicas e criar vídeos ambientes
+prontos para publicação. Ele conecta duas etapas que normalmente ficam
+espalhadas entre várias ferramentas: organizar o pacote de áudio e compor a
+presença visual de cada faixa.
 
-## Executar
+## Experiência principal
+
+### Biblioteca de áudio
+
+Abra uma pasta de músicas, revise as sugestões encontradas nos arquivos e
+prepare cópias MP3 tratadas. A biblioteca permite editar tags ID3, capas e
+letras, analisar loudness e pico verdadeiro, aplicar dados comuns a um álbum e
+acompanhar lotes sem alterar os originais por padrão.
+
+### Estúdio visual
+
+Transforme cada faixa em um vídeo com movimento suave. Escolha uma cena,
+personalize cores e reação musical, adicione até três camadas de mídia, ajuste
+waveform e texto e confira a grade de publicação antes de exportar.
+
+O mesmo runtime visual alimenta prévia e exportação para manter o resultado
+final próximo do que aparece no editor.
+
+## Cenas visuais
+
+O catálogo é curado para funcionar como fundo de tela para música:
+
+- Atmosferas amplas: fluxo líquido, nuvens com foco solar opcional, aurora e
+  aura vetorial.
+- Composições: vinil reativo com capa e tela escura para áudio.
+- Cenas leves: formas lúdicas, mesh colorido e faixas de piano.
+
+`Formas lúdicas` combina retângulos, letras, números e emojis em movimentos
+amplos. As categorias podem ser ligadas isoladamente e as coleções podem ser
+personalizadas para projetos temáticos.
+
+## Fluxo de álbum
+
+1. Abra uma pasta ou adicione faixas avulsas.
+2. Revise metadados, arte, letra e análise técnica na `Biblioteca de áudio`.
+3. Gere cópias tratadas em `Tratados/`.
+4. Confira a página de catálogo e a grade de vídeos.
+5. No `Estúdio visual`, aplique cenas, capas, camadas, texto e waveform.
+6. Exporte em `720p`, `1080p`, `2K` ou `4K`.
+
+Cada vídeo pode gerar um sidecar `.youtube.json` para apoiar a publicação.
+
+## Executar localmente
 
 ```powershell
 npm ci
@@ -15,44 +56,14 @@ npm run dev
 
 Abra `http://127.0.0.1:5173`.
 
-## Fluxo
-
-1. Abra uma pasta de musicas ou adicione um arquivo.
-2. Na `Biblioteca de audio`, revise as sugestoes, analise loudness e margem de
-   pico e gere copias MP3 tratadas em `Tratados/`.
-3. Ajuste capa, letra manual e pacote ID3. A serie numerada permite gerar artes
-   relacionadas por faixa.
-4. No `Estudio visual`, escolha uma das seis familias visuais: fluxo liquido,
-   nuvens amplas, aurora, aura vetorial, vinil ou tela escura.
-5. Escolha uma das cinco waveforms opcionais, adicione imagens, SVGs seguros ou
-   videos curtos em loop e exporte em 720p, 1080p, 2K ou 4K. Cada MP4 recebe um
-   sidecar `.youtube.json`.
-
-O projeto usa autosave local em IndexedDB e preserva handles autorizados de pastas quando o navegador permite. `outputs/` funciona como fallback privado para os arquivos finais.
-
-## Validacao
+O repositório também inclui um promo-site separado:
 
 ```powershell
-npm run format:check
-npm run type-check
-npm test
-npm run build
-npm run test:ui
-npm run test:render
+npm run site:dev
 ```
 
-O gate de supply chain usa `npm ci --ignore-scripts`. Antes de executar testes
-locais de audio ou render depois desse gate, restaure o binario confiavel:
+## Documentação
 
-```powershell
-npm rebuild ffmpeg-static
-```
-
-Antes de gerar um candidato a release, mantenha `npm run dev` ativo e execute:
-
-```powershell
-npm run test:release
-```
-
-O escopo completo e a matriz exploratoria da `v1.0.0` estao em
-[`docs/release-test-bench.md`](docs/release-test-bench.md).
+- [Desenvolvimento e validação](docs/development.md)
+- [Banco de testes da v1.0.0](docs/release-test-bench.md)
+- [Débitos técnicos](docs/technical-debt.md)

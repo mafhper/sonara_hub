@@ -28,7 +28,7 @@ export function createPresetStore(filePath) {
       if (!effectIds.includes(requestedId)) {
         throw new PresetStoreError(
           "INVALID_RENDERER_ID",
-          "Familia visual nao permitida.",
+          "Família visual não permitida.",
         );
       }
       const base = getBuiltinPreset(requestedId);
@@ -53,7 +53,7 @@ export function createPresetStore(filePath) {
       if (input.rendererId && !effectIds.includes(input.rendererId)) {
         throw new PresetStoreError(
           "INVALID_RENDERER_ID",
-          "Familia visual nao permitida.",
+          "Família visual não permitida.",
         );
       }
       const presets = await readPresets(filePath);
@@ -61,7 +61,7 @@ export function createPresetStore(filePath) {
       if (index < 0) {
         throw new PresetStoreError(
           "CUSTOM_PRESET_NOT_FOUND",
-          "Preset personalizado nao encontrado.",
+          "Preset personalizado não encontrado.",
         );
       }
       const current = presets[index];
@@ -86,7 +86,7 @@ export function createPresetStore(filePath) {
       if (next.length === presets.length) {
         throw new PresetStoreError(
           "CUSTOM_PRESET_NOT_FOUND",
-          "Preset personalizado nao encontrado.",
+          "Preset personalizado não encontrado.",
         );
       }
       await writePresets(filePath, next);

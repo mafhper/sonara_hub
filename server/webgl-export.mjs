@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import ffmpegPath from "ffmpeg-static";
 import { chromium } from "playwright";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
 
@@ -137,14 +139,14 @@ export function buildRendererHtml({
     const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
     window.recordScene = async (durationSeconds, fps) => {
-      if (!window.MediaRecorder) throw new Error("MediaRecorder indisponivel no Chromium");
+      if (!window.MediaRecorder) throw new Error("MediaRecorder indisponível no Chromium");
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp8")
         ? "video/webm;codecs=vp8"
         : "video/webm";
       const stream = canvas.captureStream(0);
       const [track] = stream.getVideoTracks();
       if (typeof track?.requestFrame !== "function") {
-        throw new Error("Captura deterministica do canvas indisponivel no Chromium");
+        throw new Error("Captura determinística do canvas indisponível no Chromium");
       }
       const recorder = new MediaRecorder(stream, {
         mimeType,
@@ -214,4 +216,41 @@ async function assertValidWebm(outputPath, bytesWritten) {
   } finally {
     await handle.close();
   }
+  await assertWebmDecodable(outputPath);
+}
+
+export function assertWebmDecodeReport(stderr) {
+  if (
+    /File ended prematurely|EBML header parsing failed|Invalid data found/i.test(
+      stderr,
+    )
+  ) {
+    throw new Error("Cena exportou um WebM truncado ou invalido.");
+  }
+}
+
+function assertWebmDecodable(outputPath) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      ffmpegPath,
+      ["-hide_banner", "-i", outputPath, "-f", "null", "-"],
+      { windowsHide: true },
+    );
+    let stderr = "";
+    child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      try {
+        assertWebmDecodeReport(stderr);
+        if (code !== 0) {
+          throw new Error(
+            `Cena WebM não pode ser decodificada: ${stderr.slice(-1200)}`,
+          );
+        }
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
 }

@@ -30,7 +30,7 @@ export async function fetchJsonWithRetry(input, init, options = {}) {
       await wait(options.delayMs ?? 300);
     }
   }
-  throw new LocalApiError("Servidor local indisponivel.");
+  throw new LocalApiError("Servidor local indisponível.");
 }
 
 export async function fetchOptional(input, init) {
@@ -38,7 +38,7 @@ export async function fetchOptional(input, init) {
   if (response.status === 404) return null;
   if (!response.ok) {
     throw new LocalApiError(
-      `Nao consegui baixar um arquivo da exportacao (${response.status}).`,
+      `Não consegui baixar um arquivo da exportação (${response.status}).`,
       response.status,
     );
   }
@@ -48,7 +48,7 @@ export async function fetchOptional(input, init) {
 export function localApiMessage(error, action = "concluir esta operacao") {
   if (error instanceof LocalApiError) return error.message;
   const detail = error instanceof Error ? error.message : String(error);
-  return `Nao consegui ${action}. ${detail}`;
+  return `Não consegui ${action}. ${detail}`;
 }
 
 async function request(input, init) {
@@ -56,7 +56,7 @@ async function request(input, init) {
     return await fetch(input, init);
   } catch (cause) {
     throw new LocalApiError(
-      "O servidor local esta indisponivel. Aguarde alguns segundos e tente novamente.",
+      "O servidor local está indisponível. Aguarde alguns segundos e tente novamente.",
       0,
       { cause },
     );

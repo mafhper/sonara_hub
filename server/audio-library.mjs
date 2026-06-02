@@ -11,12 +11,15 @@ export function inferAudioTags(filePath) {
     ? path.win32
     : path.posix;
   const parent = pathApi.dirname(filePath);
-  const grandparent = pathApi.dirname(parent);
-  const album = parent === "." ? "" : pathApi.basename(parent);
+  const parentName = parent === "." ? "" : pathApi.basename(parent);
+  const side = parseDiscFolder(parentName);
+  const albumDir = side ? pathApi.dirname(parent) : parent;
+  const artistDir = albumDir === "." ? "." : pathApi.dirname(albumDir);
+  const album = albumDir === "." ? "" : pathApi.basename(albumDir);
   const artist =
-    grandparent === "." || grandparent === parent
+    artistDir === "." || artistDir === albumDir
       ? ""
-      : pathApi.basename(grandparent);
+      : pathApi.basename(artistDir);
   const baseName = pathApi.basename(filePath, pathApi.extname(filePath)).trim();
   const match = baseName.match(/^(\d{1,3})\s+(.+)$/);
   const trackNumber = Number(match?.[1] ?? 0);
@@ -24,7 +27,7 @@ export function inferAudioTags(filePath) {
   const albumPrefix = album
     ? new RegExp(`^${escapeRegex(album)}\\s*-\\s*`, "i")
     : null;
-  return {
+  const inferred = {
     title: albumPrefix
       ? withoutOrder.replace(albumPrefix, "").trim()
       : withoutOrder,
@@ -33,6 +36,20 @@ export function inferAudioTags(filePath) {
     albumArtist: artist,
     trackNumber,
   };
+  if (side) inferred.diskNumber = side;
+  return inferred;
+}
+
+function parseDiscFolder(value) {
+  const normalized = String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  const letter = normalized.match(/^(?:lado|side)\s*([a-z])$/i)?.[1];
+  if (letter) return letter.toLowerCase().charCodeAt(0) - 96;
+  const number = normalized.match(/^(?:disco|disc|disk|cd)\s*(\d{1,2})$/)?.[1];
+  return number ? Number(number) : 0;
 }
 
 export function buildTreatedFileName(tags) {
@@ -54,6 +71,18 @@ export function classifyAudioRisk(truePeakDbtp) {
     };
   }
   return { risk: "safe", recommendation: "none" };
+}
+
+export function normalizedMp3TruePeakTarget(attempt = 0) {
+  return attempt > 0 ? -2.5 : -2;
+}
+
+export function validateNormalizedAnalysis(analysis) {
+  if (analysis?.risk !== "safe") {
+    throw new Error(
+      "A cópia normalizada não atingiu margem segura após o encode MP3.",
+    );
+  }
 }
 
 export async function writeCleanMp3Tags(filePath, draft, coverBuffer) {
@@ -195,15 +224,78 @@ export function romanNumeral(value) {
 export async function createNumberedCover(
   basePath,
   outputPath,
-  { index = 1, style = "roman" } = {},
+  {
+    index = 1,
+    style = "roman",
+    label,
+    sublines = [],
+    fontSize = 112,
+    color = "#fffaf1",
+    opacity = 92,
+    x = 50,
+    y = 89,
+    letterSpacing = 18,
+    metaFontSize = 34,
+    metaGap = 10,
+  } = {},
 ) {
-  const numeral = style === "arabic" ? String(index) : romanNumeral(index);
+  const numeral =
+    label || (style === "arabic" ? String(index) : romanNumeral(index));
+  const safeMetaFontSize = Math.max(
+    18,
+    Math.min(72, Number(metaFontSize) || 34),
+  );
+  const safeMetaGap = Math.max(0, Math.min(48, Number(metaGap) || 0));
+  const safeSublines = sublines
+    .map((line) => {
+      const candidate =
+        line && typeof line === "object" ? line : { text: line };
+      return {
+        text: String(candidate.text ?? "").trim(),
+        fontSize: Math.max(
+          18,
+          Math.min(72, Number(candidate.fontSize) || safeMetaFontSize),
+        ),
+        color: /^#[0-9a-f]{6}$/i.test(String(candidate.color ?? ""))
+          ? candidate.color
+          : color,
+        opacity: Math.max(
+          0.1,
+          Math.min(1, (Number(candidate.opacity) || 76) / 100),
+        ),
+        offsetX: Math.max(-320, Math.min(320, Number(candidate.offsetX) || 0)),
+        offsetY: Math.max(-320, Math.min(320, Number(candidate.offsetY) || 0)),
+      };
+    })
+    .filter((line) => line.text)
+    .slice(0, 4);
+  const mainY = Math.round(
+    (Math.max(8, Math.min(94, Number(y) || 89)) / 100) * 1600,
+  );
+  const mainX = Math.round(
+    (Math.max(8, Math.min(92, Number(x) || 50)) / 100) * 1600,
+  );
+  const safeFontSize = Math.max(38, Math.min(240, Number(fontSize) || 112));
+  const safeOpacity = Math.max(0.1, Math.min(1, (Number(opacity) || 92) / 100));
+  const safeLetterSpacing = Math.max(
+    0,
+    Math.min(80, Number(letterSpacing) || 18),
+  );
+  let metaY = mainY + Math.round(safeFontSize * 0.48);
   const overlay = Buffer.from(`
     <svg width="1600" height="1600" xmlns="http://www.w3.org/2000/svg">
       <style>
-        .number { font-family: "Georgia", "Times New Roman", serif; font-size: 112px; font-weight: 400; letter-spacing: 18px; }
+        .number { font-family: "Georgia", "Times New Roman", serif; font-size: ${safeFontSize}px; font-weight: 400; letter-spacing: ${safeLetterSpacing}px; }
+        .meta { font-family: "Inter", "Arial", sans-serif; font-weight: 520; letter-spacing: 5px; }
       </style>
-      <text x="800" y="1430" text-anchor="middle" class="number" fill="#fffaf1" fill-opacity="0.92">${escapeXml(numeral)}</text>
+      <text x="${mainX}" y="${mainY}" text-anchor="middle" class="number" fill="${escapeXml(color)}" fill-opacity="${safeOpacity}">${escapeXml(numeral)}</text>
+      ${safeSublines
+        .map((line) => {
+          const y = metaY + line.offsetY;
+          metaY += line.fontSize + safeMetaGap;
+          return `<text x="${mainX + line.offsetX}" y="${y}" text-anchor="middle" class="meta" font-size="${line.fontSize}px" fill="${escapeXml(line.color)}" fill-opacity="${line.opacity}">${escapeXml(line.text)}</text>`;
+        })
+        .join("")}
     </svg>
   `);
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
@@ -232,24 +324,35 @@ export async function processMp3Copy({
     `.${path.basename(outputPath)}.${crypto.randomUUID()}.tmp.mp3`,
   );
   try {
-    if (normalizationEnabled) {
-      await normalizeMp3(inputPath, temporaryPath);
-    } else {
-      await fs.copyFile(inputPath, temporaryPath);
-    }
     const coverBuffer = coverPath
       ? await sharp(coverPath)
           .resize(1600, 1600, { fit: "cover" })
           .jpeg({ quality: 92, chromaSubsampling: "4:4:4" })
           .toBuffer()
       : null;
-    await writeCleanMp3Tags(temporaryPath, draft, coverBuffer);
-    await assertDecodedAudio(temporaryPath);
-    const tags = NodeID3.read(temporaryPath);
-    if (String(tags.title ?? "") !== String(draft.title ?? "")) {
-      throw new Error("Validacao ID3 falhou para o titulo tratado.");
+    let analysis;
+    let tags;
+    const attempts = normalizationEnabled ? 2 : 1;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (normalizationEnabled) {
+        await normalizeMp3(
+          inputPath,
+          temporaryPath,
+          normalizedMp3TruePeakTarget(attempt),
+        );
+      } else {
+        await fs.copyFile(inputPath, temporaryPath);
+      }
+      await writeCleanMp3Tags(temporaryPath, draft, coverBuffer);
+      await assertDecodedAudio(temporaryPath);
+      tags = NodeID3.read(temporaryPath);
+      if (String(tags.title ?? "") !== String(draft.title ?? "")) {
+        throw new Error("Validacao ID3 falhou para o titulo tratado.");
+      }
+      analysis = await analyzeAudioQuality(temporaryPath);
+      if (!normalizationEnabled || analysis.risk === "safe") break;
     }
-    const analysis = await analyzeAudioQuality(temporaryPath);
+    if (normalizationEnabled) validateNormalizedAnalysis(analysis);
     await fs.rm(outputPath, { force: true });
     await fs.rename(temporaryPath, outputPath);
     return { outputPath, analysis, tags };
@@ -263,20 +366,20 @@ export function isEditableMp3(inputName) {
   return path.extname(inputName).toLowerCase() === ".mp3";
 }
 
-export async function normalizeMp3(inputPath, outputPath) {
+export async function normalizeMp3(inputPath, outputPath, truePeakDbtp = -2) {
   const firstPass = await runFfmpeg([
     "-hide_banner",
     "-i",
     inputPath,
     "-af",
-    "loudnorm=I=-14:TP=-1:LRA=11:print_format=json",
+    `loudnorm=I=-14:TP=${truePeakDbtp}:LRA=11:print_format=json`,
     "-f",
     "null",
     "-",
   ]);
   const report = parseLoudnormJson(firstPass.stderr);
   const filter = [
-    "loudnorm=I=-14:TP=-1:LRA=11",
+    `loudnorm=I=-14:TP=${truePeakDbtp}:LRA=11`,
     `measured_I=${report.input_i}`,
     `measured_LRA=${report.input_lra}`,
     `measured_TP=${report.input_tp}`,
@@ -316,12 +419,12 @@ function parseLoudnormJson(stderr) {
       // Ignore unrelated ffmpeg output.
     }
   }
-  throw new Error("Nao foi possivel interpretar a analise loudnorm do ffmpeg.");
+  throw new Error("Não foi possível interpretar a análise loudnorm do ffmpeg.");
 }
 
 function runFfmpeg(args) {
   if (!ffmpegPath) {
-    throw new Error("ffmpeg-static nao forneceu um binario de ffmpeg.");
+    throw new Error("ffmpeg-static não forneceu um binário de ffmpeg.");
   }
   return new Promise((resolve, reject) => {
     let stderr = "";

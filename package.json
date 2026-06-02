@@ -6,15 +6,21 @@
   "scripts": {
     "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
     "dev:client": "vite --host 127.0.0.1",
-    "dev:server": "node --watch server/index.mjs",
+    "dev:server": "node server/index.mjs",
+    "dev:server:watch": "node --watch server/index.mjs",
     "build": "npm run type-check && vite build",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
     "test": "node --test tests/*.test.mjs",
     "test:ui": "node tests/ui-smoke.mjs",
+    "test:flow": "node tests/full-flow-smoke.mjs",
     "test:render": "node tests/render-presets-smoke.mjs",
-    "test:release": "npm run format:check && npm run type-check && npm test && npm run build && npm run test:ui && npm run test:render",
+    "test:release": "npm run format:check && npm run type-check && npm test && npm run build && npm run test:ui && npm run test:flow && npm run test:render && npm run site:build && npm run site:test",
     "type-check": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "site:dev": "vite --config site/vite.config.ts --host 127.0.0.1",
+    "site:build": "tsc --noEmit -p site/tsconfig.json && vite build --config site/vite.config.ts",
+    "site:preview": "vite preview --config site/vite.config.ts --host 127.0.0.1",
+    "site:test": "node tests/site-smoke.mjs",
     "start": "node server/index.mjs"
   },
   "dependencies": {

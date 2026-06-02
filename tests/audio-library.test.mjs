@@ -11,9 +11,11 @@ import {
   createNumberedCover,
   inferAudioTags,
   isEditableMp3,
+  normalizedMp3TruePeakTarget,
   parseLoudnormReport,
   parseSamplePeakReport,
   romanNumeral,
+  validateNormalizedAnalysis,
   writeCleanMp3Tags,
 } from "../server/audio-library.mjs";
 
@@ -26,6 +28,28 @@ test("audio library infers album, artist, order and clean title from folders", (
   assert.equal(inferred.album, "The Beauty of Almost");
   assert.equal(inferred.trackNumber, 2);
   assert.equal(inferred.title, "The Light Through the Kitchen Window");
+});
+
+test("audio library treats side folders as disc folders, not as albums", () => {
+  const inferred = inferAudioTags(
+    "D:\\Music\\Matheus Lima\\Jardim dos Ventos\\Lado A\\O Menino e o Vento.mp3",
+  );
+
+  assert.equal(inferred.artist, "Matheus Lima");
+  assert.equal(inferred.album, "Jardim dos Ventos");
+  assert.equal(inferred.albumArtist, "Matheus Lima");
+  assert.equal(inferred.diskNumber, 1);
+  assert.equal(inferred.title, "O Menino e o Vento");
+});
+
+test("audio library understands POSIX side folders for CI parity", () => {
+  const inferred = inferAudioTags(
+    "/home/runner/Music/Matheus Lima/Jardim dos Ventos/Side B/O E que Não Queria Parar Quieto.mp3",
+  );
+
+  assert.equal(inferred.artist, "Matheus Lima");
+  assert.equal(inferred.album, "Jardim dos Ventos");
+  assert.equal(inferred.diskNumber, 2);
 });
 
 test("standalone uploads do not infer dot folders as metadata", () => {
@@ -67,6 +91,19 @@ test("headroom classification distinguishes warning from confirmed overload", ()
     risk: "overload",
     recommendation: "consider-normalization",
   });
+});
+
+test("MP3 normalization reserves codec headroom and retries more conservatively", () => {
+  assert.equal(normalizedMp3TruePeakTarget(0), -2);
+  assert.equal(normalizedMp3TruePeakTarget(1), -2.5);
+});
+
+test("normalized MP3 validation rejects a package that still has reduced headroom", () => {
+  assert.throws(
+    () => validateNormalizedAnalysis({ risk: "reduced-headroom" }),
+    /margem segura/,
+  );
+  assert.doesNotThrow(() => validateNormalizedAnalysis({ risk: "safe" }));
 });
 
 test("clean MP3 package replaces old tags and writes cover plus unsynchronised lyrics", async () => {
@@ -175,4 +212,58 @@ test("cover series renders deterministic editorial roman numeral variants", asyn
   ]);
   assert.equal(firstBuffer.equals(secondBuffer), true);
   assert.equal((await sharp(first).metadata()).format, "jpeg");
+});
+
+test("cover series renders ordered metadata lines with independent styles", async () => {
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "sonara-cover-meta-"),
+  );
+  const base = path.join(directory, "base.png");
+  const plain = path.join(directory, "plain.jpg");
+  const styled = path.join(directory, "styled.jpg");
+  await sharp({
+    create: {
+      width: 256,
+      height: 256,
+      channels: 3,
+      background: "#23435f",
+    },
+  })
+    .png()
+    .toFile(base);
+
+  await createNumberedCover(base, plain, {
+    index: 2,
+    style: "roman",
+  });
+  await createNumberedCover(base, styled, {
+    index: 2,
+    style: "roman",
+    metaGap: 18,
+    sublines: [
+      {
+        text: "The Light Through the Kitchen Window",
+        fontSize: 42,
+        color: "#f4d58d",
+        opacity: 86,
+        offsetX: -34,
+        offsetY: 12,
+      },
+      {
+        text: "The Beauty of Almost",
+        fontSize: 30,
+        color: "#c7d9e8",
+        opacity: 72,
+        offsetX: 28,
+        offsetY: 6,
+      },
+    ],
+  });
+
+  const [plainBuffer, styledBuffer] = await Promise.all([
+    fs.readFile(plain),
+    fs.readFile(styled),
+  ]);
+  assert.equal(plainBuffer.equals(styledBuffer), false);
+  assert.equal((await sharp(styled).metadata()).format, "jpeg");
 });
