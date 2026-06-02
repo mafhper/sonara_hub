@@ -346,6 +346,20 @@ try {
     .getByRole("button", { name: "Capa" })
     .click();
   await page.locator(".youtube-thumbnail .artwork-frame").waitFor();
+  assert.equal(
+    await page
+      .locator(".youtube-card.selected .thumbnail-mode-switch button")
+      .count(),
+    2,
+    "the selected video should expose one compact Frame/Capa selector",
+  );
+  assert.equal(
+    await page
+      .locator(".youtube-card.selected .video-card-options button")
+      .count(),
+    1,
+    "the selected video should not repeat Frame/Capa actions",
+  );
   await page.getByRole("button", { name: "Ajustar visual" }).click();
   await page
     .locator(".steps button.active")

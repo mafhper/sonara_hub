@@ -4550,30 +4550,6 @@ function VideoReviewGrid({
                 {selected && (
                   <div className="video-card-options">
                     <button
-                      aria-label="Usar frame da composição"
-                      className="quiet-action"
-                      type="button"
-                      onClick={() => onThumbnailMode(track.id, "composition")}
-                    >
-                      <Video />
-                      <span>
-                        <strong>Frame</strong>
-                        <small>Composição</small>
-                      </span>
-                    </button>
-                    <button
-                      aria-label="Usar capa"
-                      className="quiet-action"
-                      type="button"
-                      onClick={() => onThumbnailMode(track.id, "cover")}
-                    >
-                      <Image />
-                      <span>
-                        <strong>Capa</strong>
-                        <small>Arte da faixa</small>
-                      </span>
-                    </button>
-                    <button
                       aria-label="Ajustar visual"
                       className="primary-action"
                       type="button"
