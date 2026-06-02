@@ -213,3 +213,57 @@ test("cover series renders deterministic editorial roman numeral variants", asyn
   assert.equal(firstBuffer.equals(secondBuffer), true);
   assert.equal((await sharp(first).metadata()).format, "jpeg");
 });
+
+test("cover series renders ordered metadata lines with independent styles", async () => {
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "sonara-cover-meta-"),
+  );
+  const base = path.join(directory, "base.png");
+  const plain = path.join(directory, "plain.jpg");
+  const styled = path.join(directory, "styled.jpg");
+  await sharp({
+    create: {
+      width: 256,
+      height: 256,
+      channels: 3,
+      background: "#23435f",
+    },
+  })
+    .png()
+    .toFile(base);
+
+  await createNumberedCover(base, plain, {
+    index: 2,
+    style: "roman",
+  });
+  await createNumberedCover(base, styled, {
+    index: 2,
+    style: "roman",
+    metaGap: 18,
+    sublines: [
+      {
+        text: "The Light Through the Kitchen Window",
+        fontSize: 42,
+        color: "#f4d58d",
+        opacity: 86,
+        offsetX: -34,
+        offsetY: 12,
+      },
+      {
+        text: "The Beauty of Almost",
+        fontSize: 30,
+        color: "#c7d9e8",
+        opacity: 72,
+        offsetX: 28,
+        offsetY: 6,
+      },
+    ],
+  });
+
+  const [plainBuffer, styledBuffer] = await Promise.all([
+    fs.readFile(plain),
+    fs.readFile(styled),
+  ]);
+  assert.equal(plainBuffer.equals(styledBuffer), false);
+  assert.equal((await sharp(styled).metadata()).format, "jpeg");
+});

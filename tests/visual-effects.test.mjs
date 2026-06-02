@@ -138,7 +138,16 @@ test("waveform fields normalize into the V2 catalog with safe constraints", () =
       smoothing: -2,
       width: 160,
       audioReaction: -4,
-      advanced: { barGap: 120, radialRadius: -5 },
+      colorMode: "bands",
+      secondaryColor: "invalid",
+      tertiaryColor: "#f2b870",
+      advanced: {
+        barGap: 120,
+        barPeakHold: 140,
+        barPeakDecay: -10,
+        radialRadius: -5,
+        radialGlow: 120,
+      },
     },
   });
 
@@ -149,8 +158,14 @@ test("waveform fields normalize into the V2 catalog with safe constraints", () =
   assert.equal(visual.waveform.smoothing, 0);
   assert.equal(visual.waveform.width, 100);
   assert.equal(visual.waveform.audioReaction, 0);
+  assert.equal(visual.waveform.colorMode, "bands");
+  assert.match(visual.waveform.secondaryColor, /^#[0-9a-f]{6}$/i);
+  assert.equal(visual.waveform.tertiaryColor, "#f2b870");
   assert.equal(visual.waveform.advanced.barGap, 100);
+  assert.equal(visual.waveform.advanced.barPeakHold, 100);
+  assert.equal(visual.waveform.advanced.barPeakDecay, 0);
   assert.equal(visual.waveform.advanced.radialRadius, 0);
+  assert.equal(visual.waveform.advanced.radialGlow, 100);
 });
 
 test("unknown waveform styles fall back to the legacy mirrored line", () => {

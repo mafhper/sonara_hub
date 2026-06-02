@@ -816,6 +816,8 @@ async function processAudio({
         x: seriesSettings.x,
         y: seriesSettings.y,
         letterSpacing: seriesSettings.letterSpacing,
+        metaFontSize: seriesSettings.metaFontSize,
+        metaGap: seriesSettings.metaGap,
       },
     );
   }
@@ -1332,6 +1334,29 @@ function normalizeTextSettings(value = {}) {
 }
 
 function normalizeCoverSeriesSettings(value = {}, fallbackStyle = "roman") {
+  const metaFontSize = clampNumber(Number(value.metaFontSize ?? 34), 18, 72);
+  const metaStyles = {
+    title: normalizeCoverSeriesMetaStyle(value.metaStyles?.title, {
+      fontSize: Math.max(38, metaFontSize),
+      color: value.color,
+      opacity: 88,
+    }),
+    album: normalizeCoverSeriesMetaStyle(value.metaStyles?.album, {
+      fontSize: metaFontSize,
+      color: value.color,
+      opacity: 76,
+    }),
+    artist: normalizeCoverSeriesMetaStyle(value.metaStyles?.artist, {
+      fontSize: Math.max(18, metaFontSize - 2),
+      color: value.color,
+      opacity: 72,
+    }),
+    year: normalizeCoverSeriesMetaStyle(value.metaStyles?.year, {
+      fontSize: Math.max(18, metaFontSize - 6),
+      color: value.color,
+      opacity: 68,
+    }),
+  };
   return {
     enabled: value.enabled !== false,
     style: ["roman", "arabic", "custom"].includes(value.style)
@@ -1346,10 +1371,46 @@ function normalizeCoverSeriesSettings(value = {}, fallbackStyle = "roman") {
     x: clampNumber(Number(value.x ?? 50), 8, 92),
     y: clampNumber(Number(value.y ?? 89), 8, 94),
     letterSpacing: clampNumber(Number(value.letterSpacing ?? 18), 0, 80),
+    includeTitle: value.includeTitle === true,
     includeAlbum: value.includeAlbum === true,
     includeArtist: value.includeArtist === true,
     includeYear: value.includeYear === true,
+    metaOrder: normalizeCoverSeriesMetaOrder(value.metaOrder),
+    metaFontSize,
+    metaGap: clampNumber(Number(value.metaGap ?? 10), 0, 48),
+    metaStyles,
   };
+}
+
+function normalizeCoverSeriesMetaStyle(value = {}, fallback = {}) {
+  return {
+    fontSize: clampNumber(
+      Number(value.fontSize ?? fallback.fontSize ?? 34),
+      18,
+      72,
+    ),
+    color: isHexColor(value.color)
+      ? value.color
+      : isHexColor(fallback.color)
+        ? fallback.color
+        : "#fffaf1",
+    opacity: clampNumber(
+      Number(value.opacity ?? fallback.opacity ?? 76),
+      20,
+      100,
+    ),
+    offsetX: clampNumber(Number(value.offsetX ?? 0), -320, 320),
+    offsetY: clampNumber(Number(value.offsetY ?? 0), -320, 320),
+  };
+}
+
+function normalizeCoverSeriesMetaOrder(value) {
+  const allowed = new Set(["title", "album", "artist", "year"]);
+  const entries = String(value ?? "title, album, artist, year")
+    .split(/[\n,;|]+/)
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => allowed.has(entry));
+  return [...new Set([...entries, "title", "album", "artist", "year"])];
 }
 
 function coverSeriesLabel(draft, settings) {
@@ -1364,11 +1425,19 @@ function coverSeriesLabel(draft, settings) {
 }
 
 function coverSeriesSublines(draft, settings) {
-  return [
-    settings.includeAlbum && draft.album,
-    settings.includeArtist && (draft.albumArtist || draft.artist),
-    settings.includeYear && draft.year,
-  ].filter(Boolean);
+  const values = {
+    title: settings.includeTitle && draft.title,
+    album: settings.includeAlbum && draft.album,
+    artist: settings.includeArtist && (draft.albumArtist || draft.artist),
+    year: settings.includeYear && draft.year,
+  };
+  return settings.metaOrder
+    .filter((role) => values[role])
+    .map((role) => ({
+      role,
+      text: values[role],
+      ...settings.metaStyles[role],
+    }));
 }
 
 function isHexColor(value) {

@@ -235,14 +235,40 @@ export async function createNumberedCover(
     x = 50,
     y = 89,
     letterSpacing = 18,
+    metaFontSize = 34,
+    metaGap = 10,
   } = {},
 ) {
   const numeral =
     label || (style === "arabic" ? String(index) : romanNumeral(index));
+  const safeMetaFontSize = Math.max(
+    18,
+    Math.min(72, Number(metaFontSize) || 34),
+  );
+  const safeMetaGap = Math.max(0, Math.min(48, Number(metaGap) || 0));
   const safeSublines = sublines
-    .map((line) => String(line ?? "").trim())
-    .filter(Boolean)
-    .slice(0, 3);
+    .map((line) => {
+      const candidate =
+        line && typeof line === "object" ? line : { text: line };
+      return {
+        text: String(candidate.text ?? "").trim(),
+        fontSize: Math.max(
+          18,
+          Math.min(72, Number(candidate.fontSize) || safeMetaFontSize),
+        ),
+        color: /^#[0-9a-f]{6}$/i.test(String(candidate.color ?? ""))
+          ? candidate.color
+          : color,
+        opacity: Math.max(
+          0.1,
+          Math.min(1, (Number(candidate.opacity) || 76) / 100),
+        ),
+        offsetX: Math.max(-320, Math.min(320, Number(candidate.offsetX) || 0)),
+        offsetY: Math.max(-320, Math.min(320, Number(candidate.offsetY) || 0)),
+      };
+    })
+    .filter((line) => line.text)
+    .slice(0, 4);
   const mainY = Math.round(
     (Math.max(8, Math.min(94, Number(y) || 89)) / 100) * 1600,
   );
@@ -255,18 +281,20 @@ export async function createNumberedCover(
     0,
     Math.min(80, Number(letterSpacing) || 18),
   );
+  let metaY = mainY + Math.round(safeFontSize * 0.48);
   const overlay = Buffer.from(`
     <svg width="1600" height="1600" xmlns="http://www.w3.org/2000/svg">
       <style>
         .number { font-family: "Georgia", "Times New Roman", serif; font-size: ${safeFontSize}px; font-weight: 400; letter-spacing: ${safeLetterSpacing}px; }
-        .meta { font-family: "Inter", "Arial", sans-serif; font-size: ${Math.max(28, safeFontSize * 0.24)}px; font-weight: 520; letter-spacing: 5px; }
+        .meta { font-family: "Inter", "Arial", sans-serif; font-weight: 520; letter-spacing: 5px; }
       </style>
       <text x="${mainX}" y="${mainY}" text-anchor="middle" class="number" fill="${escapeXml(color)}" fill-opacity="${safeOpacity}">${escapeXml(numeral)}</text>
       ${safeSublines
-        .map(
-          (line, index) =>
-            `<text x="${mainX}" y="${mainY + Math.round(safeFontSize * 0.48) + index * Math.round(safeFontSize * 0.34)}" text-anchor="middle" class="meta" fill="${escapeXml(color)}" fill-opacity="${Math.max(0.25, safeOpacity * 0.72)}">${escapeXml(line)}</text>`,
-        )
+        .map((line) => {
+          const y = metaY + line.offsetY;
+          metaY += line.fontSize + safeMetaGap;
+          return `<text x="${mainX + line.offsetX}" y="${y}" text-anchor="middle" class="meta" font-size="${line.fontSize}px" fill="${escapeXml(line.color)}" fill-opacity="${line.opacity}">${escapeXml(line.text)}</text>`;
+        })
         .join("")}
     </svg>
   `);

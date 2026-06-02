@@ -147,7 +147,21 @@ try {
   );
   await assertTrackSelectionIsNotColorOnly(page);
   await assertButtonAffordance(page);
+  await ensurePanelsClosed(page);
+  await page
+    .locator(".stage-view-switch")
+    .getByRole("button", { name: "Catálogo" })
+    .click();
+  await page.getByText("Catálogo planejado", { exact: true }).waitFor();
+  await page.getByRole("button", { name: /^Inspecionar arte de / }).click();
+  await page.getByText("Prévia da capa tratada", { exact: true }).waitFor();
+  await page.getByText("Prévia ao vivo ativa", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Trocar imagem" }).waitFor();
+  await page.getByRole("button", { name: "Ver arte base" }).click();
+  await page.getByRole("button", { name: "Ver com série visual" }).waitFor();
+  await page.getByRole("button", { name: "Fechar inspeção da capa" }).click();
   await page.getByRole("button", { name: "Estúdio visual" }).click();
+  await ensurePanelOpen(page, "inspector");
 
   const presetSelect = page.locator('select:has(option[value="vector-aura"])');
   assert.equal(
@@ -221,12 +235,27 @@ try {
   await page.getByRole("button", { name: "Remover camada" }).first().click();
   await page.getByRole("button", { name: "Desfazer" }).click();
   await page.getByText("Camadas · 3/3").waitFor();
+  await page.locator(".cover-layer-apply select").selectOption("right");
+  await page
+    .locator(".cover-layer-apply")
+    .getByRole("button", { name: "Aplicar capa" })
+    .click();
+  await page.getByText("Capa - Direita", { exact: true }).waitFor();
+  assert.equal(
+    await page.locator(".layer-row").count(),
+    3,
+    "applying a cover preset should preserve the three-layer limit while keeping the cover",
+  );
   await page.getByText("Waveform", { exact: true }).click();
   await page.getByText("Mostrar waveform").click();
   const waveformSelect = page.locator(
     'select:has(option[value="radial-ring"])',
   );
   assert.equal(await waveformSelect.locator("option").count(), 5);
+  await page.getByRole("button", { name: "Visor âmbar" }).click();
+  assert.equal(await waveformSelect.inputValue(), "spectrum-bars");
+  await page.getByRole("button", { name: "Anel editorial" }).click();
+  assert.equal(await waveformSelect.inputValue(), "radial-ring");
   for (const type of [
     "single-line",
     "filled-ribbon",
@@ -243,6 +272,10 @@ try {
   await ensurePanelOpen(page, "library");
   await page.getByRole("button", { name: "Lote" }).click();
   await ensurePanelsClosed(page);
+  await page
+    .locator(".stage-view-switch")
+    .getByRole("button", { name: "Editar" })
+    .click();
   await page.getByText("Dados comuns do lote").waitFor();
   await assertPortugueseLabels(page);
   const batchToolbar = page.getByRole("group", {
@@ -255,14 +288,28 @@ try {
   await batchToolbar
     .getByRole("button", { name: "Aplicar aos selecionados" })
     .click();
-  await page.getByText("apenas onde havia campos vazios").waitFor();
+  await batchToolbar.getByText("apenas onde havia campos vazios").waitFor();
   await batchToolbar
     .getByRole("button", { name: "Sobrescrever informados" })
     .click();
   await batchToolbar
     .getByRole("button", { name: "Aplicar aos selecionados" })
     .click();
-  await page.getByText("com sobrescrita dos campos informados").waitFor();
+  await batchToolbar
+    .getByText("com sobrescrita dos campos informados")
+    .waitFor();
+  assert.equal(
+    await batchToolbar
+      .getByRole("button", { name: "Processar selecionados" })
+      .count(),
+    0,
+  );
+  await ensurePanelOpen(page, "inspector");
+  await page
+    .locator(".inspector-panel")
+    .getByRole("button", { name: "Processar selecionados" })
+    .waitFor();
+  await ensurePanelsClosed(page);
   assert.equal(await page.locator(".batch-group-row").count(), 1);
   await page.locator(".batch-group-row button").click();
   assert.equal(await page.locator(".batch-table tbody tr").count(), 1);
@@ -299,6 +346,20 @@ try {
     .getByRole("button", { name: "Capa" })
     .click();
   await page.locator(".youtube-thumbnail .artwork-frame").waitFor();
+  await page.getByRole("button", { name: "Ajustar visual" }).click();
+  await page
+    .locator(".steps button.active")
+    .filter({ hasText: "Visual" })
+    .waitFor();
+  await ensurePanelOpen(page, "inspector");
+  await page.locator(".cover-layer-apply select").selectOption("right");
+  await page.getByRole("button", { name: "Aplicar capa ao lote" }).click();
+  await page
+    .getByRole("status")
+    .getByText("Capa aplicada a 1 faixa selecionada.")
+    .waitFor();
+  await ensurePanelsClosed(page);
+  await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
   await page.getByRole("button", { name: "Editar" }).click();
   assert.equal(
     await page.locator('input[type="file"][webkitdirectory]').count(),
@@ -382,6 +443,7 @@ try {
   await page.waitForTimeout(1_600);
   await reloadApp(page);
   await ensurePanelOpen(page, "library");
+  await page.locator(".track-row").first().waitFor();
   assert.equal(
     await page.locator(".track-row").count(),
     2,

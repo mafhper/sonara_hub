@@ -109,7 +109,12 @@ export type TextOverlaySettings = {
     year: boolean;
     version: boolean;
   };
-  preset: "top-left" | "bottom-center" | "cover-left";
+  preset:
+    | "top-left"
+    | "bottom-center"
+    | "cover-left"
+    | "side-left"
+    | "side-right";
   fontFamily: "Inter" | "Georgia" | "Arial";
   fontSize: number;
   fontWeight: number;
@@ -119,7 +124,8 @@ export type TextOverlaySettings = {
   opacity: number;
   x: number;
   y: number;
-  align: "left" | "center" | "right";
+  align: "left" | "center" | "right" | "justify";
+  verticalAnchor: "top" | "middle" | "bottom";
   shadow: number;
 };
 
@@ -133,9 +139,24 @@ export type CoverSeriesSettings = {
   x: number;
   y: number;
   letterSpacing: number;
+  includeTitle: boolean;
   includeAlbum: boolean;
   includeArtist: boolean;
   includeYear: boolean;
+  metaOrder: string;
+  metaFontSize: number;
+  metaGap: number;
+  metaStyles: Record<CoverSeriesMetaKey, CoverSeriesMetaStyle>;
+};
+
+export type CoverSeriesMetaKey = "title" | "album" | "artist" | "year";
+
+export type CoverSeriesMetaStyle = {
+  fontSize: number;
+  color: string;
+  opacity: number;
+  offsetX: number;
+  offsetY: number;
 };
 
 export type ArtworkSuggestion = {

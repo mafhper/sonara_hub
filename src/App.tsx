@@ -13,6 +13,7 @@ import {
   FolderOpen,
   Image,
   Layers3,
+  Loader2,
   Maximize2,
   Minimize2,
   Music2,
@@ -68,6 +69,10 @@ import {
   groupAudioTracks,
 } from "../shared/audio-batch.mjs";
 import type { BatchApplyMode } from "../shared/audio-batch.mjs";
+import {
+  resolveDestructiveBatchState,
+  writeReplacementsWithRollback,
+} from "../shared/destructive-audio-batch.mjs";
 import { directoryImportPrefix } from "../shared/audio-import.mjs";
 import {
   albumArtworkDirectoryPaths,
@@ -86,6 +91,8 @@ import type {
   AudioTagDraft,
   AudioTechnicalAnalysis,
   ArtworkSuggestion,
+  CoverSeriesMetaKey,
+  CoverSeriesMetaStyle,
   CoverSeriesSettings,
   MediaLayerV2,
   ProjectSnapshot,
@@ -156,6 +163,10 @@ type StorageUsage = {
   jobs: { active: number; terminal: number };
 };
 type CoverLayerPreset = "background" | "left" | "center" | "right" | "corner";
+type DestructiveAudioBatch = {
+  jobIds: string[];
+  finalizing: boolean;
+};
 type PlayfulPatch = Partial<Omit<PlayfulContent, "enabled" | "collections">> & {
   enabled?: Partial<PlayfulContent["enabled"]>;
   collections?: Partial<PlayfulContent["collections"]>;
@@ -234,6 +245,7 @@ const defaultTextSettings: TextOverlaySettings = {
   x: 5,
   y: 7,
   align: "left",
+  verticalAnchor: "top",
   shadow: 48,
 };
 const defaultCoverSeriesSettings: CoverSeriesSettings = {
@@ -246,9 +258,43 @@ const defaultCoverSeriesSettings: CoverSeriesSettings = {
   x: 50,
   y: 89,
   letterSpacing: 18,
+  includeTitle: false,
   includeAlbum: false,
   includeArtist: false,
   includeYear: false,
+  metaOrder: "title, album, artist, year",
+  metaFontSize: 34,
+  metaGap: 10,
+  metaStyles: {
+    title: {
+      fontSize: 38,
+      color: "#fffaf1",
+      opacity: 88,
+      offsetX: 0,
+      offsetY: 0,
+    },
+    album: {
+      fontSize: 34,
+      color: "#fffaf1",
+      opacity: 76,
+      offsetX: 0,
+      offsetY: 0,
+    },
+    artist: {
+      fontSize: 32,
+      color: "#fffaf1",
+      opacity: 72,
+      offsetX: 0,
+      offsetY: 0,
+    },
+    year: {
+      fontSize: 28,
+      color: "#fffaf1",
+      opacity: 68,
+      offsetX: 0,
+      offsetY: 0,
+    },
+  },
 };
 const coverLayerPresetLabels: Record<CoverLayerPreset, string> = {
   background: "Fundo",
@@ -272,6 +318,82 @@ const childFriendlyPalettes: Array<{
   {
     name: "Pomar",
     colors: { base: "#7bbf9f", effect: "#ee9b73", light: "#f7d982" },
+  },
+];
+const waveformStylePresets: Array<{
+  name: string;
+  patch: Partial<Omit<WaveformV1, "advanced">> & {
+    advanced?: Partial<WaveformV1["advanced"]>;
+  };
+}> = [
+  {
+    name: "Visor âmbar",
+    patch: {
+      type: "spectrum-bars",
+      colorMode: "gradient",
+      color: "#76d6a6",
+      secondaryColor: "#e3d06f",
+      tertiaryColor: "#e79b66",
+      opacity: 76,
+      height: 26,
+      position: 86,
+      width: 88,
+      thickness: 3,
+      smoothing: 58,
+      audioReaction: 74,
+      advanced: {
+        barGap: 38,
+        barRadius: 28,
+        barPeakHold: 82,
+        barPeakDecay: 34,
+      },
+    },
+  },
+  {
+    name: "Espectro colorido",
+    patch: {
+      type: "spectrum-bars",
+      colorMode: "bands",
+      color: "#70c7ff",
+      secondaryColor: "#e9c769",
+      tertiaryColor: "#e8799a",
+      opacity: 78,
+      height: 28,
+      position: 86,
+      width: 92,
+      thickness: 4,
+      smoothing: 52,
+      audioReaction: 78,
+      advanced: {
+        barGap: 30,
+        barRadius: 62,
+        barPeakHold: 58,
+        barPeakDecay: 48,
+      },
+    },
+  },
+  {
+    name: "Anel editorial",
+    patch: {
+      type: "radial-ring",
+      colorMode: "gradient",
+      color: "#8bc8ff",
+      secondaryColor: "#b4a3ff",
+      tertiaryColor: "#f0c978",
+      opacity: 84,
+      height: 38,
+      position: 53,
+      width: 100,
+      thickness: 4,
+      smoothing: 48,
+      audioReaction: 82,
+      advanced: {
+        radialRadius: 30,
+        radialArc: 92,
+        radialRotation: 0,
+        radialGlow: 58,
+      },
+    },
   },
 ];
 const coverLayerPresets: Record<
@@ -375,6 +497,7 @@ function App() {
   const [cleanupBusy, setCleanupBusy] = useState(false);
   const [error, setError] = useState("");
   const [folderName, setFolderName] = useState("Pasta input");
+  const [workspaceWriteEnabled, setWorkspaceWriteEnabled] = useState(false);
   const [outputFolderName, setOutputFolderName] = useState("outputs interno");
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
@@ -418,9 +541,7 @@ function App() {
   const [audioBands, setAudioBands] = useState<AudioBands>(emptyBands);
   const [coverSeriesSettings, setCoverSeriesSettings] =
     useState<CoverSeriesSettings>(() => loadCoverSeriesSettings());
-  const [processedAudioOutputs, setProcessedAudioOutputs] = useState<
-    Record<string, string>
-  >({});
+  const [analyzingTrackIds, setAnalyzingTrackIds] = useState<string[]>([]);
   const [embeddedArtworkByTrackId, setEmbeddedArtworkByTrackId] = useState<
     Record<string, string | null>
   >({});
@@ -438,6 +559,7 @@ function App() {
   const musicDirectoryRef = useRef<FileSystemDirectoryHandle | null>(null);
   const audioJobOriginsRef = useRef(new Map<string, string>());
   const integratedAudioJobsRef = useRef(new Set<string>());
+  const destructiveAudioBatchRef = useRef<DestructiveAudioBatch | null>(null);
   const embeddedArtworkRequestsRef = useRef(new Set<string>());
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationRef = useRef(0);
@@ -560,6 +682,12 @@ function App() {
     visualStageView,
   ]);
 
+  useEffect(() => {
+    if (!batchFeedback) return;
+    const timeout = window.setTimeout(() => setBatchFeedback(""), 5_000);
+    return () => window.clearTimeout(timeout);
+  }, [batchFeedback]);
+
   async function loadInitialWorkspace() {
     try {
       const [snapshot, presetPayload] = await Promise.all([
@@ -596,6 +724,7 @@ function App() {
     const permission = await handle.queryPermission?.({ mode: "read" });
     if (permission !== "granted") return false;
     musicDirectoryRef.current = handle;
+    setWorkspaceWriteEnabled(false);
     await readMusicDirectory(handle, snapshot);
     return true;
   }
@@ -699,16 +828,50 @@ function App() {
     try {
       const handle = await window.showDirectoryPicker({
         id: "sonara-hub-music",
-        mode: "readwrite",
+        mode: "read",
         startIn: "music",
       });
       await saveDirectoryHandle("music-directory", handle);
       musicDirectoryRef.current = handle;
+      setWorkspaceWriteEnabled(false);
       await readMusicDirectory(handle);
     } catch (reason) {
       if ((reason as DOMException)?.name !== "AbortError")
         setError(messageOf(reason));
     }
+  }
+
+  async function enableWorkspaceWrites() {
+    const handle = musicDirectoryRef.current;
+    if (!handle) {
+      await chooseMusicDirectory();
+      return;
+    }
+    let permission = await handle.queryPermission?.({ mode: "readwrite" });
+    if (permission !== "granted") {
+      permission = await handle.requestPermission?.({ mode: "readwrite" });
+    }
+    if (permission !== "granted") {
+      setError("A pasta de trabalho precisa de permissão de escrita.");
+      return;
+    }
+    setWorkspaceWriteEnabled(true);
+    await ensureAlbumArtworkDirectories(
+      handle,
+      directoryImportPrefix(handle.name),
+      albumArtworkDirectoryPaths(tracks.map((track) => track.sourceKey)),
+    );
+    setBatchFeedback(
+      "Substituição ao finalizar ativada. Os originais só serão trocados se todo o processamento selecionado terminar.",
+    );
+  }
+
+  function disableWorkspaceWrites() {
+    setWorkspaceWriteEnabled(false);
+    destructiveAudioBatchRef.current = null;
+    setBatchFeedback(
+      "Modo não destrutivo reativado. Processamentos futuros gerarão cópias sem substituir originais.",
+    );
   }
 
   async function chooseOutputDirectory() {
@@ -742,13 +905,6 @@ function App() {
     const { audioEntries, artworkEntries } = await collectDirectoryAssets(
       handle,
       directoryImportPrefix(handle.name),
-    );
-    await ensureAlbumArtworkDirectories(
-      handle,
-      directoryImportPrefix(handle.name),
-      albumArtworkDirectoryPaths(
-        audioEntries.map((entry) => entry.relativePath),
-      ),
     );
     const next: TrackDraft[] = [];
     setFolderImportProgress({
@@ -1017,7 +1173,9 @@ function App() {
     const layer = coverLayerFromArtwork(artwork, preset, template ?? existing);
     const remaining = track.layers.filter((item) => !isCoverLayer(item));
     const ordered =
-      preset === "background" ? [layer, ...remaining] : [...remaining, layer];
+      preset === "background"
+        ? [layer, ...remaining]
+        : [...remaining.slice(0, 2), layer];
     return ordered.slice(0, 3).map((item, order) => ({ ...item, order }));
   }
 
@@ -1028,10 +1186,16 @@ function App() {
     }
   }
 
-  function restoreSuggestedCover() {
-    if (!selectedTrack?.suggestedCover) return;
+  function restoreSuggestedCover(trackId = selectedTrack?.id) {
+    const track = tracks.find((item) => item.id === trackId);
+    if (!track?.suggestedCover) return;
     setCover(null);
-    updateSelectedTrack({ useSuggestedCover: true });
+    updateTrackDraft(track.id, { useSuggestedCover: true });
+  }
+
+  function chooseCatalogCover(trackId: string) {
+    setSelectedTrackId(trackId);
+    coverInputRef.current?.click();
   }
 
   function toggleLeftPanel() {
@@ -1117,6 +1281,25 @@ function App() {
     setBatchFeedback("Alteracao salva na linha.");
   }
 
+  function openAudioReview() {
+    setWorkspaceMode("audio");
+    setAudioStageView("edit");
+    if (tracks.length > 1) setWorkflowMode("batch");
+  }
+
+  function openArtworkEditor(trackId = selectedTrack?.id) {
+    if (trackId) setSelectedTrackId(trackId);
+    setWorkspaceMode("audio");
+    setAudioStageView("edit");
+  }
+
+  function openVisualEditor(trackId = selectedTrack?.id) {
+    if (trackId) setSelectedTrackId(trackId);
+    setWorkspaceMode("visual");
+    setVisualStageView("editor");
+    setActiveStep("visual");
+  }
+
   function toggleTrackBatchSelection(trackId: string, selected: boolean) {
     setTracks((current) =>
       current.map((track) =>
@@ -1191,6 +1374,10 @@ function App() {
 
   async function analyzeSelectedAudio() {
     if (!selectedTrack) return;
+    const trackId = selectedTrack.id;
+    setAnalyzingTrackIds((current) =>
+      current.includes(trackId) ? current : [...current, trackId],
+    );
     const formData = new FormData();
     if (selectedTrack.sourceFile) {
       formData.append("audio", selectedTrack.sourceFile);
@@ -1217,21 +1404,45 @@ function App() {
       });
     } catch (reason) {
       setError(localApiMessage(reason, "analisar a qualidade do áudio"));
+    } finally {
+      setAnalyzingTrackIds((current) =>
+        current.filter((item) => item !== trackId),
+      );
     }
   }
 
   async function processReviewedAudio() {
     if (!selectedTrack) return;
+    openAudioReview();
     const selected =
       workflowMode === "batch"
         ? tracks.filter((track) => track.selectedForBatch)
         : [selectedTrack];
+    if (!selected.length) {
+      setBatchFeedback("Selecione ao menos uma faixa para processar.");
+      return;
+    }
+    destructiveAudioBatchRef.current = null;
     setBatchFeedback(
       workflowMode === "batch"
         ? `Processamento iniciado para ${selected.length} arquivo${selected.length === 1 ? "" : "s"}.`
         : "Processamento iniciado.",
     );
-    for (const track of selected) await submitAudioProcess(track);
+    const jobIds: string[] = [];
+    for (const track of selected) {
+      const jobId = await submitAudioProcess(track);
+      if (jobId) jobIds.push(jobId);
+    }
+    if (
+      workspaceWriteEnabled &&
+      musicDirectoryRef.current &&
+      jobIds.length === selected.length
+    ) {
+      destructiveAudioBatchRef.current = { jobIds, finalizing: false };
+      setBatchFeedback(
+        `${jobIds.length} processamento${jobIds.length === 1 ? "" : "s"} iniciado${jobIds.length === 1 ? "" : "s"}. Substituição dos originais será feita apenas no final, se todos concluírem.`,
+      );
+    }
   }
 
   async function submitAudioProcess(track: TrackDraft) {
@@ -1266,8 +1477,10 @@ function App() {
       };
       setJobs((current) => [job, ...current]);
       pollJob(job.id);
+      return job.id;
     } catch (reason) {
       setError(localApiMessage(reason, "iniciar o tratamento do áudio"));
+      return null;
     }
   }
 
@@ -1677,6 +1890,7 @@ function App() {
             void integrateTreatedAudio(job).catch((reason) =>
               setError(localApiMessage(reason, "integrar a cópia tratada")),
             );
+            void maybeFinalizeDestructiveAudioBatch();
           } else {
             void copyOutput(job).catch((reason) =>
               setError(
@@ -1684,6 +1898,9 @@ function App() {
               ),
             );
           }
+        } else if (["error", "canceled"].includes(job.status)) {
+          if (job.kind === "audio-process")
+            void maybeFinalizeDestructiveAudioBatch();
         } else if (!["error", "canceled"].includes(job.status)) {
           pollJob(id);
         }
@@ -1780,31 +1997,6 @@ function App() {
   async function integrateTreatedAudio(job: RenderJob) {
     if (!job.outputUrl || integratedAudioJobsRef.current.has(job.id)) return;
     integratedAudioJobsRef.current.add(job.id);
-    const directory = musicDirectoryRef.current;
-    if (directory) {
-      let permission = await directory.queryPermission?.({ mode: "readwrite" });
-      if (permission !== "granted") {
-        permission = await directory.requestPermission?.({ mode: "readwrite" });
-      }
-      if (permission === "granted") {
-        const treatedDirectory = await directory.getDirectoryHandle(
-          "Tratados",
-          {
-            create: true,
-          },
-        );
-        await copyUrlToDirectory(treatedDirectory, job.outputUrl);
-        if (job.thumbnailUrl) {
-          const artDirectory = await treatedDirectory.getDirectoryHandle(
-            "art",
-            {
-              create: true,
-            },
-          );
-          await copyUrlToDirectory(artDirectory, job.thumbnailUrl);
-        }
-      }
-    }
     const response = await fetchOptional(job.outputUrl);
     if (!response) throw new Error("A cópia tratada não está disponível.");
     const blob = await response.blob();
@@ -1816,10 +2008,6 @@ function App() {
     const origin =
       tracks.find((track) => track.id === originId) ?? selectedTrack;
     if (!origin) return;
-    setProcessedAudioOutputs((current) => ({
-      ...current,
-      [origin.id]: job.outputUrl!,
-    }));
     const originCover = coverForTrack(origin);
     const treated: TrackDraft = {
       ...origin,
@@ -1851,39 +2039,103 @@ function App() {
     if (workflowMode !== "batch") setSelectedTrackId(treated.id);
   }
 
-  async function overwriteSelectedOriginal() {
-    if (!selectedTrack || selectedTrack.packageStatus === "treated") return;
-    const outputUrl = processedAudioOutputs[selectedTrack.id];
+  async function maybeFinalizeDestructiveAudioBatch() {
+    const batch = destructiveAudioBatchRef.current;
     const directory = musicDirectoryRef.current;
-    if (!outputUrl || !directory) return;
-    if (
-      !window.confirm(
-        `Substituir ${selectedTrack.sourceKey}? O original sera preservado em Backup-originais/.`,
-      )
-    ) {
+    if (!batch || batch.finalizing || !workspaceWriteEnabled || !directory) {
       return;
     }
+    const payload = await fetchJson<{ jobs: RenderJob[] }>("/api/jobs");
+    const resolution = resolveDestructiveBatchState(batch.jobIds, payload.jobs);
+    if (resolution.state === "waiting") return;
+    if (resolution.state === "blocked") {
+      destructiveAudioBatchRef.current = null;
+      setBatchFeedback(
+        "Substituição dos originais não executada: ao menos um processamento foi cancelado ou falhou.",
+      );
+      return;
+    }
+    batch.finalizing = true;
+    try {
+      await replaceOriginalsAfterCompletedBatch(directory, resolution.jobs);
+      destructiveAudioBatchRef.current = null;
+      setBatchFeedback(
+        "Todos os processamentos terminaram. Originais substituídos com backup.",
+      );
+    } catch (reason) {
+      batch.finalizing = false;
+      setError(localApiMessage(reason, "substituir os originais ao finalizar"));
+    }
+  }
+
+  async function replaceOriginalsAfterCompletedBatch(
+    directory: FileSystemDirectoryHandle,
+    batchJobs: RenderJob[],
+  ) {
     let permission = await directory.queryPermission?.({ mode: "readwrite" });
     if (permission !== "granted") {
       permission = await directory.requestPermission?.({ mode: "readwrite" });
     }
     if (permission !== "granted") {
-      throw new Error("A pasta de músicas precisa de permissão para escrita.");
+      throw new Error("A pasta de trabalho precisa de permissão de escrita.");
     }
+    const replacements = await Promise.all(
+      batchJobs.map(async (job) => {
+        if (!job.outputUrl) throw new Error("Cópia tratada indisponível.");
+        const originId = audioJobOriginsRef.current.get(job.id);
+        const origin = tracks.find((track) => track.id === originId);
+        if (!origin) throw new Error("Faixa original não encontrada.");
+        const response = await fetchOptional(job.outputUrl);
+        if (!response) throw new Error("Cópia tratada não encontrada.");
+        const blob = await response.blob();
+        const original = await getWorkspaceFile(directory, origin.sourceKey);
+        return { blob, job, origin, original };
+      }),
+    );
     const backupDirectory = await directory.getDirectoryHandle(
       "Backup-originais",
       { create: true },
     );
-    const originalHandle = await directory.getFileHandle(
-      selectedTrack.sourceKey,
+    const stamp = new Date()
+      .toISOString()
+      .replaceAll(":", "-")
+      .replaceAll(".", "-");
+    await writeReplacementsWithRollback(replacements, {
+      backup: (replacement) =>
+        copyFileToDirectory(
+          backupDirectory,
+          replacement.original,
+          backupFileName(replacement.origin.sourceKey, stamp),
+        ),
+      write: (replacement, payload) =>
+        writeBlobToWorkspacePath(
+          directory,
+          replacement.origin.sourceKey,
+          payload as Blob,
+        ),
+    });
+    setTracks((current) =>
+      current.map((track) => {
+        const matched = replacements.find(
+          (replacement) => replacement.origin.id === track.id,
+        );
+        if (!matched) return track;
+        return {
+          ...track,
+          packageStatus: "treated",
+          audioInfo: {
+            ...(track.audioInfo ?? {
+              fileName: track.sourceKey,
+              durationSeconds: null,
+              bitrate: null,
+              codec: null,
+            }),
+            analysis: matched.job.analysis,
+            hasEmbeddedCover: Boolean(coverForTrack(track)),
+          },
+        };
+      }),
     );
-    const original = await originalHandle.getFile();
-    await copyFileToDirectory(
-      backupDirectory,
-      original,
-      `${Date.now()}-${selectedTrack.sourceKey}`,
-    );
-    await copyUrlToDirectory(directory, outputUrl, selectedTrack.sourceKey);
   }
 
   function createSnapshot(): ProjectSnapshot {
@@ -2070,7 +2322,7 @@ function App() {
             type="button"
             onClick={() =>
               workspaceMode === "audio"
-                ? void processReviewedAudio()
+                ? openAudioReview()
                 : setActiveStep("export")
             }
           >
@@ -2102,8 +2354,24 @@ function App() {
           <div>
             <strong>{folderName}</strong>
             <button type="button" onClick={() => void chooseMusicDirectory()}>
-              Trocar pasta
+              Abrir pasta
             </button>
+          </div>
+          <div className="library-mode-row">
+            <small className={workspaceWriteEnabled ? "write" : ""}>
+              {workspaceWriteEnabled
+                ? "Substitui originais ao finalizar"
+                : "Não destrutivo"}
+            </small>
+            {workspaceWriteEnabled && (
+              <button
+                className="library-mode-cancel"
+                type="button"
+                onClick={disableWorkspaceWrites}
+              >
+                <X /> Cancelar substituição
+              </button>
+            )}
           </div>
         </div>
         <div
@@ -2187,19 +2455,36 @@ function App() {
         </div>
         <div className="library-actions">
           <button
-            className="dashed-action"
+            className="upload-action"
             type="button"
             onClick={() => void chooseMusicDirectory()}
           >
-            <FolderOpen /> Abrir pasta com escrita
+            <FolderOpen /> Abrir pasta
           </button>
-          <button
-            className="quiet-action"
-            type="button"
-            onClick={() => fallbackFolderInputRef.current?.click()}
-          >
-            <FolderOpen /> Importar pasta sem escrita
-          </button>
+          {musicDirectoryRef.current && !workspaceWriteEnabled && (
+            <button
+              className="quiet-action"
+              type="button"
+              onClick={() => void enableWorkspaceWrites()}
+            >
+              <FolderOpen /> Permitir substituir ao finalizar
+            </button>
+          )}
+          {workspaceWriteEnabled && (
+            <p className="library-mode-note">
+              Os originais só serão trocados se todos os itens selecionados
+              terminarem. Cancelar ou falhar preserva a pasta.
+            </p>
+          )}
+          {typeof window !== "undefined" && !window.showDirectoryPicker && (
+            <button
+              className="quiet-action"
+              type="button"
+              onClick={() => fallbackFolderInputRef.current?.click()}
+            >
+              <FolderOpen /> Importar arquivos
+            </button>
+          )}
           <button
             className="quiet-action"
             type="button"
@@ -2252,8 +2537,8 @@ function App() {
             onBatchCommon={setBatchCommon}
             onCancelAllJobs={() => void cancelAllJobs()}
             onCancelJob={(id) => void cancelJob(id)}
+            onClearTerminalJobs={() => void clearCompletedJobs("terminal")}
             onPauseQueue={() => void pauseQueue()}
-            onProcess={() => void processReviewedAudio()}
             onResumeQueue={() => void resumeQueue()}
             onSelectTrack={setSelectedTrackId}
             onToggleTrack={toggleTrackBatchSelection}
@@ -2271,6 +2556,9 @@ function App() {
         ) : workspaceMode === "audio" && audioStageView === "catalog" ? (
           <CatalogPreview
             coverForTrack={coverForTrack}
+            coverSeriesSettings={coverSeriesSettings}
+            onChooseCover={chooseCatalogCover}
+            onRestoreSuggestedCover={restoreSuggestedCover}
             onSelectTrack={setSelectedTrackId}
             tracks={reviewTracks}
           />
@@ -2278,6 +2566,8 @@ function App() {
           (workspaceMode === "visual" && visualStageView === "videos") ? (
           <VideoReviewGrid
             coverForTrack={coverForTrack}
+            selectedTrackId={selectedTrackId}
+            onEditVisual={openVisualEditor}
             onSelectTrack={setSelectedTrackId}
             onThumbnailMode={(trackId, thumbnailPreviewMode) =>
               updateTrackDraft(trackId, { thumbnailPreviewMode })
@@ -2324,6 +2614,8 @@ function App() {
               current === "planned" ? "embedded" : "planned",
             )
           }
+          onEditArtwork={() => openArtworkEditor()}
+          onEditVisual={() => openVisualEditor()}
           onToggle={() => void togglePlayback()}
         />
       </section>
@@ -2370,18 +2662,7 @@ function App() {
                 onRestoreSuggestedCover={restoreSuggestedCover}
                 onSaveCoverSeriesDefault={saveCoverSeriesDefault}
                 onProcess={() => void processReviewedAudio()}
-                canOverwrite={Boolean(
-                  selectedTrack.packageStatus !== "treated" &&
-                  processedAudioOutputs[selectedTrack.id] &&
-                  musicDirectoryRef.current,
-                )}
-                onOverwrite={() =>
-                  void overwriteSelectedOriginal().catch((reason) =>
-                    setError(
-                      localApiMessage(reason, "sobrescrever o original"),
-                    ),
-                  )
-                }
+                isAnalyzing={analyzingTrackIds.includes(selectedTrack.id)}
               />
             ) : activeStep === "music" ? (
               <MusicInspector
@@ -2562,6 +2843,12 @@ function App() {
         </span>
       </footer>
 
+      {batchFeedback && (
+        <p className="operation-feedback" role="status">
+          <Check /> {batchFeedback}
+        </p>
+      )}
+
       <input
         hidden
         ref={layerInputRef}
@@ -2702,8 +2989,8 @@ function AudioLibraryWorkspace({
   onBatchCommon,
   onCancelAllJobs,
   onCancelJob,
+  onClearTerminalJobs,
   onPauseQueue,
-  onProcess,
   onResumeQueue,
   onSelectTrack,
   onToggleTrack,
@@ -2726,8 +3013,8 @@ function AudioLibraryWorkspace({
   onBatchCommon: (patch: BatchCommonDraft) => void;
   onCancelAllJobs: () => void;
   onCancelJob: (id: string) => void;
+  onClearTerminalJobs: () => void;
   onPauseQueue: () => void;
-  onProcess: () => void;
   onResumeQueue: () => void;
   onSelectTrack: (id: string) => void;
   onToggleTrack: (id: string, selected: boolean) => void;
@@ -2891,14 +3178,6 @@ function AudioLibraryWorkspace({
               >
                 <Check /> Aplicar aos selecionados
               </button>
-              <button
-                className="upload-action"
-                disabled={selectedCount === 0}
-                type="button"
-                onClick={onProcess}
-              >
-                <FileAudio /> Processar selecionados
-              </button>
             </div>
             {batchFeedback && <p className="batch-feedback">{batchFeedback}</p>}
           </div>
@@ -2907,6 +3186,7 @@ function AudioLibraryWorkspace({
           jobs={jobs}
           onCancelAll={onCancelAllJobs}
           onCancelJob={onCancelJob}
+          onClearTerminal={onClearTerminalJobs}
           onPause={onPauseQueue}
           onResume={onResumeQueue}
           queuePaused={queuePaused}
@@ -3260,6 +3540,7 @@ function AudioLibraryWorkspace({
           title="Historico de processamento"
           onCancelAll={onCancelAllJobs}
           onCancelJob={onCancelJob}
+          onClearTerminal={onClearTerminalJobs}
           onPause={onPauseQueue}
           onResume={onResumeQueue}
           queuePaused={queuePaused}
@@ -3348,6 +3629,7 @@ function BatchJobBoard({
   title = "Processamento do lote",
   onCancelAll,
   onCancelJob,
+  onClearTerminal,
   onPause,
   onResume,
   queuePaused,
@@ -3356,6 +3638,7 @@ function BatchJobBoard({
   title?: string;
   onCancelAll: () => void;
   onCancelJob: (id: string) => void;
+  onClearTerminal: () => void;
   onPause: () => void;
   onResume: () => void;
   queuePaused: boolean;
@@ -3383,6 +3666,11 @@ function BatchJobBoard({
           </strong>
         </div>
         <div className="batch-job-actions">
+          {jobCounts.done + jobCounts.failed > 0 && (
+            <button type="button" onClick={onClearTerminal}>
+              <Trash2 /> Limpar concluídos
+            </button>
+          )}
           <button type="button" onClick={queuePaused ? onResume : onPause}>
             {queuePaused ? <Play /> : <Pause />}
             {queuePaused ? "Retomar fila" : "Pausar fila"}
@@ -3461,8 +3749,7 @@ function AudioLibraryInspector({
   onChooseCover,
   onClearCover,
   onCoverSeriesSettings,
-  canOverwrite,
-  onOverwrite,
+  isAnalyzing,
   onProcess,
   onRestoreSuggestedCover,
   onSaveCoverSeriesDefault,
@@ -3480,8 +3767,7 @@ function AudioLibraryInspector({
   onChooseCover: () => void;
   onClearCover: () => void;
   onCoverSeriesSettings: (patch: Partial<CoverSeriesSettings>) => void;
-  canOverwrite: boolean;
-  onOverwrite: () => void;
+  isAnalyzing: boolean;
   onProcess: () => void;
   onRestoreSuggestedCover: () => void;
   onSaveCoverSeriesDefault: () => void;
@@ -3599,6 +3885,9 @@ function AudioLibraryInspector({
           />
           {coverSeriesSettings.enabled && (
             <>
+              <p className="inspector-kicker cover-series-kicker">
+                Numeração principal
+              </p>
               <SelectField
                 label="Sequência"
                 value={coverSeriesSettings.style}
@@ -3663,27 +3952,99 @@ function AudioLibraryInspector({
                   onCoverSeriesSettings({ letterSpacing })
                 }
               />
-              <div className="check-stack">
-                <CheckField
-                  label="Adicionar nome do álbum"
-                  checked={coverSeriesSettings.includeAlbum}
-                  onChange={(includeAlbum) =>
+              <div className="cover-series-meta">
+                <p className="inspector-kicker">Textos complementares</p>
+                <p className="helper-copy">
+                  Ajuste cada tipo separadamente. A ordem é aplicada de cima
+                  para baixo.
+                </p>
+                <TextField
+                  label="Ordem dos campos"
+                  value={coverSeriesSettings.metaOrder}
+                  onChange={(metaOrder) => onCoverSeriesSettings({ metaOrder })}
+                />
+                <RangeField
+                  label="Espaço entre linhas"
+                  max={48}
+                  unit="px"
+                  value={coverSeriesSettings.metaGap}
+                  onChange={(metaGap) => onCoverSeriesSettings({ metaGap })}
+                />
+                <CoverSeriesMetaControls
+                  enabled={coverSeriesSettings.includeTitle}
+                  label="Nome da música"
+                  onEnabled={(includeTitle) =>
+                    onCoverSeriesSettings({ includeTitle })
+                  }
+                  onStyle={(patch) =>
+                    onCoverSeriesSettings({
+                      metaStyles: {
+                        ...coverSeriesSettings.metaStyles,
+                        title: {
+                          ...coverSeriesSettings.metaStyles.title,
+                          ...patch,
+                        },
+                      },
+                    })
+                  }
+                  style={coverSeriesSettings.metaStyles.title}
+                />
+                <CoverSeriesMetaControls
+                  enabled={coverSeriesSettings.includeAlbum}
+                  label="Nome do álbum"
+                  onEnabled={(includeAlbum) =>
                     onCoverSeriesSettings({ includeAlbum })
                   }
+                  onStyle={(patch) =>
+                    onCoverSeriesSettings({
+                      metaStyles: {
+                        ...coverSeriesSettings.metaStyles,
+                        album: {
+                          ...coverSeriesSettings.metaStyles.album,
+                          ...patch,
+                        },
+                      },
+                    })
+                  }
+                  style={coverSeriesSettings.metaStyles.album}
                 />
-                <CheckField
-                  label="Adicionar autor"
-                  checked={coverSeriesSettings.includeArtist}
-                  onChange={(includeArtist) =>
+                <CoverSeriesMetaControls
+                  enabled={coverSeriesSettings.includeArtist}
+                  label="Autor"
+                  onEnabled={(includeArtist) =>
                     onCoverSeriesSettings({ includeArtist })
                   }
+                  onStyle={(patch) =>
+                    onCoverSeriesSettings({
+                      metaStyles: {
+                        ...coverSeriesSettings.metaStyles,
+                        artist: {
+                          ...coverSeriesSettings.metaStyles.artist,
+                          ...patch,
+                        },
+                      },
+                    })
+                  }
+                  style={coverSeriesSettings.metaStyles.artist}
                 />
-                <CheckField
-                  label="Adicionar ano"
-                  checked={coverSeriesSettings.includeYear}
-                  onChange={(includeYear) =>
+                <CoverSeriesMetaControls
+                  enabled={coverSeriesSettings.includeYear}
+                  label="Ano"
+                  onEnabled={(includeYear) =>
                     onCoverSeriesSettings({ includeYear })
                   }
+                  onStyle={(patch) =>
+                    onCoverSeriesSettings({
+                      metaStyles: {
+                        ...coverSeriesSettings.metaStyles,
+                        year: {
+                          ...coverSeriesSettings.metaStyles.year,
+                          ...patch,
+                        },
+                      },
+                    })
+                  }
+                  style={coverSeriesSettings.metaStyles.year}
                 />
               </div>
               <button
@@ -3726,8 +4087,14 @@ function AudioLibraryInspector({
             onChange({ normalizationEnabled })
           }
         />
-        <button className="quiet-action" type="button" onClick={onAnalyze}>
-          <SlidersHorizontal /> Analisar qualidade
+        <button
+          className="quiet-action"
+          disabled={isAnalyzing}
+          type="button"
+          onClick={onAnalyze}
+        >
+          <SlidersHorizontal />{" "}
+          {isAnalyzing ? "Analisando qualidade..." : "Analisar qualidade"}
         </button>
         <button
           className="primary-action wide"
@@ -3736,14 +4103,9 @@ function AudioLibraryInspector({
         >
           <Check />{" "}
           {workflowMode === "batch"
-            ? "Revisar e processar lote"
-            : "Revisar e processar cópia"}
+            ? "Processar selecionados"
+            : "Processar cópia"}
         </button>
-        {canOverwrite && (
-          <button className="quiet-danger" type="button" onClick={onOverwrite}>
-            Sobrescrever original com backup
-          </button>
-        )}
       </InspectorGroup>
     </>
   );
@@ -3826,14 +4188,30 @@ function ScenePreview({
 
 function CatalogPreview({
   coverForTrack,
+  coverSeriesSettings,
+  onChooseCover,
+  onRestoreSuggestedCover,
   onSelectTrack,
   tracks,
 }: {
   coverForTrack: (track?: TrackDraft) => { file: File; src: string } | null;
+  coverSeriesSettings: CoverSeriesSettings;
+  onChooseCover: (trackId: string) => void;
+  onRestoreSuggestedCover: (trackId?: string) => void;
   onSelectTrack: (trackId: string) => void;
   tracks: TrackDraft[];
 }) {
+  const [artworkTrackId, setArtworkTrackId] = useState("");
+  const [showSeries, setShowSeries] = useState(true);
   const albums = groupCatalogTracks(tracks);
+  const artworkTrack = tracks.find((track) => track.id === artworkTrackId);
+
+  function inspectArtwork(track: TrackDraft) {
+    onSelectTrack(track.id);
+    setArtworkTrackId(track.id);
+    setShowSeries(true);
+  }
+
   return (
     <div className="review-stage catalog-review">
       <header className="review-stage-header">
@@ -3849,11 +4227,17 @@ function CatalogPreview({
       <div className="catalog-scroll">
         {albums.length ? (
           albums.map((album) => {
-            const artwork = coverForTrack(album.tracks[0])?.src;
+            const leadTrack = album.tracks[0];
+            const artwork = coverForTrack(leadTrack)?.src;
             return (
               <section className="catalog-album" key={album.id}>
                 <header className="catalog-album-header">
-                  <ArtworkSquare artworkSrc={artwork} />
+                  <CatalogArtworkButton
+                    artworkSrc={artwork}
+                    coverSeriesSettings={coverSeriesSettings}
+                    onClick={() => inspectArtwork(leadTrack)}
+                    track={leadTrack}
+                  />
                   <div>
                     <span className="overline">Álbum</span>
                     <h2>{album.album || "Álbum não informado"}</h2>
@@ -3914,12 +4298,147 @@ function CatalogPreview({
           <EmptyReviewState />
         )}
       </div>
+      {artworkTrack && (
+        <div
+          className="catalog-artwork-overlay"
+          role="presentation"
+          onMouseDown={() => setArtworkTrackId("")}
+        >
+          <section
+            aria-labelledby="catalog-artwork-title"
+            aria-modal="true"
+            className="catalog-artwork-dialog"
+            role="dialog"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <span className="overline">Prévia da capa tratada</span>
+                <h2 id="catalog-artwork-title">
+                  {artworkTrack.metadata.title || "Faixa sem título"}
+                </h2>
+              </div>
+              <button
+                aria-label="Fechar inspeção da capa"
+                className="icon-button"
+                type="button"
+                onClick={() => setArtworkTrackId("")}
+              >
+                <X />
+              </button>
+            </header>
+            <div className="catalog-artwork-dialog-layout">
+              <CoverSeriesArtwork
+                artworkSrc={coverForTrack(artworkTrack)?.src}
+                className="catalog-artwork-expanded"
+                coverSeriesSettings={coverSeriesSettings}
+                showSeries={showSeries}
+                track={artworkTrack}
+              />
+              <aside>
+                <div>
+                  <span className="overline">Série visual</span>
+                  <strong>
+                    {coverSeriesSettings.enabled
+                      ? "Prévia ao vivo ativa"
+                      : "Série visual desativada"}
+                  </strong>
+                  <p>
+                    A capa tratada usa os mesmos ajustes exibidos aqui. Altere
+                    os controles no inspetor para conferir o resultado na hora.
+                  </p>
+                </div>
+                <div className="catalog-artwork-actions">
+                  <button
+                    className="upload-action"
+                    type="button"
+                    onClick={() => onChooseCover(artworkTrack.id)}
+                  >
+                    <Image /> Trocar imagem
+                  </button>
+                  {artworkTrack.suggestedCover && (
+                    <button
+                      className="quiet-action"
+                      type="button"
+                      onClick={() => onRestoreSuggestedCover(artworkTrack.id)}
+                    >
+                      <RotateCcw /> Usar arte oferecida
+                    </button>
+                  )}
+                  <button
+                    className="quiet-action"
+                    type="button"
+                    onClick={() => setShowSeries((current) => !current)}
+                  >
+                    {showSeries ? <EyeOff /> : <Eye />}
+                    {showSeries ? "Ver arte base" : "Ver com série visual"}
+                  </button>
+                </div>
+                <div className="catalog-artwork-series-list">
+                  <span className="overline">Capas da série</span>
+                  {tracks.map((track) => (
+                    <button
+                      className={track.id === artworkTrack.id ? "active" : ""}
+                      key={track.id}
+                      type="button"
+                      onClick={() => {
+                        onSelectTrack(track.id);
+                        setArtworkTrackId(track.id);
+                      }}
+                    >
+                      <strong>
+                        {coverSeriesPreviewLabel(track, coverSeriesSettings) ||
+                          track.metadata.trackNumber ||
+                          "–"}
+                      </strong>
+                      <span>{track.metadata.title || "Faixa sem título"}</span>
+                    </button>
+                  ))}
+                </div>
+              </aside>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
+  );
+}
+
+function CatalogArtworkButton({
+  artworkSrc,
+  coverSeriesSettings,
+  onClick,
+  track,
+}: {
+  artworkSrc?: string;
+  coverSeriesSettings: CoverSeriesSettings;
+  onClick: () => void;
+  track: TrackDraft;
+}) {
+  return (
+    <button
+      aria-label={`Inspecionar arte de ${track.metadata.album || track.metadata.title || "álbum"}`}
+      className="catalog-artwork-button"
+      type="button"
+      onClick={onClick}
+    >
+      <span aria-hidden="true" className="catalog-artwork-vinyl" />
+      <ArtworkSquare
+        artworkSrc={artworkSrc}
+        coverSeriesSettings={coverSeriesSettings}
+        track={track}
+      />
+      <span className="catalog-artwork-edit">
+        <Maximize2 /> Conferir
+      </span>
+    </button>
   );
 }
 
 function VideoReviewGrid({
   coverForTrack,
+  selectedTrackId,
+  onEditVisual,
   onSelectTrack,
   onThumbnailMode,
   outputLabel,
@@ -3927,6 +4446,8 @@ function VideoReviewGrid({
   tracks,
 }: {
   coverForTrack: (track?: TrackDraft) => { file: File; src: string } | null;
+  selectedTrackId: string;
+  onEditVisual: (trackId: string) => void;
   onSelectTrack: (trackId: string) => void;
   onThumbnailMode: (
     trackId: string,
@@ -3952,8 +4473,12 @@ function VideoReviewGrid({
         <div className="youtube-grid">
           {tracks.map((track) => {
             const coverSrc = coverForTrack(track)?.src;
+            const selected = track.id === selectedTrackId;
             return (
-              <article className="youtube-card" key={track.id}>
+              <article
+                className={`youtube-card ${selected ? "selected" : ""}`}
+                key={track.id}
+              >
                 <button
                   className="youtube-thumbnail"
                   type="button"
@@ -4022,6 +4547,46 @@ function VideoReviewGrid({
                     Capa
                   </button>
                 </div>
+                {selected && (
+                  <div className="video-card-options">
+                    <button
+                      aria-label="Usar frame da composição"
+                      className="quiet-action"
+                      type="button"
+                      onClick={() => onThumbnailMode(track.id, "composition")}
+                    >
+                      <Video />
+                      <span>
+                        <strong>Frame</strong>
+                        <small>Composição</small>
+                      </span>
+                    </button>
+                    <button
+                      aria-label="Usar capa"
+                      className="quiet-action"
+                      type="button"
+                      onClick={() => onThumbnailMode(track.id, "cover")}
+                    >
+                      <Image />
+                      <span>
+                        <strong>Capa</strong>
+                        <small>Arte da faixa</small>
+                      </span>
+                    </button>
+                    <button
+                      aria-label="Ajustar visual"
+                      className="primary-action"
+                      type="button"
+                      onClick={() => onEditVisual(track.id)}
+                    >
+                      <SlidersHorizontal />
+                      <span>
+                        <strong>Configurar frame</strong>
+                        <small>Abrir Estúdio visual</small>
+                      </span>
+                    </button>
+                  </div>
+                )}
               </article>
             );
           })}
@@ -4117,20 +4682,109 @@ function CompositionThumbnail({
     return <img alt="" className="composition-thumbnail" src={previewSrc} />;
   }
   return (
-    <canvas
-      className="composition-thumbnail"
-      height="180"
-      ref={canvasRef}
-      width="320"
+    <span className="composition-thumbnail composition-thumbnail-loading">
+      {coverSrc ? <img alt="" src={coverSrc} /> : <Video />}
+      <span>
+        <Loader2 />
+        Gerando frame
+      </span>
+      <canvas aria-hidden="true" height="180" ref={canvasRef} width="320" />
+    </span>
+  );
+}
+
+function ArtworkSquare({
+  artworkSrc,
+  coverSeriesSettings,
+  track,
+}: {
+  artworkSrc?: string;
+  coverSeriesSettings?: CoverSeriesSettings;
+  track?: TrackDraft;
+}) {
+  return (
+    <CoverSeriesArtwork
+      artworkSrc={artworkSrc}
+      className="artwork-square"
+      coverSeriesSettings={coverSeriesSettings}
+      track={track}
     />
   );
 }
 
-function ArtworkSquare({ artworkSrc }: { artworkSrc?: string }) {
+function CoverSeriesArtwork({
+  artworkSrc,
+  className,
+  coverSeriesSettings,
+  showSeries = true,
+  track,
+}: {
+  artworkSrc?: string;
+  className: string;
+  coverSeriesSettings?: CoverSeriesSettings;
+  showSeries?: boolean;
+  track?: TrackDraft;
+}) {
   return (
-    <span className="artwork-square">
+    <span className={`cover-series-artwork ${className}`}>
       {artworkSrc ? <img alt="" src={artworkSrc} /> : <Disc3 />}
+      {showSeries && track && coverSeriesSettings?.enabled && (
+        <CoverSeriesOverlay settings={coverSeriesSettings} track={track} />
+      )}
     </span>
+  );
+}
+
+function CoverSeriesOverlay({
+  settings,
+  track,
+}: {
+  settings: CoverSeriesSettings;
+  track: TrackDraft;
+}) {
+  const lines = coverSeriesPreviewLines(track, settings);
+  let lineY = coverSeriesAxis(settings.y, 8, 94) + settings.fontSize * 0.48;
+  return (
+    <svg
+      aria-hidden="true"
+      className="cover-series-overlay"
+      viewBox="0 0 1600 1600"
+    >
+      <text
+        dominantBaseline="auto"
+        fill={settings.color}
+        fillOpacity={settings.opacity / 100}
+        fontFamily="Georgia, Times New Roman, serif"
+        fontSize={settings.fontSize}
+        fontWeight="400"
+        letterSpacing={settings.letterSpacing}
+        textAnchor="middle"
+        x={coverSeriesAxis(settings.x, 8, 92)}
+        y={coverSeriesAxis(settings.y, 8, 94)}
+      >
+        {coverSeriesPreviewLabel(track, settings)}
+      </text>
+      {lines.map((line) => {
+        const y = lineY + line.style.offsetY;
+        lineY += line.style.fontSize + settings.metaGap;
+        return (
+          <text
+            fill={line.style.color}
+            fillOpacity={line.style.opacity / 100}
+            fontFamily="Inter, Arial, sans-serif"
+            fontSize={line.style.fontSize}
+            fontWeight="520"
+            key={line.key}
+            letterSpacing="5"
+            textAnchor="middle"
+            x={coverSeriesAxis(settings.x, 8, 92) + line.style.offsetX}
+            y={y}
+          >
+            {line.text}
+          </text>
+        );
+      })}
+    </svg>
   );
 }
 
@@ -4140,6 +4794,107 @@ function ArtworkFrame({ artworkSrc }: { artworkSrc?: string }) {
       {artworkSrc ? <img alt="" src={artworkSrc} /> : <Disc3 />}
     </span>
   );
+}
+
+function coverSeriesPreviewLabel(
+  track: TrackDraft,
+  settings: CoverSeriesSettings,
+) {
+  if (settings.style === "arabic") {
+    return String(track.metadata.trackNumber || 1);
+  }
+  if (settings.style === "roman") {
+    return romanNumeral(track.metadata.trackNumber || 1);
+  }
+  const entries = settings.sequence
+    .split(/[\n,;|]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return (
+    entries[Math.max(0, Number(track.metadata.trackNumber || 1) - 1)] ??
+    entries[0] ??
+    ""
+  );
+}
+
+function coverSeriesPreviewLines(
+  track: TrackDraft,
+  settings: CoverSeriesSettings,
+) {
+  const metadata: Record<CoverSeriesMetaKey, string> = {
+    title: track.metadata.title,
+    album: track.metadata.album,
+    artist: track.metadata.albumArtist || track.metadata.artist,
+    year: track.metadata.year,
+  };
+  const visibility: Record<CoverSeriesMetaKey, boolean> = {
+    title: settings.includeTitle,
+    album: settings.includeAlbum,
+    artist: settings.includeArtist,
+    year: settings.includeYear,
+  };
+  return coverSeriesMetaOrder(settings.metaOrder)
+    .filter((key) => visibility[key] && metadata[key])
+    .map((key) => ({
+      key,
+      text: metadata[key],
+      style: settings.metaStyles[key],
+    }));
+}
+
+function coverSeriesMetaOrder(value: string): CoverSeriesMetaKey[] {
+  const allowed = new Set<CoverSeriesMetaKey>([
+    "title",
+    "album",
+    "artist",
+    "year",
+  ]);
+  const parsed = String(value ?? "")
+    .split(/[\n,;|]+/)
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry): entry is CoverSeriesMetaKey =>
+      allowed.has(entry as CoverSeriesMetaKey),
+    );
+  return [
+    ...new Set<CoverSeriesMetaKey>([
+      ...parsed,
+      "title",
+      "album",
+      "artist",
+      "year",
+    ]),
+  ];
+}
+
+function coverSeriesAxis(value: number, min: number, max: number) {
+  return (Math.max(min, Math.min(max, Number(value) || min)) / 100) * 1600;
+}
+
+function romanNumeral(value: number) {
+  let remaining = Math.max(0, Math.floor(Number(value) || 0));
+  const pairs: Array<[number, string]> = [
+    [1000, "M"],
+    [900, "CM"],
+    [500, "D"],
+    [400, "CD"],
+    [100, "C"],
+    [90, "XC"],
+    [50, "L"],
+    [40, "XL"],
+    [10, "X"],
+    [9, "IX"],
+    [5, "V"],
+    [4, "IV"],
+    [1, "I"],
+  ];
+  let output = "";
+  for (const [number, numeral] of pairs) {
+    while (remaining >= number) {
+      output += numeral;
+      remaining -= number;
+    }
+  }
+  return output;
 }
 
 function EmptyReviewState() {
@@ -4166,6 +4921,8 @@ function Transport({
   trackCount,
   trackIndex,
   trackTitle,
+  onEditArtwork,
+  onEditVisual,
   onNext,
   onPrevious,
   onToggleArtwork,
@@ -4182,6 +4939,8 @@ function Transport({
   trackCount: number;
   trackIndex: number;
   trackTitle: string;
+  onEditArtwork: () => void;
+  onEditVisual: () => void;
   onNext: () => void;
   onPrevious: () => void;
   onToggleArtwork: () => void;
@@ -4254,6 +5013,21 @@ function Transport({
           {artworkSrc ? <img alt="" src={artworkSrc} /> : <Music2 />}
         </button>
         {artworkLabel && <small>{artworkLabel}</small>}
+        <div className="transport-artwork-popover">
+          <div className="transport-artwork-preview">
+            {artworkSrc ? <img alt="" src={artworkSrc} /> : <Music2 />}
+          </div>
+          <strong>{trackTitle || "Nenhuma faixa selecionada"}</strong>
+          <span>Prévia ampliada da arte atual</span>
+          <div className="transport-artwork-actions">
+            <button type="button" onClick={onEditArtwork}>
+              <Image /> Ajustar capa
+            </button>
+            <button type="button" onClick={onEditVisual}>
+              <SlidersHorizontal /> Visual
+            </button>
+          </div>
+        </div>
       </div>
       <div className="transport-track">
         <strong>{trackTitle || "Nenhuma faixa selecionada"}</strong>
@@ -4278,6 +5052,78 @@ function Transport({
       />
       <span className="transport-time">{formatDuration(duration)}</span>
     </div>
+  );
+}
+
+function CoverSeriesMetaControls({
+  enabled,
+  label,
+  onEnabled,
+  onStyle,
+  style,
+}: {
+  enabled: boolean;
+  label: string;
+  onEnabled: (enabled: boolean) => void;
+  onStyle: (patch: Partial<CoverSeriesMetaStyle>) => void;
+  style: CoverSeriesMetaStyle;
+}) {
+  return (
+    <details className="cover-series-meta-field" open={enabled}>
+      <summary>
+        <span>{label}</span>
+        <small>{enabled ? "Ativo" : "Oculto"}</small>
+      </summary>
+      <div>
+        <CheckField
+          checked={enabled}
+          label={`Exibir ${label.toLowerCase()}`}
+          onChange={onEnabled}
+        />
+        {enabled && (
+          <>
+            <div className="two-columns">
+              <RangeField
+                label="Tamanho"
+                max={72}
+                min={18}
+                unit="px"
+                value={style.fontSize}
+                onChange={(fontSize) => onStyle({ fontSize })}
+              />
+              <ColorInput
+                label="Cor"
+                value={style.color}
+                onChange={(color) => onStyle({ color })}
+              />
+            </div>
+            <RangeField
+              label="Opacidade"
+              value={style.opacity}
+              onChange={(opacity) => onStyle({ opacity })}
+            />
+            <div className="two-columns">
+              <RangeField
+                label="Deslocamento X"
+                max={160}
+                min={-160}
+                unit="px"
+                value={style.offsetX}
+                onChange={(offsetX) => onStyle({ offsetX })}
+              />
+              <RangeField
+                label="Deslocamento Y"
+                max={160}
+                min={-160}
+                unit="px"
+                value={style.offsetY}
+                onChange={(offsetY) => onStyle({ offsetY })}
+              />
+            </div>
+          </>
+        )}
+      </div>
+    </details>
   );
 }
 
@@ -4676,9 +5522,6 @@ function VisualInspector(props: {
           )}
         </InspectorGroup>
       )}
-      <InspectorGroup title={`Camadas · ${props.layers.length}/3`} open>
-        <LayerEditor {...props} />
-      </InspectorGroup>
       <InspectorGroup title="Waveform">
         <CheckField
           label="Mostrar waveform"
@@ -4702,54 +5545,108 @@ function VisualInspector(props: {
                 <option value="spectrum-bars">Barras espectrais</option>
                 <option value="radial-ring">Anel radial</option>
               </SelectField>
+              <div className="waveform-preset-grid">
+                {waveformStylePresets.map((preset) => (
+                  <button
+                    key={preset.name}
+                    type="button"
+                    onClick={() =>
+                      props.onWaveform({
+                        ...preset.patch,
+                        advanced: {
+                          ...scene.waveform.advanced,
+                          ...preset.patch.advanced,
+                        },
+                      })
+                    }
+                  >
+                    {preset.name}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="inspector-subsection">
               <p className="inspector-kicker">Aparência</p>
-              <ColorInput
-                label="Cor"
-                value={scene.waveform.color}
-                onChange={(color) => props.onWaveform({ color })}
-              />
+              <SelectField
+                label="Modo de cor"
+                value={scene.waveform.colorMode}
+                onChange={(colorMode) =>
+                  props.onWaveform({
+                    colorMode: colorMode as WaveformV1["colorMode"],
+                  })
+                }
+              >
+                <option value="single">Cor única</option>
+                <option value="gradient">Gradiente</option>
+                <option value="bands">Cores por banda</option>
+              </SelectField>
+              <div className="waveform-color-grid">
+                <ColorInput
+                  label="Principal"
+                  value={scene.waveform.color}
+                  onChange={(color) => props.onWaveform({ color })}
+                />
+                <ColorInput
+                  label="Cor 2"
+                  value={scene.waveform.secondaryColor}
+                  onChange={(secondaryColor) =>
+                    props.onWaveform({ secondaryColor })
+                  }
+                />
+                <ColorInput
+                  label="Cor 3"
+                  value={scene.waveform.tertiaryColor}
+                  onChange={(tertiaryColor) =>
+                    props.onWaveform({ tertiaryColor })
+                  }
+                />
+              </div>
               <RangeField
                 label="Opacidade"
                 value={scene.waveform.opacity}
                 onChange={(opacity) => props.onWaveform({ opacity })}
               />
-              <RangeField
-                label="Altura"
-                value={scene.waveform.height}
-                onChange={(height) => props.onWaveform({ height })}
-              />
-              <RangeField
-                label="Posição"
-                value={scene.waveform.position}
-                onChange={(position) => props.onWaveform({ position })}
-              />
-              <RangeField
-                label="Largura"
-                value={scene.waveform.width}
-                onChange={(width) => props.onWaveform({ width })}
-              />
-              <RangeField
-                label="Espessura"
-                min={1}
-                max={6}
-                unit="px"
-                value={scene.waveform.thickness}
-                onChange={(thickness) => props.onWaveform({ thickness })}
-              />
-              <RangeField
-                label="Suavização"
-                value={scene.waveform.smoothing}
-                onChange={(smoothing) => props.onWaveform({ smoothing })}
-              />
-              <RangeField
-                label="Reação musical"
-                value={scene.waveform.audioReaction}
-                onChange={(audioReaction) =>
-                  props.onWaveform({ audioReaction })
-                }
-              />
+              <div className="two-columns">
+                <RangeField
+                  label="Altura"
+                  value={scene.waveform.height}
+                  onChange={(height) => props.onWaveform({ height })}
+                />
+                <RangeField
+                  label="Posição"
+                  value={scene.waveform.position}
+                  onChange={(position) => props.onWaveform({ position })}
+                />
+              </div>
+              <div className="two-columns">
+                <RangeField
+                  label="Largura"
+                  value={scene.waveform.width}
+                  onChange={(width) => props.onWaveform({ width })}
+                />
+                <RangeField
+                  label="Espessura"
+                  min={1}
+                  max={6}
+                  unit="px"
+                  value={scene.waveform.thickness}
+                  onChange={(thickness) => props.onWaveform({ thickness })}
+                />
+              </div>
+              <div className="two-columns">
+                <RangeField
+                  label="Suavização"
+                  value={scene.waveform.smoothing}
+                  onChange={(smoothing) => props.onWaveform({ smoothing })}
+                />
+                <RangeField
+                  label="Reação musical"
+                  value={scene.waveform.audioReaction}
+                  onChange={(audioReaction) =>
+                    props.onWaveform({ audioReaction })
+                  }
+                />
+              </div>
             </div>
             <div className="inspector-subsection">
               <p className="inspector-kicker">Ajustes do tipo</p>
@@ -4781,6 +5678,30 @@ function VisualInspector(props: {
                     onChange={(barRadius) =>
                       props.onWaveform({
                         advanced: { ...scene.waveform.advanced, barRadius },
+                      })
+                    }
+                  />
+                  <RangeField
+                    label="Pico decrescente"
+                    value={scene.waveform.advanced.barPeakHold}
+                    onChange={(barPeakHold) =>
+                      props.onWaveform({
+                        advanced: {
+                          ...scene.waveform.advanced,
+                          barPeakHold,
+                        },
+                      })
+                    }
+                  />
+                  <RangeField
+                    label="Velocidade do pico"
+                    value={scene.waveform.advanced.barPeakDecay}
+                    onChange={(barPeakDecay) =>
+                      props.onWaveform({
+                        advanced: {
+                          ...scene.waveform.advanced,
+                          barPeakDecay,
+                        },
                       })
                     }
                   />
@@ -4821,11 +5742,26 @@ function VisualInspector(props: {
                       })
                     }
                   />
+                  <RangeField
+                    label="Brilho"
+                    value={scene.waveform.advanced.radialGlow}
+                    onChange={(radialGlow) =>
+                      props.onWaveform({
+                        advanced: {
+                          ...scene.waveform.advanced,
+                          radialGlow,
+                        },
+                      })
+                    }
+                  />
                 </>
               )}
             </div>
           </>
         )}
+      </InspectorGroup>
+      <InspectorGroup title={`Camadas · ${props.layers.length}/3`} open>
+        <LayerEditor {...props} />
       </InspectorGroup>
     </>
   );
@@ -4842,6 +5778,8 @@ function LayerEditor(props: {
   onUndoLayer: () => void;
   onUpdateLayer: (id: string, patch: Partial<MediaLayerV2>) => void;
 }) {
+  const [coverPreset, setCoverPreset] =
+    useState<CoverLayerPreset>("background");
   return (
     <div className="layer-editor">
       <div className="inline-actions">
@@ -4860,26 +5798,35 @@ function LayerEditor(props: {
       </div>
       <div className="inspector-subsection">
         <p className="inspector-kicker">Capa no vídeo</p>
-        <div className="preset-chip-grid">
-          {(Object.keys(coverLayerPresetLabels) as CoverLayerPreset[]).map(
-            (preset) => (
-              <button
-                key={preset}
-                type="button"
-                onClick={() => props.onApplyCoverLayer(preset)}
-              >
-                {coverLayerPresetLabels[preset]}
-              </button>
-            ),
-          )}
+        <div className="cover-layer-apply">
+          <SelectField
+            label="Posição"
+            value={coverPreset}
+            onChange={(preset) => setCoverPreset(preset as CoverLayerPreset)}
+          >
+            {(Object.keys(coverLayerPresetLabels) as CoverLayerPreset[]).map(
+              (preset) => (
+                <option key={preset} value={preset}>
+                  {coverLayerPresetLabels[preset]}
+                </option>
+              ),
+            )}
+          </SelectField>
+          <button
+            className="upload-action"
+            type="button"
+            onClick={() => props.onApplyCoverLayer(coverPreset)}
+          >
+            <Image /> Aplicar capa
+          </button>
         </div>
         {props.onApplyCoverLayerBatch && (
           <button
             className="quiet-action"
             type="button"
-            onClick={() => props.onApplyCoverLayerBatch?.("background")}
+            onClick={() => props.onApplyCoverLayerBatch?.(coverPreset)}
           >
-            <Layers3 /> Aplicar fundo com capa ao lote
+            <Layers3 /> Aplicar capa ao lote
           </button>
         )}
         <p className="helper-copy">
@@ -5154,6 +6101,8 @@ function TextInspector({
           <option value="top-left">Topo esquerdo</option>
           <option value="bottom-center">Base central</option>
           <option value="cover-left">Capa à esquerda</option>
+          <option value="side-left">Lado a lado · texto à esquerda</option>
+          <option value="side-right">Lado a lado · texto à direita</option>
         </SelectField>
         <SelectField
           label="Fonte"
@@ -5235,6 +6184,21 @@ function TextInspector({
           <option value="left">Esquerda</option>
           <option value="center">Centro</option>
           <option value="right">Direita</option>
+          <option value="justify">Justificado</option>
+        </SelectField>
+        <SelectField
+          label="Âncora vertical"
+          value={textSettings.verticalAnchor}
+          onChange={(verticalAnchor) =>
+            onTextSettings({
+              verticalAnchor:
+                verticalAnchor as TextOverlaySettings["verticalAnchor"],
+            })
+          }
+        >
+          <option value="top">Topo</option>
+          <option value="middle">Centro</option>
+          <option value="bottom">Base</option>
         </SelectField>
         <RangeField
           label="Sombra"
@@ -6035,6 +6999,7 @@ function textPresetPatch(
       x: 50,
       y: 78,
       align: "center",
+      verticalAnchor: "top",
       fontSize: 34,
       shadow: 58,
     };
@@ -6045,8 +7010,31 @@ function textPresetPatch(
       x: 58,
       y: 34,
       align: "left",
+      verticalAnchor: "top",
       fontSize: 38,
       shadow: 52,
+    };
+  }
+  if (preset === "side-left") {
+    return {
+      preset,
+      x: 7,
+      y: 50,
+      align: "left",
+      verticalAnchor: "middle",
+      fontSize: 36,
+      shadow: 54,
+    };
+  }
+  if (preset === "side-right") {
+    return {
+      preset,
+      x: 64,
+      y: 50,
+      align: "left",
+      verticalAnchor: "middle",
+      fontSize: 36,
+      shadow: 54,
     };
   }
   return {
@@ -6054,6 +7042,7 @@ function textPresetPatch(
     x: 5,
     y: 7,
     align: "left",
+    verticalAnchor: "top",
     fontSize: 42,
     shadow: 48,
   };
@@ -6164,6 +7153,12 @@ function normalizeCoverSeriesClient(value: unknown): CoverSeriesSettings {
     value && typeof value === "object"
       ? (value as Partial<CoverSeriesSettings>)
       : {};
+  const metaFontSize = clampNumber(
+    Number(candidate.metaFontSize ?? defaultCoverSeriesSettings.metaFontSize),
+    18,
+    72,
+    defaultCoverSeriesSettings.metaFontSize,
+  );
   return {
     ...defaultCoverSeriesSettings,
     ...candidate,
@@ -6174,6 +7169,72 @@ function normalizeCoverSeriesClient(value: unknown): CoverSeriesSettings {
     color: /^#[0-9a-f]{6}$/i.test(String(candidate.color ?? ""))
       ? String(candidate.color)
       : defaultCoverSeriesSettings.color,
+    metaOrder: String(
+      candidate.metaOrder ?? defaultCoverSeriesSettings.metaOrder,
+    ),
+    metaFontSize,
+    metaGap: clampNumber(
+      Number(candidate.metaGap ?? defaultCoverSeriesSettings.metaGap),
+      0,
+      48,
+      defaultCoverSeriesSettings.metaGap,
+    ),
+    metaStyles: {
+      title: normalizeCoverSeriesMetaStyleClient(candidate.metaStyles?.title, {
+        ...defaultCoverSeriesSettings.metaStyles.title,
+        fontSize: Math.max(38, metaFontSize),
+      }),
+      album: normalizeCoverSeriesMetaStyleClient(candidate.metaStyles?.album, {
+        ...defaultCoverSeriesSettings.metaStyles.album,
+        fontSize: metaFontSize,
+      }),
+      artist: normalizeCoverSeriesMetaStyleClient(
+        candidate.metaStyles?.artist,
+        {
+          ...defaultCoverSeriesSettings.metaStyles.artist,
+          fontSize: Math.max(18, metaFontSize - 2),
+        },
+      ),
+      year: normalizeCoverSeriesMetaStyleClient(candidate.metaStyles?.year, {
+        ...defaultCoverSeriesSettings.metaStyles.year,
+        fontSize: Math.max(18, metaFontSize - 6),
+      }),
+    },
+  };
+}
+
+function normalizeCoverSeriesMetaStyleClient(
+  value: Partial<CoverSeriesMetaStyle> | undefined,
+  fallback: CoverSeriesMetaStyle,
+): CoverSeriesMetaStyle {
+  return {
+    fontSize: clampNumber(
+      Number(value?.fontSize ?? fallback.fontSize),
+      18,
+      72,
+      fallback.fontSize,
+    ),
+    color: /^#[0-9a-f]{6}$/i.test(String(value?.color ?? ""))
+      ? String(value?.color)
+      : fallback.color,
+    opacity: clampNumber(
+      Number(value?.opacity ?? fallback.opacity),
+      20,
+      100,
+      fallback.opacity,
+    ),
+    offsetX: clampNumber(
+      Number(value?.offsetX ?? fallback.offsetX),
+      -320,
+      320,
+      fallback.offsetX,
+    ),
+    offsetY: clampNumber(
+      Number(value?.offsetY ?? fallback.offsetY),
+      -320,
+      320,
+      fallback.offsetY,
+    ),
   };
 }
 
@@ -6186,6 +7247,13 @@ function savePanelWidths(widths: { left: number; right: number }) {
   } catch {
     // Local layout preference can be ignored when storage is unavailable.
   }
+}
+
+function clampNumber(value: number, min: number, max: number, fallback = min) {
+  return Math.min(
+    Math.max(Number.isFinite(value) ? value : fallback, min),
+    max,
+  );
 }
 
 function clampPanelWidth(
@@ -6388,6 +7456,65 @@ async function copyUrlToDirectory(
   const file = await handle.getFileHandle(fileName, { create: true });
   const writable = await file.createWritable();
   await response.body.pipeTo(writable);
+}
+
+async function getWorkspaceFile(
+  handle: FileSystemDirectoryHandle,
+  sourceKey: string,
+) {
+  const { directory, fileName } = await resolveWorkspaceFileTarget(
+    handle,
+    sourceKey,
+    false,
+  );
+  const file = await directory.getFileHandle(fileName);
+  return file.getFile();
+}
+
+async function writeBlobToWorkspacePath(
+  handle: FileSystemDirectoryHandle,
+  sourceKey: string,
+  blob: Blob,
+) {
+  const { directory, fileName } = await resolveWorkspaceFileTarget(
+    handle,
+    sourceKey,
+    true,
+  );
+  const file = await directory.getFileHandle(fileName, { create: true });
+  const writable = await file.createWritable();
+  await blob.stream().pipeTo(writable);
+}
+
+async function resolveWorkspaceFileTarget(
+  handle: FileSystemDirectoryHandle,
+  sourceKey: string,
+  createDirectories: boolean,
+) {
+  const segments = workspaceRelativeSegments(sourceKey, handle.name);
+  const fileName = segments.pop() ?? sourceKey;
+  let directory = handle;
+  for (const segment of segments) {
+    directory = await directory.getDirectoryHandle(segment, {
+      create: createDirectories,
+    });
+  }
+  return { directory, fileName };
+}
+
+function workspaceRelativeSegments(sourceKey: string, rootName: string) {
+  const segments = sourceKey.split(/[\\/]+/).filter(Boolean);
+  if (
+    segments[0] &&
+    segments[0].localeCompare(rootName, "pt-BR", { sensitivity: "base" }) === 0
+  ) {
+    return segments.slice(1);
+  }
+  return segments;
+}
+
+function backupFileName(sourceKey: string, stamp: string) {
+  return `${stamp}-${workspaceRelativeSegments(sourceKey, "").join("__")}`;
 }
 
 async function copyFileToDirectory(

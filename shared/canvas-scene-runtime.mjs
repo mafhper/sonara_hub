@@ -943,8 +943,17 @@ function drawWaveform(context, width, height, waveform, audio, time) {
     ? audio.spectrum
     : syntheticSpectrum(audio, time);
   context.save();
-  context.strokeStyle = hexToRgba(waveform.color, waveform.opacity / 100);
-  context.fillStyle = hexToRgba(waveform.color, waveform.opacity / 100);
+  const lineStyle = waveformPaint(
+    context,
+    waveform,
+    startX,
+    centerY - amplitude,
+    startX + visualWidth,
+    centerY + amplitude,
+    waveform.opacity / 100,
+  );
+  context.strokeStyle = lineStyle;
+  context.fillStyle = lineStyle;
   context.lineWidth = waveform.thickness;
   context.lineJoin = "round";
   context.lineCap = "round";
@@ -980,6 +989,7 @@ function drawWaveform(context, width, height, waveform, audio, time) {
         centerY,
         amplitude,
         waveform,
+        time,
       );
       break;
     case "radial-ring":
@@ -991,6 +1001,7 @@ function drawWaveform(context, width, height, waveform, audio, time) {
         centerY,
         amplitude,
         waveform,
+        time,
       );
       break;
     default:
@@ -1057,8 +1068,13 @@ function drawFilledRibbon(
     context.lineTo(x, centerY + sample * amplitude);
   });
   context.closePath();
-  context.fillStyle = hexToRgba(
-    waveform.color,
+  context.fillStyle = waveformPaint(
+    context,
+    waveform,
+    startX,
+    centerY - amplitude,
+    startX + width,
+    centerY + amplitude,
     (waveform.opacity / 100) * ((waveform.advanced?.fillOpacity ?? 28) / 100),
   );
   context.fill();
@@ -1073,6 +1089,7 @@ function drawSpectrumBars(
   centerY,
   amplitude,
   waveform,
+  time,
 ) {
   const gap = Math.max(
     1,
@@ -1083,9 +1100,19 @@ function drawSpectrumBars(
     barWidth / 2,
     (waveform.advanced?.barRadius ?? 62) / 10,
   );
+  const peakHold =
+    Math.max(0, Math.min(100, waveform.advanced?.barPeakHold ?? 0)) / 100;
+  const peakDecay =
+    Math.max(0, Math.min(100, waveform.advanced?.barPeakDecay ?? 56)) / 100;
   spectrum.forEach((value, index) => {
     const x = startX + index * (barWidth + gap);
     const barHeight = Math.max(waveform.thickness, value * amplitude * 2);
+    context.fillStyle = waveformBandPaint(
+      waveform,
+      index,
+      spectrum.length,
+      waveform.opacity / 100,
+    );
     roundedRect(
       context,
       x,
@@ -1094,6 +1121,36 @@ function drawSpectrumBars(
       barHeight,
       radius,
     );
+    if (peakHold > 0.02) {
+      const phase = Math.sin(time * (0.7 + peakDecay * 1.6) + index * 0.91);
+      const peakHeight = Math.min(
+        amplitude * 2.1,
+        barHeight + amplitude * peakHold * (0.45 + phase * 0.18),
+      );
+      const capHeight = Math.max(2, waveform.thickness * 1.2);
+      context.fillStyle = waveformBandPaint(
+        waveform,
+        index,
+        spectrum.length,
+        Math.min(1, waveform.opacity / 70),
+      );
+      roundedRect(
+        context,
+        x,
+        centerY - peakHeight / 2 - capHeight * 1.15,
+        barWidth,
+        capHeight,
+        Math.min(radius, capHeight / 2),
+      );
+      roundedRect(
+        context,
+        x,
+        centerY + peakHeight / 2 + capHeight * 0.35,
+        barWidth,
+        capHeight,
+        Math.min(radius, capHeight / 2),
+      );
+    }
   });
 }
 
@@ -1105,17 +1162,59 @@ function drawRadialRing(
   centerY,
   amplitude,
   waveform,
+  time,
 ) {
   const arc = ((waveform.advanced?.radialArc ?? 100) / 100) * Math.PI * 2;
   const rotation =
     (((waveform.advanced?.radialRotation ?? 0) - 90) * Math.PI) / 180;
   const radius =
     Math.min(width, height) * ((waveform.advanced?.radialRadius ?? 32) / 100);
+  const glow = Math.max(0, Math.min(100, waveform.advanced?.radialGlow ?? 0));
   context.save();
   context.translate(width / 2, centerY);
+  if (glow > 0) {
+    context.shadowBlur = (glow / 100) * Math.min(width, height) * 0.045;
+    context.shadowColor = waveformBandPaint(waveform, 1, 3, 0.72);
+  }
+  context.strokeStyle = waveformPaint(
+    context,
+    waveform,
+    -radius,
+    0,
+    radius,
+    0,
+    Math.min(0.46, waveform.opacity / 210),
+  );
+  context.lineWidth = Math.max(1, waveform.thickness * 0.74);
+  context.beginPath();
+  context.arc(0, 0, radius, rotation, rotation + arc);
+  context.stroke();
+  context.strokeStyle = waveformPaint(
+    context,
+    waveform,
+    -radius,
+    0,
+    radius,
+    0,
+    Math.min(0.28, waveform.opacity / 320),
+  );
+  context.lineWidth = Math.max(1, waveform.thickness * 0.42);
+  context.beginPath();
+  context.arc(0, 0, radius * 0.965, rotation, rotation + arc);
+  context.stroke();
+  context.lineWidth = waveform.thickness;
   spectrum.forEach((value, index) => {
     const angle = rotation + (index / Math.max(1, spectrum.length - 1)) * arc;
-    const barHeight = Math.max(waveform.thickness, value * amplitude);
+    const barHeight = Math.max(
+      waveform.thickness,
+      value * amplitude * (1 + Math.sin(time * 0.65 + index * 0.37) * 0.06),
+    );
+    context.strokeStyle = waveformBandPaint(
+      waveform,
+      index,
+      spectrum.length,
+      waveform.opacity / 100,
+    );
     context.beginPath();
     context.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
     context.lineTo(
@@ -1125,6 +1224,48 @@ function drawRadialRing(
     context.stroke();
   });
   context.restore();
+}
+
+function waveformPaint(context, waveform, x0, y0, x1, y1, alpha) {
+  if (waveform.colorMode !== "gradient") {
+    return hexToRgba(waveform.color, alpha);
+  }
+  const gradient = context.createLinearGradient(x0, y0, x1, y1);
+  gradient.addColorStop(0, hexToRgba(waveform.color, alpha));
+  gradient.addColorStop(0.54, hexToRgba(waveform.secondaryColor, alpha));
+  gradient.addColorStop(1, hexToRgba(waveform.tertiaryColor, alpha));
+  return gradient;
+}
+
+function waveformBandPaint(waveform, index, total, alpha) {
+  if (waveform.colorMode === "single") return hexToRgba(waveform.color, alpha);
+  const palette = [
+    waveform.color,
+    waveform.secondaryColor,
+    waveform.tertiaryColor,
+  ];
+  if (waveform.colorMode === "bands") {
+    return hexToRgba(palette[index % palette.length], alpha);
+  }
+  const t = total <= 1 ? 0 : index / (total - 1);
+  const first = t < 0.5 ? palette[0] : palette[1];
+  const second = t < 0.5 ? palette[1] : palette[2];
+  return rgbToRgba(
+    mixRgb(hexToRgb(first), hexToRgb(second), t < 0.5 ? t * 2 : (t - 0.5) * 2),
+    alpha,
+  );
+}
+
+function mixRgb(first, second, amount) {
+  const t = Math.max(0, Math.min(1, amount));
+  return first.map((value, index) => value + (second[index] - value) * t);
+}
+
+function rgbToRgba(rgb, alpha) {
+  const [red, green, blue] = rgb.map((value) =>
+    Math.round(Math.max(0, Math.min(1, value)) * 255),
+  );
+  return `rgba(${red},${green},${blue},${alpha})`;
 }
 
 function roundedRect(context, x, y, width, height, radius) {
@@ -1192,6 +1333,7 @@ const defaultTextSettings = {
   x: 5,
   y: 7,
   align: "left",
+  verticalAnchor: "top",
   shadow: 48,
 };
 
@@ -1218,10 +1360,17 @@ function drawMetadata(context, width, height, metadata, settings = {}) {
   const fontSize = Math.max(9, textSettings.fontSize * scale);
   const lineHeight = fontSize * ((textSettings.lineHeight ?? 118) / 100);
   const x = (width * textSettings.x) / 100;
-  const y = (height * textSettings.y) / 100;
+  let y = (height * textSettings.y) / 100;
+  const blockHeight = Math.max(
+    fontSize,
+    (lines.length - 1) * lineHeight + fontSize,
+  );
+  if (textSettings.verticalAnchor === "middle") y -= blockHeight / 2;
+  if (textSettings.verticalAnchor === "bottom") y -= blockHeight;
   context.save();
   context.textBaseline = "top";
-  context.textAlign = textSettings.align;
+  context.textAlign =
+    textSettings.align === "justify" ? "left" : textSettings.align;
   context.shadowColor = `rgba(0,0,0,${Math.max(0, Math.min(100, textSettings.shadow)) / 100})`;
   context.shadowBlur = Math.max(0, textSettings.shadow * scale * 0.4);
   context.fillStyle = hexToRgba(
@@ -1230,14 +1379,51 @@ function drawMetadata(context, width, height, metadata, settings = {}) {
   );
   context.font = `${Math.round(textSettings.fontWeight)} ${fontSize}px ${fontFamilyStack(textSettings.fontFamily)}`;
   for (const [index, line] of lines.entries()) {
-    context.fillText(
-      applyLetterSpacing(line, textSettings.letterSpacing),
+    drawMetadataLine(
+      context,
+      line,
       x,
       y + index * lineHeight,
       width * 0.7,
+      textSettings,
     );
   }
   context.restore();
+}
+
+function drawMetadataLine(context, line, x, y, maxWidth, textSettings) {
+  if (textSettings.align !== "justify") {
+    context.fillText(
+      applyLetterSpacing(line, textSettings.letterSpacing),
+      x,
+      y,
+      maxWidth,
+    );
+    return;
+  }
+  const words = String(line).trim().split(/\s+/u).filter(Boolean);
+  if (words.length < 2) {
+    context.fillText(
+      applyLetterSpacing(line, textSettings.letterSpacing),
+      x,
+      y,
+      maxWidth,
+    );
+    return;
+  }
+  const measured = words.map((word) => ({
+    word: applyLetterSpacing(word, textSettings.letterSpacing),
+    width: context.measureText(
+      applyLetterSpacing(word, textSettings.letterSpacing),
+    ).width,
+  }));
+  const totalWidth = measured.reduce((sum, item) => sum + item.width, 0);
+  const gap = Math.max(4, (maxWidth - totalWidth) / (words.length - 1));
+  let cursor = x;
+  for (const item of measured) {
+    context.fillText(item.word, cursor, y);
+    cursor += item.width + gap;
+  }
 }
 
 function fontFamilyStack(fontFamily) {

@@ -83,14 +83,18 @@ try {
     .fill("Fluxo completo de QA gerado localmente.");
   await batch.getByRole("button", { name: "Sobrescrever informados" }).click();
   await batch.getByRole("button", { name: "Aplicar aos selecionados" }).click();
-  await page.getByText("com sobrescrita dos campos informados").waitFor();
+  await batch.getByText("com sobrescrita dos campos informados").waitFor();
   await page.screenshot({
     path: path.join(screenshotDir, "full-flow-01-batch-ready.png"),
     fullPage: true,
   });
 
-  await batch.getByRole("button", { name: "Processar selecionados" }).click();
   await page
+    .locator(".inspector-panel")
+    .getByRole("button", { name: "Processar selecionados" })
+    .click();
+  await page
+    .getByRole("status")
     .getByText(/Processamento iniciado para 2 arquivos/)
     .waitFor({ timeout: 10_000 });
 

@@ -36,6 +36,9 @@ const waveformDefaults = {
   position: 88,
   width: 100,
   color: "#d7dce3",
+  colorMode: "single",
+  secondaryColor: "#8fb4ff",
+  tertiaryColor: "#ffcf7a",
   thickness: 2,
   smoothing: 72,
   audioReaction: 54,
@@ -43,11 +46,16 @@ const waveformDefaults = {
     fillOpacity: 28,
     barGap: 42,
     barRadius: 62,
+    barPeakHold: 24,
+    barPeakDecay: 56,
     radialRadius: 32,
     radialArc: 100,
     radialRotation: 0,
+    radialGlow: 24,
   },
 };
+
+const waveformColorModes = new Set(["single", "gradient", "bands"]);
 
 const waveformTypes = new Set([
   "mirror-line",
@@ -390,6 +398,17 @@ export function normalizeVisualSettings(input = {}) {
       position: number(incomingWaveform.position, base.waveform.position),
       width: number(incomingWaveform.width, base.waveform.width),
       color: hex(incomingWaveform.color, base.waveform.color),
+      colorMode: waveformColorModes.has(incomingWaveform.colorMode)
+        ? incomingWaveform.colorMode
+        : base.waveform.colorMode,
+      secondaryColor: hex(
+        incomingWaveform.secondaryColor,
+        base.waveform.secondaryColor,
+      ),
+      tertiaryColor: hex(
+        incomingWaveform.tertiaryColor,
+        base.waveform.tertiaryColor,
+      ),
       thickness: number(
         incomingWaveform.thickness,
         base.waveform.thickness,

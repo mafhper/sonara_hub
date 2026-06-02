@@ -14,6 +14,9 @@ export type WaveformV2 = {
   position: number;
   width: number;
   color: string;
+  colorMode: "single" | "gradient" | "bands";
+  secondaryColor: string;
+  tertiaryColor: string;
   thickness: number;
   smoothing: number;
   audioReaction: number;
@@ -21,9 +24,12 @@ export type WaveformV2 = {
     fillOpacity: number;
     barGap: number;
     barRadius: number;
+    barPeakHold: number;
+    barPeakDecay: number;
     radialRadius: number;
     radialArc: number;
     radialRotation: number;
+    radialGlow: number;
   };
 };
 
