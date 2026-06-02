@@ -57,6 +57,10 @@ export function buildTreatedFileName(tags) {
   return `${safeName(tags.album)} - ${track} - ${safeName(tags.title)}.mp3`;
 }
 
+export function buildTreatedAlbumDirectoryName(tags) {
+  return safeName(tags.album || tags.albumArtist || tags.artist || "Tratados");
+}
+
 export function classifyAudioRisk(truePeakDbtp) {
   if (!Number.isFinite(truePeakDbtp)) {
     return { risk: "decode-error", recommendation: "consider-normalization" };
@@ -305,6 +309,26 @@ export async function createNumberedCover(
     .jpeg({ quality: 92, chromaSubsampling: "4:4:4" })
     .toFile(outputPath);
   return outputPath;
+}
+
+export async function createAlbumFolderCover(basePath, outputPath) {
+  const temporaryPath = path.join(
+    path.dirname(outputPath),
+    `.${path.basename(outputPath)}.${crypto.randomUUID()}.tmp.jpg`,
+  );
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  try {
+    await sharp(basePath)
+      .resize(1600, 1600, { fit: "cover" })
+      .jpeg({ quality: 92, chromaSubsampling: "4:4:4" })
+      .toFile(temporaryPath);
+    await fs.rm(outputPath, { force: true });
+    await fs.rename(temporaryPath, outputPath);
+    return outputPath;
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true });
+    throw error;
+  }
 }
 
 export async function processMp3Copy({

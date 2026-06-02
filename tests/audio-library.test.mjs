@@ -7,7 +7,9 @@ import NodeID3 from "node-id3";
 import sharp from "sharp";
 import {
   buildTreatedFileName,
+  buildTreatedAlbumDirectoryName,
   classifyAudioRisk,
+  createAlbumFolderCover,
   createNumberedCover,
   inferAudioTags,
   isEditableMp3,
@@ -70,6 +72,20 @@ test("treated MP3 filename includes album, padded order and title", () => {
       trackNumber: 1,
     }),
     "The Beauty of Almost - 01 - When the Clock Grows Tired.mp3",
+  );
+});
+
+test("treated album directory uses a player-compatible stable album name", () => {
+  assert.equal(
+    buildTreatedAlbumDirectoryName({
+      album: "Jardim dos Ventos",
+      artist: "Matheus Lima",
+    }),
+    "Jardim dos Ventos",
+  );
+  assert.equal(
+    buildTreatedAlbumDirectoryName({ artist: "Matheus Lima" }),
+    "Matheus Lima",
   );
 });
 
@@ -212,6 +228,30 @@ test("cover series renders deterministic editorial roman numeral variants", asyn
   ]);
   assert.equal(firstBuffer.equals(secondBuffer), true);
   assert.equal((await sharp(first).metadata()).format, "jpeg");
+});
+
+test("album folder artwork is emitted as a standard square JPEG", async () => {
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "sonara-folder-cover-"),
+  );
+  const base = path.join(directory, "base.webp");
+  const folderCover = path.join(directory, "folder.jpg");
+  await sharp({
+    create: {
+      width: 640,
+      height: 360,
+      channels: 3,
+      background: "#435f78",
+    },
+  })
+    .webp()
+    .toFile(base);
+
+  await createAlbumFolderCover(base, folderCover);
+  const metadata = await sharp(folderCover).metadata();
+  assert.equal(metadata.format, "jpeg");
+  assert.equal(metadata.width, 1600);
+  assert.equal(metadata.height, 1600);
 });
 
 test("cover series renders ordered metadata lines with independent styles", async () => {

@@ -9,6 +9,7 @@ import { chromium } from "playwright";
 import { fetchJsonWithRetry } from "../shared/local-api.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const clientUrl = process.env.SONARA_CLIENT_URL ?? "http://127.0.0.1:5173";
 const screenshotDir = path.join(root, ".dev", "screenshots");
 const assetDir = path.join(root, ".dev", "ui-smoke-assets");
 await fs.mkdir(screenshotDir, { recursive: true });
@@ -102,7 +103,7 @@ page.on("requestfailed", (request) => {
 });
 
 try {
-  await page.goto("http://127.0.0.1:5173", { waitUntil: "domcontentloaded" });
+  await page.goto(clientUrl, { waitUntil: "domcontentloaded" });
   await page.locator(".studio-shell").waitFor();
   await assertLocalSettings(page);
   await page
@@ -288,15 +289,19 @@ try {
   await batchToolbar
     .getByRole("button", { name: "Aplicar aos selecionados" })
     .click();
-  await batchToolbar.getByText("apenas onde havia campos vazios").waitFor();
+  await page
+    .getByRole("status")
+    .getByText("apenas onde havia campos vazios", { exact: false })
+    .waitFor();
   await batchToolbar
     .getByRole("button", { name: "Sobrescrever informados" })
     .click();
   await batchToolbar
     .getByRole("button", { name: "Aplicar aos selecionados" })
     .click();
-  await batchToolbar
-    .getByText("com sobrescrita dos campos informados")
+  await page
+    .getByRole("status")
+    .getByText("com sobrescrita dos campos informados", { exact: false })
     .waitFor();
   assert.equal(
     await batchToolbar
@@ -338,6 +343,46 @@ try {
     .locator(".catalog-track-list")
     .getByText("Smoke Batch Title", { exact: true })
     .waitFor();
+  await page.locator(".catalog-artwork-button").click();
+  const artworkDialog = page.getByRole("dialog", { name: "Smoke Batch Title" });
+  await artworkDialog.getByText("Ajustar composição da capa").waitFor();
+  const seriesToggle = artworkDialog.getByLabel(
+    "Gerar série visual na capa tratada",
+  );
+  if (!(await seriesToggle.isChecked())) await seriesToggle.check();
+  const overlay = artworkDialog.locator(".cover-series-overlay");
+  await overlay.waitFor();
+  const initialNumberY = await overlay
+    .locator("text")
+    .first()
+    .getAttribute("y");
+  await artworkDialog
+    .getByLabel("Vertical", { exact: true })
+    .first()
+    .evaluate((input) => {
+      const nextValue = input.value === "72" ? "61" : "72";
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      ).set;
+      setter.call(input, nextValue);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  await page.waitForFunction(
+    ({ previous }) =>
+      document
+        .querySelector(".catalog-artwork-dialog .cover-series-overlay text")
+        ?.getAttribute("y") !== previous,
+    { previous: initialNumberY },
+  );
+  await page.screenshot({
+    path: path.join(screenshotDir, "sonara-hub-catalog-artwork-editor.png"),
+    fullPage: true,
+  });
+  await artworkDialog
+    .getByRole("button", { name: "Fechar inspeção da capa" })
+    .click();
   await page.getByRole("button", { name: "Vídeos" }).click();
   await page.getByText("Grade de publicação").waitFor();
   await page.locator(".composition-thumbnail").waitFor();
@@ -408,6 +453,9 @@ try {
   await page.locator(".steps button").filter({ hasText: "Exportar" }).click();
   await page.getByText("1 faixa selecionada", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Exportar lote" }).waitFor();
+  await page.getByRole("button", { name: "Fila de vídeos" }).click();
+  await page.getByText("Processamento de vídeos").waitFor();
+  await page.locator(".video-export-stage .batch-job-board").waitFor();
   await ensurePanelOpen(page, "library");
   await page.getByRole("button", { name: "Faixa única" }).click();
   await ensurePanelOpen(page, "inspector");
@@ -421,8 +469,16 @@ try {
   });
   await ensurePanelOpen(page, "inspector");
 
-  page.once("dialog", async (dialog) => dialog.accept("Aura smoke UI"));
   await page.getByRole("button", { name: "Duplicar" }).click();
+  const duplicatePresetDialog = page.getByRole("dialog", {
+    name: "Duplicar preset",
+  });
+  await duplicatePresetDialog
+    .getByLabel("Nome do preset personalizado")
+    .fill("Aura smoke UI");
+  await duplicatePresetDialog
+    .getByRole("button", { name: "Duplicar preset" })
+    .click();
   await page.locator('option:has-text("Aura smoke UI")').waitFor({
     state: "attached",
   });
@@ -590,8 +646,13 @@ async function assertLocalSettings(page) {
   await page.getByRole("dialog", { name: "Armazenamento e sessão" }).waitFor();
   await page.getByText("Arquivos temporários", { exact: true }).waitFor();
   await page.getByText("Arquivos gerados locais", { exact: true }).waitFor();
-  page.once("dialog", async (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Limpar temporários" }).click();
+  const cleanupDialog = page.getByRole("dialog", {
+    name: "Excluir arquivos temporários?",
+  });
+  await cleanupDialog
+    .getByRole("button", { name: "Excluir temporários" })
+    .click();
   await page.getByRole("button", { name: "Fechar configurações" }).click();
 }
 

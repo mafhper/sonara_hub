@@ -166,6 +166,54 @@ const textRight = await renderAndCheck({
         year: true,
         version: true,
       },
+      order: ["album", "title", "artist", "year", "version"],
+      fieldStyles: {
+        title: {
+          fontFamily: "Georgia",
+          fontSize: 42,
+          fontWeight: 640,
+          letterSpacing: 0,
+          lineHeight: 112,
+          color: "#fff4d6",
+          opacity: 96,
+        },
+        album: {
+          fontFamily: "Inter",
+          fontSize: 22,
+          fontWeight: 760,
+          letterSpacing: 5,
+          lineHeight: 120,
+          color: "#9fd4ff",
+          opacity: 78,
+        },
+        artist: {
+          fontFamily: "Inter",
+          fontSize: 26,
+          fontWeight: 620,
+          letterSpacing: 0,
+          lineHeight: 118,
+          color: "#dbe9ff",
+          opacity: 82,
+        },
+        year: {
+          fontFamily: "Inter",
+          fontSize: 18,
+          fontWeight: 700,
+          letterSpacing: 4,
+          lineHeight: 116,
+          color: "#a8b6ca",
+          opacity: 68,
+        },
+        version: {
+          fontFamily: "Inter",
+          fontSize: 18,
+          fontWeight: 620,
+          letterSpacing: 2,
+          lineHeight: 116,
+          color: "#a8b6ca",
+          opacity: 58,
+        },
+      },
       preset: "side-right",
       fontFamily: "Inter",
       fontSize: 40,
@@ -235,6 +283,10 @@ const cloudsWithSun = structuredClone(
 );
 cloudsWithSun.cloudLight.enabled = true;
 cloudsWithSun.cloudLight.intensity = 74;
+cloudsWithSun.cloudLight.color = "#ffe0a3";
+cloudsWithSun.cloudLight.motion = 38;
+cloudsWithSun.cloudLight.speed = 46;
+cloudsWithSun.cloudLight.direction = 24;
 await renderAndCheck({
   name: "volumetric-clouds-sun-720p",
   preset: cloudsWithSun,

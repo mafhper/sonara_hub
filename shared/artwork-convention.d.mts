@@ -7,3 +7,13 @@ export function chooseArtworkForTrack(options: {
   artworkPaths: string[];
   trackNumber?: number;
 }): string | null;
+export function chooseAlbumArtworkForTrack(options: {
+  audioPath: string;
+  artworkPaths: string[];
+}): string | null;
+export function listArtworkOptionsForTrack(options: {
+  audioPath: string;
+  audioPaths: string[];
+  artworkPaths: string[];
+  trackNumber?: number;
+}): string[];

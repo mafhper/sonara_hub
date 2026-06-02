@@ -111,20 +111,28 @@ test("cloud sun focus normalizes into safe bounds", () => {
     cloudLight: {
       enabled: true,
       intensity: 160,
+      color: "#ffe0a3",
       x: -10,
       y: 130,
       radius: 2,
       diffusion: 72,
+      motion: 120,
+      speed: 44,
+      direction: 725,
     },
   });
 
   assert.deepEqual(visual.cloudLight, {
     enabled: true,
     intensity: 100,
+    color: "#ffe0a3",
     x: 0,
     y: 100,
     radius: 8,
     diffusion: 72,
+    motion: 100,
+    speed: 44,
+    direction: 360,
   });
 });
 

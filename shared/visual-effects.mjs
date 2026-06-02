@@ -21,10 +21,14 @@ const playfulDefaults = {
 const cloudLightDefaults = {
   enabled: false,
   intensity: 54,
+  color: "#f8dca6",
   x: 28,
   y: 24,
   radius: 32,
   diffusion: 68,
+  motion: 0,
+  speed: 36,
+  direction: 18,
 };
 
 const waveformDefaults = {
@@ -512,10 +516,14 @@ function normalizeCloudLight(value = {}, fallback = cloudLightDefaults) {
   return {
     enabled: boolean(value.enabled, fallback.enabled),
     intensity: number(value.intensity, fallback.intensity),
+    color: hex(value.color, fallback.color),
     x: number(value.x, fallback.x),
     y: number(value.y, fallback.y),
     radius: number(value.radius, fallback.radius, 8, 72),
     diffusion: number(value.diffusion, fallback.diffusion),
+    motion: number(value.motion, fallback.motion),
+    speed: number(value.speed, fallback.speed),
+    direction: number(value.direction, fallback.direction, 0, 360),
   };
 }
 

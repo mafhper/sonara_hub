@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   albumArtworkDirectoryPaths,
+  chooseAlbumArtworkForTrack,
   chooseArtworkForTrack,
+  listArtworkOptionsForTrack,
   singleTrackArtworkFileName,
 } from "../shared/artwork-convention.mjs";
 
@@ -53,6 +55,35 @@ test("album root artwork is offered across disc folders", () => {
       trackNumber: 1,
     }),
     "Matheus Lima/Jardim dos Ventos/album.webp",
+  );
+});
+
+test("album artwork prefers a generic source while track options retain alternates", () => {
+  const audioPaths = [
+    "Matheus Lima/Jardim dos Ventos/Lado A/01 - Faixa.mp3",
+    "Matheus Lima/Jardim dos Ventos/Lado B/02 - Faixa.mp3",
+  ];
+  const artworkPaths = [
+    "Matheus Lima/Jardim dos Ventos/art/01-faixa.webp",
+    "Matheus Lima/Jardim dos Ventos/art/album-large.png",
+    "Matheus Lima/Jardim dos Ventos/art/cover-compressed.jpg",
+  ];
+
+  assert.equal(
+    chooseAlbumArtworkForTrack({
+      audioPath: audioPaths[0],
+      artworkPaths,
+    }),
+    "Matheus Lima/Jardim dos Ventos/art/album-large.png",
+  );
+  assert.deepEqual(
+    listArtworkOptionsForTrack({
+      audioPath: audioPaths[0],
+      audioPaths,
+      artworkPaths,
+      trackNumber: 1,
+    }),
+    artworkPaths,
   );
 });
 

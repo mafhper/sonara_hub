@@ -10,11 +10,19 @@ import { fetchJsonWithRetry } from "../shared/local-api.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const runId = String(Date.now()).slice(-6);
-const clientUrl = "http://127.0.0.1:5173";
+const clientUrl = process.env.SONARA_CLIENT_URL ?? "http://127.0.0.1:5173";
 const apiUrl = "http://127.0.0.1:4175";
 const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-hub-flow-"));
 const screenshotDir = path.join(root, ".dev", "flow-smoke");
+const coverPath = path.join(workDir, "album-cover.png");
 await fs.mkdir(screenshotDir, { recursive: true });
+await fs.writeFile(
+  coverPath,
+  Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAD0lEQVR42mNk+M+ABzDhkQAP/wL+zKxQfAAAAABJRU5ErkJggg==",
+    "base64",
+  ),
+);
 
 await fetchJsonWithRetry(`${apiUrl}/api/visual-presets`, undefined, {
   attempts: 5,
@@ -78,12 +86,19 @@ try {
     .getByLabel("Álbum", { exact: true })
     .fill(`QA Complete Flow ${runId}`);
   await batch.getByLabel("Artista do álbum").fill("QA Artist");
+  await batch.getByLabel("Ano").fill("2026");
   await batch
     .getByLabel("Comentário ID3")
     .fill("Fluxo completo de QA gerado localmente.");
   await batch.getByRole("button", { name: "Sobrescrever informados" }).click();
   await batch.getByRole("button", { name: "Aplicar aos selecionados" }).click();
-  await batch.getByText("com sobrescrita dos campos informados").waitFor();
+  await page
+    .getByRole("status")
+    .getByText("com sobrescrita dos campos informados", { exact: false })
+    .waitFor();
+  await page
+    .locator('input[type="file"][accept="image/*,.svg"]')
+    .setInputFiles(coverPath);
   await page.screenshot({
     path: path.join(screenshotDir, "full-flow-01-batch-ready.png"),
     fullPage: true,
@@ -103,6 +118,17 @@ try {
     assert.equal(job.status, "done", JSON.stringify(job, null, 2));
     if (job.outputUrl) cleanupUrls.push(job.outputUrl);
     if (job.thumbnailUrl) cleanupUrls.push(job.thumbnailUrl);
+    if (job.albumArtworkUrl) {
+      cleanupUrls.push(job.albumArtworkUrl);
+      assert.match(
+        job.albumArtworkUrl,
+        /\/outputs\/audio\/QA%20Complete%20Flow%20\d+\/folder\.jpg$/,
+      );
+      assert.equal(
+        (await fetch(`${apiUrl}${job.albumArtworkUrl}`)).status,
+        200,
+      );
+    }
   }
 
   await page.waitForFunction(
@@ -126,9 +152,6 @@ try {
     `expected at least 2 treated tracks, got ${treatedCount}`,
   );
 
-  await page.getByRole("button", { name: "Faixa única" }).click();
-  await page.locator(".track-row", { hasText: "Tratado" }).first().click();
-
   await page.getByRole("button", { name: "Estúdio visual" }).click();
   await page.locator(".steps button").filter({ hasText: "Visual" }).click();
   await page
@@ -139,6 +162,20 @@ try {
   await page
     .locator('select:has(option[value="spectrum-bars"])')
     .selectOption("spectrum-bars");
+  await page.getByRole("button", { name: "Aplicar visual ao lote" }).click();
+  await page
+    .getByRole("status")
+    .getByText("Visual aplicado ao lote selecionado.")
+    .waitFor();
+  await page.locator(".steps button").filter({ hasText: "Texto" }).click();
+  await page
+    .locator(".inspector-panel .check-field", { hasText: "Ano" })
+    .click();
+  await page.getByRole("button", { name: "Aplicar texto ao lote" }).click();
+  await page
+    .getByRole("status")
+    .getByText("Texto do vídeo aplicado ao lote selecionado.")
+    .waitFor();
   await page.screenshot({
     path: path.join(screenshotDir, "full-flow-03-visual-ready.png"),
     fullPage: true,
@@ -147,23 +184,45 @@ try {
   await page.locator(".steps button").filter({ hasText: "Exportar" }).click();
   await page.getByLabel("Resolução").selectOption("youtube-720p");
   await page.getByLabel("Perfil de qualidade").selectOption("fast");
-  const [response] = await Promise.all([
-    page.waitForResponse(
-      (res) =>
-        res.url().endsWith("/api/render") && res.request().method() === "POST",
-      { timeout: 20_000 },
-    ),
-    page.getByRole("button", { name: "Exportar vídeo" }).click(),
-  ]);
-  assert.ok(response.ok(), `render response status ${response.status()}`);
-  const { jobId } = await response.json();
-  const renderJob = await waitForJob(jobId, 180_000);
-  assert.equal(renderJob.status, "done", JSON.stringify(renderJob, null, 2));
-  assert.ok(
-    renderJob.outputUrl?.endsWith(".mp4"),
-    JSON.stringify(renderJob, null, 2),
+  const renderResponses = [];
+  const responseCollector = (response) => {
+    if (
+      response.url().endsWith("/api/render") &&
+      response.request().method() === "POST"
+    ) {
+      renderResponses.push(response);
+    }
+  };
+  page.on("response", responseCollector);
+  await page.getByRole("button", { name: "Exportar lote" }).click();
+  await page
+    .getByText("Processamento de vídeos", { exact: true })
+    .waitFor({ timeout: 20_000 });
+  await waitForCondition(
+    () => renderResponses.length >= 2,
+    "batch render responses",
+    20_000,
   );
-  cleanupUrls.push(renderJob.outputUrl, renderJob.sidecarUrl);
+  page.off("response", responseCollector);
+  assert.equal(renderResponses.length, 2, "batch export should start 2 jobs");
+  const renderJobs = [];
+  for (const response of renderResponses) {
+    assert.ok(response.ok(), `render response status ${response.status()}`);
+    const { jobId } = await response.json();
+    renderJobs.push(await waitForJob(jobId, 180_000));
+  }
+  for (const renderJob of renderJobs) {
+    assert.equal(renderJob.status, "done", JSON.stringify(renderJob, null, 2));
+    assert.ok(
+      renderJob.outputUrl?.endsWith(".mp4"),
+      JSON.stringify(renderJob, null, 2),
+    );
+    cleanupUrls.push(
+      renderJob.outputUrl,
+      renderJob.sidecarUrl,
+      renderJob.thumbnailUrl,
+    );
+  }
   await page.waitForFunction(
     () =>
       !document.body.textContent?.includes("Finalizando 98%") &&
@@ -177,8 +236,19 @@ try {
   });
 
   const mp4Path = path.join(workDir, "render-output.mp4");
-  await downloadOutput(renderJob.outputUrl, mp4Path);
+  await downloadOutput(renderJobs[0].outputUrl, mp4Path);
   openWithFfmpeg(mp4Path);
+  for (const renderJob of renderJobs) {
+    const sidecar = await downloadJsonOutput(renderJob.sidecarUrl);
+    assert.equal(sidecar.export.visualSettings.rendererId, "audio-dark");
+    assert.equal(sidecar.export.visualSettings.waveform.visible, true);
+    assert.equal(sidecar.export.visualSettings.waveform.type, "spectrum-bars");
+    assert.equal(
+      sidecar.export.compositionSettings.textSettings.fields.year,
+      true,
+    );
+    assert.equal(sidecar.export.metadata.year, "2026");
+  }
 
   assert.deepEqual(errors, []);
   assert.deepEqual(failedRequests, []);
@@ -186,7 +256,7 @@ try {
     JSON.stringify(
       {
         audioJobs: audioJobs.length,
-        renderOutput: renderJob.outputUrl,
+        renderOutputs: renderJobs.map((job) => job.outputUrl),
         screenshots: screenshotDir,
       },
       null,
@@ -264,6 +334,12 @@ async function downloadOutput(outputUrl, filePath) {
   await fs.writeFile(filePath, Buffer.from(await response.arrayBuffer()));
 }
 
+async function downloadJsonOutput(outputUrl) {
+  const response = await fetch(new URL(outputUrl, apiUrl));
+  if (!response.ok) throw new Error(`json download failed ${response.status}`);
+  return response.json();
+}
+
 function openWithFfmpeg(filePath) {
   const result = spawnSync(
     ffmpegPath,
@@ -280,8 +356,29 @@ async function removeOutputUrl(outputUrl) {
   const outputsRoot = path.resolve(root, "outputs");
   if (!targetPath.startsWith(outputsRoot + path.sep)) return;
   await fs.rm(targetPath, { force: true });
+  let currentDirectory = path.dirname(targetPath);
+  while (
+    currentDirectory !== outputsRoot &&
+    currentDirectory.startsWith(outputsRoot + path.sep)
+  ) {
+    try {
+      await fs.rmdir(currentDirectory);
+      currentDirectory = path.dirname(currentDirectory);
+    } catch {
+      break;
+    }
+  }
 }
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForCondition(check, label, timeoutMs) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (check()) return;
+    await delay(250);
+  }
+  throw new Error(`Timed out waiting for ${label}`);
 }

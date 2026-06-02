@@ -13,7 +13,9 @@ import { renderWebglBackgroundVideo } from "./webgl-export.mjs";
 import { sampleAudioEnvelope } from "./audio-envelope.mjs";
 import {
   analyzeAudioQuality,
+  buildTreatedAlbumDirectoryName,
   buildTreatedFileName,
+  createAlbumFolderCover,
   createNumberedCover,
   inferAudioTags,
   processMp3Copy,
@@ -239,11 +241,15 @@ app.post(
   upload.fields([
     { name: "audio", maxCount: 1 },
     { name: "cover", maxCount: 1 },
+    { name: "albumCover", maxCount: 1 },
   ]),
   async (req, res) => {
     const files = req.files ?? {};
     const audioFile = Array.isArray(files.audio) ? files.audio[0] : null;
     const coverFile = Array.isArray(files.cover) ? files.cover[0] : null;
+    const albumCoverFile = Array.isArray(files.albumCover)
+      ? files.albumCover[0]
+      : null;
     const audioPath =
       audioFile?.path ??
       (await resolveInputAudio(req.body.inputAudio)) ??
@@ -265,6 +271,7 @@ app.post(
       outputUrl: null,
       sidecarUrl: null,
       thumbnailUrl: null,
+      albumArtworkUrl: null,
       metadata: draft,
       createdAt: new Date().toISOString(),
     });
@@ -273,6 +280,7 @@ app.post(
       audioPath,
       audioName: audioFile?.originalname ?? audioPath,
       coverFile,
+      albumCoverFile,
       coverSeries: String(req.body.coverSeries ?? "false") === "true",
       coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
       coverSeriesSettings: parseJsonObject(req.body.coverSeriesSettings),
@@ -289,11 +297,15 @@ app.post(
   upload.fields([
     { name: "audioBatch", maxCount: 50 },
     { name: "cover", maxCount: 1 },
+    { name: "albumCover", maxCount: 1 },
   ]),
   async (req, res) => {
     const files = req.files ?? {};
     const audioFiles = Array.isArray(files.audioBatch) ? files.audioBatch : [];
     const coverFile = Array.isArray(files.cover) ? files.cover[0] : null;
+    const albumCoverFile = Array.isArray(files.albumCover)
+      ? files.albumCover[0]
+      : null;
     const drafts = parseJsonArray(req.body.drafts);
     if (!audioFiles.length) {
       await tempFiles.cleanup(files);
@@ -314,6 +326,7 @@ app.post(
         outputUrl: null,
         sidecarUrl: null,
         thumbnailUrl: null,
+        albumArtworkUrl: null,
         metadata: draft,
         createdAt: new Date().toISOString(),
       });
@@ -322,12 +335,13 @@ app.post(
         audioPath: audioFile.path,
         audioName: audioFile.originalname,
         coverFile,
+        albumCoverFile,
         coverSeries: String(req.body.coverSeries ?? "false") === "true",
         coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
         coverSeriesSettings: parseJsonObject(req.body.coverSeriesSettings),
         draft,
         outputName,
-        uploadedFiles: [audioFile, coverFile],
+        uploadedFiles: [audioFile, coverFile, albumCoverFile],
       });
       jobIds.push(jobId);
     }
@@ -669,6 +683,12 @@ function enqueueRender(options) {
       updateJob(options.jobId, {
         status: "error",
         message: error instanceof Error ? error.message : String(error),
+        errorCode: error?.code ? String(error.code) : "VIDEO_RENDER_ERROR",
+        errorDetail:
+          error?.detail ??
+          (error instanceof Error
+            ? error.stack || error.message
+            : String(error)),
       });
     })
     .finally(async () => {
@@ -689,6 +709,12 @@ function enqueueAudioProcess(options) {
       updateJob(options.jobId, {
         status: "error",
         message: error instanceof Error ? error.message : String(error),
+        errorCode: error?.code ? String(error.code) : "AUDIO_PROCESS_ERROR",
+        errorDetail:
+          error?.detail ??
+          (error instanceof Error
+            ? error.stack || error.message
+            : String(error)),
       });
     })
     .finally(async () => {
@@ -779,6 +805,7 @@ async function processAudio({
   audioPath,
   audioName,
   coverFile,
+  albumCoverFile,
   coverSeries,
   coverStyle,
   coverSeriesSettings,
@@ -793,6 +820,7 @@ async function processAudio({
   });
   const jobWorkDir = path.join(workDir, jobId);
   await fs.mkdir(jobWorkDir, { recursive: true });
+  const albumCoverPath = albumCoverFile?.path ?? coverFile?.path ?? null;
   let coverPath = coverFile?.path ?? null;
   if (coverPath && coverSeries) {
     const seriesSettings = normalizeCoverSeriesSettings(
@@ -823,7 +851,10 @@ async function processAudio({
   }
   assertJobNotCanceled(jobId);
   updateJob(jobId, { progress: 42, message: "Gravando metadados limpos" });
-  const outputPath = path.join(treatedOutputDir, outputName);
+  const albumDirectoryName = buildTreatedAlbumDirectoryName(draft);
+  const albumOutputDir = path.join(treatedOutputDir, albumDirectoryName);
+  await fs.mkdir(albumOutputDir, { recursive: true });
+  const outputPath = path.join(albumOutputDir, outputName);
   const result = await processMp3Copy({
     inputPath: audioPath,
     inputName: audioName,
@@ -836,15 +867,25 @@ async function processAudio({
   let thumbnailUrl = null;
   if (coverPath) {
     const thumbnailName = `${path.basename(outputName, ".mp3")}.cover.jpg`;
-    await fs.copyFile(coverPath, path.join(treatedOutputDir, thumbnailName));
-    thumbnailUrl = `/outputs/audio/${encodeURIComponent(thumbnailName)}`;
+    await fs.copyFile(coverPath, path.join(albumOutputDir, thumbnailName));
+    thumbnailUrl = outputUrl("audio", albumDirectoryName, thumbnailName);
+  }
+  let albumArtworkUrl = null;
+  if (albumCoverPath) {
+    const albumArtworkName = "folder.jpg";
+    await createAlbumFolderCover(
+      albumCoverPath,
+      path.join(albumOutputDir, albumArtworkName),
+    );
+    albumArtworkUrl = outputUrl("audio", albumDirectoryName, albumArtworkName);
   }
   updateJob(jobId, {
     status: "done",
     progress: 100,
     message: "Copia tratada validada",
-    outputUrl: `/outputs/audio/${encodeURIComponent(outputName)}`,
+    outputUrl: outputUrl("audio", albumDirectoryName, outputName),
     thumbnailUrl,
+    albumArtworkUrl,
     analysis: result.analysis,
   });
 }
@@ -1451,6 +1492,19 @@ function normalizeMetadata(body) {
     artist: String(body.artist ?? ""),
     genre: String(body.genre ?? ""),
     album: String(body.album ?? ""),
+    albumArtist: String(body.albumArtist ?? ""),
+    composer: String(body.composer ?? ""),
+    year: String(body.year ?? ""),
+    trackNumber: clampNumber(Number(body.trackNumber || 1), 1, 999),
+    trackTotal: clampNumber(Number(body.trackTotal || 1), 1, 999),
+    diskNumber: clampNumber(Number(body.diskNumber || 1), 1, 99),
+    diskTotal: clampNumber(Number(body.diskTotal || 1), 1, 99),
+    lyrics: String(body.lyrics ?? ""),
+    lyricsLanguage: /^[a-z]{3}$/i.test(String(body.lyricsLanguage ?? ""))
+      ? String(body.lyricsLanguage)
+      : "und",
+    normalizationEnabled:
+      String(body.normalizationEnabled ?? "false") === "true",
     description: String(body.description ?? ""),
     comment: String(body.comment ?? ""),
     tags: String(body.tags ?? ""),
@@ -1610,6 +1664,15 @@ async function writeYoutubeSidecar(
     export: {
       outputFileName: path.basename(outputPath),
       version: metadata.version,
+      metadata: {
+        title: metadata.title,
+        artist: metadata.artist,
+        album: metadata.album,
+        albumArtist: metadata.albumArtist,
+        year: metadata.year,
+        genre: metadata.genre,
+        language: metadata.language,
+      },
       preset: settings.preset,
       visualPreset: settings.effect,
       visualSettings: settings.visualSettings,
@@ -1872,6 +1935,10 @@ function persistJobSnapshot() {
 
 function recentJobs() {
   return Array.from(jobs.values()).slice(-50).reverse();
+}
+
+function outputUrl(...segments) {
+  return `/outputs/${segments.map((segment) => encodeURIComponent(segment)).join("/")}`;
 }
 
 function isActiveJob(job) {

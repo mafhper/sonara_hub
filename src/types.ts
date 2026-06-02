@@ -109,12 +109,16 @@ export type TextOverlaySettings = {
     year: boolean;
     version: boolean;
   };
+  order: TextFieldKey[];
+  fieldStyles: Record<TextFieldKey, TextFieldStyle>;
   preset:
     | "top-left"
     | "bottom-center"
     | "cover-left"
     | "side-left"
-    | "side-right";
+    | "side-right"
+    | "editorial-stack"
+    | "quiet-album";
   fontFamily: "Inter" | "Georgia" | "Arial";
   fontSize: number;
   fontWeight: number;
@@ -127,6 +131,18 @@ export type TextOverlaySettings = {
   align: "left" | "center" | "right" | "justify";
   verticalAnchor: "top" | "middle" | "bottom";
   shadow: number;
+};
+
+export type TextFieldKey = "title" | "artist" | "album" | "year" | "version";
+
+export type TextFieldStyle = {
+  fontFamily: "Inter" | "Georgia" | "Arial";
+  fontSize: number;
+  fontWeight: number;
+  letterSpacing: number;
+  lineHeight: number;
+  color: string;
+  opacity: number;
 };
 
 export type CoverSeriesSettings = {
@@ -183,6 +199,8 @@ export type TrackDraft = {
   selectedForBatch: boolean;
   packageStatus?: "original" | "treated";
   suggestedCover?: ArtworkSuggestion;
+  artworkOptions?: ArtworkSuggestion[];
+  albumCoverSuggestion?: ArtworkSuggestion;
   useSuggestedCover?: boolean;
   thumbnailPreviewMode: "composition" | "cover";
 };
@@ -193,9 +211,12 @@ export type RenderJob = {
   status: "queued" | "paused" | "running" | "done" | "error" | "canceled";
   progress: number;
   message: string;
+  errorCode?: string;
+  errorDetail?: string;
   outputUrl: string | null;
   sidecarUrl: string | null;
   thumbnailUrl: string | null;
+  albumArtworkUrl?: string | null;
   analysis?: AudioTechnicalAnalysis;
   metadata?: Partial<AudioTagDraft & TrackMetadata>;
   cancelRequested?: boolean;
@@ -207,7 +228,7 @@ export type ProjectSnapshot = {
   workflowMode: "single" | "batch";
   activeStep: "music" | "visual" | "text" | "export";
   audioStageView?: "edit" | "catalog" | "videos";
-  visualStageView?: "editor" | "videos";
+  visualStageView?: "editor" | "videos" | "queue";
   coverSeriesSettings?: CoverSeriesSettings;
   selectedTrackId: string;
   outputPreset: string;

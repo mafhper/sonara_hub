@@ -32,6 +32,10 @@ uniform float u_cloudSunX;
 uniform float u_cloudSunY;
 uniform float u_cloudSunRadius;
 uniform float u_cloudSunDiffusion;
+uniform float u_cloudSunMotion;
+uniform float u_cloudSunSpeed;
+uniform float u_cloudSunDirection;
+uniform vec3 u_cloudSunColor;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
 float noise(vec2 p) {
@@ -92,7 +96,8 @@ void main() {
   float softDetail = fbm(p * 3.25 + drift.yx * 0.28);
   float threshold = mix(0.8, 0.42, u_param0);
   float cloud = smoothstep(threshold - 0.16, threshold + mix(0.32, 0.18, u_param2), broad * 0.58 + body * 0.48 + softDetail * 0.1);
-  vec2 sunPosition = vec2(u_cloudSunX, u_cloudSunY);
+  vec2 sunMotionDirection = vec2(cos(radians(u_cloudSunDirection)), sin(radians(u_cloudSunDirection)));
+  vec2 sunPosition = vec2(u_cloudSunX, u_cloudSunY) + sunMotionDirection * sin(u_time * mix(0.05, 0.86, u_cloudSunSpeed)) * u_cloudSunMotion * 0.18;
   float sunDistance = distance(uv, sunPosition);
   float sunRadius = mix(0.08, 0.46, u_cloudSunRadius);
   float sunDiffusion = mix(0.12, 0.78, u_cloudSunDiffusion);
@@ -101,7 +106,7 @@ void main() {
   float sun = u_cloudSunEnabled * u_cloudSunIntensity * (sunCore * 0.62 + sunGlow * 0.38);
   vec3 sky = mix(u_colorA * 0.7, u_colorA + u_colorB * 0.12, uv.y);
   vec3 color = mix(sky, mix(u_colorB * 0.62, u_colorB, cloud), cloud * (0.3 + u_intensity * 0.42));
-  color += u_accentColor * sun * (0.16 + u_param3 * 0.28) * pulse(u_audioMid, 0.2);
+  color += u_cloudSunColor * sun * (0.16 + u_param3 * 0.28) * pulse(u_audioMid, 0.2);
   gl_FragColor = vec4(finish(color, uv), 1.0);
 }`,
   "aurora-ribbons": `${shaderPrelude}
@@ -312,6 +317,18 @@ function createWebglRenderer(canvas) {
     antialias: false,
     preserveDrawingBuffer: true,
   });
+  if (!gl) {
+    throw new Error(
+      "WebGL indisponível para renderizar a cena. Código: WEBGL_CONTEXT_UNAVAILABLE.",
+    );
+  }
+  canvas.addEventListener(
+    "webglcontextlost",
+    (event) => {
+      event.preventDefault();
+    },
+    false,
+  );
   const programs = new Map();
   const buffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
@@ -357,6 +374,10 @@ function createWebglRenderer(canvas) {
       "cloudSunY",
       "cloudSunRadius",
       "cloudSunDiffusion",
+      "cloudSunMotion",
+      "cloudSunSpeed",
+      "cloudSunDirection",
+      "cloudSunColor",
     ];
     const uniforms = Object.fromEntries(
       names.map((name) => [name, gl.getUniformLocation(program, `u_${name}`)]),
@@ -401,6 +422,10 @@ function createWebglRenderer(canvas) {
     set1f("cloudSunY", (cloudLight.y ?? 24) / 100);
     set1f("cloudSunRadius", (cloudLight.radius ?? 32) / 100);
     set1f("cloudSunDiffusion", (cloudLight.diffusion ?? 68) / 100);
+    set1f("cloudSunMotion", (cloudLight.motion ?? 0) / 100);
+    set1f("cloudSunSpeed", (cloudLight.speed ?? 36) / 100);
+    set1f("cloudSunDirection", cloudLight.direction ?? 18);
+    set3fv("cloudSunColor", hexToRgb(cloudLight.color ?? scene.colors.light));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     function set1f(name, value) {
@@ -440,12 +465,23 @@ function createProgram(gl, vertexSource, fragmentSource) {
 
 function createShader(gl, type, source) {
   const shader = gl.createShader(type);
+  const shaderType =
+    type === gl.VERTEX_SHADER
+      ? "vertex"
+      : type === gl.FRAGMENT_SHADER
+        ? "fragment"
+        : "unknown";
+  if (!shader) {
+    throw new Error(
+      `WebGL não criou o shader ${shaderType}. Contexto perdido: ${gl.isContextLost()}. Código: WEBGL_SHADER_CREATE_FAILED.`,
+    );
+  }
   gl.shaderSource(shader, source);
   gl.compileShader(shader);
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const info = gl.getShaderInfoLog(shader);
     throw new Error(
-      gl.getShaderInfoLog(shader) ||
-        `Falha ao compilar shader WebGL. Contexto perdido: ${gl.isContextLost()}`,
+      `Falha ao compilar shader WebGL (${shaderType}). Contexto perdido: ${gl.isContextLost()}. Código: WEBGL_SHADER_COMPILE_FAILED.${info ? ` Detalhe: ${info}` : ""}`,
     );
   }
   return shader;
@@ -1323,6 +1359,54 @@ const defaultTextSettings = {
     year: false,
     version: false,
   },
+  order: ["title", "version", "artist", "album", "year"],
+  fieldStyles: {
+    title: {
+      fontFamily: "Inter",
+      fontSize: 42,
+      fontWeight: 720,
+      letterSpacing: 0,
+      lineHeight: 116,
+      color: "#f7f8fb",
+      opacity: 96,
+    },
+    version: {
+      fontFamily: "Inter",
+      fontSize: 25,
+      fontWeight: 620,
+      letterSpacing: 1,
+      lineHeight: 118,
+      color: "#cbd2dc",
+      opacity: 72,
+    },
+    artist: {
+      fontFamily: "Inter",
+      fontSize: 28,
+      fontWeight: 620,
+      letterSpacing: 0,
+      lineHeight: 120,
+      color: "#cbd2dc",
+      opacity: 82,
+    },
+    album: {
+      fontFamily: "Georgia",
+      fontSize: 26,
+      fontWeight: 560,
+      letterSpacing: 0,
+      lineHeight: 122,
+      color: "#d6c7a4",
+      opacity: 72,
+    },
+    year: {
+      fontFamily: "Inter",
+      fontSize: 21,
+      fontWeight: 620,
+      letterSpacing: 4,
+      lineHeight: 116,
+      color: "#a5afbc",
+      opacity: 62,
+    },
+  },
   fontFamily: "Inter",
   fontSize: 42,
   fontWeight: 650,
@@ -1342,29 +1426,38 @@ function drawMetadata(context, width, height, metadata, settings = {}) {
     ...defaultTextSettings,
     ...settings,
     fields: { ...defaultTextSettings.fields, ...(settings.fields ?? {}) },
+    order: normalizeMetadataOrder(settings.order),
+    fieldStyles: mergeMetadataFieldStyles(settings.fieldStyles),
   };
-  const title = String(metadata.title ?? "").trim();
-  const artist = String(metadata.artist ?? "").trim();
-  const album = String(metadata.album ?? "").trim();
-  const year = String(metadata.year ?? "").trim();
-  const version = String(metadata.version ?? "").trim();
-  const lines = [
-    textSettings.fields.title && title,
-    textSettings.fields.version && version,
-    textSettings.fields.artist && artist,
-    textSettings.fields.album && album,
-    textSettings.fields.year && year,
-  ].filter(Boolean);
-  if (!lines.length) return;
+  const values = {
+    title: String(metadata.title ?? "").trim(),
+    version: String(metadata.version ?? "").trim(),
+    artist: String(metadata.artist ?? "").trim(),
+    album: String(metadata.album ?? "").trim(),
+    year: String(metadata.year ?? "").trim(),
+  };
   const scale = Math.max(0.2, width / 1920);
-  const fontSize = Math.max(9, textSettings.fontSize * scale);
-  const lineHeight = fontSize * ((textSettings.lineHeight ?? 118) / 100);
+  const lines = textSettings.order
+    .filter((field) => textSettings.fields[field] && values[field])
+    .map((field) => {
+      const style = {
+        ...mergeMetadataFieldStyle(field, textSettings.fieldStyles[field]),
+        align: textSettings.align,
+      };
+      const fontSize = Math.max(9, style.fontSize * scale);
+      const lineHeight = fontSize * ((style.lineHeight ?? 118) / 100);
+      return {
+        field,
+        text: values[field],
+        style,
+        fontSize,
+        lineHeight,
+      };
+    });
+  if (!lines.length) return;
   const x = (width * textSettings.x) / 100;
   let y = (height * textSettings.y) / 100;
-  const blockHeight = Math.max(
-    fontSize,
-    (lines.length - 1) * lineHeight + fontSize,
-  );
+  const blockHeight = lines.reduce((sum, line) => sum + line.lineHeight, 0);
   if (textSettings.verticalAnchor === "middle") y -= blockHeight / 2;
   if (textSettings.verticalAnchor === "bottom") y -= blockHeight;
   context.save();
@@ -1373,22 +1466,68 @@ function drawMetadata(context, width, height, metadata, settings = {}) {
     textSettings.align === "justify" ? "left" : textSettings.align;
   context.shadowColor = `rgba(0,0,0,${Math.max(0, Math.min(100, textSettings.shadow)) / 100})`;
   context.shadowBlur = Math.max(0, textSettings.shadow * scale * 0.4);
-  context.fillStyle = hexToRgba(
-    textSettings.color,
-    Math.max(0, Math.min(100, textSettings.opacity)) / 100,
-  );
-  context.font = `${Math.round(textSettings.fontWeight)} ${fontSize}px ${fontFamilyStack(textSettings.fontFamily)}`;
-  for (const [index, line] of lines.entries()) {
-    drawMetadataLine(
-      context,
-      line,
-      x,
-      y + index * lineHeight,
-      width * 0.7,
-      textSettings,
+  let cursorY = y;
+  for (const line of lines) {
+    context.fillStyle = hexToRgba(
+      line.style.color,
+      Math.max(0, Math.min(100, line.style.opacity)) / 100,
     );
+    context.font = `${Math.round(line.style.fontWeight)} ${line.fontSize}px ${fontFamilyStack(line.style.fontFamily)}`;
+    drawMetadataLine(context, line.text, x, cursorY, width * 0.7, line.style);
+    cursorY += line.lineHeight;
   }
   context.restore();
+}
+
+function normalizeMetadataOrder(order) {
+  const defaults = defaultTextSettings.order;
+  const incoming = Array.isArray(order) ? order : [];
+  const next = [];
+  for (const field of incoming) {
+    if (defaults.includes(field) && !next.includes(field)) next.push(field);
+  }
+  return [...next, ...defaults.filter((field) => !next.includes(field))];
+}
+
+function mergeMetadataFieldStyles(styles = {}) {
+  return defaultTextSettings.order.reduce(
+    (result, field) => ({
+      ...result,
+      [field]: mergeMetadataFieldStyle(field, styles[field]),
+    }),
+    {},
+  );
+}
+
+function mergeMetadataFieldStyle(field, style = {}) {
+  const fallback = defaultTextSettings.fieldStyles[field];
+  return {
+    ...fallback,
+    ...style,
+    fontFamily: ["Inter", "Georgia", "Arial"].includes(style.fontFamily)
+      ? style.fontFamily
+      : fallback.fontFamily,
+    fontSize: clampValue(style.fontSize, fallback.fontSize, 9, 96),
+    fontWeight: clampValue(style.fontWeight, fallback.fontWeight, 300, 900),
+    letterSpacing: clampValue(
+      style.letterSpacing,
+      fallback.letterSpacing,
+      0,
+      24,
+    ),
+    lineHeight: clampValue(style.lineHeight, fallback.lineHeight, 90, 180),
+    color:
+      typeof style.color === "string" && /^#[0-9a-f]{6}$/i.test(style.color)
+        ? style.color
+        : fallback.color,
+    opacity: clampValue(style.opacity, fallback.opacity, 0, 100),
+  };
+}
+
+function clampValue(value, fallback, min, max) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(max, Math.max(min, numeric));
 }
 
 function drawMetadataLine(context, line, x, y, maxWidth, textSettings) {

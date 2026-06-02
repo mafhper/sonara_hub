@@ -53,6 +53,15 @@ export async function renderWebglBackgroundVideo({
     viewport: { width: size.width, height: size.height },
   });
   const page = await context.newPage();
+  const diagnostics = [];
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      diagnostics.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => {
+    diagnostics.push(`pageerror: ${error.message}`);
+  });
 
   await page.exposeFunction("reportSceneProgress", async (progress) => {
     onProgress(
@@ -73,10 +82,19 @@ export async function renderWebglBackgroundVideo({
   try {
     await page.goto(pathToFileURL(rendererPath).href, { waitUntil: "load" });
     await page.waitForFunction(() => typeof window.recordScene === "function");
-    await page.evaluate(
-      ({ durationSeconds, fps }) => window.recordScene(durationSeconds, fps),
-      { durationSeconds: duration, fps: settings.webglFps },
-    );
+    try {
+      await page.evaluate(
+        ({ durationSeconds, fps }) => window.recordScene(durationSeconds, fps),
+        { durationSeconds: duration, fps: settings.webglFps },
+      );
+    } catch (error) {
+      throw describeSceneRenderError(error, {
+        diagnostics,
+        scene: normalizeVisualSettings(settings.visualSettings ?? settings),
+        size,
+        fps: settings.webglFps,
+      });
+    }
     await writeQueue;
   } finally {
     await file.close();
@@ -85,6 +103,44 @@ export async function renderWebglBackgroundVideo({
   }
 
   await assertValidWebm(outputPath, bytesWritten);
+}
+
+export function describeSceneRenderError(
+  error,
+  { diagnostics = [], scene, size, fps },
+) {
+  const original = error instanceof Error ? error.message : String(error);
+  const contextLost = /contexto perdido:\s*true|context lost/i.test(original);
+  const shaderFailure = /WEBGL_SHADER|shader WebGL|compileShader/i.test(
+    original,
+  );
+  const code = contextLost
+    ? "WEBGL_CONTEXT_LOST"
+    : shaderFailure
+      ? "WEBGL_SHADER_ERROR"
+      : "WEBGL_RENDER_ERROR";
+  const detail = [
+    `Código: ${code}`,
+    `Preset: ${scene.name || scene.id}`,
+    `Renderer: ${scene.rendererId}`,
+    `Resolução interna: ${size.width}x${size.height} @ ${fps} fps`,
+    `Erro original: ${original}`,
+    diagnostics.length
+      ? `Diagnóstico do Chromium:\n${diagnostics.slice(-8).join("\n")}`
+      : "",
+    contextLost
+      ? "Ação sugerida: tente o perfil Rápido ou Automático, reduza a resolução desta exportação ou escolha um renderer vetorial/tela escura para confirmar se o problema é do contexto WebGL."
+      : "Ação sugerida: copie esta mensagem e revise o preset/renderer usado na exportação.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const wrapped = new Error(
+    `Falha ao renderizar a cena de vídeo (${code}). Use "Copiar erro" para analisar o diagnóstico.`,
+  );
+  wrapped.code = code;
+  wrapped.detail = detail;
+  wrapped.cause = error;
+  return wrapped;
 }
 
 export function buildRendererHtml({

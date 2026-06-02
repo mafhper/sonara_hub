@@ -62,10 +62,14 @@ export type PlayfulContent = {
 export type CloudLightSettings = {
   enabled: boolean;
   intensity: number;
+  color: string;
   x: number;
   y: number;
   radius: number;
   diffusion: number;
+  motion: number;
+  speed: number;
+  direction: number;
 };
 
 export type ScenePresetV4 = {

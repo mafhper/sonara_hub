@@ -35,6 +35,44 @@ export function chooseArtworkForTrack({
   artworkPaths,
   trackNumber = 0,
 }) {
+  return (
+    listArtworkOptionsForTrack({
+      audioPath,
+      audioPaths,
+      artworkPaths,
+      trackNumber,
+    })[0] ?? null
+  );
+}
+
+export function chooseAlbumArtworkForTrack({ audioPath, artworkPaths }) {
+  const normalizedAudioPath = normalizePath(audioPath);
+  const albumDirectory = albumDirectoryOf(normalizedAudioPath);
+  const artDirectory = joinPath(albumDirectory, "art");
+  const artwork = artworkPaths
+    .filter(isArtworkName)
+    .map(normalizePath)
+    .sort(comparePaths);
+  return (
+    artwork.find(
+      (candidate) =>
+        directoryOf(candidate) === artDirectory && isGenericArtwork(candidate),
+    ) ??
+    artwork.find(
+      (candidate) =>
+        directoryOf(candidate) === albumDirectory &&
+        isGenericArtwork(candidate),
+    ) ??
+    null
+  );
+}
+
+export function listArtworkOptionsForTrack({
+  audioPath,
+  audioPaths,
+  artworkPaths,
+  trackNumber = 0,
+}) {
   const normalizedAudioPath = normalizePath(audioPath);
   const audioDirectory = directoryOf(normalizedAudioPath);
   const albumDirectory = albumDirectoryOf(normalizedAudioPath);
@@ -83,7 +121,7 @@ export function chooseArtworkForTrack({
     );
   }
 
-  return unique(candidates)[0] ?? null;
+  return unique(candidates);
 }
 
 function albumDirectoryOf(value) {

@@ -1,5 +1,7 @@
 import {
+  AlertTriangle,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -12,6 +14,7 @@ import {
   FileAudio,
   FolderOpen,
   Image,
+  Info,
   Layers3,
   Loader2,
   Maximize2,
@@ -76,8 +79,10 @@ import {
 import { directoryImportPrefix } from "../shared/audio-import.mjs";
 import {
   albumArtworkDirectoryPaths,
+  chooseAlbumArtworkForTrack,
   chooseArtworkForTrack,
   isArtworkName,
+  listArtworkOptionsForTrack,
   singleTrackArtworkFileName,
 } from "../shared/artwork-convention.mjs";
 import {
@@ -97,6 +102,8 @@ import type {
   MediaLayerV2,
   ProjectSnapshot,
   RenderJob,
+  TextFieldKey,
+  TextFieldStyle,
   TextOverlaySettings,
   TrackDraft,
   TrackMetadata,
@@ -134,7 +141,7 @@ declare global {
 type ActiveStep = "music" | "visual" | "text" | "export";
 type WorkspaceMode = "audio" | "visual";
 type AudioStageView = "edit" | "catalog" | "videos";
-type VisualStageView = "editor" | "videos";
+type VisualStageView = "editor" | "videos" | "queue";
 type BatchCommonDraft = {
   artist: string;
   album: string;
@@ -170,6 +177,26 @@ type DestructiveAudioBatch = {
 type PlayfulPatch = Partial<Omit<PlayfulContent, "enabled" | "collections">> & {
   enabled?: Partial<PlayfulContent["enabled"]>;
   collections?: Partial<PlayfulContent["collections"]>;
+};
+type ToastTone = "success" | "info" | "warning" | "error";
+type ToastNotice = {
+  id: number;
+  message: string;
+  tone: ToastTone;
+  copyText?: string;
+};
+type InteractionDialogState = {
+  id: number;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  tone: "default" | "danger";
+  input?: {
+    label: string;
+    value: string;
+  };
+  resolve: (value: string | boolean | null) => void;
 };
 
 const emptyBands: AudioBands = {
@@ -226,6 +253,67 @@ const defaultMetadata: TrackMetadata = {
   lyricsLanguage: "und",
   normalizationEnabled: false,
 };
+const textFieldOrder: TextFieldKey[] = [
+  "title",
+  "version",
+  "artist",
+  "album",
+  "year",
+];
+const textFieldLabels: Record<TextFieldKey, string> = {
+  title: "Música",
+  version: "Versão",
+  artist: "Autor",
+  album: "Álbum",
+  year: "Ano",
+};
+const defaultTextFieldStyles: Record<TextFieldKey, TextFieldStyle> = {
+  title: {
+    fontFamily: "Inter",
+    fontSize: 42,
+    fontWeight: 720,
+    letterSpacing: 0,
+    lineHeight: 116,
+    color: "#f7f8fb",
+    opacity: 96,
+  },
+  version: {
+    fontFamily: "Inter",
+    fontSize: 25,
+    fontWeight: 620,
+    letterSpacing: 1,
+    lineHeight: 118,
+    color: "#cbd2dc",
+    opacity: 72,
+  },
+  artist: {
+    fontFamily: "Inter",
+    fontSize: 28,
+    fontWeight: 620,
+    letterSpacing: 0,
+    lineHeight: 120,
+    color: "#cbd2dc",
+    opacity: 82,
+  },
+  album: {
+    fontFamily: "Georgia",
+    fontSize: 26,
+    fontWeight: 560,
+    letterSpacing: 0,
+    lineHeight: 122,
+    color: "#d6c7a4",
+    opacity: 72,
+  },
+  year: {
+    fontFamily: "Inter",
+    fontSize: 21,
+    fontWeight: 620,
+    letterSpacing: 4,
+    lineHeight: 116,
+    color: "#a5afbc",
+    opacity: 62,
+  },
+};
 const defaultTextSettings: TextOverlaySettings = {
   fields: {
     title: true,
@@ -234,6 +322,8 @@ const defaultTextSettings: TextOverlaySettings = {
     year: false,
     version: false,
   },
+  order: textFieldOrder,
+  fieldStyles: defaultTextFieldStyles,
   preset: "top-left",
   fontFamily: "Inter",
   fontSize: 42,
@@ -247,6 +337,20 @@ const defaultTextSettings: TextOverlaySettings = {
   align: "left",
   verticalAnchor: "top",
   shadow: 48,
+};
+const textFontOptions: TextFieldStyle["fontFamily"][] = [
+  "Inter",
+  "Georgia",
+  "Arial",
+];
+const textStylePresetLabels: Record<TextOverlaySettings["preset"], string> = {
+  "top-left": "Topo esquerdo",
+  "bottom-center": "Base central",
+  "cover-left": "Capa à esquerda",
+  "side-left": "Lado a lado · esquerda",
+  "side-right": "Lado a lado · direita",
+  "editorial-stack": "Editorial",
+  "quiet-album": "Álbum discreto",
 };
 const defaultCoverSeriesSettings: CoverSeriesSettings = {
   enabled: true,
@@ -322,12 +426,14 @@ const childFriendlyPalettes: Array<{
 ];
 const waveformStylePresets: Array<{
   name: string;
+  description: string;
   patch: Partial<Omit<WaveformV1, "advanced">> & {
     advanced?: Partial<WaveformV1["advanced"]>;
   };
 }> = [
   {
     name: "Visor âmbar",
+    description: "Barras com pico decaindo e gradiente quente.",
     patch: {
       type: "spectrum-bars",
       colorMode: "gradient",
@@ -351,6 +457,7 @@ const waveformStylePresets: Array<{
   },
   {
     name: "Espectro colorido",
+    description: "Barras arredondadas com cores por banda.",
     patch: {
       type: "spectrum-bars",
       colorMode: "bands",
@@ -374,6 +481,7 @@ const waveformStylePresets: Array<{
   },
   {
     name: "Anel editorial",
+    description: "Anel radial amplo para capa ou vinil central.",
     patch: {
       type: "radial-ring",
       colorMode: "gradient",
@@ -495,7 +603,9 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [storageUsage, setStorageUsage] = useState<StorageUsage | null>(null);
   const [cleanupBusy, setCleanupBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [toasts, setToasts] = useState<ToastNotice[]>([]);
+  const [interactionDialog, setInteractionDialog] =
+    useState<InteractionDialogState | null>(null);
   const [folderName, setFolderName] = useState("Pasta input");
   const [workspaceWriteEnabled, setWorkspaceWriteEnabled] = useState(false);
   const [outputFolderName, setOutputFolderName] = useState("outputs interno");
@@ -520,7 +630,6 @@ function App() {
     total: number;
     name: string;
   } | null>(null);
-  const [batchFeedback, setBatchFeedback] = useState("");
   const [queuePaused, setQueuePaused] = useState(false);
   const [batchApplyMode, setBatchApplyMode] =
     useState<BatchApplyMode>("fill-empty");
@@ -563,6 +672,9 @@ function App() {
   const embeddedArtworkRequestsRef = useRef(new Set<string>());
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationRef = useRef(0);
+  const toastSequenceRef = useRef(0);
+  const toastTimersRef = useRef(new Map<number, number>());
+  const dialogSequenceRef = useRef(0);
 
   const selectedTrack =
     tracks.find((track) => track.id === selectedTrackId) ?? tracks[0];
@@ -612,6 +724,98 @@ function App() {
       track.audioInfo?.analysis?.risk &&
       track.audioInfo.analysis.risk !== "safe",
   ).length;
+
+  function dismissToast(id: number) {
+    const timer = toastTimersRef.current.get(id);
+    if (timer) window.clearTimeout(timer);
+    toastTimersRef.current.delete(id);
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }
+
+  function showToast(
+    message: string,
+    tone: ToastTone = "success",
+    options: { copyText?: string; persistent?: boolean } = {},
+  ) {
+    if (!message) return;
+    const id = ++toastSequenceRef.current;
+    setToasts((current) =>
+      [
+        ...current.filter(
+          (toast) => toast.message !== message || toast.tone !== tone,
+        ),
+        { id, message, tone, copyText: options.copyText },
+      ].slice(-4),
+    );
+    if (!options.persistent) {
+      const timer = window.setTimeout(
+        () => dismissToast(id),
+        tone === "warning" ? 7_000 : 5_000,
+      );
+      toastTimersRef.current.set(id, timer);
+    }
+  }
+
+  function setBatchFeedback(message: string, tone: ToastTone = "success") {
+    showToast(message, tone);
+  }
+
+  function setError(message: string) {
+    if (!message) {
+      setToasts((current) => current.filter((toast) => toast.tone !== "error"));
+      return;
+    }
+    showToast(message, "error", { copyText: message, persistent: true });
+  }
+
+  function requestConfirmation(options: {
+    title: string;
+    message: string;
+    confirmLabel: string;
+    cancelLabel?: string;
+    tone?: InteractionDialogState["tone"];
+  }) {
+    return new Promise<boolean>((resolve) => {
+      setInteractionDialog({
+        id: ++dialogSequenceRef.current,
+        title: options.title,
+        message: options.message,
+        confirmLabel: options.confirmLabel,
+        cancelLabel: options.cancelLabel ?? "Cancelar",
+        tone: options.tone ?? "default",
+        resolve: (value) => resolve(value === true),
+      });
+    });
+  }
+
+  function requestTextInput(options: {
+    title: string;
+    message: string;
+    label: string;
+    value: string;
+    confirmLabel: string;
+    cancelLabel?: string;
+  }) {
+    return new Promise<string | null>((resolve) => {
+      setInteractionDialog({
+        id: ++dialogSequenceRef.current,
+        title: options.title,
+        message: options.message,
+        confirmLabel: options.confirmLabel,
+        cancelLabel: options.cancelLabel ?? "Cancelar",
+        tone: "default",
+        input: { label: options.label, value: options.value },
+        resolve: (value) =>
+          resolve(typeof value === "string" ? value.trim() || null : null),
+      });
+    });
+  }
+
+  function closeInteractionDialog(value: string | boolean | null) {
+    const dialog = interactionDialog;
+    setInteractionDialog(null);
+    dialog?.resolve(value);
+  }
 
   useEffect(() => {
     void loadInitialWorkspace();
@@ -683,10 +887,12 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!batchFeedback) return;
-    const timeout = window.setTimeout(() => setBatchFeedback(""), 5_000);
-    return () => window.clearTimeout(timeout);
-  }, [batchFeedback]);
+    return () => {
+      for (const timer of toastTimersRef.current.values()) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, []);
 
   async function loadInitialWorkspace() {
     try {
@@ -793,9 +999,18 @@ function App() {
         ? "arquivos temporários"
         : "arquivos gerados locais que ainda permanecem no Sonara Hub";
     if (
-      !window.confirm(
-        `Excluir ${label}? A sessão e os arquivos já movidos para pastas externas serão preservados.`,
-      )
+      !(await requestConfirmation({
+        title:
+          scope === "temporary"
+            ? "Excluir arquivos temporários?"
+            : "Excluir arquivos gerados locais?",
+        message: `Excluir ${label}? A sessão e os arquivos já movidos para pastas externas serão preservados.`,
+        confirmLabel:
+          scope === "temporary"
+            ? "Excluir temporários"
+            : "Excluir arquivos gerados",
+        tone: "danger",
+      }))
     ) {
       return;
     }
@@ -863,6 +1078,7 @@ function App() {
     );
     setBatchFeedback(
       "Substituição ao finalizar ativada. Os originais só serão trocados se todo o processamento selecionado terminar.",
+      "warning",
     );
   }
 
@@ -871,6 +1087,7 @@ function App() {
     destructiveAudioBatchRef.current = null;
     setBatchFeedback(
       "Modo não destrutivo reativado. Processamentos futuros gerarão cópias sem substituir originais.",
+      "info",
     );
   }
 
@@ -1103,6 +1320,13 @@ function App() {
       : (track?.suggestedCover ?? null);
   }
 
+  function albumCoverForTrack(track?: TrackDraft) {
+    if (cover) return cover;
+    return track?.useSuggestedCover === false
+      ? null
+      : (track?.albumCoverSuggestion ?? track?.suggestedCover ?? null);
+  }
+
   function updateCoverSeriesSettingsPatch(patch: Partial<CoverSeriesSettings>) {
     setCoverSeriesSettings((current) => ({ ...current, ...patch }));
   }
@@ -1113,22 +1337,21 @@ function App() {
   }
 
   function updateTextSettings(patch: Partial<TextOverlaySettings>) {
-    if (!selectedTrack) return;
-    updateSelectedTrack({
-      textSettings: mergeTextSettings(selectedTrack.textSettings, patch),
-    });
-  }
-
-  function applyTextToBatch() {
-    if (!selectedTrack) return;
-    const template = cloneTextSettings(selectedTrack.textSettings);
+    const trackId = selectedTrackId;
     setTracks((current) =>
       current.map((track) =>
-        track.selectedForBatch
-          ? { ...track, textSettings: cloneTextSettings(template) }
+        track.id === trackId
+          ? {
+              ...track,
+              textSettings: mergeTextSettings(track.textSettings, patch),
+            }
           : track,
       ),
     );
+  }
+
+  function applyTextToBatch() {
+    setTracks((current) => applyTextTemplateToTracks(current, selectedTrackId));
     setBatchFeedback("Texto do vídeo aplicado ao lote selecionado.");
   }
 
@@ -1191,6 +1414,16 @@ function App() {
     if (!track?.suggestedCover) return;
     setCover(null);
     updateTrackDraft(track.id, { useSuggestedCover: true });
+  }
+
+  function selectSuggestedCover(trackId: string, relativePath: string) {
+    const track = tracks.find((item) => item.id === trackId);
+    const suggestedCover = track?.artworkOptions?.find(
+      (option) => option.relativePath === relativePath,
+    );
+    if (!track || !suggestedCover) return;
+    setCover(null);
+    updateTrackDraft(track.id, { suggestedCover, useSuggestedCover: true });
   }
 
   function chooseCatalogCover(trackId: string) {
@@ -1266,8 +1499,14 @@ function App() {
   }
 
   function updateMetadata(patch: Partial<TrackMetadata>) {
-    if (!selectedTrack) return;
-    updateSelectedTrack({ metadata: { ...selectedTrack.metadata, ...patch } });
+    const trackId = selectedTrackId;
+    setTracks((current) =>
+      current.map((track) =>
+        track.id === trackId
+          ? { ...track, metadata: { ...track.metadata, ...patch } }
+          : track,
+      ),
+    );
   }
 
   function updateTrackMetadata(trackId: string, patch: Partial<TrackMetadata>) {
@@ -1419,7 +1658,10 @@ function App() {
         ? tracks.filter((track) => track.selectedForBatch)
         : [selectedTrack];
     if (!selected.length) {
-      setBatchFeedback("Selecione ao menos uma faixa para processar.");
+      setBatchFeedback(
+        "Selecione ao menos uma faixa para processar.",
+        "warning",
+      );
       return;
     }
     destructiveAudioBatchRef.current = null;
@@ -1427,6 +1669,7 @@ function App() {
       workflowMode === "batch"
         ? `Processamento iniciado para ${selected.length} arquivo${selected.length === 1 ? "" : "s"}.`
         : "Processamento iniciado.",
+      "info",
     );
     const jobIds: string[] = [];
     for (const track of selected) {
@@ -1441,6 +1684,7 @@ function App() {
       destructiveAudioBatchRef.current = { jobIds, finalizing: false };
       setBatchFeedback(
         `${jobIds.length} processamento${jobIds.length === 1 ? "" : "s"} iniciado${jobIds.length === 1 ? "" : "s"}. Substituição dos originais será feita apenas no final, se todos concluírem.`,
+        "warning",
       );
     }
   }
@@ -1451,6 +1695,8 @@ function App() {
     else formData.append("inputAudio", track.sourceKey);
     const trackCover = coverForTrack(track);
     if (trackCover) formData.append("cover", trackCover.file);
+    const albumCover = albumCoverForTrack(track);
+    if (albumCover) formData.append("albumCover", albumCover.file);
     formData.append(
       "draft",
       JSON.stringify(audioDraftFromMetadata(track.metadata)),
@@ -1492,10 +1738,14 @@ function App() {
   }
 
   async function duplicatePreset() {
-    const name = window.prompt(
-      "Nome do preset personalizado",
-      `${selectedScene.name} personalizado`,
-    );
+    const name = await requestTextInput({
+      title: "Duplicar preset",
+      message:
+        "Crie uma cópia reutilizável com a atmosfera, a paleta e os ajustes atuais.",
+      label: "Nome do preset personalizado",
+      value: `${selectedScene.name} personalizado`,
+      confirmLabel: "Duplicar preset",
+    });
     if (!name) return;
     try {
       const created = await fetchJson<ScenePresetV3>("/api/visual-presets", {
@@ -1640,44 +1890,8 @@ function App() {
   }
 
   function applyMusicToBatch() {
-    if (!selectedTrack) return;
-    const {
-      album,
-      albumArtist,
-      artist,
-      comment,
-      composer,
-      copyright,
-      diskNumber,
-      diskTotal,
-      genre,
-      normalizationEnabled,
-      trackTotal,
-      year,
-    } = selectedTrack.metadata;
     setTracks((current) =>
-      current.map((track) =>
-        track.selectedForBatch
-          ? {
-              ...track,
-              metadata: {
-                ...track.metadata,
-                album,
-                albumArtist,
-                artist,
-                comment,
-                composer,
-                copyright,
-                diskNumber,
-                diskTotal,
-                genre,
-                normalizationEnabled,
-                trackTotal,
-                year,
-              },
-            }
-          : track,
-      ),
+      applyMusicTemplateToTracks(current, selectedTrackId),
     );
     setBatchFeedback("Dados da faixa selecionada aplicados ao lote.");
   }
@@ -1697,53 +1911,15 @@ function App() {
   }
 
   function applyVisualToBatch() {
-    if (!selectedTrack) return;
     setTracks((current) =>
-      current.map((track) =>
-        track.selectedForBatch
-          ? {
-              ...track,
-              scene: normalizeVisualSettings(selectedTrack.scene),
-              layers: selectedTrack.layers.map((layer) => ({
-                ...layer,
-                id: crypto.randomUUID(),
-              })),
-            }
-          : track,
-      ),
+      applyVisualTemplateToTracks(current, selectedTrackId),
     );
     setBatchFeedback("Visual aplicado ao lote selecionado.");
   }
 
   function applyPublicationToBatch() {
-    if (!selectedTrack) return;
-    const {
-      categoryId,
-      containsSyntheticMedia,
-      description,
-      language,
-      madeForKids,
-      tags,
-      visibility,
-    } = selectedTrack.metadata;
     setTracks((current) =>
-      current.map((track) =>
-        track.selectedForBatch
-          ? {
-              ...track,
-              metadata: {
-                ...track.metadata,
-                categoryId,
-                containsSyntheticMedia,
-                description,
-                language,
-                madeForKids,
-                tags,
-                visibility,
-              },
-            }
-          : track,
-      ),
+      applyPublicationTemplateToTracks(current, selectedTrackId),
     );
     setBatchFeedback("Dados de publicação aplicados ao lote.");
   }
@@ -1811,6 +1987,9 @@ function App() {
   async function exportSelected() {
     if (!selectedTrack) return;
     setError("");
+    setWorkspaceMode("visual");
+    setActiveStep("export");
+    setVisualStageView("queue");
     if (workflowMode === "batch") {
       const selected = tracks.filter((track) => track.selectedForBatch);
       for (const track of selected) await submitRender(track);
@@ -1849,6 +2028,7 @@ function App() {
       });
       const job: RenderJob = {
         id: data.jobId,
+        kind: "video-render",
         status: "queued",
         progress: 0,
         message: `Na fila: ${track.metadata.title}`,
@@ -1861,6 +2041,11 @@ function App() {
     } catch (reason) {
       setError(localApiMessage(reason, "iniciar a exportação"));
     }
+  }
+
+  async function copyJobError(job: RenderJob) {
+    await copyTextToClipboard(jobErrorReport(job));
+    setBatchFeedback("Erro copiado para a área de transferência.");
   }
 
   function pollJob(id: string) {
@@ -1929,7 +2114,7 @@ function App() {
       setJobs((current) =>
         current.map((item) => (item.id === id ? job : item)),
       );
-      setBatchFeedback("Cancelamento solicitado.");
+      setBatchFeedback("Cancelamento solicitado.", "info");
     } catch (reason) {
       setError(localApiMessage(reason, "cancelar o processamento"));
     }
@@ -1942,7 +2127,10 @@ function App() {
         { method: "POST" },
       );
       setJobs(payload.jobs);
-      setBatchFeedback("Todos os processamentos pendentes foram cancelados.");
+      setBatchFeedback(
+        "Todos os processamentos pendentes foram cancelados.",
+        "info",
+      );
     } catch (reason) {
       setError(localApiMessage(reason, "cancelar a fila"));
     }
@@ -1957,6 +2145,7 @@ function App() {
       setQueuePaused(payload.queuePaused);
       setBatchFeedback(
         "Fila pausada. O item em andamento termina a etapa atual.",
+        "info",
       );
     } catch (reason) {
       setError(localApiMessage(reason, "pausar a fila"));
@@ -1970,7 +2159,7 @@ function App() {
         { method: "POST" },
       );
       setQueuePaused(payload.queuePaused);
-      setBatchFeedback("Fila retomada.");
+      setBatchFeedback("Fila retomada.", "info");
       for (const job of jobs) {
         if (job.status === "paused" || job.status === "queued") pollJob(job.id);
       }
@@ -2052,6 +2241,7 @@ function App() {
       destructiveAudioBatchRef.current = null;
       setBatchFeedback(
         "Substituição dos originais não executada: ao menos um processamento foi cancelado ou falhou.",
+        "warning",
       );
       return;
     }
@@ -2114,6 +2304,25 @@ function App() {
           payload as Blob,
         ),
     });
+    const albumArtworkTargets = new Map<string, string>();
+    for (const replacement of replacements) {
+      if (!replacement.job.albumArtworkUrl) continue;
+      albumArtworkTargets.set(
+        albumFolderArtworkSourceKey(replacement.origin.sourceKey),
+        replacement.job.albumArtworkUrl,
+      );
+    }
+    for (const [targetPath, artworkUrl] of albumArtworkTargets) {
+      const response = await fetchOptional(artworkUrl);
+      if (!response) {
+        throw new Error("Capa principal do álbum não encontrada.");
+      }
+      await writeBlobToWorkspacePath(
+        directory,
+        targetPath,
+        await response.blob(),
+      );
+    }
     setTracks((current) =>
       current.map((track) => {
         const matched = replacements.find(
@@ -2524,7 +2733,6 @@ function App() {
             audioBands={audioBands}
             batchApplyMode={batchApplyMode}
             batchCommon={batchCommon}
-            batchFeedback={batchFeedback}
             folderImportProgress={folderImportProgress}
             jobs={jobs}
             queuePaused={queuePaused}
@@ -2558,8 +2766,11 @@ function App() {
             coverForTrack={coverForTrack}
             coverSeriesSettings={coverSeriesSettings}
             onChooseCover={chooseCatalogCover}
+            onCoverSeriesSettings={updateCoverSeriesSettingsPatch}
             onRestoreSuggestedCover={restoreSuggestedCover}
+            onSaveCoverSeriesDefault={saveCoverSeriesDefault}
             onSelectTrack={setSelectedTrackId}
+            onSelectSuggestedCover={selectSuggestedCover}
             tracks={reviewTracks}
           />
         ) : (workspaceMode === "audio" && audioStageView === "videos") ||
@@ -2575,6 +2786,20 @@ function App() {
             outputLabel={selectedOutput[1]}
             showMetadata={showMetadata}
             tracks={reviewTracks}
+          />
+        ) : workspaceMode === "visual" && visualStageView === "queue" ? (
+          <VideoExportWorkspace
+            jobs={jobs}
+            outputLabel={selectedOutput[1]}
+            queuePaused={queuePaused}
+            selectedCount={reviewTracks.length}
+            onCancelAllJobs={() => void cancelAllJobs()}
+            onCancelJob={(id) => void cancelJob(id)}
+            onClearTerminalJobs={() => void clearCompletedJobs("video-render")}
+            onCopyJobError={(job) => void copyJobError(job)}
+            onPauseQueue={() => void pauseQueue()}
+            onResumeQueue={() => void resumeQueue()}
+            onReviewVideos={() => setVisualStageView("videos")}
           />
         ) : (
           <div className="canvas-table">
@@ -2807,6 +3032,14 @@ function App() {
               <Video />
               Conferir vídeos
             </button>
+            <button
+              className={visualStageView === "queue" ? "active" : ""}
+              type="button"
+              onClick={() => setVisualStageView("queue")}
+            >
+              <Loader2 />
+              Fila de vídeos
+            </button>
           </nav>
         ) : (
           <nav
@@ -2842,12 +3075,6 @@ function App() {
             : `${selectedOutput[1]} · ${selectedTrack?.layers.length ?? 0}/3 camadas · waveform ${selectedScene.waveform.visible ? "ativa" : "desligada"}`}
         </span>
       </footer>
-
-      {batchFeedback && (
-        <p className="operation-feedback" role="status">
-          <Check /> {batchFeedback}
-        </p>
-      )}
 
       <input
         hidden
@@ -2963,17 +3190,147 @@ function App() {
           </section>
         </div>
       )}
-      {error && (
-        <button
-          className="error-toast"
-          type="button"
-          onClick={() => setError("")}
-        >
-          {error}
-          <X />
-        </button>
+      <ToastViewport
+        toasts={toasts}
+        onCopy={(toast) => {
+          void copyTextToClipboard(toast.copyText ?? toast.message);
+          showToast("Mensagem copiada para a área de transferência.", "info");
+        }}
+        onDismiss={dismissToast}
+      />
+      {interactionDialog && (
+        <InteractionDialog
+          dialog={interactionDialog}
+          key={interactionDialog.id}
+          onCancel={() => closeInteractionDialog(null)}
+          onConfirm={(value) => closeInteractionDialog(value)}
+        />
       )}
     </main>
+  );
+}
+
+function ToastViewport({
+  onCopy,
+  onDismiss,
+  toasts,
+}: {
+  onCopy: (toast: ToastNotice) => void;
+  onDismiss: (id: number) => void;
+  toasts: ToastNotice[];
+}) {
+  if (!toasts.length) return null;
+  return (
+    <div className="toast-viewport" aria-label="Notificações">
+      {toasts.map((toast) => (
+        <section
+          aria-live={toast.tone === "error" ? "assertive" : "polite"}
+          className={`toast-notice ${toast.tone}`}
+          key={toast.id}
+          role={toast.tone === "error" ? "alert" : "status"}
+        >
+          <span className="toast-icon">{toastIcon(toast.tone)}</span>
+          <p>{toast.message}</p>
+          <div className="toast-actions">
+            {toast.copyText && (
+              <button type="button" onClick={() => onCopy(toast)}>
+                <Copy /> Copiar
+              </button>
+            )}
+            <button
+              aria-label="Fechar notificação"
+              className="toast-close"
+              type="button"
+              onClick={() => onDismiss(toast.id)}
+            >
+              <X />
+            </button>
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function toastIcon(tone: ToastTone) {
+  if (tone === "success") return <CheckCircle2 />;
+  if (tone === "warning" || tone === "error") return <AlertTriangle />;
+  return <Info />;
+}
+
+function InteractionDialog({
+  dialog,
+  onCancel,
+  onConfirm,
+}: {
+  dialog: InteractionDialogState;
+  onCancel: () => void;
+  onConfirm: (value: string | boolean) => void;
+}) {
+  const [inputValue, setInputValue] = useState(dialog.input?.value ?? "");
+  return (
+    <div
+      className="interaction-dialog-overlay"
+      role="presentation"
+      onMouseDown={onCancel}
+    >
+      <form
+        aria-labelledby={`interaction-dialog-title-${dialog.id}`}
+        aria-modal="true"
+        className={`interaction-dialog ${dialog.tone}`}
+        role="dialog"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onCancel();
+        }}
+        onMouseDown={(event) => event.stopPropagation()}
+        onSubmit={(event) => {
+          event.preventDefault();
+          onConfirm(dialog.input ? inputValue : true);
+        }}
+      >
+        <header>
+          <div>
+            <span className="overline">
+              {dialog.tone === "danger" ? "Confirmar operação" : "Sonara Hub"}
+            </span>
+            <h2 id={`interaction-dialog-title-${dialog.id}`}>{dialog.title}</h2>
+          </div>
+          <IconButton label="Fechar diálogo" onClick={onCancel}>
+            <X />
+          </IconButton>
+        </header>
+        <div className="interaction-dialog-body">
+          <p>{dialog.message}</p>
+          {dialog.input && (
+            <label className="field">
+              <span>{dialog.input.label}</span>
+              <input
+                autoFocus
+                value={inputValue}
+                onChange={(event) => setInputValue(event.target.value)}
+              />
+            </label>
+          )}
+        </div>
+        <footer>
+          <button className="quiet-action" type="button" onClick={onCancel}>
+            {dialog.cancelLabel}
+          </button>
+          <button
+            autoFocus={!dialog.input}
+            className={
+              dialog.tone === "danger"
+                ? "danger-confirm-action"
+                : "primary-action"
+            }
+            type="submit"
+          >
+            {dialog.tone === "danger" ? <Trash2 /> : <Check />}
+            {dialog.confirmLabel}
+          </button>
+        </footer>
+      </form>
+    </div>
   );
 }
 
@@ -2981,7 +3338,6 @@ function AudioLibraryWorkspace({
   audioBands,
   batchApplyMode,
   batchCommon,
-  batchFeedback,
   folderImportProgress,
   jobs,
   onApplyBatchCommon,
@@ -3005,7 +3361,6 @@ function AudioLibraryWorkspace({
   audioBands: AudioBands;
   batchApplyMode: BatchApplyMode;
   batchCommon: BatchCommonDraft;
-  batchFeedback: string;
   folderImportProgress: { current: number; total: number; name: string } | null;
   jobs: RenderJob[];
   onApplyBatchCommon: () => void;
@@ -3179,7 +3534,6 @@ function AudioLibraryWorkspace({
                 <Check /> Aplicar aos selecionados
               </button>
             </div>
-            {batchFeedback && <p className="batch-feedback">{batchFeedback}</p>}
           </div>
         </details>
         <BatchJobBoard
@@ -3624,26 +3978,129 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function VideoExportWorkspace({
+  jobs,
+  outputLabel,
+  queuePaused,
+  selectedCount,
+  onCancelAllJobs,
+  onCancelJob,
+  onClearTerminalJobs,
+  onCopyJobError,
+  onPauseQueue,
+  onResumeQueue,
+  onReviewVideos,
+}: {
+  jobs: RenderJob[];
+  outputLabel: string;
+  queuePaused: boolean;
+  selectedCount: number;
+  onCancelAllJobs: () => void;
+  onCancelJob: (id: string) => void;
+  onClearTerminalJobs: () => void;
+  onCopyJobError: (job: RenderJob) => void;
+  onPauseQueue: () => void;
+  onResumeQueue: () => void;
+  onReviewVideos: () => void;
+}) {
+  const videoJobs = jobs.filter((job) => job.kind === "video-render");
+  const errorJobs = videoJobs.filter((job) => job.status === "error");
+  return (
+    <div className="review-stage video-export-stage">
+      <header className="review-stage-header">
+        <div>
+          <span className="overline">Exportação de vídeos</span>
+          <h1>Processamento de vídeos</h1>
+          <p>
+            Acompanhe renderização, mux de áudio, validação e arquivos finais em
+            uma área central.
+          </p>
+        </div>
+        <div className="stage-header-actions">
+          <strong>
+            {selectedCount} selecionada{selectedCount === 1 ? "" : "s"}
+          </strong>
+          <button type="button" onClick={onReviewVideos}>
+            <Video /> Conferir vídeos
+          </button>
+        </div>
+      </header>
+      <section className="stage-surface export-overview">
+        <div>
+          <span className="overline">Perfil atual</span>
+          <strong>{outputLabel}</strong>
+          <small>
+            O botão Exportar no inspetor inicia os jobs e traz você para esta
+            tela.
+          </small>
+        </div>
+        {errorJobs.length > 0 && (
+          <div className="export-error-callout">
+            <strong>
+              {errorJobs.length} exportação
+              {errorJobs.length === 1 ? " falhou" : " falharam"}
+            </strong>
+            <p>
+              Copie o diagnóstico do item com erro para analisar o renderer,
+              preset, resolução e mensagem original.
+            </p>
+            <div className="export-error-actions">
+              <button type="button" onClick={onReviewVideos}>
+                <Video /> Continuar conferindo
+              </button>
+              <button
+                type="button"
+                onClick={() => onCopyJobError(errorJobs[0])}
+              >
+                <Copy /> Analisar erro
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+      <BatchJobBoard
+        emptyCopy="Ao exportar, cada vídeo aparece aqui com etapa, progresso, cancelamento e links finais."
+        jobs={jobs}
+        kind="video-render"
+        queuePaused={queuePaused}
+        title="Processamento dos vídeos"
+        onCancelAll={onCancelAllJobs}
+        onCancelJob={onCancelJob}
+        onClearTerminal={onClearTerminalJobs}
+        onCopyJobError={onCopyJobError}
+        onPause={onPauseQueue}
+        onResume={onResumeQueue}
+      />
+    </div>
+  );
+}
+
 function BatchJobBoard({
   jobs,
+  kind = "audio-process",
+  emptyCopy = "Ao processar, cada arquivo aparece aqui com etapa, progresso e controle de cancelamento.",
   title = "Processamento do lote",
   onCancelAll,
   onCancelJob,
   onClearTerminal,
+  onCopyJobError,
   onPause,
   onResume,
   queuePaused,
 }: {
   jobs: RenderJob[];
+  kind?: NonNullable<RenderJob["kind"]>;
+  emptyCopy?: string;
   title?: string;
   onCancelAll: () => void;
   onCancelJob: (id: string) => void;
   onClearTerminal: () => void;
+  onCopyJobError?: (job: RenderJob) => void;
   onPause: () => void;
   onResume: () => void;
   queuePaused: boolean;
 }) {
-  const activeJobs = jobs.filter((job) => job.kind === "audio-process");
+  const activeJobs = jobs.filter((job) => job.kind === kind);
   const jobCounts = {
     running: activeJobs.filter((job) => job.status === "running").length,
     waiting: activeJobs.filter((job) =>
@@ -3697,10 +4154,7 @@ function BatchJobBoard({
         </div>
       )}
       {activeJobs.length === 0 ? (
-        <p className="helper-copy">
-          Ao processar, cada arquivo aparece aqui com etapa, progresso e
-          controle de cancelamento.
-        </p>
+        <p className="helper-copy">{emptyCopy}</p>
       ) : (
         <div className="batch-job-list">
           {activeJobs.map((job) => {
@@ -3719,9 +4173,26 @@ function BatchJobBoard({
                 <progress max={100} value={job.progress} />
                 <span>{job.progress}%</span>
                 {terminal ? (
-                  <span className="job-terminal-state">
-                    {jobStatusLabel(job.status)}
-                  </span>
+                  <div className="job-terminal-actions">
+                    {kind === "video-render" && job.outputUrl && (
+                      <a href={job.outputUrl} download title="Baixar MP4">
+                        <Download /> MP4
+                      </a>
+                    )}
+                    {kind === "video-render" && job.sidecarUrl && (
+                      <a href={job.sidecarUrl} download title="Baixar JSON">
+                        <Download /> JSON
+                      </a>
+                    )}
+                    <span className="job-terminal-state">
+                      {jobStatusLabel(job.status)}
+                    </span>
+                    {job.status === "error" && onCopyJobError && (
+                      <button type="button" onClick={() => onCopyJobError(job)}>
+                        <Copy /> Copiar erro
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <button type="button" onClick={() => onCancelJob(job.id)}>
                     <X /> Cancelar
@@ -4190,15 +4661,21 @@ function CatalogPreview({
   coverForTrack,
   coverSeriesSettings,
   onChooseCover,
+  onCoverSeriesSettings,
   onRestoreSuggestedCover,
+  onSaveCoverSeriesDefault,
   onSelectTrack,
+  onSelectSuggestedCover,
   tracks,
 }: {
   coverForTrack: (track?: TrackDraft) => { file: File; src: string } | null;
   coverSeriesSettings: CoverSeriesSettings;
   onChooseCover: (trackId: string) => void;
+  onCoverSeriesSettings: (patch: Partial<CoverSeriesSettings>) => void;
   onRestoreSuggestedCover: (trackId?: string) => void;
+  onSaveCoverSeriesDefault: () => void;
   onSelectTrack: (trackId: string) => void;
+  onSelectSuggestedCover: (trackId: string, relativePath: string) => void;
   tracks: TrackDraft[];
 }) {
   const [artworkTrackId, setArtworkTrackId] = useState("");
@@ -4345,7 +4822,7 @@ function CatalogPreview({
                   </strong>
                   <p>
                     A capa tratada usa os mesmos ajustes exibidos aqui. Altere
-                    os controles no inspetor para conferir o resultado na hora.
+                    os controles abaixo para conferir o resultado na hora.
                   </p>
                 </div>
                 <div className="catalog-artwork-actions">
@@ -4374,6 +4851,50 @@ function CatalogPreview({
                     {showSeries ? "Ver arte base" : "Ver com série visual"}
                   </button>
                 </div>
+                {(artworkTrack.artworkOptions?.length ?? 0) > 1 && (
+                  <div className="catalog-artwork-variants">
+                    <span className="overline">Fontes disponíveis</span>
+                    <p>
+                      Compare formatos e versões oferecidos por `art/`. A
+                      escolha ativa alimenta a capa tratada desta faixa.
+                    </p>
+                    <div>
+                      {artworkTrack.artworkOptions?.map((option) => (
+                        <button
+                          className={
+                            option.relativePath ===
+                            artworkTrack.suggestedCover?.relativePath
+                              ? "active"
+                              : ""
+                          }
+                          key={option.relativePath}
+                          type="button"
+                          onClick={() =>
+                            onSelectSuggestedCover(
+                              artworkTrack.id,
+                              option.relativePath,
+                            )
+                          }
+                        >
+                          <strong>{artworkVariantLabel(option)}</strong>
+                          <small>{formatBytes(option.file.size)}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <details className="catalog-artwork-settings" open>
+                  <summary>
+                    <span>Ajustar composição da capa</span>
+                    <small>Prévia imediata</small>
+                  </summary>
+                  <CoverSeriesEditor
+                    compact
+                    settings={coverSeriesSettings}
+                    onChange={onCoverSeriesSettings}
+                    onSaveDefault={onSaveCoverSeriesDefault}
+                  />
+                </details>
                 <div className="catalog-artwork-series-list">
                   <span className="overline">Capas da série</span>
                   {tracks.map((track) => (
@@ -5103,6 +5624,143 @@ function CoverSeriesMetaControls({
   );
 }
 
+function CoverSeriesEditor({
+  compact = false,
+  onChange,
+  onSaveDefault,
+  settings,
+}: {
+  compact?: boolean;
+  onChange: (patch: Partial<CoverSeriesSettings>) => void;
+  onSaveDefault: () => void;
+  settings: CoverSeriesSettings;
+}) {
+  function updateMetaStyle(
+    key: CoverSeriesMetaKey,
+    patch: Partial<CoverSeriesMetaStyle>,
+  ) {
+    onChange({
+      metaStyles: {
+        ...settings.metaStyles,
+        [key]: { ...settings.metaStyles[key], ...patch },
+      },
+    });
+  }
+
+  return (
+    <div className={`cover-series-editor ${compact ? "compact" : ""}`}>
+      <CheckField
+        label="Gerar série visual na capa tratada"
+        checked={settings.enabled}
+        onChange={(enabled) => onChange({ enabled })}
+      />
+      {settings.enabled && (
+        <>
+          <div className="cover-series-editor-grid">
+            <SelectField
+              label="Sequência"
+              value={settings.style}
+              onChange={(value) =>
+                onChange({
+                  style:
+                    value === "custom" || value === "arabic" ? value : "roman",
+                })
+              }
+            >
+              <option value="roman">Romana · I, II, III</option>
+              <option value="arabic">Arábica · 1, 2, 3</option>
+              <option value="custom">Personalizada</option>
+            </SelectField>
+            <ColorInput
+              label="Cor principal"
+              value={settings.color}
+              onChange={(color) => onChange({ color })}
+            />
+          </div>
+          {settings.style === "custom" && (
+            <TextArea
+              label="Itens personalizados"
+              rows={3}
+              value={settings.sequence}
+              onChange={(sequence) => onChange({ sequence })}
+            />
+          )}
+          <div className="cover-series-editor-grid">
+            <RangeField
+              label="Tamanho"
+              max={180}
+              min={32}
+              value={settings.fontSize}
+              onChange={(fontSize) => onChange({ fontSize })}
+            />
+            <RangeField
+              label="Opacidade"
+              value={settings.opacity}
+              onChange={(opacity) => onChange({ opacity })}
+            />
+            <RangeField
+              label="Horizontal"
+              value={settings.x}
+              onChange={(x) => onChange({ x })}
+            />
+            <RangeField
+              label="Vertical"
+              value={settings.y}
+              onChange={(y) => onChange({ y })}
+            />
+          </div>
+          <RangeField
+            label="Espaçamento"
+            max={48}
+            unit="px"
+            value={settings.letterSpacing}
+            onChange={(letterSpacing) => onChange({ letterSpacing })}
+          />
+          <div className="cover-series-meta">
+            <p className="inspector-kicker">Textos complementares</p>
+            <TextField
+              label="Ordem dos campos"
+              value={settings.metaOrder}
+              onChange={(metaOrder) => onChange({ metaOrder })}
+            />
+            <RangeField
+              label="Espaço entre linhas"
+              max={48}
+              unit="px"
+              value={settings.metaGap}
+              onChange={(metaGap) => onChange({ metaGap })}
+            />
+            {(
+              [
+                ["title", "Nome da música", "includeTitle"],
+                ["album", "Nome do álbum", "includeAlbum"],
+                ["artist", "Autor", "includeArtist"],
+                ["year", "Ano", "includeYear"],
+              ] as const
+            ).map(([key, label, visibilityKey]) => (
+              <CoverSeriesMetaControls
+                enabled={settings[visibilityKey]}
+                key={key}
+                label={label}
+                onEnabled={(enabled) => onChange({ [visibilityKey]: enabled })}
+                onStyle={(patch) => updateMetaStyle(key, patch)}
+                style={settings.metaStyles[key]}
+              />
+            ))}
+          </div>
+          <button
+            className="quiet-action"
+            type="button"
+            onClick={onSaveDefault}
+          >
+            <Save /> Salvar como padrão
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function MusicInspector({
   artworkHint,
   cover,
@@ -5469,6 +6127,11 @@ function VisualInspector(props: {
           />
           {scene.cloudLight.enabled && (
             <>
+              <ColorInput
+                label="Cor do sol"
+                value={scene.cloudLight.color}
+                onChange={(color) => props.onCloudLight({ color })}
+              />
               <RangeField
                 label="Intensidade solar"
                 value={scene.cloudLight.intensity}
@@ -5494,6 +6157,25 @@ function VisualInspector(props: {
                 value={scene.cloudLight.diffusion}
                 onChange={(diffusion) => props.onCloudLight({ diffusion })}
               />
+              <RangeField
+                label="Movimento"
+                value={scene.cloudLight.motion}
+                onChange={(motion) => props.onCloudLight({ motion })}
+              />
+              <div className="two-columns">
+                <RangeField
+                  label="Velocidade"
+                  value={scene.cloudLight.speed}
+                  onChange={(speed) => props.onCloudLight({ speed })}
+                />
+                <RangeField
+                  label="Direção"
+                  max={360}
+                  unit="°"
+                  value={scene.cloudLight.direction}
+                  onChange={(direction) => props.onCloudLight({ direction })}
+                />
+              </div>
             </>
           )}
         </InspectorGroup>
@@ -5507,9 +6189,9 @@ function VisualInspector(props: {
         {scene.waveform.visible && (
           <>
             <div className="inspector-subsection">
-              <p className="inspector-kicker">Estilo</p>
+              <p className="inspector-kicker">Tipo base</p>
               <SelectField
-                label="Tipo"
+                label="Desenho da onda"
                 value={scene.waveform.type}
                 onChange={(type) =>
                   props.onWaveform({ type: type as WaveformType })
@@ -5521,7 +6203,13 @@ function VisualInspector(props: {
                 <option value="spectrum-bars">Barras espectrais</option>
                 <option value="radial-ring">Anel radial</option>
               </SelectField>
-              <div className="waveform-preset-grid">
+              <p className="helper-copy compact-copy">
+                Tipo atual: {waveformTypeLabel(scene.waveform.type)}.
+              </p>
+            </div>
+            <div className="inspector-subsection">
+              <p className="inspector-kicker">Modelos rápidos</p>
+              <div className="waveform-model-list">
                 {waveformStylePresets.map((preset) => (
                   <button
                     key={preset.name}
@@ -5536,7 +6224,8 @@ function VisualInspector(props: {
                       })
                     }
                   >
-                    {preset.name}
+                    <strong>{preset.name}</strong>
+                    <small>{preset.description}</small>
                   </button>
                 ))}
               </div>
@@ -5991,6 +6680,49 @@ function TextInspector({
   onToggle: (checked: boolean) => void;
   onApplyBatch?: () => void;
 }) {
+  const orderedFields = normalizeTextOrder(textSettings.order);
+
+  function moveTextField(field: TextFieldKey, direction: -1 | 1) {
+    const index = orderedFields.indexOf(field);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= orderedFields.length) return;
+    const next = [...orderedFields];
+    [next[index], next[target]] = [next[target], next[index]];
+    onTextSettings({ order: next });
+  }
+
+  function updateFieldStyle(
+    field: TextFieldKey,
+    patch: Partial<TextFieldStyle>,
+  ) {
+    onTextSettings({
+      fieldStyles: {
+        ...textSettings.fieldStyles,
+        [field]: {
+          ...textSettings.fieldStyles[field],
+          ...patch,
+        },
+      },
+    });
+  }
+
+  function applyGlobalStyleToVisibleFields() {
+    const nextStyles = { ...textSettings.fieldStyles };
+    for (const field of textFieldOrder) {
+      if (!textSettings.fields[field]) continue;
+      nextStyles[field] = {
+        fontFamily: textSettings.fontFamily,
+        fontSize: textSettings.fontSize,
+        fontWeight: textSettings.fontWeight,
+        letterSpacing: textSettings.letterSpacing,
+        lineHeight: textSettings.lineHeight,
+        color: textSettings.color,
+        opacity: textSettings.opacity,
+      };
+    }
+    onTextSettings({ fieldStyles: nextStyles });
+  }
+
   return (
     <>
       <InspectorGroup title="Texto no vídeo" open>
@@ -6074,12 +6806,41 @@ function TextInspector({
             )
           }
         >
-          <option value="top-left">Topo esquerdo</option>
-          <option value="bottom-center">Base central</option>
-          <option value="cover-left">Capa à esquerda</option>
-          <option value="side-left">Lado a lado · texto à esquerda</option>
-          <option value="side-right">Lado a lado · texto à direita</option>
+          {Object.entries(textStylePresetLabels).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
         </SelectField>
+        <div className="text-order-panel">
+          <span className="inspector-kicker">Ordem dos campos</span>
+          {orderedFields.map((field, index) => (
+            <div className="text-order-row" key={field}>
+              <span>
+                {index + 1}. {textFieldLabels[field]}
+              </span>
+              <small>{textSettings.fields[field] ? "visível" : "oculto"}</small>
+              <div>
+                <button
+                  aria-label={`Mover ${textFieldLabels[field]} para cima`}
+                  disabled={index === 0}
+                  type="button"
+                  onClick={() => moveTextField(field, -1)}
+                >
+                  <ChevronUp />
+                </button>
+                <button
+                  aria-label={`Mover ${textFieldLabels[field]} para baixo`}
+                  disabled={index === orderedFields.length - 1}
+                  type="button"
+                  onClick={() => moveTextField(field, 1)}
+                >
+                  <ChevronDown />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
         <SelectField
           label="Fonte"
           value={textSettings.fontFamily}
@@ -6186,6 +6947,25 @@ function TextInspector({
           value={scene.common.shade}
           onChange={(value) => onCommon("shade", value)}
         />
+        <button
+          className="quiet-action"
+          type="button"
+          onClick={applyGlobalStyleToVisibleFields}
+        >
+          <Check /> Aplicar estilo global aos campos visíveis
+        </button>
+        <div className="text-field-style-stack">
+          <span className="inspector-kicker">Ajuste por campo</span>
+          {orderedFields.map((field) => (
+            <TextFieldStyleEditor
+              field={field}
+              key={field}
+              style={textSettings.fieldStyles[field]}
+              visible={textSettings.fields[field]}
+              onChange={(patch) => updateFieldStyle(field, patch)}
+            />
+          ))}
+        </div>
         {onApplyBatch && (
           <button
             className="upload-action"
@@ -6197,6 +6977,88 @@ function TextInspector({
         )}
       </InspectorGroup>
     </>
+  );
+}
+
+function TextFieldStyleEditor({
+  field,
+  onChange,
+  style,
+  visible,
+}: {
+  field: TextFieldKey;
+  onChange: (patch: Partial<TextFieldStyle>) => void;
+  style: TextFieldStyle;
+  visible: boolean;
+}) {
+  return (
+    <details className="text-field-style" open={visible}>
+      <summary>
+        <span>{textFieldLabels[field]}</span>
+        <small>{visible ? "visível" : "oculto"}</small>
+        <ChevronDown />
+      </summary>
+      <div className="text-field-style-body">
+        <SelectField
+          label="Fonte"
+          value={style.fontFamily}
+          onChange={(fontFamily) =>
+            onChange({ fontFamily: fontFamily as TextFieldStyle["fontFamily"] })
+          }
+        >
+          {textFontOptions.map((font) => (
+            <option key={font} value={font}>
+              {font}
+            </option>
+          ))}
+        </SelectField>
+        <div className="two-columns">
+          <RangeField
+            label="Tamanho"
+            max={96}
+            min={10}
+            unit="px"
+            value={style.fontSize}
+            onChange={(fontSize) => onChange({ fontSize })}
+          />
+          <RangeField
+            label="Peso"
+            max={900}
+            min={300}
+            value={style.fontWeight}
+            onChange={(fontWeight) => onChange({ fontWeight })}
+          />
+        </div>
+        <div className="two-columns">
+          <RangeField
+            label="Espaçamento"
+            max={24}
+            min={0}
+            unit="px"
+            value={style.letterSpacing}
+            onChange={(letterSpacing) => onChange({ letterSpacing })}
+          />
+          <RangeField
+            label="Altura"
+            max={180}
+            min={90}
+            unit="%"
+            value={style.lineHeight}
+            onChange={(lineHeight) => onChange({ lineHeight })}
+          />
+        </div>
+        <ColorInput
+          label="Cor"
+          value={style.color}
+          onChange={(color) => onChange({ color })}
+        />
+        <RangeField
+          label="Opacidade"
+          value={style.opacity}
+          onChange={(opacity) => onChange({ opacity })}
+        />
+      </div>
+    </details>
   );
 }
 
@@ -6242,9 +7104,9 @@ function ExportInspector({
   const resolution =
     outputPresets.find(([value]) => value === outputPreset) ?? outputPresets[1];
   const renderJobs = jobs.filter((job) => job.kind === "video-render");
-  const hasCompletedRenderJobs = renderJobs.some((job) =>
-    ["done", "error", "canceled"].includes(job.status),
-  );
+  const activeRenderJobs = renderJobs.filter((job) =>
+    ["queued", "paused", "running"].includes(job.status),
+  ).length;
   return (
     <>
       <InspectorGroup title="Resumo da exportação" open>
@@ -6377,35 +7239,22 @@ function ExportInspector({
           fica para uma etapa posterior.
         </p>
       </InspectorGroup>
-      <InspectorGroup title={`Fila de exportação · ${renderJobs.length}`} open>
-        {hasCompletedRenderJobs && (
+      <InspectorGroup title="Fila no palco central">
+        <p className="helper-copy">
+          {renderJobs.length
+            ? `${renderJobs.length} exportação${renderJobs.length === 1 ? "" : "ões"} registrada${renderJobs.length === 1 ? "" : "s"} · ${activeRenderJobs} ativa${activeRenderJobs === 1 ? "" : "s"}.`
+            : "Ao exportar, o acompanhamento aparece no palco central em Fila de vídeos."}
+        </p>
+        {renderJobs.some((job) =>
+          ["done", "error", "canceled"].includes(job.status),
+        ) && (
           <button
             className="quiet-action queue-clear-action"
             type="button"
             onClick={onClearCompleted}
           >
-            <Trash2 /> Limpar concluídos
+            <Trash2 /> Limpar histórico de vídeos
           </button>
-        )}
-        {renderJobs.length === 0 ? (
-          <p className="helper-copy">As exportações aparecem aqui.</p>
-        ) : (
-          renderJobs.map((job) => (
-            <div className="job-row" key={job.id}>
-              <span>
-                <strong>{readableJobMessage(job.message)}</strong>
-                <small>
-                  {job.progress}% · {jobStatusLabel(job.status)}
-                </small>
-              </span>
-              <progress max={100} value={job.progress} />
-              {job.outputUrl && (
-                <a href={job.outputUrl} download title="Baixar MP4">
-                  <Download />
-                </a>
-              )}
-            </div>
-          ))
         )}
       </InspectorGroup>
     </>
@@ -6457,6 +7306,7 @@ function RangeField({
         </b>
       </span>
       <input
+        aria-label={label}
         min={min}
         max={max}
         type="range"
@@ -6860,28 +7710,54 @@ function attachSuggestedArtwork(
   );
   const srcByPath = new Map<string, string>();
   return tracks.map((track) => {
+    const artworkPaths = artworkEntries.map((entry) => entry.relativePath);
     const relativePath = chooseArtworkForTrack({
       audioPath: track.sourceKey,
       audioPaths,
-      artworkPaths: artworkEntries.map((entry) => entry.relativePath),
+      artworkPaths,
       trackNumber: track.metadata.trackNumber,
     });
     if (!relativePath) return track;
-    const artwork = artworkByPath.get(relativePath);
-    if (!artwork) return track;
-    let src = srcByPath.get(relativePath);
-    if (!src) {
-      src = URL.createObjectURL(artwork.file);
-      srcByPath.set(relativePath, src);
+    const optionPaths = listArtworkOptionsForTrack({
+      audioPath: track.sourceKey,
+      audioPaths,
+      artworkPaths,
+      trackNumber: track.metadata.trackNumber,
+    });
+    const albumCoverPath = chooseAlbumArtworkForTrack({
+      audioPath: track.sourceKey,
+      artworkPaths,
+    });
+    const suggestionForPath = (candidatePath: string | null) => {
+      if (!candidatePath) return undefined;
+      const artwork = artworkByPath.get(candidatePath);
+      if (!artwork) return undefined;
+      let src = srcByPath.get(candidatePath);
+      if (!src) {
+        src = URL.createObjectURL(artwork.file);
+        srcByPath.set(candidatePath, src);
+      }
+      return {
+        file: artwork.file,
+        src,
+        relativePath: candidatePath,
+        source: "folder" as const,
+      };
+    };
+    const artworkOptions = optionPaths
+      .map((candidatePath) => suggestionForPath(candidatePath))
+      .filter((candidate): candidate is ArtworkSuggestion =>
+        Boolean(candidate),
+      );
+    const suggestedCover = suggestionForPath(relativePath);
+    if (!suggestedCover) {
+      return track;
     }
     return {
       ...track,
-      suggestedCover: {
-        file: artwork.file,
-        src,
-        relativePath,
-        source: "folder" as const,
-      },
+      suggestedCover,
+      artworkOptions,
+      albumCoverSuggestion: suggestionForPath(albumCoverPath),
       useSuggestedCover: track.useSuggestedCover ?? true,
     };
   });
@@ -6919,6 +7795,11 @@ function artworkConventionHint(track: TrackDraft) {
   return `Para automatizar esta capa, use ${singleTrackArtworkFileName(track.sourceKey)} ao lado do MP3.`;
 }
 
+function artworkVariantLabel(artwork: ArtworkSuggestion) {
+  const segments = artwork.relativePath.split(/[\\/]+/);
+  return segments.at(-1) ?? artwork.file.name;
+}
+
 function audioDraftFromMetadata(metadata: TrackMetadata): AudioTagDraft {
   return {
     title: metadata.title,
@@ -6946,8 +7827,199 @@ function stripLayerFile(layer: MediaLayerV2) {
   return settings;
 }
 
+function selectedTrackFrom(tracks: TrackDraft[], selectedTrackId: string) {
+  return tracks.find((track) => track.id === selectedTrackId) ?? null;
+}
+
+function applyTextTemplateToTracks(
+  tracks: TrackDraft[],
+  selectedTrackId: string,
+) {
+  const source = selectedTrackFrom(tracks, selectedTrackId);
+  if (!source) return tracks;
+  const template = cloneTextSettings(source.textSettings);
+  return tracks.map((track) =>
+    track.selectedForBatch
+      ? { ...track, textSettings: cloneTextSettings(template) }
+      : track,
+  );
+}
+
+function applyVisualTemplateToTracks(
+  tracks: TrackDraft[],
+  selectedTrackId: string,
+) {
+  const source = selectedTrackFrom(tracks, selectedTrackId);
+  if (!source) return tracks;
+  const scene = normalizeVisualSettings(source.scene);
+  const layers = source.layers.map((layer) => ({
+    ...layer,
+    id: crypto.randomUUID(),
+  }));
+  return tracks.map((track) =>
+    track.selectedForBatch
+      ? {
+          ...track,
+          scene,
+          layers: layers.map((layer) => ({
+            ...layer,
+            id: crypto.randomUUID(),
+          })),
+        }
+      : track,
+  );
+}
+
+function applyMusicTemplateToTracks(
+  tracks: TrackDraft[],
+  selectedTrackId: string,
+) {
+  const source = selectedTrackFrom(tracks, selectedTrackId);
+  if (!source) return tracks;
+  const {
+    album,
+    albumArtist,
+    artist,
+    comment,
+    composer,
+    copyright,
+    diskNumber,
+    diskTotal,
+    genre,
+    normalizationEnabled,
+    trackTotal,
+    year,
+  } = source.metadata;
+  return tracks.map((track) =>
+    track.selectedForBatch
+      ? {
+          ...track,
+          metadata: {
+            ...track.metadata,
+            album,
+            albumArtist,
+            artist,
+            comment,
+            composer,
+            copyright,
+            diskNumber,
+            diskTotal,
+            genre,
+            normalizationEnabled,
+            trackTotal,
+            year,
+          },
+        }
+      : track,
+  );
+}
+
+function applyPublicationTemplateToTracks(
+  tracks: TrackDraft[],
+  selectedTrackId: string,
+) {
+  const source = selectedTrackFrom(tracks, selectedTrackId);
+  if (!source) return tracks;
+  const {
+    categoryId,
+    containsSyntheticMedia,
+    description,
+    language,
+    madeForKids,
+    tags,
+    visibility,
+  } = source.metadata;
+  return tracks.map((track) =>
+    track.selectedForBatch
+      ? {
+          ...track,
+          metadata: {
+            ...track.metadata,
+            categoryId,
+            containsSyntheticMedia,
+            description,
+            language,
+            madeForKids,
+            tags,
+            visibility,
+          },
+        }
+      : track,
+  );
+}
+
 function cloneTextSettings(settings?: TextOverlaySettings) {
   return mergeTextSettings(settings);
+}
+
+function normalizeTextOrder(order?: TextFieldKey[]) {
+  const incoming = Array.isArray(order) ? order : [];
+  const next = incoming.filter(
+    (field): field is TextFieldKey =>
+      textFieldOrder.includes(field as TextFieldKey) &&
+      !incoming.slice(0, incoming.indexOf(field)).includes(field),
+  );
+  return [...next, ...textFieldOrder.filter((field) => !next.includes(field))];
+}
+
+function mergeTextFieldStyle(
+  field: TextFieldKey,
+  base?: Partial<TextFieldStyle>,
+  patch?: Partial<TextFieldStyle>,
+): TextFieldStyle {
+  const fallback = defaultTextFieldStyles[field];
+  const fontFamily = textFontOptions.includes(
+    patch?.fontFamily ?? base?.fontFamily ?? fallback.fontFamily,
+  )
+    ? (patch?.fontFamily ?? base?.fontFamily ?? fallback.fontFamily)
+    : fallback.fontFamily;
+  return {
+    fontFamily,
+    fontSize: clampNumber(
+      patch?.fontSize ?? base?.fontSize,
+      10,
+      96,
+      fallback.fontSize,
+    ),
+    fontWeight: clampNumber(
+      patch?.fontWeight ?? base?.fontWeight,
+      300,
+      900,
+      fallback.fontWeight,
+    ),
+    letterSpacing: clampNumber(
+      patch?.letterSpacing ?? base?.letterSpacing,
+      0,
+      24,
+      fallback.letterSpacing,
+    ),
+    lineHeight: clampNumber(
+      patch?.lineHeight ?? base?.lineHeight,
+      90,
+      180,
+      fallback.lineHeight,
+    ),
+    color: safeHex(patch?.color ?? base?.color, fallback.color),
+    opacity: clampNumber(
+      patch?.opacity ?? base?.opacity,
+      0,
+      100,
+      fallback.opacity,
+    ),
+  };
+}
+
+function normalizeTextFieldStyles(
+  base?: Partial<Record<TextFieldKey, Partial<TextFieldStyle>>>,
+  patch?: Partial<Record<TextFieldKey, Partial<TextFieldStyle>>>,
+) {
+  return textFieldOrder.reduce(
+    (styles, field) => ({
+      ...styles,
+      [field]: mergeTextFieldStyle(field, base?.[field], patch?.[field]),
+    }),
+    {} as Record<TextFieldKey, TextFieldStyle>,
+  );
 }
 
 function mergeTextSettings(
@@ -6958,6 +8030,8 @@ function mergeTextSettings(
     ...defaultTextSettings,
     ...base,
     ...patch,
+    order: normalizeTextOrder(patch.order ?? base?.order),
+    fieldStyles: normalizeTextFieldStyles(base?.fieldStyles, patch.fieldStyles),
     fields: {
       ...defaultTextSettings.fields,
       ...(base?.fields ?? {}),
@@ -6972,6 +8046,13 @@ function textPresetPatch(
   if (preset === "bottom-center") {
     return {
       preset,
+      order: ["title", "version", "artist", "album", "year"],
+      fieldStyles: normalizeTextFieldStyles(undefined, {
+        title: { fontSize: 36, fontWeight: 720, color: "#ffffff" },
+        artist: { fontSize: 24, opacity: 76 },
+        album: { fontSize: 22, opacity: 64 },
+        year: { fontSize: 18, letterSpacing: 3, opacity: 58 },
+      }),
       x: 50,
       y: 78,
       align: "center",
@@ -6983,6 +8064,12 @@ function textPresetPatch(
   if (preset === "cover-left") {
     return {
       preset,
+      order: ["title", "artist", "album", "year", "version"],
+      fieldStyles: normalizeTextFieldStyles(undefined, {
+        title: { fontSize: 40, fontWeight: 760 },
+        artist: { fontSize: 25, opacity: 78 },
+        album: { fontSize: 22, color: "#d6c7a4", opacity: 62 },
+      }),
       x: 58,
       y: 34,
       align: "left",
@@ -6994,6 +8081,12 @@ function textPresetPatch(
   if (preset === "side-left") {
     return {
       preset,
+      order: ["title", "album", "artist", "year", "version"],
+      fieldStyles: normalizeTextFieldStyles(undefined, {
+        title: { fontSize: 42, fontWeight: 760 },
+        album: { fontSize: 25, color: "#d6c7a4", opacity: 76 },
+        artist: { fontSize: 24, opacity: 78 },
+      }),
       x: 7,
       y: 50,
       align: "left",
@@ -7005,6 +8098,12 @@ function textPresetPatch(
   if (preset === "side-right") {
     return {
       preset,
+      order: ["title", "album", "artist", "year", "version"],
+      fieldStyles: normalizeTextFieldStyles(undefined, {
+        title: { fontSize: 42, fontWeight: 760 },
+        album: { fontSize: 25, color: "#d6c7a4", opacity: 76 },
+        artist: { fontSize: 24, opacity: 78 },
+      }),
       x: 64,
       y: 50,
       align: "left",
@@ -7013,8 +8112,62 @@ function textPresetPatch(
       shadow: 54,
     };
   }
+  if (preset === "editorial-stack") {
+    return {
+      preset,
+      order: ["title", "album", "artist", "year", "version"],
+      fieldStyles: normalizeTextFieldStyles(undefined, {
+        title: {
+          fontFamily: "Georgia",
+          fontSize: 52,
+          fontWeight: 620,
+          color: "#fff6df",
+        },
+        album: {
+          fontFamily: "Georgia",
+          fontSize: 30,
+          fontWeight: 560,
+          color: "#d9bd86",
+          opacity: 84,
+        },
+        artist: { fontSize: 24, fontWeight: 640, opacity: 78 },
+        year: {
+          fontSize: 17,
+          fontWeight: 700,
+          letterSpacing: 7,
+          opacity: 64,
+        },
+      }),
+      x: 8,
+      y: 66,
+      align: "left",
+      verticalAnchor: "middle",
+      fontSize: 44,
+      shadow: 66,
+    };
+  }
+  if (preset === "quiet-album") {
+    return {
+      preset,
+      order: ["title", "artist", "album", "year", "version"],
+      fieldStyles: normalizeTextFieldStyles(undefined, {
+        title: { fontSize: 32, fontWeight: 690, color: "#f7f8fb" },
+        artist: { fontSize: 21, opacity: 70 },
+        album: { fontSize: 20, color: "#b9c2d1", opacity: 62 },
+        year: { fontSize: 15, letterSpacing: 4, opacity: 54 },
+      }),
+      x: 6,
+      y: 8,
+      align: "left",
+      verticalAnchor: "top",
+      fontSize: 32,
+      shadow: 46,
+    };
+  }
   return {
     preset,
+    order: ["title", "version", "artist", "album", "year"],
+    fieldStyles: normalizeTextFieldStyles(),
     x: 5,
     y: 7,
     align: "left",
@@ -7022,6 +8175,12 @@ function textPresetPatch(
     fontSize: 42,
     shadow: 48,
   };
+}
+
+function safeHex(value: string | undefined, fallback: string) {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)
+    ? value
+    : fallback;
 }
 
 function coverLayerFromArtwork(
@@ -7225,9 +8384,15 @@ function savePanelWidths(widths: { left: number; right: number }) {
   }
 }
 
-function clampNumber(value: number, min: number, max: number, fallback = min) {
+function clampNumber(
+  value: number | undefined,
+  min: number,
+  max: number,
+  fallback = min,
+) {
+  const numeric = Number(value);
   return Math.min(
-    Math.max(Number.isFinite(value) ? value : fallback, min),
+    Math.max(Number.isFinite(numeric) ? numeric : fallback, min),
     max,
   );
 }
@@ -7489,6 +8654,20 @@ function workspaceRelativeSegments(sourceKey: string, rootName: string) {
   return segments;
 }
 
+function albumFolderArtworkSourceKey(sourceKey: string) {
+  const segments = sourceKey.split(/[\\/]+/).filter(Boolean);
+  segments.pop();
+  if (
+    segments.length &&
+    /^(?:lado|side|disc|disk|disco|cd)\s*[-_.]?\s*[a-z0-9]+$/i.test(
+      segments.at(-1) ?? "",
+    )
+  ) {
+    segments.pop();
+  }
+  return [...segments, "folder.jpg"].join("/");
+}
+
 function backupFileName(sourceKey: string, stamp: string) {
   return `${stamp}-${workspaceRelativeSegments(sourceKey, "").join("__")}`;
 }
@@ -7505,6 +8684,36 @@ async function copyFileToDirectory(
 
 function messageOf(reason: unknown) {
   return reason instanceof Error ? reason.message : String(reason);
+}
+
+async function copyTextToClipboard(value: string) {
+  const text = String(value || "").trim();
+  if (!text) return;
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+}
+
+function jobErrorReport(job: RenderJob) {
+  return [
+    `Job: ${job.id}`,
+    `Tipo: ${job.kind ?? "desconhecido"}`,
+    `Status: ${job.status}`,
+    job.errorCode ? `Código: ${job.errorCode}` : "",
+    `Mensagem: ${job.message}`,
+    job.errorDetail ? `Detalhe:\n${job.errorDetail}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export default App;
