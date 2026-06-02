@@ -269,6 +269,294 @@ svg {
   width: min(100%, 820px);
 }
 
+.hero-showcase {
+  display: none;
+}
+
+.showcase-stage {
+  position: relative;
+  width: 100%;
+  height: clamp(460px, 56vh, 600px);
+}
+
+.showcase-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  transition:
+    transform 1100ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 1100ms ease;
+  will-change: transform, opacity;
+}
+
+.showcase-card[data-depth="0"] {
+  transform: translate(-50%, -50%) rotate(-2deg) scale(1);
+  opacity: 1;
+  z-index: 30;
+}
+
+.showcase-card[data-depth="1"] {
+  transform: translate(calc(-50% + 60px), calc(-50% - 36px)) rotate(4deg)
+    scale(0.9);
+  opacity: 0.9;
+  z-index: 20;
+}
+
+.showcase-card[data-depth="2"] {
+  transform: translate(calc(-50% + 104px), calc(-50% - 66px)) rotate(8deg)
+    scale(0.82);
+  opacity: 0.46;
+  z-index: 10;
+}
+
+.showcase-card[data-depth="back"] {
+  transform: translate(calc(-50% + 104px), calc(-50% - 66px)) rotate(8deg)
+    scale(0.82);
+  opacity: 0;
+  z-index: 0;
+}
+
+/* Album cover presented as a slim jewel case */
+.showcase-cd {
+  position: relative;
+  width: clamp(320px, 30vw, 430px);
+  aspect-ratio: 1;
+  padding: 7px 7px 7px 15px;
+  border-radius: 11px;
+  background: linear-gradient(
+    135deg,
+    rgba(74, 80, 92, 0.92),
+    rgba(18, 20, 26, 0.96)
+  );
+  border: 1px solid rgba(220, 228, 242, 0.16);
+  box-shadow:
+    0 38px 70px -28px rgba(0, 0, 0, 0.84),
+    0 12px 28px -14px rgba(0, 0, 0, 0.62);
+}
+
+.showcase-cd img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.showcase-cd::before {
+  content: "";
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  left: 7px;
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.32),
+    rgba(255, 255, 255, 0.04)
+  );
+}
+
+.showcase-cd::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 11px;
+  pointer-events: none;
+  background: linear-gradient(
+    125deg,
+    rgba(255, 255, 255, 0.16),
+    transparent 42%
+  );
+}
+
+/* App screen presented as a small window/modal */
+.showcase-window {
+  width: clamp(380px, 36vw, 510px);
+  overflow: hidden;
+  border: 1px solid rgba(220, 228, 242, 0.12);
+  border-radius: 14px;
+  background: var(--surface-1);
+  box-shadow:
+    0 38px 70px -28px rgba(0, 0, 0, 0.84),
+    0 12px 28px -14px rgba(0, 0, 0, 0.62);
+}
+
+.showcase-dots {
+  display: flex;
+  gap: 7px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(220, 228, 242, 0.08);
+  background: rgba(8, 9, 12, 0.6);
+}
+
+.showcase-dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(220, 228, 242, 0.22);
+}
+
+.showcase-window img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  object-position: top left;
+}
+
+/* App output presented as a YouTube-style player */
+.showcase-video {
+  position: relative;
+  width: clamp(380px, 36vw, 510px);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid rgba(220, 228, 242, 0.12);
+  border-radius: 14px;
+  background: #000;
+  box-shadow:
+    0 38px 70px -28px rgba(0, 0, 0, 0.84),
+    0 12px 28px -14px rgba(0, 0, 0, 0.62);
+}
+
+.showcase-video img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.showcase-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-content: center;
+  width: 62px;
+  height: 62px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 50%;
+  background: rgba(14, 15, 18, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.showcase-play::before {
+  content: "";
+  margin-left: 5px;
+  border-left: 17px solid rgba(255, 255, 255, 0.95);
+  border-top: 11px solid transparent;
+  border-bottom: 11px solid transparent;
+}
+
+.showcase-bar {
+  position: absolute;
+  inset: auto 0 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.showcase-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0 62% 0 0;
+  background: #ff0033;
+}
+
+/* Extra info, revealed only when hovering the front card (autoplay also pauses) */
+.card-info {
+  position: absolute;
+  inset: auto 7px 7px;
+  z-index: 1;
+  display: grid;
+  gap: 3px;
+  padding: 18px 16px 14px;
+  border-radius: 0 0 8px 8px;
+  background: linear-gradient(180deg, transparent, rgba(6, 7, 10, 0.94));
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 320ms ease,
+    transform 320ms ease;
+}
+
+.showcase-screen .card-info,
+.showcase-video .card-info {
+  inset: auto 0 0;
+  border-radius: 0;
+}
+
+.card-info strong {
+  color: var(--text-strong);
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.card-info span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 680;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.hero-showcase:hover .showcase-card[data-depth="0"] .card-info {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* A gentle continuous drift keeps the deck alive between advances */
+@keyframes showcase-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.showcase-cd,
+.showcase-window,
+.showcase-video {
+  animation: showcase-float 7s ease-in-out infinite;
+}
+
+.hero-showcase:hover .showcase-cd,
+.hero-showcase:hover .showcase-window,
+.hero-showcase:hover .showcase-video {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .showcase-card {
+    transition: none;
+  }
+
+  .showcase-cd,
+  .showcase-window,
+  .showcase-video {
+    animation: none;
+  }
+}
+
+@media (min-width: 1101px) {
+  .hero-section {
+    grid-template-columns: minmax(0, 0.98fr) minmax(0, 1.02fr);
+    column-gap: clamp(24px, 3.2vw, 52px);
+  }
+
+  .hero-content h1 {
+    font-size: clamp(44px, 6.2vw, 96px);
+  }
+
+  .hero-showcase {
+    display: block;
+    align-self: center;
+  }
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -580,79 +868,8 @@ svg {
 
 .screenshot-grid {
   display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
-}
-
-.screenshot-slot {
-  min-height: 430px;
-  position: relative;
-  grid-column: span 4;
-  margin: 0;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--surface-1);
-}
-
-.screenshot-slot.wide {
-  grid-column: span 8;
-}
-
-.slot-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(220, 228, 242, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(220, 228, 242, 0.05) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: radial-gradient(circle at 50% 45%, #000, transparent 72%);
-}
-
-.window-dots {
-  position: absolute;
-  top: 18px;
-  left: 18px;
-  display: flex;
-  gap: 7px;
-}
-
-.window-dots span {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: rgba(220, 228, 242, 0.22);
-}
-
-.slot-content {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-content: center;
-  gap: 12px;
-  padding: 34px;
-  text-align: center;
-}
-
-.slot-icon {
-  width: 46px;
-  height: 46px;
-  margin-inline: auto;
-  color: var(--accent-strong);
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.3;
-}
-
-.slot-content strong {
-  color: var(--text-strong);
-  font-size: 24px;
-  letter-spacing: -0.03em;
-}
-
-.slot-content span {
-  max-width: 360px;
-  color: var(--text-muted);
 }
 
 .principle-grid {
@@ -962,9 +1179,8 @@ svg {
     grid-template-columns: 1fr;
   }
 
-  .screenshot-slot,
-  .screenshot-slot.wide {
-    grid-column: 1 / -1;
+  .screenshot-grid {
+    grid-template-columns: 1fr;
   }
 
   .open-source-section > img {
@@ -1025,10 +1241,6 @@ svg {
   .workflow-list li,
   .principle-panel {
     padding: 24px;
-  }
-
-  .screenshot-slot {
-    min-height: 330px;
   }
 
   .open-source-section {
