@@ -276,7 +276,7 @@ svg {
 .showcase-stage {
   position: relative;
   width: 100%;
-  height: clamp(460px, 56vh, 600px);
+  height: clamp(480px, 60vh, 660px);
 }
 
 .showcase-card {
@@ -297,21 +297,21 @@ svg {
 }
 
 .showcase-card[data-depth="1"] {
-  transform: translate(calc(-50% + 60px), calc(-50% - 36px)) rotate(4deg)
+  transform: translate(calc(-50% + 66px), calc(-50% - 40px)) rotate(4deg)
     scale(0.9);
   opacity: 0.9;
   z-index: 20;
 }
 
 .showcase-card[data-depth="2"] {
-  transform: translate(calc(-50% + 104px), calc(-50% - 66px)) rotate(8deg)
+  transform: translate(calc(-50% + 116px), calc(-50% - 74px)) rotate(8deg)
     scale(0.82);
   opacity: 0.46;
   z-index: 10;
 }
 
 .showcase-card[data-depth="back"] {
-  transform: translate(calc(-50% + 104px), calc(-50% - 66px)) rotate(8deg)
+  transform: translate(calc(-50% + 116px), calc(-50% - 74px)) rotate(8deg)
     scale(0.82);
   opacity: 0;
   z-index: 0;
@@ -320,7 +320,7 @@ svg {
 /* Album cover presented as a slim jewel case */
 .showcase-cd {
   position: relative;
-  width: clamp(320px, 30vw, 430px);
+  width: clamp(360px, 33vw, 470px);
   aspect-ratio: 1;
   padding: 7px 7px 7px 15px;
   border-radius: 11px;
@@ -371,9 +371,9 @@ svg {
   );
 }
 
-/* App screen presented as a small window/modal */
+/* App screen + video share a small window/modal frame */
 .showcase-window {
-  width: clamp(380px, 36vw, 510px);
+  width: clamp(440px, 42vw, 580px);
   overflow: hidden;
   border: 1px solid rgba(220, 228, 242, 0.12);
   border-radius: 14px;
@@ -398,7 +398,7 @@ svg {
   background: rgba(220, 228, 242, 0.22);
 }
 
-.showcase-window img {
+.showcase-window > img {
   display: block;
   width: 100%;
   aspect-ratio: 16 / 10;
@@ -406,24 +406,16 @@ svg {
   object-position: top left;
 }
 
-/* App output presented as a YouTube-style player */
-.showcase-video {
+/* The video card is a window whose body is a YouTube-style player */
+.showcase-clip {
   position: relative;
-  width: clamp(380px, 36vw, 510px);
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  border: 1px solid rgba(220, 228, 242, 0.12);
-  border-radius: 14px;
   background: #000;
-  box-shadow:
-    0 38px 70px -28px rgba(0, 0, 0, 0.84),
-    0 12px 28px -14px rgba(0, 0, 0, 0.62);
 }
 
-.showcase-video img {
+.showcase-clip img {
   display: block;
   width: 100%;
-  height: 100%;
+  aspect-ratio: 16 / 9;
   object-fit: cover;
 }
 
@@ -438,8 +430,7 @@ svg {
   transform: translate(-50%, -50%);
   border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: 50%;
-  background: rgba(14, 15, 18, 0.55);
-  backdrop-filter: blur(4px);
+  background: rgba(14, 15, 18, 0.62);
 }
 
 .showcase-play::before {
@@ -506,49 +497,16 @@ svg {
   transform: translateY(0);
 }
 
-/* A gentle continuous drift keeps the deck alive between advances */
-@keyframes showcase-float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-8px);
-  }
-}
-
-.showcase-cd,
-.showcase-window,
-.showcase-video {
-  animation: showcase-float 7s ease-in-out infinite;
-}
-
-.hero-showcase:hover .showcase-cd,
-.hero-showcase:hover .showcase-window,
-.hero-showcase:hover .showcase-video {
-  animation-play-state: paused;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .showcase-card {
     transition: none;
-  }
-
-  .showcase-cd,
-  .showcase-window,
-  .showcase-video {
-    animation: none;
   }
 }
 
 @media (min-width: 1101px) {
   .hero-section {
-    grid-template-columns: minmax(0, 0.98fr) minmax(0, 1.02fr);
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
     column-gap: clamp(24px, 3.2vw, 52px);
-  }
-
-  .hero-content h1 {
-    font-size: clamp(44px, 6.2vw, 96px);
   }
 
   .hero-showcase {

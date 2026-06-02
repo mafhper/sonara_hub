@@ -159,7 +159,7 @@ function HeroShowcase() {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const id = window.setInterval(() => {
       setActive((current) => (current + 1) % cards.length);
-    }, 3800);
+    }, 3500);
     return () => window.clearInterval(id);
   }, [cards.length, paused]);
 
@@ -173,7 +173,6 @@ function HeroShowcase() {
       <div className="showcase-stage">
         {cards.map((card, index) => {
           const depth = (index - active + cards.length) % cards.length;
-          const float = { animationDelay: `${index * -1.3}s` };
           return (
             <figure
               key={card.label}
@@ -181,13 +180,20 @@ function HeroShowcase() {
               data-depth={depth > 2 ? "back" : String(depth)}
             >
               {card.kind === "video" ? (
-                <div className="showcase-video" style={float}>
-                  <img src={card.image} alt="" loading="lazy" />
-                  <span className="showcase-play" />
-                  <span className="showcase-bar" />
+                <div className="showcase-window">
+                  <span className="showcase-dots">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  <div className="showcase-clip">
+                    <img src={card.image} alt="" loading="lazy" />
+                    <span className="showcase-play" />
+                    <span className="showcase-bar" />
+                  </div>
                 </div>
               ) : card.kind === "screen" ? (
-                <div className="showcase-window" style={float}>
+                <div className="showcase-window">
                   <span className="showcase-dots">
                     <i />
                     <i />
@@ -196,7 +202,7 @@ function HeroShowcase() {
                   <img src={card.image} alt="" loading="lazy" />
                 </div>
               ) : (
-                <div className="showcase-cd" style={float}>
+                <div className="showcase-cd">
                   <img src={card.image} alt="" loading="lazy" />
                 </div>
               )}
