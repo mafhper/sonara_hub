@@ -87,6 +87,63 @@ test("album artwork prefers a generic source while track options retain alternat
   );
 });
 
+test("exact image artwork wins over alternative variants", () => {
+  const audioPaths = [
+    "Matheus Lima/The Beauty of Almost/01 - First.mp3",
+    "Matheus Lima/The Beauty of Almost/02 - Second.mp3",
+  ];
+  const artworkPaths = [
+    "Matheus Lima/The Beauty of Almost/art/imagem-alternative.png",
+    "Matheus Lima/The Beauty of Almost/art/image.png",
+    "Matheus Lima/The Beauty of Almost/art/image-compressed.jpg",
+  ];
+
+  assert.equal(
+    chooseArtworkForTrack({
+      audioPath: audioPaths[0],
+      audioPaths,
+      artworkPaths,
+      trackNumber: 1,
+    }),
+    "Matheus Lima/The Beauty of Almost/art/image.png",
+  );
+  assert.equal(
+    chooseAlbumArtworkForTrack({
+      audioPath: audioPaths[0],
+      artworkPaths,
+    }),
+    "Matheus Lima/The Beauty of Almost/art/image.png",
+  );
+});
+
+test("exact album artwork wins over album alternative variants", () => {
+  const audioPaths = [
+    "Matheus Lima/The Beauty of Almost/01 - First.mp3",
+    "Matheus Lima/The Beauty of Almost/02 - Second.mp3",
+  ];
+  const artworkPaths = [
+    "Matheus Lima/The Beauty of Almost/art/album-alternative.png",
+    "Matheus Lima/The Beauty of Almost/art/album.png",
+  ];
+
+  assert.equal(
+    chooseArtworkForTrack({
+      audioPath: audioPaths[0],
+      audioPaths,
+      artworkPaths,
+      trackNumber: 1,
+    }),
+    "Matheus Lima/The Beauty of Almost/art/album.png",
+  );
+  assert.equal(
+    chooseAlbumArtworkForTrack({
+      audioPath: audioPaths[0],
+      artworkPaths,
+    }),
+    "Matheus Lima/The Beauty of Almost/art/album.png",
+  );
+});
+
 test("single tracks use an adjacent predictable artwork file", () => {
   assert.equal(
     singleTrackArtworkFileName("Singles/Blue Hour.mp3"),

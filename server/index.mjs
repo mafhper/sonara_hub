@@ -5,7 +5,6 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import express from "express";
-import ffmpegPath from "ffmpeg-static";
 import { parseFile } from "music-metadata";
 import multer from "multer";
 import sharp from "sharp";
@@ -32,6 +31,10 @@ import { createTempFileRegistry } from "./temp-files.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
+import {
+  normalizeFfmpegSpawnError,
+  resolveFfmpegPath,
+} from "./ffmpeg-tool.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1832,9 +1835,7 @@ ${events.join("\n")}
 }
 
 function runFfmpeg(args, duration, onProgress) {
-  if (!ffmpegPath) {
-    throw new Error("ffmpeg-static não forneceu um binário de ffmpeg.");
-  }
+  const ffmpegPath = resolveFfmpegPath();
 
   return new Promise((resolve, reject) => {
     const child = spawn(ffmpegPath, args, { windowsHide: true });
@@ -1855,7 +1856,9 @@ function runFfmpeg(args, duration, onProgress) {
       }
     });
 
-    child.on("error", reject);
+    child.on("error", (error) =>
+      reject(normalizeFfmpegSpawnError(error, ffmpegPath)),
+    );
     child.on("close", (code) => {
       if (code === 0) {
         resolve();
@@ -1869,6 +1872,7 @@ function runFfmpeg(args, duration, onProgress) {
 }
 
 function assertPlayableOutput(outputPath) {
+  const ffmpegPath = resolveFfmpegPath();
   return new Promise((resolve, reject) => {
     const child = spawn(
       ffmpegPath,
@@ -1877,7 +1881,9 @@ function assertPlayableOutput(outputPath) {
     );
     let stderr = "";
     child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-    child.on("error", reject);
+    child.on("error", (error) =>
+      reject(normalizeFfmpegSpawnError(error, ffmpegPath)),
+    );
     child.on("close", (code) => {
       if (code === 0) {
         resolve();

@@ -139,10 +139,12 @@ export type TextFieldStyle = {
   fontFamily: "Inter" | "Georgia" | "Arial";
   fontSize: number;
   fontWeight: number;
+  fontStyle: "normal" | "italic";
   letterSpacing: number;
   lineHeight: number;
   color: string;
   opacity: number;
+  align: "left" | "center" | "right";
 };
 
 export type CoverSeriesSettings = {

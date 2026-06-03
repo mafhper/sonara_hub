@@ -2,9 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import ffmpegPath from "ffmpeg-static";
 import { chromium } from "playwright";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
+import {
+  normalizeFfmpegSpawnError,
+  resolveFfmpegPath,
+} from "./ffmpeg-tool.mjs";
 
 const runtimePath = fileURLToPath(
   new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
@@ -286,6 +289,7 @@ export function assertWebmDecodeReport(stderr) {
 }
 
 function assertWebmDecodable(outputPath) {
+  const ffmpegPath = resolveFfmpegPath();
   return new Promise((resolve, reject) => {
     const child = spawn(
       ffmpegPath,
@@ -294,7 +298,9 @@ function assertWebmDecodable(outputPath) {
     );
     let stderr = "";
     child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-    child.on("error", reject);
+    child.on("error", (error) =>
+      reject(normalizeFfmpegSpawnError(error, ffmpegPath)),
+    );
     child.on("close", (code) => {
       try {
         assertWebmDecodeReport(stderr);

@@ -18,9 +18,13 @@ const expectedIds = [
   "piano-ribbons",
   "vinyl",
   "audio-dark",
+  "plasma-nebula",
+  "plasma-lava",
+  "vortex-whirlpool",
+  "vortex-galaxy",
 ];
 
-test("catalog exposes nine broad visual families without particle presets", () => {
+test("catalog exposes the broad families plus the ported shader presets", () => {
   assert.deepEqual(effectIds, expectedIds);
   assert.deepEqual(
     builtinVisualPresets.map((preset) => preset.id),
@@ -29,6 +33,30 @@ test("catalog exposes nine broad visual families without particle presets", () =
   assert.ok(removedEffectIds.includes("fire"));
   assert.ok(removedEffectIds.includes("rain-window"));
   assert.equal(new Set(expectedIds).size, builtinVisualPresets.length);
+});
+
+test("ported shader presets normalize and share fullscreen renderers", () => {
+  const plasma = normalizeVisualSettings({ rendererId: "plasma-nebula" });
+  assert.equal(plasma.rendererId, "plasma");
+  assert.equal(plasma.id, "plasma-nebula");
+  assert.equal(plasma.category, "Shaders");
+  assert.deepEqual(
+    plasma.controls.map((entry) => entry.key),
+    ["scale", "complexity", "saturation", "glow"],
+  );
+  assert.equal(plasma.advanced.complexity, 60);
+
+  const plasmaLava = normalizeVisualSettings({ rendererId: "plasma-lava" });
+  assert.equal(plasmaLava.rendererId, "plasma");
+  assert.equal(plasmaLava.colors.base, "#dc2626");
+
+  const vortex = normalizeVisualSettings({ rendererId: "vortex-galaxy" });
+  assert.equal(vortex.rendererId, "vortex");
+  assert.deepEqual(
+    vortex.controls.map((entry) => entry.key),
+    ["arms", "twist", "zoom", "glow"],
+  );
+  assert.equal(vortex.advanced.arms, 57);
 });
 
 test("legacy visual fields normalize into the V4 contract", () => {

@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
-import ffmpegPath from "ffmpeg-static";
+import {
+  normalizeFfmpegSpawnError,
+  resolveFfmpegPath,
+} from "./ffmpeg-tool.mjs";
 
 const emptyFrame = { energy: 0, bass: 0, mid: 0, high: 0 };
 
@@ -48,9 +51,7 @@ export function interpolateAudioEnvelope(envelope, seconds) {
 }
 
 export async function sampleAudioEnvelope(audioPath, frameRate = 12) {
-  if (!ffmpegPath) {
-    throw new Error("ffmpeg-static não forneceu um binário de ffmpeg.");
-  }
+  const ffmpegPath = resolveFfmpegPath();
   const sampleRate = 8000;
   const chunks = await new Promise((resolve, reject) => {
     const output = [];
@@ -75,7 +76,9 @@ export async function sampleAudioEnvelope(audioPath, frameRate = 12) {
     );
     child.stdout.on("data", (chunk) => output.push(chunk));
     child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-    child.on("error", reject);
+    child.on("error", (error) =>
+      reject(normalizeFfmpegSpawnError(error, ffmpegPath)),
+    );
     child.on("close", (code) =>
       code === 0
         ? resolve(output)

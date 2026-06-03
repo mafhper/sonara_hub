@@ -134,11 +134,14 @@ try {
     [".inspector-header strong", 15],
     [".inspector-group summary", 13],
     [".field input", 12],
-    [".helper-copy", 12],
+    [".audio-inspector-tabbar button", 10],
     [".transport", 12],
     [".transport-track strong", 12],
     [".transport-controls button", 12],
   ]);
+  await page.getByRole("tab", { name: "Qualidade" }).click();
+  await page.locator(".quality-callout, .helper-copy").first().waitFor();
+  await assertReadableType(page, [[".quality-callout, .helper-copy", 12]]);
   await assertPanelResize(page);
   await assertFloatingPanelFallback(page);
   await ensurePanelOpen(page, "inspector");
@@ -156,7 +159,9 @@ try {
   await page.getByText("Catálogo planejado", { exact: true }).waitFor();
   await page.getByRole("button", { name: /^Inspecionar arte de / }).click();
   await page.getByText("Prévia da capa tratada", { exact: true }).waitFor();
-  await page.getByText("Prévia ao vivo ativa", { exact: true }).waitFor();
+  await page
+    .getByText("Gerar série visual na capa tratada", { exact: true })
+    .waitFor();
   await page.getByRole("button", { name: "Trocar imagem" }).waitFor();
   await page.getByRole("button", { name: "Ver arte base" }).click();
   await page.getByRole("button", { name: "Ver com série visual" }).waitFor();
@@ -310,6 +315,7 @@ try {
     0,
   );
   await ensurePanelOpen(page, "inspector");
+  await page.getByRole("tab", { name: "Qualidade" }).click();
   await page
     .locator(".inspector-panel")
     .getByRole("button", { name: "Processar selecionados" })
@@ -345,10 +351,10 @@ try {
     .waitFor();
   await page.locator(".catalog-artwork-button").click();
   const artworkDialog = page.getByRole("dialog", { name: "Smoke Batch Title" });
-  await artworkDialog.getByText("Ajustar composição da capa").waitFor();
   const seriesToggle = artworkDialog.getByLabel(
     "Gerar série visual na capa tratada",
   );
+  await seriesToggle.waitFor();
   if (!(await seriesToggle.isChecked())) await seriesToggle.check();
   const overlay = artworkDialog.locator(".cover-series-overlay");
   await overlay.waitFor();

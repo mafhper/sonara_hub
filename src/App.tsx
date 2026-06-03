@@ -1,25 +1,39 @@
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  Bold,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Columns2,
   Copy,
   Disc3,
   Download,
   Eye,
   EyeOff,
   FileAudio,
+  FileText,
   FolderOpen,
+  Gauge,
   Image,
   Info,
+  Italic,
   Layers3,
   Loader2,
   Maximize2,
   Minimize2,
   Music2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Pause,
   Play,
   Plus,
@@ -272,46 +286,56 @@ const defaultTextFieldStyles: Record<TextFieldKey, TextFieldStyle> = {
     fontFamily: "Inter",
     fontSize: 42,
     fontWeight: 720,
+    fontStyle: "normal",
     letterSpacing: 0,
     lineHeight: 116,
     color: "#f7f8fb",
     opacity: 96,
+    align: "left",
   },
   version: {
     fontFamily: "Inter",
     fontSize: 25,
     fontWeight: 620,
+    fontStyle: "normal",
     letterSpacing: 1,
     lineHeight: 118,
     color: "#cbd2dc",
     opacity: 72,
+    align: "left",
   },
   artist: {
     fontFamily: "Inter",
     fontSize: 28,
     fontWeight: 620,
+    fontStyle: "normal",
     letterSpacing: 0,
     lineHeight: 120,
     color: "#cbd2dc",
     opacity: 82,
+    align: "left",
   },
   album: {
     fontFamily: "Georgia",
     fontSize: 26,
     fontWeight: 560,
+    fontStyle: "normal",
     letterSpacing: 0,
     lineHeight: 122,
     color: "#d6c7a4",
     opacity: 72,
+    align: "left",
   },
   year: {
     fontFamily: "Inter",
     fontSize: 21,
     fontWeight: 620,
+    fontStyle: "normal",
     letterSpacing: 4,
     lineHeight: 116,
     color: "#a5afbc",
     opacity: 62,
+    align: "left",
   },
 };
 const defaultTextSettings: TextOverlaySettings = {
@@ -860,6 +884,12 @@ function App() {
       void loadEmbeddedArtwork(selectedTrack);
     }
   }, [selectedTrack?.id]);
+
+  useEffect(() => {
+    if (plannedArtworkSrc) {
+      setPlayerArtworkSource("planned");
+    }
+  }, [plannedArtworkSrc]);
 
   useEffect(() => {
     savePanelWidths({ left: leftRailWidth, right: rightRailWidth });
@@ -1413,6 +1443,7 @@ function App() {
     const track = tracks.find((item) => item.id === trackId);
     if (!track?.suggestedCover) return;
     setCover(null);
+    setPlayerArtworkSource("planned");
     updateTrackDraft(track.id, { useSuggestedCover: true });
   }
 
@@ -1423,6 +1454,7 @@ function App() {
     );
     if (!track || !suggestedCover) return;
     setCover(null);
+    setPlayerArtworkSource("planned");
     updateTrackDraft(track.id, { suggestedCover, useSuggestedCover: true });
   }
 
@@ -2464,6 +2496,12 @@ function App() {
           <span>SONARA HUB</span>
         </div>
         <div className="track-context">
+          <IconButton
+            label={leftCollapsed ? "Mostrar biblioteca" : "Ocultar biblioteca"}
+            onClick={toggleLeftPanel}
+          >
+            {leftCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+          </IconButton>
           <div
             className="workspace-switch"
             role="tablist"
@@ -2492,24 +2530,20 @@ function App() {
           )}
         </div>
         <div className="top-actions">
-          <IconButton
-            label={leftCollapsed ? "Mostrar biblioteca" : "Ocultar biblioteca"}
-            onClick={toggleLeftPanel}
-          >
-            {leftCollapsed ? <ChevronRight /> : <ChevronLeft />}
-          </IconButton>
-          <IconButton
-            label={rightCollapsed ? "Mostrar inspetor" : "Ocultar inspetor"}
-            onClick={toggleRightPanel}
-          >
-            {rightCollapsed ? <ChevronLeft /> : <ChevronRight />}
-          </IconButton>
-          <IconButton
-            label="Inverter barras laterais"
-            onClick={() => setPanelsSwapped((current) => !current)}
-          >
-            <SlidersHorizontal />
-          </IconButton>
+          <div className="top-layout-actions" aria-label="Layout dos painéis">
+            <IconButton
+              label={rightCollapsed ? "Mostrar inspetor" : "Ocultar inspetor"}
+              onClick={toggleRightPanel}
+            >
+              {rightCollapsed ? <PanelRightOpen /> : <PanelRightClose />}
+            </IconButton>
+            <IconButton
+              label="Inverter barras laterais"
+              onClick={() => setPanelsSwapped((current) => !current)}
+            >
+              <Columns2 />
+            </IconButton>
+          </div>
           <IconButton
             label="Configurações locais"
             onClick={() => void openLocalSettings()}
@@ -4244,341 +4278,384 @@ function AudioLibraryInspector({
   onSaveCoverSeriesDefault: () => void;
   suggestedCover?: ArtworkSuggestion;
 }) {
+  const [activeInspectorTab, setActiveInspectorTab] = useState<
+    "data" | "art" | "lyrics" | "quality"
+  >("data");
+  const tabs = [
+    ["data", "Dados", FileAudio],
+    ["art", "Arte", Image],
+    ["lyrics", "Letra", FileText],
+    ["quality", "Qualidade", Gauge],
+  ] as const;
   return (
-    <>
-      <InspectorGroup title="Dados" open>
-        <TextField
-          label="Título"
-          value={metadata.title}
-          onChange={(title) => onChange({ title })}
-        />
-        <TextField
-          label="Artista"
-          value={metadata.artist}
-          onChange={(artist) => onChange({ artist })}
-        />
-        <TextField
-          label="Álbum"
-          value={metadata.album}
-          onChange={(album) => onChange({ album })}
-        />
-        <TextField
-          label="Artista do álbum"
-          value={metadata.albumArtist}
-          onChange={(albumArtist) => onChange({ albumArtist })}
-        />
-        <TextField
-          label="Gênero"
-          value={metadata.genre}
-          onChange={(genre) => onChange({ genre })}
-        />
-        <TextField
-          label="Compositor"
-          value={metadata.composer}
-          onChange={(composer) => onChange({ composer })}
-        />
-        <TextArea
-          label="Comentário ID3"
-          rows={3}
-          value={metadata.comment}
-          onChange={(comment) => onChange({ comment })}
-        />
-        <TextField
-          label="Ano"
-          value={metadata.year}
-          onChange={(year) => onChange({ year })}
-        />
-        <div className="two-columns">
-          <TextField
-            label="Faixa"
-            value={String(metadata.trackNumber)}
-            onChange={(value) =>
-              onChange({ trackNumber: Math.max(1, Number(value) || 1) })
-            }
-          />
-          <TextField
-            label="Total"
-            value={String(metadata.trackTotal)}
-            onChange={(value) =>
-              onChange({ trackTotal: Math.max(1, Number(value) || 1) })
-            }
-          />
-        </div>
-        <button
-          className="quiet-action"
-          type="button"
-          onClick={onApplySuggestions}
-        >
-          Aplicar sugestões do arquivo
-        </button>
-      </InspectorGroup>
-      <InspectorGroup title="Arte">
-        {cover ? (
-          <div className="cover-preview">
-            <img alt="" src={cover.src} />
-            <div>
-              <small>{cover.file.name}</small>
-              <button type="button" onClick={onClearCover}>
-                <Trash2 /> Remover
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            className="upload-action"
-            type="button"
-            onClick={onChooseCover}
-          >
-            <Image /> Escolher arte
-          </button>
-        )}
-        {suggestedCover && (
-          <p className="helper-copy">
-            Arte oferecida pela pasta: {suggestedCover.relativePath}
-          </p>
-        )}
-        {suggestedCover && cover?.file !== suggestedCover.file && (
-          <button
-            className="quiet-action"
-            type="button"
-            onClick={onRestoreSuggestedCover}
-          >
-            <RotateCcw /> Usar arte oferecida
-          </button>
-        )}
-        {!suggestedCover && <p className="helper-copy">{artworkHint}</p>}
-        <div className="inspector-subsection">
-          <p className="inspector-kicker">Série visual</p>
-          <CheckField
-            label="Gerar série numerada na capa tratada"
-            checked={coverSeriesSettings.enabled}
-            onChange={(enabled) => onCoverSeriesSettings({ enabled })}
-          />
-          {coverSeriesSettings.enabled && (
-            <>
-              <p className="inspector-kicker cover-series-kicker">
-                Numeração principal
-              </p>
-              <SelectField
-                label="Sequência"
-                value={coverSeriesSettings.style}
+    <div className="audio-inspector-tabbed">
+      <div className="audio-inspector-tab-content">
+        {activeInspectorTab === "data" && (
+          <InspectorGroup title="Dados" open>
+            <TextField
+              label="Título"
+              value={metadata.title}
+              onChange={(title) => onChange({ title })}
+            />
+            <TextField
+              label="Artista"
+              value={metadata.artist}
+              onChange={(artist) => onChange({ artist })}
+            />
+            <TextField
+              label="Álbum"
+              value={metadata.album}
+              onChange={(album) => onChange({ album })}
+            />
+            <TextField
+              label="Artista do álbum"
+              value={metadata.albumArtist}
+              onChange={(albumArtist) => onChange({ albumArtist })}
+            />
+            <TextField
+              label="Gênero"
+              value={metadata.genre}
+              onChange={(genre) => onChange({ genre })}
+            />
+            <TextField
+              label="Compositor"
+              value={metadata.composer}
+              onChange={(composer) => onChange({ composer })}
+            />
+            <TextArea
+              label="Comentário ID3"
+              rows={3}
+              value={metadata.comment}
+              onChange={(comment) => onChange({ comment })}
+            />
+            <TextField
+              label="Ano"
+              value={metadata.year}
+              onChange={(year) => onChange({ year })}
+            />
+            <div className="two-columns">
+              <TextField
+                label="Faixa"
+                value={String(metadata.trackNumber)}
                 onChange={(value) =>
-                  onCoverSeriesSettings({
-                    style:
-                      value === "custom" || value === "arabic"
-                        ? value
-                        : "roman",
-                  })
+                  onChange({ trackNumber: Math.max(1, Number(value) || 1) })
                 }
+              />
+              <TextField
+                label="Total"
+                value={String(metadata.trackTotal)}
+                onChange={(value) =>
+                  onChange({ trackTotal: Math.max(1, Number(value) || 1) })
+                }
+              />
+            </div>
+            <button
+              className="quiet-action"
+              type="button"
+              onClick={onApplySuggestions}
+            >
+              Aplicar sugestões do arquivo
+            </button>
+          </InspectorGroup>
+        )}
+        {activeInspectorTab === "art" && (
+          <InspectorGroup title="Arte" open>
+            {cover ? (
+              <div className="cover-preview">
+                <img alt="" src={cover.src} />
+                <div>
+                  <small>{cover.file.name}</small>
+                  <button type="button" onClick={onClearCover}>
+                    <Trash2 /> Remover
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                className="upload-action"
+                type="button"
+                onClick={onChooseCover}
               >
-                <option value="roman">Romana · I, II, III</option>
-                <option value="arabic">Arábica · 1, 2, 3</option>
-                <option value="custom">Personalizada</option>
-              </SelectField>
-              {coverSeriesSettings.style === "custom" && (
-                <TextArea
-                  label="Itens personalizados"
-                  rows={3}
-                  value={coverSeriesSettings.sequence}
-                  onChange={(sequence) => onCoverSeriesSettings({ sequence })}
-                />
-              )}
-              <div className="two-columns">
-                <RangeField
-                  label="Tamanho"
-                  max={180}
-                  min={32}
-                  value={coverSeriesSettings.fontSize}
-                  onChange={(fontSize) => onCoverSeriesSettings({ fontSize })}
-                />
-                <ColorInput
-                  label="Cor"
-                  value={coverSeriesSettings.color}
-                  onChange={(color) => onCoverSeriesSettings({ color })}
-                />
-              </div>
-              <RangeField
-                label="Opacidade"
-                value={coverSeriesSettings.opacity}
-                onChange={(opacity) => onCoverSeriesSettings({ opacity })}
-              />
-              <div className="two-columns">
-                <RangeField
-                  label="Horizontal"
-                  value={coverSeriesSettings.x}
-                  onChange={(x) => onCoverSeriesSettings({ x })}
-                />
-                <RangeField
-                  label="Vertical"
-                  value={coverSeriesSettings.y}
-                  onChange={(y) => onCoverSeriesSettings({ y })}
-                />
-              </div>
-              <RangeField
-                label="Espaçamento"
-                max={48}
-                unit="px"
-                value={coverSeriesSettings.letterSpacing}
-                onChange={(letterSpacing) =>
-                  onCoverSeriesSettings({ letterSpacing })
-                }
-              />
-              <div className="cover-series-meta">
-                <p className="inspector-kicker">Textos complementares</p>
-                <p className="helper-copy">
-                  Ajuste cada tipo separadamente. A ordem é aplicada de cima
-                  para baixo.
-                </p>
-                <TextField
-                  label="Ordem dos campos"
-                  value={coverSeriesSettings.metaOrder}
-                  onChange={(metaOrder) => onCoverSeriesSettings({ metaOrder })}
-                />
-                <RangeField
-                  label="Espaço entre linhas"
-                  max={48}
-                  unit="px"
-                  value={coverSeriesSettings.metaGap}
-                  onChange={(metaGap) => onCoverSeriesSettings({ metaGap })}
-                />
-                <CoverSeriesMetaControls
-                  enabled={coverSeriesSettings.includeTitle}
-                  label="Nome da música"
-                  onEnabled={(includeTitle) =>
-                    onCoverSeriesSettings({ includeTitle })
-                  }
-                  onStyle={(patch) =>
-                    onCoverSeriesSettings({
-                      metaStyles: {
-                        ...coverSeriesSettings.metaStyles,
-                        title: {
-                          ...coverSeriesSettings.metaStyles.title,
-                          ...patch,
-                        },
-                      },
-                    })
-                  }
-                  style={coverSeriesSettings.metaStyles.title}
-                />
-                <CoverSeriesMetaControls
-                  enabled={coverSeriesSettings.includeAlbum}
-                  label="Nome do álbum"
-                  onEnabled={(includeAlbum) =>
-                    onCoverSeriesSettings({ includeAlbum })
-                  }
-                  onStyle={(patch) =>
-                    onCoverSeriesSettings({
-                      metaStyles: {
-                        ...coverSeriesSettings.metaStyles,
-                        album: {
-                          ...coverSeriesSettings.metaStyles.album,
-                          ...patch,
-                        },
-                      },
-                    })
-                  }
-                  style={coverSeriesSettings.metaStyles.album}
-                />
-                <CoverSeriesMetaControls
-                  enabled={coverSeriesSettings.includeArtist}
-                  label="Autor"
-                  onEnabled={(includeArtist) =>
-                    onCoverSeriesSettings({ includeArtist })
-                  }
-                  onStyle={(patch) =>
-                    onCoverSeriesSettings({
-                      metaStyles: {
-                        ...coverSeriesSettings.metaStyles,
-                        artist: {
-                          ...coverSeriesSettings.metaStyles.artist,
-                          ...patch,
-                        },
-                      },
-                    })
-                  }
-                  style={coverSeriesSettings.metaStyles.artist}
-                />
-                <CoverSeriesMetaControls
-                  enabled={coverSeriesSettings.includeYear}
-                  label="Ano"
-                  onEnabled={(includeYear) =>
-                    onCoverSeriesSettings({ includeYear })
-                  }
-                  onStyle={(patch) =>
-                    onCoverSeriesSettings({
-                      metaStyles: {
-                        ...coverSeriesSettings.metaStyles,
-                        year: {
-                          ...coverSeriesSettings.metaStyles.year,
-                          ...patch,
-                        },
-                      },
-                    })
-                  }
-                  style={coverSeriesSettings.metaStyles.year}
-                />
-              </div>
+                <Image /> Escolher arte
+              </button>
+            )}
+            {suggestedCover && (
+              <p className="helper-copy">
+                Arte oferecida pela pasta: {suggestedCover.relativePath}
+              </p>
+            )}
+            {suggestedCover && cover?.file !== suggestedCover.file && (
               <button
                 className="quiet-action"
                 type="button"
-                onClick={onSaveCoverSeriesDefault}
+                onClick={onRestoreSuggestedCover}
               >
-                <Save /> Salvar como padrão
+                <RotateCcw /> Usar arte oferecida
               </button>
-            </>
-          )}
-        </div>
-      </InspectorGroup>
-      <InspectorGroup title="Letra">
-        <TextArea
-          label="Letra manual sem sincronizacao"
-          value={metadata.lyrics}
-          onChange={(lyrics) => onChange({ lyrics })}
-        />
-        <TextField
-          label="Idioma ID3"
-          value={metadata.lyricsLanguage}
-          onChange={(lyricsLanguage) => onChange({ lyricsLanguage })}
-        />
-      </InspectorGroup>
-      <InspectorGroup title="Qualidade" open>
-        {analysis ? (
-          <p className={`quality-callout ${analysis.risk}`}>
-            {riskDescription(analysis)}
-          </p>
-        ) : (
-          <p className="helper-copy">
-            Analise a faixa para medir loudness e margem de pico.
-          </p>
+            )}
+            {!suggestedCover && <p className="helper-copy">{artworkHint}</p>}
+            <div className="inspector-subsection">
+              <p className="inspector-kicker">Série visual</p>
+              <CheckField
+                label="Gerar série numerada na capa tratada"
+                checked={coverSeriesSettings.enabled}
+                onChange={(enabled) => onCoverSeriesSettings({ enabled })}
+              />
+              {coverSeriesSettings.enabled && (
+                <>
+                  <p className="inspector-kicker cover-series-kicker">
+                    Numeração principal
+                  </p>
+                  <SelectField
+                    label="Sequência"
+                    value={coverSeriesSettings.style}
+                    onChange={(value) =>
+                      onCoverSeriesSettings({
+                        style:
+                          value === "custom" || value === "arabic"
+                            ? value
+                            : "roman",
+                      })
+                    }
+                  >
+                    <option value="roman">Romana · I, II, III</option>
+                    <option value="arabic">Arábica · 1, 2, 3</option>
+                    <option value="custom">Personalizada</option>
+                  </SelectField>
+                  {coverSeriesSettings.style === "custom" && (
+                    <TextArea
+                      label="Itens personalizados"
+                      rows={3}
+                      value={coverSeriesSettings.sequence}
+                      onChange={(sequence) =>
+                        onCoverSeriesSettings({ sequence })
+                      }
+                    />
+                  )}
+                  <div className="two-columns">
+                    <RangeField
+                      label="Tamanho"
+                      max={180}
+                      min={32}
+                      value={coverSeriesSettings.fontSize}
+                      onChange={(fontSize) =>
+                        onCoverSeriesSettings({ fontSize })
+                      }
+                    />
+                    <ColorInput
+                      label="Cor"
+                      value={coverSeriesSettings.color}
+                      onChange={(color) => onCoverSeriesSettings({ color })}
+                    />
+                  </div>
+                  <RangeField
+                    label="Opacidade"
+                    value={coverSeriesSettings.opacity}
+                    onChange={(opacity) => onCoverSeriesSettings({ opacity })}
+                  />
+                  <div className="two-columns">
+                    <RangeField
+                      label="Horizontal"
+                      value={coverSeriesSettings.x}
+                      onChange={(x) => onCoverSeriesSettings({ x })}
+                    />
+                    <RangeField
+                      label="Vertical"
+                      value={coverSeriesSettings.y}
+                      onChange={(y) => onCoverSeriesSettings({ y })}
+                    />
+                  </div>
+                  <RangeField
+                    label="Espaçamento"
+                    max={48}
+                    unit="px"
+                    value={coverSeriesSettings.letterSpacing}
+                    onChange={(letterSpacing) =>
+                      onCoverSeriesSettings({ letterSpacing })
+                    }
+                  />
+                  <div className="cover-series-meta">
+                    <p className="inspector-kicker">Textos complementares</p>
+                    <p className="helper-copy">
+                      Ajuste cada tipo separadamente. A ordem é aplicada de cima
+                      para baixo.
+                    </p>
+                    <CoverSeriesMetaOrderEditor
+                      value={coverSeriesSettings.metaOrder}
+                      onChange={(metaOrder) =>
+                        onCoverSeriesSettings({ metaOrder })
+                      }
+                    />
+                    <RangeField
+                      label="Espaço entre linhas"
+                      max={48}
+                      unit="px"
+                      value={coverSeriesSettings.metaGap}
+                      onChange={(metaGap) => onCoverSeriesSettings({ metaGap })}
+                    />
+                    <CoverSeriesMetaControls
+                      enabled={coverSeriesSettings.includeTitle}
+                      label="Nome da música"
+                      onEnabled={(includeTitle) =>
+                        onCoverSeriesSettings({ includeTitle })
+                      }
+                      onStyle={(patch) =>
+                        onCoverSeriesSettings({
+                          metaStyles: {
+                            ...coverSeriesSettings.metaStyles,
+                            title: {
+                              ...coverSeriesSettings.metaStyles.title,
+                              ...patch,
+                            },
+                          },
+                        })
+                      }
+                      style={coverSeriesSettings.metaStyles.title}
+                    />
+                    <CoverSeriesMetaControls
+                      enabled={coverSeriesSettings.includeAlbum}
+                      label="Nome do álbum"
+                      onEnabled={(includeAlbum) =>
+                        onCoverSeriesSettings({ includeAlbum })
+                      }
+                      onStyle={(patch) =>
+                        onCoverSeriesSettings({
+                          metaStyles: {
+                            ...coverSeriesSettings.metaStyles,
+                            album: {
+                              ...coverSeriesSettings.metaStyles.album,
+                              ...patch,
+                            },
+                          },
+                        })
+                      }
+                      style={coverSeriesSettings.metaStyles.album}
+                    />
+                    <CoverSeriesMetaControls
+                      enabled={coverSeriesSettings.includeArtist}
+                      label="Autor"
+                      onEnabled={(includeArtist) =>
+                        onCoverSeriesSettings({ includeArtist })
+                      }
+                      onStyle={(patch) =>
+                        onCoverSeriesSettings({
+                          metaStyles: {
+                            ...coverSeriesSettings.metaStyles,
+                            artist: {
+                              ...coverSeriesSettings.metaStyles.artist,
+                              ...patch,
+                            },
+                          },
+                        })
+                      }
+                      style={coverSeriesSettings.metaStyles.artist}
+                    />
+                    <CoverSeriesMetaControls
+                      enabled={coverSeriesSettings.includeYear}
+                      label="Ano"
+                      onEnabled={(includeYear) =>
+                        onCoverSeriesSettings({ includeYear })
+                      }
+                      onStyle={(patch) =>
+                        onCoverSeriesSettings({
+                          metaStyles: {
+                            ...coverSeriesSettings.metaStyles,
+                            year: {
+                              ...coverSeriesSettings.metaStyles.year,
+                              ...patch,
+                            },
+                          },
+                        })
+                      }
+                      style={coverSeriesSettings.metaStyles.year}
+                    />
+                  </div>
+                  <button
+                    className="quiet-action"
+                    type="button"
+                    onClick={onSaveCoverSeriesDefault}
+                  >
+                    <Save /> Salvar como padrão
+                  </button>
+                </>
+              )}
+            </div>
+          </InspectorGroup>
         )}
-        <CheckField
-          label="Normalizar cópia tratada para -14 LUFS / -1 dBTP"
-          checked={metadata.normalizationEnabled}
-          onChange={(normalizationEnabled) =>
-            onChange({ normalizationEnabled })
-          }
-        />
-        <button
-          className="quiet-action"
-          disabled={isAnalyzing}
-          type="button"
-          onClick={onAnalyze}
-        >
-          <SlidersHorizontal />{" "}
-          {isAnalyzing ? "Analisando qualidade..." : "Analisar qualidade"}
-        </button>
-        <button
-          className="primary-action wide"
-          type="button"
-          onClick={onProcess}
-        >
-          <Check />{" "}
-          {workflowMode === "batch"
-            ? "Processar selecionados"
-            : "Processar cópia"}
-        </button>
-      </InspectorGroup>
-    </>
+        {activeInspectorTab === "lyrics" && (
+          <InspectorGroup title="Letra" open>
+            <TextArea
+              label="Letra manual sem sincronizacao"
+              value={metadata.lyrics}
+              onChange={(lyrics) => onChange({ lyrics })}
+            />
+            <TextField
+              label="Idioma ID3"
+              value={metadata.lyricsLanguage}
+              onChange={(lyricsLanguage) => onChange({ lyricsLanguage })}
+            />
+          </InspectorGroup>
+        )}
+        {activeInspectorTab === "quality" && (
+          <InspectorGroup title="Qualidade" open>
+            {analysis ? (
+              <p className={`quality-callout ${analysis.risk}`}>
+                {riskDescription(analysis)}
+              </p>
+            ) : (
+              <p className="helper-copy">
+                Analise a faixa para medir loudness e margem de pico.
+              </p>
+            )}
+            <CheckField
+              label="Normalizar cópia tratada para -14 LUFS / -1 dBTP"
+              checked={metadata.normalizationEnabled}
+              onChange={(normalizationEnabled) =>
+                onChange({ normalizationEnabled })
+              }
+            />
+            <button
+              className="quiet-action"
+              disabled={isAnalyzing}
+              type="button"
+              onClick={onAnalyze}
+            >
+              {isAnalyzing ? (
+                <Loader2 className="spin-icon" />
+              ) : (
+                <SlidersHorizontal />
+              )}{" "}
+              {isAnalyzing ? "Analisando qualidade..." : "Analisar qualidade"}
+            </button>
+            <button
+              className="primary-action wide"
+              type="button"
+              onClick={onProcess}
+            >
+              <Check />{" "}
+              {workflowMode === "batch"
+                ? "Processar selecionados"
+                : "Processar cópia"}
+            </button>
+          </InspectorGroup>
+        )}
+      </div>
+      <div className="audio-inspector-tabbar" role="tablist">
+        {tabs.map(([value, label, Icon]) => (
+          <button
+            aria-selected={activeInspectorTab === value}
+            className={activeInspectorTab === value ? "active" : ""}
+            key={value}
+            role="tab"
+            type="button"
+            onClick={() => setActiveInspectorTab(value)}
+          >
+            <Icon />
+            <span>{label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -4805,26 +4882,78 @@ function CatalogPreview({
               </button>
             </header>
             <div className="catalog-artwork-dialog-layout">
-              <CoverSeriesArtwork
-                artworkSrc={coverForTrack(artworkTrack)?.src}
-                className="catalog-artwork-expanded"
-                coverSeriesSettings={coverSeriesSettings}
-                showSeries={showSeries}
-                track={artworkTrack}
-              />
+              <div className="catalog-artwork-preview-panel">
+                <CoverSeriesArtwork
+                  artworkSrc={coverForTrack(artworkTrack)?.src}
+                  className="catalog-artwork-expanded"
+                  coverSeriesSettings={coverSeriesSettings}
+                  showSeries={showSeries}
+                  track={artworkTrack}
+                />
+                {tracks.length > 1 && (
+                  <div className="catalog-artwork-series-grid">
+                    <div className="catalog-artwork-series-grid-head">
+                      <span className="overline">Capas da série</span>
+                    </div>
+                    <div className="catalog-artwork-series-thumbs">
+                      {tracks.map((track) => (
+                        <button
+                          aria-label={`Conferir ${track.metadata.title || "faixa"}`}
+                          className={
+                            track.id === artworkTrack.id ? "active" : ""
+                          }
+                          key={track.id}
+                          type="button"
+                          onClick={() => {
+                            onSelectTrack(track.id);
+                            setArtworkTrackId(track.id);
+                          }}
+                        >
+                          <CoverSeriesArtwork
+                            artworkSrc={coverForTrack(track)?.src}
+                            className="catalog-artwork-series-thumb"
+                            coverSeriesSettings={coverSeriesSettings}
+                            showSeries={showSeries}
+                            track={track}
+                          />
+                          <span>
+                            {track.metadata.title || "Faixa sem título"}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(artworkTrack.artworkOptions?.length ?? 0) > 1 && (
+                  <div className="catalog-artwork-variants">
+                    <span className="overline">Fontes disponíveis</span>
+                    <div>
+                      {artworkTrack.artworkOptions?.map((option) => (
+                        <button
+                          className={
+                            option.relativePath ===
+                            artworkTrack.suggestedCover?.relativePath
+                              ? "active"
+                              : ""
+                          }
+                          key={option.relativePath}
+                          type="button"
+                          onClick={() =>
+                            onSelectSuggestedCover(
+                              artworkTrack.id,
+                              option.relativePath,
+                            )
+                          }
+                        >
+                          <strong>{artworkVariantLabel(option)}</strong>
+                          <small>{formatBytes(option.file.size)}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
               <aside>
-                <div>
-                  <span className="overline">Série visual</span>
-                  <strong>
-                    {coverSeriesSettings.enabled
-                      ? "Prévia ao vivo ativa"
-                      : "Série visual desativada"}
-                  </strong>
-                  <p>
-                    A capa tratada usa os mesmos ajustes exibidos aqui. Altere
-                    os controles abaixo para conferir o resultado na hora.
-                  </p>
-                </div>
                 <div className="catalog-artwork-actions">
                   <button
                     className="upload-action"
@@ -4851,71 +4980,12 @@ function CatalogPreview({
                     {showSeries ? "Ver arte base" : "Ver com série visual"}
                   </button>
                 </div>
-                {(artworkTrack.artworkOptions?.length ?? 0) > 1 && (
-                  <div className="catalog-artwork-variants">
-                    <span className="overline">Fontes disponíveis</span>
-                    <p>
-                      Compare formatos e versões oferecidos por `art/`. A
-                      escolha ativa alimenta a capa tratada desta faixa.
-                    </p>
-                    <div>
-                      {artworkTrack.artworkOptions?.map((option) => (
-                        <button
-                          className={
-                            option.relativePath ===
-                            artworkTrack.suggestedCover?.relativePath
-                              ? "active"
-                              : ""
-                          }
-                          key={option.relativePath}
-                          type="button"
-                          onClick={() =>
-                            onSelectSuggestedCover(
-                              artworkTrack.id,
-                              option.relativePath,
-                            )
-                          }
-                        >
-                          <strong>{artworkVariantLabel(option)}</strong>
-                          <small>{formatBytes(option.file.size)}</small>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <details className="catalog-artwork-settings" open>
-                  <summary>
-                    <span>Ajustar composição da capa</span>
-                    <small>Prévia imediata</small>
-                  </summary>
-                  <CoverSeriesEditor
-                    compact
-                    settings={coverSeriesSettings}
-                    onChange={onCoverSeriesSettings}
-                    onSaveDefault={onSaveCoverSeriesDefault}
-                  />
-                </details>
-                <div className="catalog-artwork-series-list">
-                  <span className="overline">Capas da série</span>
-                  {tracks.map((track) => (
-                    <button
-                      className={track.id === artworkTrack.id ? "active" : ""}
-                      key={track.id}
-                      type="button"
-                      onClick={() => {
-                        onSelectTrack(track.id);
-                        setArtworkTrackId(track.id);
-                      }}
-                    >
-                      <strong>
-                        {coverSeriesPreviewLabel(track, coverSeriesSettings) ||
-                          track.metadata.trackNumber ||
-                          "–"}
-                      </strong>
-                      <span>{track.metadata.title || "Faixa sem título"}</span>
-                    </button>
-                  ))}
-                </div>
+                <CoverSeriesEditor
+                  compact
+                  settings={coverSeriesSettings}
+                  onChange={onCoverSeriesSettings}
+                  onSaveDefault={onSaveCoverSeriesDefault}
+                />
               </aside>
             </div>
           </section>
@@ -5467,7 +5537,7 @@ function Transport({
   }, [audioRef, audioSrc]);
 
   return (
-    <div className="transport">
+    <div className={playing ? "transport is-playing" : "transport"}>
       <div className="transport-controls" aria-label="Navegacao da faixa">
         <IconButton
           disabled={!canPrevious}
@@ -5624,6 +5694,62 @@ function CoverSeriesMetaControls({
   );
 }
 
+const coverSeriesMetaLabels: Record<CoverSeriesMetaKey, string> = {
+  title: "Nome da música",
+  album: "Nome do álbum",
+  artist: "Autor",
+  year: "Ano",
+};
+
+function CoverSeriesMetaOrderEditor({
+  onChange,
+  value,
+}: {
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const order = coverSeriesMetaOrder(value);
+  const move = (key: CoverSeriesMetaKey, direction: -1 | 1) => {
+    const index = order.indexOf(key);
+    const target = index + direction;
+    if (target < 0 || target >= order.length) return;
+    const next = [...order];
+    [next[index], next[target]] = [next[target], next[index]];
+    onChange(next.join(", "));
+  };
+  return (
+    <div className="meta-order-editor">
+      <span className="inspector-kicker">Ordem dos campos</span>
+      {order.map((key, index) => (
+        <div className="text-order-row" key={key}>
+          <span>
+            {index + 1}. {coverSeriesMetaLabels[key]}
+          </span>
+          <small>{key}</small>
+          <div>
+            <button
+              aria-label={`Mover ${coverSeriesMetaLabels[key]} para cima`}
+              disabled={index === 0}
+              type="button"
+              onClick={() => move(key, -1)}
+            >
+              <ArrowUp />
+            </button>
+            <button
+              aria-label={`Mover ${coverSeriesMetaLabels[key]} para baixo`}
+              disabled={index === order.length - 1}
+              type="button"
+              onClick={() => move(key, 1)}
+            >
+              <ArrowDown />
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function CoverSeriesEditor({
   compact = false,
   onChange,
@@ -5656,70 +5782,78 @@ function CoverSeriesEditor({
       />
       {settings.enabled && (
         <>
-          <div className="cover-series-editor-grid">
-            <SelectField
-              label="Sequência"
-              value={settings.style}
-              onChange={(value) =>
-                onChange({
-                  style:
-                    value === "custom" || value === "arabic" ? value : "roman",
-                })
-              }
-            >
-              <option value="roman">Romana · I, II, III</option>
-              <option value="arabic">Arábica · 1, 2, 3</option>
-              <option value="custom">Personalizada</option>
-            </SelectField>
-            <ColorInput
-              label="Cor principal"
-              value={settings.color}
-              onChange={(color) => onChange({ color })}
+          <div className="cover-series-section">
+            <p className="cover-series-section-title">Sequência &amp; cor</p>
+            <div className="cover-series-editor-grid">
+              <SelectField
+                label="Sequência"
+                value={settings.style}
+                onChange={(value) =>
+                  onChange({
+                    style:
+                      value === "custom" || value === "arabic"
+                        ? value
+                        : "roman",
+                  })
+                }
+              >
+                <option value="roman">Romana · I, II, III</option>
+                <option value="arabic">Arábica · 1, 2, 3</option>
+                <option value="custom">Personalizada</option>
+              </SelectField>
+              <ColorInput
+                label="Cor principal"
+                rgbCollapsible
+                value={settings.color}
+                onChange={(color) => onChange({ color })}
+              />
+            </div>
+            {settings.style === "custom" && (
+              <TextArea
+                label="Itens personalizados"
+                rows={3}
+                value={settings.sequence}
+                onChange={(sequence) => onChange({ sequence })}
+              />
+            )}
+          </div>
+          <div className="cover-series-section">
+            <p className="cover-series-section-title">Posição &amp; tamanho</p>
+            <div className="cover-series-editor-grid">
+              <RangeField
+                label="Tamanho"
+                max={180}
+                min={32}
+                value={settings.fontSize}
+                onChange={(fontSize) => onChange({ fontSize })}
+              />
+              <RangeField
+                label="Opacidade"
+                value={settings.opacity}
+                onChange={(opacity) => onChange({ opacity })}
+              />
+              <RangeField
+                label="Horizontal"
+                value={settings.x}
+                onChange={(x) => onChange({ x })}
+              />
+              <RangeField
+                label="Vertical"
+                value={settings.y}
+                onChange={(y) => onChange({ y })}
+              />
+            </div>
+            <RangeField
+              label="Espaçamento"
+              max={48}
+              unit="px"
+              value={settings.letterSpacing}
+              onChange={(letterSpacing) => onChange({ letterSpacing })}
             />
           </div>
-          {settings.style === "custom" && (
-            <TextArea
-              label="Itens personalizados"
-              rows={3}
-              value={settings.sequence}
-              onChange={(sequence) => onChange({ sequence })}
-            />
-          )}
-          <div className="cover-series-editor-grid">
-            <RangeField
-              label="Tamanho"
-              max={180}
-              min={32}
-              value={settings.fontSize}
-              onChange={(fontSize) => onChange({ fontSize })}
-            />
-            <RangeField
-              label="Opacidade"
-              value={settings.opacity}
-              onChange={(opacity) => onChange({ opacity })}
-            />
-            <RangeField
-              label="Horizontal"
-              value={settings.x}
-              onChange={(x) => onChange({ x })}
-            />
-            <RangeField
-              label="Vertical"
-              value={settings.y}
-              onChange={(y) => onChange({ y })}
-            />
-          </div>
-          <RangeField
-            label="Espaçamento"
-            max={48}
-            unit="px"
-            value={settings.letterSpacing}
-            onChange={(letterSpacing) => onChange({ letterSpacing })}
-          />
-          <div className="cover-series-meta">
-            <p className="inspector-kicker">Textos complementares</p>
-            <TextField
-              label="Ordem dos campos"
+          <div className="cover-series-section cover-series-meta">
+            <p className="cover-series-section-title">Textos complementares</p>
+            <CoverSeriesMetaOrderEditor
               value={settings.metaOrder}
               onChange={(metaOrder) => onChange({ metaOrder })}
             />
@@ -6714,10 +6848,12 @@ function TextInspector({
         fontFamily: textSettings.fontFamily,
         fontSize: textSettings.fontSize,
         fontWeight: textSettings.fontWeight,
+        fontStyle: "normal",
         letterSpacing: textSettings.letterSpacing,
         lineHeight: textSettings.lineHeight,
         color: textSettings.color,
         opacity: textSettings.opacity,
+        align: textSettings.align === "justify" ? "left" : textSettings.align,
       };
     }
     onTextSettings({ fieldStyles: nextStyles });
@@ -7012,8 +7148,60 @@ function TextFieldStyleEditor({
             </option>
           ))}
         </SelectField>
+        <div
+          className="icon-toggle-row"
+          aria-label={`Estilo de ${textFieldLabels[field]}`}
+        >
+          <button
+            className={style.fontWeight >= 700 ? "active" : ""}
+            title="Negrito"
+            type="button"
+            onClick={() =>
+              onChange({ fontWeight: style.fontWeight >= 700 ? 560 : 760 })
+            }
+          >
+            <Bold />
+          </button>
+          <button
+            className={style.fontStyle === "italic" ? "active" : ""}
+            title="Itálico"
+            type="button"
+            onClick={() =>
+              onChange({
+                fontStyle: style.fontStyle === "italic" ? "normal" : "italic",
+              })
+            }
+          >
+            <Italic />
+          </button>
+          <span aria-hidden="true" />
+          <button
+            className={style.align === "left" ? "active" : ""}
+            title="Alinhar à esquerda"
+            type="button"
+            onClick={() => onChange({ align: "left" })}
+          >
+            <AlignLeft />
+          </button>
+          <button
+            className={style.align === "center" ? "active" : ""}
+            title="Centralizar"
+            type="button"
+            onClick={() => onChange({ align: "center" })}
+          >
+            <AlignCenter />
+          </button>
+          <button
+            className={style.align === "right" ? "active" : ""}
+            title="Alinhar à direita"
+            type="button"
+            onClick={() => onChange({ align: "right" })}
+          >
+            <AlignRight />
+          </button>
+        </div>
         <div className="two-columns">
-          <RangeField
+          <NumberStepField
             label="Tamanho"
             max={96}
             min={10}
@@ -7021,16 +7209,17 @@ function TextFieldStyleEditor({
             value={style.fontSize}
             onChange={(fontSize) => onChange({ fontSize })}
           />
-          <RangeField
+          <NumberStepField
             label="Peso"
             max={900}
             min={300}
+            step={10}
             value={style.fontWeight}
             onChange={(fontWeight) => onChange({ fontWeight })}
           />
         </div>
         <div className="two-columns">
-          <RangeField
+          <NumberStepField
             label="Espaçamento"
             max={24}
             min={0}
@@ -7038,7 +7227,7 @@ function TextFieldStyleEditor({
             value={style.letterSpacing}
             onChange={(letterSpacing) => onChange({ letterSpacing })}
           />
-          <RangeField
+          <NumberStepField
             label="Altura"
             max={180}
             min={90}
@@ -7287,6 +7476,7 @@ function RangeField({
   onChange,
   min = 0,
   max = 100,
+  step = 1,
   unit = "",
 }: {
   label: string;
@@ -7294,25 +7484,93 @@ function RangeField({
   onChange: (value: number) => void;
   min?: number;
   max?: number;
+  step?: number;
   unit?: string;
 }) {
+  const commitValue = (next: number) =>
+    onChange(clampNumber(next, min, max, value));
+  const fineValue = Number.isFinite(value)
+    ? Math.round(value * 100) / 100
+    : min;
   return (
     <label className="range-field">
       <span>
         {label}
-        <b>
-          {Math.round(value)}
-          {unit}
-        </b>
+        <span className="range-value-edit">
+          <input
+            aria-label={`${label} valor`}
+            className="range-value"
+            max={max}
+            min={min}
+            step={step}
+            type="number"
+            value={fineValue}
+            onChange={(event) => commitValue(Number(event.target.value))}
+          />
+          {unit && <i>{unit}</i>}
+        </span>
       </span>
       <input
         aria-label={label}
         min={min}
         max={max}
+        step={step}
         type="range"
         value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
+        onChange={(event) => commitValue(Number(event.target.value))}
       />
+    </label>
+  );
+}
+
+function NumberStepField({
+  label,
+  max,
+  min,
+  step = 1,
+  unit = "",
+  value,
+  onChange,
+}: {
+  label: string;
+  max: number;
+  min: number;
+  step?: number;
+  unit?: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  const commitValue = (next: number) =>
+    onChange(clampNumber(next, min, max, value));
+  return (
+    <label className="number-step-field">
+      <span>{label}</span>
+      <div>
+        <button
+          aria-label={`Diminuir ${label}`}
+          type="button"
+          onClick={() => commitValue(value - step)}
+        >
+          <ChevronDown />
+        </button>
+        <input
+          aria-label={label}
+          max={max}
+          min={min}
+          step={step}
+          type="number"
+          value={Number.isFinite(value) ? Math.round(value * 100) / 100 : min}
+          onChange={(event) => commitValue(Number(event.target.value))}
+        />
+        {unit && <small>{unit}</small>}
+        <button
+          aria-label={`Aumentar ${label}`}
+          type="button"
+          onClick={() => commitValue(value + step)}
+        >
+          <ChevronUp />
+        </button>
+      </div>
     </label>
   );
 }
@@ -7403,20 +7661,72 @@ function ColorInput({
   label,
   value,
   onChange,
+  rgbCollapsible = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  rgbCollapsible?: boolean;
 }) {
-  return (
-    <label className="color-input">
-      <span>{label}</span>
-      <input
-        type="color"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
+  const rgb = hexToRgb(value);
+  const commitRgb = (channel: "r" | "g" | "b", next: number) => {
+    const color = {
+      ...rgb,
+      [channel]: clampNumber(next, 0, 255, rgb[channel]),
+    };
+    onChange(rgbToHex(color.r, color.g, color.b));
+  };
+  const rgbGrid = (
+    <div className="color-rgb-grid">
+      <NumberStepField
+        label="R"
+        max={255}
+        min={0}
+        value={rgb.r}
+        onChange={(next) => commitRgb("r", next)}
       />
-    </label>
+      <NumberStepField
+        label="G"
+        max={255}
+        min={0}
+        value={rgb.g}
+        onChange={(next) => commitRgb("g", next)}
+      />
+      <NumberStepField
+        label="B"
+        max={255}
+        min={0}
+        value={rgb.b}
+        onChange={(next) => commitRgb("b", next)}
+      />
+    </div>
+  );
+  return (
+    <div className="color-input">
+      <span>{label}</span>
+      <div className="color-input-main">
+        <input
+          aria-label={`${label} seletor visual`}
+          type="color"
+          value={safeHex(value, "#ffffff")}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <input
+          aria-label={`${label} hexadecimal`}
+          className="color-hex-input"
+          value={safeHex(value, "#ffffff").toUpperCase()}
+          onChange={(event) => onChange(safeHex(event.target.value, value))}
+        />
+      </div>
+      {rgbCollapsible ? (
+        <details className="color-rgb-details">
+          <summary>Ajuste fino RGB</summary>
+          {rgbGrid}
+        </details>
+      ) : (
+        rgbGrid
+      )}
+    </div>
   );
 }
 
@@ -7987,6 +8297,10 @@ function mergeTextFieldStyle(
       900,
       fallback.fontWeight,
     ),
+    fontStyle:
+      (patch?.fontStyle ?? base?.fontStyle) === "italic"
+        ? "italic"
+        : fallback.fontStyle,
     letterSpacing: clampNumber(
       patch?.letterSpacing ?? base?.letterSpacing,
       0,
@@ -8006,6 +8320,11 @@ function mergeTextFieldStyle(
       100,
       fallback.opacity,
     ),
+    align: ["left", "center", "right"].includes(
+      patch?.align ?? base?.align ?? fallback.align,
+    )
+      ? (patch?.align ?? base?.align ?? fallback.align)
+      : fallback.align,
   };
 }
 
@@ -8181,6 +8500,25 @@ function safeHex(value: string | undefined, fallback: string) {
   return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)
     ? value
     : fallback;
+}
+
+function hexToRgb(value: string) {
+  const hex = safeHex(value, "#ffffff").replace("#", "");
+  return {
+    r: Number.parseInt(hex.slice(0, 2), 16),
+    g: Number.parseInt(hex.slice(2, 4), 16),
+    b: Number.parseInt(hex.slice(4, 6), 16),
+  };
+}
+
+function rgbToHex(r: number, g: number, b: number) {
+  return `#${[r, g, b]
+    .map((value) =>
+      Math.round(clampNumber(value, 0, 255, 0))
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")}`;
 }
 
 function coverLayerFromArtwork(

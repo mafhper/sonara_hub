@@ -142,6 +142,76 @@ void main() {
   color += u_accentColor * light * 0.12 * pulse(u_audioMid, 0.18);
   gl_FragColor = vec4(finish(color, uv), 1.0);
 }`,
+  // Portado de nebula/packages/effects/src/effect-plasma/fragment.glsl
+  // (adaptado para a interface fullscreen u_* do Sonara; re-sync manual).
+  plasma: `${shaderPrelude}
+vec3 hsv2rgb(vec3 c) {
+  vec4 k = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  vec3 p = abs(fract(c.xxx + k.xyz) * 6.0 - k.www);
+  return c.z * mix(k.xxx, clamp(p - k.xxx, 0.0, 1.0), c.y);
+}
+void main() {
+  vec2 frag = gl_FragCoord.xy / u_resolution.xy;
+  vec2 ratio = vec2(u_resolution.x / u_resolution.y, 1.0);
+  float scale = mix(0.3, 2.5, u_param0);
+  float complexity = 1.0 + u_param1 * 5.0;
+  float saturation = 0.2 + u_param2 * 1.8;
+  vec2 uv = (frag * 2.0 - 1.0) * ratio * scale;
+  float t = u_time * (0.12 + u_speed * 1.1);
+  float pl = sin(uv.x * 4.0 + t) + cos(uv.y * 4.0 + t * 1.3);
+  pl += sin((uv.x * 2.0 + uv.y * 3.0) * 2.0 + t * 0.7);
+  pl += cos((uv.x * 3.0 - uv.y * 2.0) * 2.0 + t * 1.1);
+  float n = 0.0;
+  float amp = 0.5;
+  vec2 q = uv * 0.8 + t * 0.06;
+  for (int i = 0; i < 6; i++) {
+    if (float(i) >= complexity) break;
+    n += amp * noise(q);
+    q = mat2(1.6, 1.2, -1.2, 1.6) * q;
+    amp *= 0.5;
+  }
+  pl = pl * 0.4 + n * 0.6;
+  float p = pl * 0.5 + 0.5;
+  float hue = p * 0.7 + t * 0.02 + n * 0.15;
+  float sat = clamp(0.5 + p * 0.5 * saturation, 0.0, 1.0);
+  float val = clamp(0.4 + p * 0.6 * (0.5 + u_intensity * 1.3), 0.0, 1.0);
+  vec3 plasmaColor = hsv2rgb(vec3(hue, sat, val));
+  vec3 color = mix(u_colorA, u_colorB, smoothstep(0.0, 1.0, p));
+  color = mix(color, u_accentColor, smoothstep(0.5, 1.0, p));
+  color = mix(color, plasmaColor, 0.3);
+  float glow = 1.0 - length(uv) * 0.4;
+  color += u_accentColor * max(0.0, glow) * (0.1 + u_param3 * 0.4) * pulse(u_audioBass, 0.5);
+  color = pow(max(color, 0.0), vec3(0.9));
+  gl_FragColor = vec4(finish(color, frag), 1.0);
+}`,
+  // Portado de nebula/packages/effects/src/effect-vortex/fragment.glsl
+  // (adaptado para a interface fullscreen u_* do Sonara; re-sync manual).
+  vortex: `${shaderPrelude}
+void main() {
+  vec2 frag = gl_FragCoord.xy / u_resolution.xy;
+  vec2 ratio = vec2(u_resolution.x / u_resolution.y, 1.0);
+  float arms = 1.0 + u_param0 * 7.0;
+  float twist = u_param1 * 2.5;
+  float zoom = mix(0.3, 2.5, u_param2);
+  vec2 uv = (frag * 2.0 - 1.0) * ratio * zoom;
+  float t = u_time * (0.1 + u_speed * 1.0);
+  float r = length(uv);
+  float a = atan(uv.y, uv.x);
+  float spiral = a + r * twist * 6.2831853 + t * 0.6;
+  float arm = sin(spiral * arms) * 0.5 + 0.5;
+  float tunnel = 1.0 / (r + 0.15);
+  float n = fbm(vec2(r * 2.0 + a * 0.5, t * 0.1));
+  float pattern = arm * tunnel * (0.7 + n * 0.3);
+  float ring = sin(r * 8.0 - t * 1.4) * 0.5 + 0.5;
+  float glow = 1.0 - smoothstep(0.0, 1.2, r);
+  vec3 color = mix(u_colorA, u_colorB, smoothstep(0.0, 1.0, pattern * 0.5 + 0.5));
+  color = mix(color, u_accentColor, smoothstep(0.3, 0.9, pattern));
+  color += u_accentColor * pow(glow, 2.0) * (0.18 + u_param3 * 0.5) * pulse(u_audioBass, 0.4);
+  color *= (0.6 + pattern * 0.6 + ring * 0.15) * (0.4 + u_intensity * 1.2);
+  color *= 1.0 + pow(glow, 3.0) * 0.4;
+  color = pow(max(color, 0.0), vec3(0.92));
+  gl_FragColor = vec4(finish(color, frag), 1.0);
+}`,
 };
 
 const blendModes = {
@@ -1365,46 +1435,56 @@ const defaultTextSettings = {
       fontFamily: "Inter",
       fontSize: 42,
       fontWeight: 720,
+      fontStyle: "normal",
       letterSpacing: 0,
       lineHeight: 116,
       color: "#f7f8fb",
       opacity: 96,
+      align: "left",
     },
     version: {
       fontFamily: "Inter",
       fontSize: 25,
       fontWeight: 620,
+      fontStyle: "normal",
       letterSpacing: 1,
       lineHeight: 118,
       color: "#cbd2dc",
       opacity: 72,
+      align: "left",
     },
     artist: {
       fontFamily: "Inter",
       fontSize: 28,
       fontWeight: 620,
+      fontStyle: "normal",
       letterSpacing: 0,
       lineHeight: 120,
       color: "#cbd2dc",
       opacity: 82,
+      align: "left",
     },
     album: {
       fontFamily: "Georgia",
       fontSize: 26,
       fontWeight: 560,
+      fontStyle: "normal",
       letterSpacing: 0,
       lineHeight: 122,
       color: "#d6c7a4",
       opacity: 72,
+      align: "left",
     },
     year: {
       fontFamily: "Inter",
       fontSize: 21,
       fontWeight: 620,
+      fontStyle: "normal",
       letterSpacing: 4,
       lineHeight: 116,
       color: "#a5afbc",
       opacity: 62,
+      align: "left",
     },
   },
   fontFamily: "Inter",
@@ -1440,9 +1520,12 @@ function drawMetadata(context, width, height, metadata, settings = {}) {
   const lines = textSettings.order
     .filter((field) => textSettings.fields[field] && values[field])
     .map((field) => {
+      const fieldStyle = textSettings.fieldStyles[field];
       const style = {
-        ...mergeMetadataFieldStyle(field, textSettings.fieldStyles[field]),
-        align: textSettings.align,
+        ...mergeMetadataFieldStyle(field, fieldStyle),
+        align:
+          fieldStyle?.align ??
+          (textSettings.align === "justify" ? "left" : textSettings.align),
       };
       const fontSize = Math.max(9, style.fontSize * scale);
       const lineHeight = fontSize * ((style.lineHeight ?? 118) / 100);
@@ -1462,8 +1545,6 @@ function drawMetadata(context, width, height, metadata, settings = {}) {
   if (textSettings.verticalAnchor === "bottom") y -= blockHeight;
   context.save();
   context.textBaseline = "top";
-  context.textAlign =
-    textSettings.align === "justify" ? "left" : textSettings.align;
   context.shadowColor = `rgba(0,0,0,${Math.max(0, Math.min(100, textSettings.shadow)) / 100})`;
   context.shadowBlur = Math.max(0, textSettings.shadow * scale * 0.4);
   let cursorY = y;
@@ -1472,7 +1553,9 @@ function drawMetadata(context, width, height, metadata, settings = {}) {
       line.style.color,
       Math.max(0, Math.min(100, line.style.opacity)) / 100,
     );
-    context.font = `${Math.round(line.style.fontWeight)} ${line.fontSize}px ${fontFamilyStack(line.style.fontFamily)}`;
+    context.textAlign =
+      line.style.align === "justify" ? "left" : line.style.align;
+    context.font = `${line.style.fontStyle === "italic" ? "italic " : ""}${Math.round(line.style.fontWeight)} ${line.fontSize}px ${fontFamilyStack(line.style.fontFamily)}`;
     drawMetadataLine(context, line.text, x, cursorY, width * 0.7, line.style);
     cursorY += line.lineHeight;
   }
@@ -1509,6 +1592,7 @@ function mergeMetadataFieldStyle(field, style = {}) {
       : fallback.fontFamily,
     fontSize: clampValue(style.fontSize, fallback.fontSize, 9, 96),
     fontWeight: clampValue(style.fontWeight, fallback.fontWeight, 300, 900),
+    fontStyle: style.fontStyle === "italic" ? "italic" : fallback.fontStyle,
     letterSpacing: clampValue(
       style.letterSpacing,
       fallback.letterSpacing,
@@ -1521,6 +1605,9 @@ function mergeMetadataFieldStyle(field, style = {}) {
         ? style.color
         : fallback.color,
     opacity: clampValue(style.opacity, fallback.opacity, 0, 100),
+    align: ["left", "center", "right"].includes(style.align)
+      ? style.align
+      : fallback.align,
   };
 }
 

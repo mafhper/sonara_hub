@@ -7,7 +7,15 @@ const artworkExtensions = new Set([
   ".webp",
 ]);
 
-const genericArtworkNames = ["album", "cover", "folder", "front", "capa"];
+const genericArtworkNames = [
+  "album",
+  "cover",
+  "folder",
+  "front",
+  "capa",
+  "image",
+  "imagem",
+];
 
 export function isArtworkName(name) {
   return artworkExtensions.has(extensionOf(name));
@@ -54,15 +62,12 @@ export function chooseAlbumArtworkForTrack({ audioPath, artworkPaths }) {
     .map(normalizePath)
     .sort(comparePaths);
   return (
-    artwork.find(
-      (candidate) =>
-        directoryOf(candidate) === artDirectory && isGenericArtwork(candidate),
-    ) ??
-    artwork.find(
-      (candidate) =>
-        directoryOf(candidate) === albumDirectory &&
-        isGenericArtwork(candidate),
-    ) ??
+    genericArtworkCandidates(
+      artwork.filter((candidate) => directoryOf(candidate) === artDirectory),
+    )[0] ??
+    genericArtworkCandidates(
+      artwork.filter((candidate) => directoryOf(candidate) === albumDirectory),
+    )[0] ??
     null
   );
 }
@@ -103,11 +108,9 @@ export function listArtworkOptionsForTrack({
         directoryOf(candidate) === audioDirectory &&
         matchesStem(candidate, audioStem),
     ),
-    ...insideArtDirectory.filter(isGenericArtwork),
-    ...artwork.filter(
-      (candidate) =>
-        directoryOf(candidate) === albumDirectory &&
-        isGenericArtwork(candidate),
+    ...genericArtworkCandidates(insideArtDirectory),
+    ...genericArtworkCandidates(
+      artwork.filter((candidate) => directoryOf(candidate) === albumDirectory),
     ),
   ];
 
@@ -142,6 +145,28 @@ function isGenericArtwork(value) {
   return genericArtworkNames.some(
     (name) => stem === name || stem.startsWith(`${name}-`),
   );
+}
+
+function genericArtworkCandidates(values) {
+  return values.filter(isGenericArtwork).sort(compareGenericArtwork);
+}
+
+function compareGenericArtwork(first, second) {
+  const rank = genericArtworkRank(first) - genericArtworkRank(second);
+  return rank || comparePaths(first, second);
+}
+
+function genericArtworkRank(value) {
+  const stem = stemOf(fileNameOf(value)).toLowerCase();
+  if (genericArtworkNames.some((name) => stem === name)) return 0;
+  if (
+    /(?:^|-)(?:alt|alternative|alternativa|compressed|small|thumb|mini)\b/i.test(
+      stem,
+    )
+  ) {
+    return 3;
+  }
+  return 1;
 }
 
 function matchesTrackNumber(value, trackNumber) {

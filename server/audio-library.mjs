@@ -2,9 +2,12 @@ import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import ffmpegPath from "ffmpeg-static";
 import NodeID3 from "node-id3";
 import sharp from "sharp";
+import {
+  normalizeFfmpegSpawnError,
+  resolveFfmpegPath,
+} from "./ffmpeg-tool.mjs";
 
 export function inferAudioTags(filePath) {
   const pathApi = /(^[a-z]:|\\)/i.test(String(filePath))
@@ -447,16 +450,16 @@ function parseLoudnormJson(stderr) {
 }
 
 function runFfmpeg(args) {
-  if (!ffmpegPath) {
-    throw new Error("ffmpeg-static não forneceu um binário de ffmpeg.");
-  }
+  const ffmpegPath = resolveFfmpegPath();
   return new Promise((resolve, reject) => {
     let stderr = "";
     let stdout = "";
     const child = spawn(ffmpegPath, args, { windowsHide: true });
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
     child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-    child.on("error", reject);
+    child.on("error", (error) =>
+      reject(normalizeFfmpegSpawnError(error, ffmpegPath)),
+    );
     child.on("close", (code) => {
       if (code === 0) resolve({ stdout, stderr });
       else reject(new Error(`ffmpeg terminou com codigo ${code}: ${stderr}`));
