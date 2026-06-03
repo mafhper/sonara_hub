@@ -169,6 +169,7 @@ function HeroShowcase() {
       aria-hidden="true"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
+      onClick={() => setActive((current) => (current + 1) % cards.length)}
     >
       <div className="showcase-stage">
         {cards.map((card, index) => {

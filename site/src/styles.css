@@ -279,6 +279,7 @@ svg {
   position: relative;
   width: 100%;
   height: clamp(480px, 60vh, 660px);
+  cursor: pointer;
 }
 
 .showcase-card {
