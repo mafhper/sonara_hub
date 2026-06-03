@@ -1176,6 +1176,13 @@ function App() {
       first.sourceKey.localeCompare(second.sourceKey, "pt-BR"),
     );
     setFolderName(handle.name);
+    // Switching the work folder must drop artwork state from the previous one,
+    // otherwise the manual cover override and embedded-art cache keep showing
+    // the old image (coverForTrack returns the global `cover` first).
+    setCover(null);
+    setPlayerArtworkSource("planned");
+    setEmbeddedArtworkByTrackId({});
+    embeddedArtworkRequestsRef.current.clear();
     setWorkspaceTracks(
       attachSuggestedArtwork(finalizeImportedTracks(next), artworkEntries),
       snapshot,
@@ -1359,6 +1366,57 @@ function App() {
 
   function updateCoverSeriesSettingsPatch(patch: Partial<CoverSeriesSettings>) {
     setCoverSeriesSettings((current) => ({ ...current, ...patch }));
+  }
+
+  // Effective series settings for a track: its own override wins, otherwise the
+  // shared album-wide defaults.
+  function seriesSettingsForTrack(track?: TrackDraft): CoverSeriesSettings {
+    return track?.coverSeriesOverride ?? coverSeriesSettings;
+  }
+
+  // Series edits are scoped: "all" writes the album-wide defaults (and keeps any
+  // per-track overrides in sync so every preview moves), while "current" forks an
+  // override for just this track, seeded from whatever it currently shows.
+  function applyCoverSeriesPatch(
+    patch: Partial<CoverSeriesSettings>,
+    scope: "all" | "current",
+    trackId?: string,
+  ) {
+    if (scope === "current" && trackId) {
+      setTracks((current) =>
+        current.map((track) =>
+          track.id === trackId
+            ? {
+                ...track,
+                coverSeriesOverride: {
+                  ...(track.coverSeriesOverride ?? coverSeriesSettings),
+                  ...patch,
+                },
+              }
+            : track,
+        ),
+      );
+      return;
+    }
+    setCoverSeriesSettings((current) => ({ ...current, ...patch }));
+    setTracks((current) =>
+      current.map((track) =>
+        track.coverSeriesOverride
+          ? {
+              ...track,
+              coverSeriesOverride: { ...track.coverSeriesOverride, ...patch },
+            }
+          : track,
+      ),
+    );
+  }
+
+  function clearCoverSeriesOverride(trackId: string) {
+    setTracks((current) =>
+      current.map((track) =>
+        track.id === trackId ? { ...track, coverSeriesOverride: null } : track,
+      ),
+    );
   }
 
   function saveCoverSeriesDefault() {
@@ -1733,9 +1791,10 @@ function App() {
       "draft",
       JSON.stringify(audioDraftFromMetadata(track.metadata)),
     );
-    formData.append("coverSeries", String(coverSeriesSettings.enabled));
-    formData.append("coverStyle", coverSeriesSettings.style);
-    formData.append("coverSeriesSettings", JSON.stringify(coverSeriesSettings));
+    const trackSeries = seriesSettingsForTrack(track);
+    formData.append("coverSeries", String(trackSeries.enabled));
+    formData.append("coverStyle", trackSeries.style);
+    formData.append("coverSeriesSettings", JSON.stringify(trackSeries));
     try {
       const data = await fetchJson<{ jobId: string }>("/api/audio/process", {
         method: "POST",
@@ -2410,6 +2469,7 @@ function App() {
         packageStatus: track.packageStatus,
         useSuggestedCover: track.useSuggestedCover,
         thumbnailPreviewMode: track.thumbnailPreviewMode,
+        coverSeriesOverride: track.coverSeriesOverride ?? null,
       })),
     };
   }
@@ -2797,10 +2857,13 @@ function App() {
           />
         ) : workspaceMode === "audio" && audioStageView === "catalog" ? (
           <CatalogPreview
+            albumCoverForTrack={albumCoverForTrack}
             coverForTrack={coverForTrack}
             coverSeriesSettings={coverSeriesSettings}
+            seriesSettingsForTrack={seriesSettingsForTrack}
             onChooseCover={chooseCatalogCover}
-            onCoverSeriesSettings={updateCoverSeriesSettingsPatch}
+            onClearCoverSeriesOverride={clearCoverSeriesOverride}
+            onCoverSeriesPatch={applyCoverSeriesPatch}
             onRestoreSuggestedCover={restoreSuggestedCover}
             onSaveCoverSeriesDefault={saveCoverSeriesDefault}
             onSelectTrack={setSelectedTrackId}
@@ -4735,20 +4798,32 @@ function ScenePreview({
 }
 
 function CatalogPreview({
+  albumCoverForTrack,
   coverForTrack,
   coverSeriesSettings,
+  seriesSettingsForTrack,
   onChooseCover,
-  onCoverSeriesSettings,
+  onClearCoverSeriesOverride,
+  onCoverSeriesPatch,
   onRestoreSuggestedCover,
   onSaveCoverSeriesDefault,
   onSelectTrack,
   onSelectSuggestedCover,
   tracks,
 }: {
+  albumCoverForTrack: (
+    track?: TrackDraft,
+  ) => { file: File; src: string } | null;
   coverForTrack: (track?: TrackDraft) => { file: File; src: string } | null;
   coverSeriesSettings: CoverSeriesSettings;
+  seriesSettingsForTrack: (track?: TrackDraft) => CoverSeriesSettings;
   onChooseCover: (trackId: string) => void;
-  onCoverSeriesSettings: (patch: Partial<CoverSeriesSettings>) => void;
+  onClearCoverSeriesOverride: (trackId: string) => void;
+  onCoverSeriesPatch: (
+    patch: Partial<CoverSeriesSettings>,
+    scope: "all" | "current",
+    trackId?: string,
+  ) => void;
   onRestoreSuggestedCover: (trackId?: string) => void;
   onSaveCoverSeriesDefault: () => void;
   onSelectTrack: (trackId: string) => void;
@@ -4757,8 +4832,24 @@ function CatalogPreview({
 }) {
   const [artworkTrackId, setArtworkTrackId] = useState("");
   const [showSeries, setShowSeries] = useState(true);
+  const [seriesScope, setSeriesScope] = useState<"all" | "current">("all");
   const albums = groupCatalogTracks(tracks);
   const artworkTrack = tracks.find((track) => track.id === artworkTrackId);
+  const artworkAlbum = artworkTrack
+    ? albums.find((album) =>
+        album.tracks.some((track) => track.id === artworkTrack.id),
+      )
+    : undefined;
+  const albumTracks = artworkAlbum?.tracks ?? [];
+  const hasOverride = Boolean(artworkTrack?.coverSeriesOverride);
+  // While editing a single track we work on its override; the global defaults
+  // stay untouched until the user switches the scope back to "all".
+  const editingScope = seriesScope === "current" ? "current" : "all";
+  const editingSettings = artworkTrack
+    ? editingScope === "current"
+      ? seriesSettingsForTrack(artworkTrack)
+      : coverSeriesSettings
+    : coverSeriesSettings;
 
   function inspectArtwork(track: TrackDraft) {
     onSelectTrack(track.id);
@@ -4788,7 +4879,7 @@ function CatalogPreview({
                 <header className="catalog-album-header">
                   <CatalogArtworkButton
                     artworkSrc={artwork}
-                    coverSeriesSettings={coverSeriesSettings}
+                    coverSeriesSettings={seriesSettingsForTrack(leadTrack)}
                     onClick={() => inspectArtwork(leadTrack)}
                     track={leadTrack}
                   />
@@ -4886,44 +4977,65 @@ function CatalogPreview({
                 <CoverSeriesArtwork
                   artworkSrc={coverForTrack(artworkTrack)?.src}
                   className="catalog-artwork-expanded"
-                  coverSeriesSettings={coverSeriesSettings}
+                  coverSeriesSettings={seriesSettingsForTrack(artworkTrack)}
                   showSeries={showSeries}
                   track={artworkTrack}
                 />
-                {tracks.length > 1 && (
-                  <div className="catalog-artwork-series-grid">
-                    <div className="catalog-artwork-series-grid-head">
-                      <span className="overline">Capas da série</span>
-                    </div>
-                    <div className="catalog-artwork-series-thumbs">
-                      {tracks.map((track) => (
-                        <button
-                          aria-label={`Conferir ${track.metadata.title || "faixa"}`}
-                          className={
-                            track.id === artworkTrack.id ? "active" : ""
-                          }
-                          key={track.id}
-                          type="button"
-                          onClick={() => {
-                            onSelectTrack(track.id);
-                            setArtworkTrackId(track.id);
-                          }}
-                        >
-                          <CoverSeriesArtwork
-                            artworkSrc={coverForTrack(track)?.src}
-                            className="catalog-artwork-series-thumb"
-                            coverSeriesSettings={coverSeriesSettings}
-                            showSeries={showSeries}
-                            track={track}
-                          />
-                          <span>
-                            {track.metadata.title || "Faixa sem título"}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
+                <div className="catalog-artwork-gallery">
+                  <div className="catalog-artwork-gallery-head">
+                    <span className="overline">Capas do álbum</span>
+                    <span className="catalog-artwork-gallery-hint">
+                      {albumTracks.length} faixa
+                      {albumTracks.length === 1 ? "" : "s"}
+                    </span>
                   </div>
-                )}
+                  <div className="catalog-artwork-gallery-grid">
+                    {albumCoverForTrack(artworkTrack)?.src && (
+                      <div className="catalog-artwork-gallery-item is-album">
+                        <CoverSeriesArtwork
+                          artworkSrc={albumCoverForTrack(artworkTrack)?.src}
+                          className="catalog-artwork-series-thumb"
+                          showSeries={false}
+                          track={artworkTrack}
+                        />
+                        <span>Capa do álbum</span>
+                      </div>
+                    )}
+                    {albumTracks.map((track) => (
+                      <button
+                        aria-label={`Conferir ${track.metadata.title || "faixa"}`}
+                        className={`catalog-artwork-gallery-item ${
+                          track.id === artworkTrack.id ? "active" : ""
+                        }`}
+                        key={track.id}
+                        type="button"
+                        onClick={() => {
+                          onSelectTrack(track.id);
+                          setArtworkTrackId(track.id);
+                        }}
+                      >
+                        <CoverSeriesArtwork
+                          artworkSrc={coverForTrack(track)?.src}
+                          className="catalog-artwork-series-thumb"
+                          coverSeriesSettings={seriesSettingsForTrack(track)}
+                          showSeries={showSeries}
+                          track={track}
+                        />
+                        <span>
+                          {track.metadata.trackNumber
+                            ? `${String(track.metadata.trackNumber).padStart(2, "0")} · `
+                            : ""}
+                          {track.metadata.title || "Faixa sem título"}
+                        </span>
+                        {track.coverSeriesOverride && (
+                          <em className="catalog-artwork-gallery-badge">
+                            ajuste próprio
+                          </em>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 {(artworkTrack.artworkOptions?.length ?? 0) > 1 && (
                   <div className="catalog-artwork-variants">
                     <span className="overline">Fontes disponíveis</span>
@@ -4980,10 +5092,58 @@ function CatalogPreview({
                     {showSeries ? "Ver arte base" : "Ver com série visual"}
                   </button>
                 </div>
+                <div className="cover-series-scope">
+                  <span className="cover-series-scope-label">
+                    Aplicar ajustes a
+                  </span>
+                  <div
+                    className="segmented"
+                    role="tablist"
+                    aria-label="Escopo dos ajustes da série"
+                  >
+                    <button
+                      aria-selected={seriesScope === "all"}
+                      className={seriesScope === "all" ? "active" : ""}
+                      role="tab"
+                      type="button"
+                      onClick={() => setSeriesScope("all")}
+                    >
+                      Todas as faixas
+                    </button>
+                    <button
+                      aria-selected={seriesScope === "current"}
+                      className={seriesScope === "current" ? "active" : ""}
+                      role="tab"
+                      type="button"
+                      onClick={() => setSeriesScope("current")}
+                    >
+                      Só esta faixa
+                    </button>
+                  </div>
+                  {seriesScope === "current" && hasOverride && (
+                    <button
+                      className="quiet-action cover-series-scope-reset"
+                      type="button"
+                      onClick={() =>
+                        onClearCoverSeriesOverride(artworkTrack.id)
+                      }
+                    >
+                      <RotateCcw /> Reverter ao padrão do álbum
+                    </button>
+                  )}
+                  {seriesScope === "current" && !hasOverride && (
+                    <p className="cover-series-scope-hint">
+                      Esta faixa segue o padrão do álbum. Qualquer ajuste cria
+                      um detalhe exclusivo só dela.
+                    </p>
+                  )}
+                </div>
                 <CoverSeriesEditor
                   compact
-                  settings={coverSeriesSettings}
-                  onChange={onCoverSeriesSettings}
+                  settings={editingSettings}
+                  onChange={(patch) =>
+                    onCoverSeriesPatch(patch, editingScope, artworkTrack.id)
+                  }
                   onSaveDefault={onSaveCoverSeriesDefault}
                 />
               </aside>
@@ -5803,7 +5963,6 @@ function CoverSeriesEditor({
               </SelectField>
               <ColorInput
                 label="Cor principal"
-                rgbCollapsible
                 value={settings.color}
                 onChange={(color) => onChange({ color })}
               />
@@ -7661,71 +7820,45 @@ function ColorInput({
   label,
   value,
   onChange,
-  rgbCollapsible = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
-  rgbCollapsible?: boolean;
 }) {
-  const rgb = hexToRgb(value);
-  const commitRgb = (channel: "r" | "g" | "b", next: number) => {
-    const color = {
-      ...rgb,
-      [channel]: clampNumber(next, 0, 255, rgb[channel]),
-    };
-    onChange(rgbToHex(color.r, color.g, color.b));
+  const hex = safeHex(value, "#ffffff");
+  // Local draft so the user can type a partial hex without it being rejected
+  // on every keystroke; we only commit once it is a valid #RRGGBB value.
+  const [draft, setDraft] = useState(hex.toUpperCase());
+  useEffect(() => {
+    setDraft(hex.toUpperCase());
+  }, [hex]);
+  const commitDraft = (next: string) => {
+    setDraft(next.toUpperCase());
+    if (/^#[0-9a-f]{6}$/i.test(next)) {
+      onChange(next);
+    }
   };
-  const rgbGrid = (
-    <div className="color-rgb-grid">
-      <NumberStepField
-        label="R"
-        max={255}
-        min={0}
-        value={rgb.r}
-        onChange={(next) => commitRgb("r", next)}
-      />
-      <NumberStepField
-        label="G"
-        max={255}
-        min={0}
-        value={rgb.g}
-        onChange={(next) => commitRgb("g", next)}
-      />
-      <NumberStepField
-        label="B"
-        max={255}
-        min={0}
-        value={rgb.b}
-        onChange={(next) => commitRgb("b", next)}
-      />
-    </div>
-  );
   return (
     <div className="color-input">
       <span>{label}</span>
       <div className="color-input-main">
+        {/* Native system color picker — the OS dialog offers HSL/HSV/RGB tabs. */}
         <input
-          aria-label={`${label} seletor visual`}
+          aria-label={`${label} seletor de cor`}
           type="color"
-          value={safeHex(value, "#ffffff")}
+          value={hex}
           onChange={(event) => onChange(event.target.value)}
         />
         <input
           aria-label={`${label} hexadecimal`}
           className="color-hex-input"
-          value={safeHex(value, "#ffffff").toUpperCase()}
-          onChange={(event) => onChange(safeHex(event.target.value, value))}
+          maxLength={7}
+          spellCheck={false}
+          value={draft}
+          onBlur={() => setDraft(hex.toUpperCase())}
+          onChange={(event) => commitDraft(event.target.value)}
         />
       </div>
-      {rgbCollapsible ? (
-        <details className="color-rgb-details">
-          <summary>Ajuste fino RGB</summary>
-          {rgbGrid}
-        </details>
-      ) : (
-        rgbGrid
-      )}
     </div>
   );
 }
@@ -8500,25 +8633,6 @@ function safeHex(value: string | undefined, fallback: string) {
   return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)
     ? value
     : fallback;
-}
-
-function hexToRgb(value: string) {
-  const hex = safeHex(value, "#ffffff").replace("#", "");
-  return {
-    r: Number.parseInt(hex.slice(0, 2), 16),
-    g: Number.parseInt(hex.slice(2, 4), 16),
-    b: Number.parseInt(hex.slice(4, 6), 16),
-  };
-}
-
-function rgbToHex(r: number, g: number, b: number) {
-  return `#${[r, g, b]
-    .map((value) =>
-      Math.round(clampNumber(value, 0, 255, 0))
-        .toString(16)
-        .padStart(2, "0"),
-    )
-    .join("")}`;
 }
 
 function coverLayerFromArtwork(

@@ -205,6 +205,10 @@ export type TrackDraft = {
   albumCoverSuggestion?: ArtworkSuggestion;
   useSuggestedCover?: boolean;
   thumbnailPreviewMode: "composition" | "cover";
+  // Per-track override for the numbered cover series. When null/undefined the
+  // track follows the global coverSeriesSettings; when set, it wins for this
+  // track only (preview and output).
+  coverSeriesOverride?: CoverSeriesSettings | null;
 };
 
 export type RenderJob = {
@@ -254,5 +258,6 @@ export type ProjectSnapshot = {
     packageStatus?: TrackDraft["packageStatus"];
     useSuggestedCover?: boolean;
     thumbnailPreviewMode?: TrackDraft["thumbnailPreviewMode"];
+    coverSeriesOverride?: CoverSeriesSettings | null;
   }>;
 };

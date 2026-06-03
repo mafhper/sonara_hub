@@ -677,6 +677,12 @@ app.listen(port, "127.0.0.1", () => {
   console.log(`Sonara Hub API em http://127.0.0.1:${port}`);
 });
 
+// Keep the local dev server alive if a background job hits an unexpected
+// rejection (e.g. a Windows file lock during cleanup) instead of exiting.
+process.on("unhandledRejection", (reason) => {
+  console.error("Rejeição não tratada (servidor mantido ativo):", reason);
+});
+
 function enqueueRender(options) {
   const releaseTempFiles = tempFiles.retain(options.uploadedFiles);
   renderQueue = renderQueue
@@ -696,10 +702,20 @@ function enqueueRender(options) {
     })
     .finally(async () => {
       await releaseTempFiles();
-      await fs.rm(path.join(workDir, options.jobId), {
-        recursive: true,
-        force: true,
-      });
+      try {
+        await fs.rm(path.join(workDir, options.jobId), {
+          recursive: true,
+          force: true,
+          maxRetries: 8,
+          retryDelay: 120,
+        });
+      } catch (error) {
+        // A locked work dir (Windows EBUSY) must not crash the queue; leftover
+        // files are swept by the storage cleanup endpoint.
+        console.warn(
+          `Não foi possível limpar o diretório de trabalho ${options.jobId}: ${error?.code ?? error}`,
+        );
+      }
     });
 }
 
@@ -722,10 +738,20 @@ function enqueueAudioProcess(options) {
     })
     .finally(async () => {
       await releaseTempFiles();
-      await fs.rm(path.join(workDir, options.jobId), {
-        recursive: true,
-        force: true,
-      });
+      try {
+        await fs.rm(path.join(workDir, options.jobId), {
+          recursive: true,
+          force: true,
+          maxRetries: 8,
+          retryDelay: 120,
+        });
+      } catch (error) {
+        // A locked work dir (Windows EBUSY) must not crash the queue; leftover
+        // files are swept by the storage cleanup endpoint.
+        console.warn(
+          `Não foi possível limpar o diretório de trabalho ${options.jobId}: ${error?.code ?? error}`,
+        );
+      }
     });
 }
 
