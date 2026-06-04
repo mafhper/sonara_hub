@@ -5083,15 +5083,20 @@ button:disabled {
   border-radius: 5px;
 }
 
-/* The hex field lives inside the shared pill, so it drops its own frame. */
+/* The hex field lives inside the shared pill, so it drops its own frame.
+   It must fill the remaining grid column (was collapsing to ~24px, hiding the
+   value) — force a full-width, non-shrinking box with room for "#RRGGBB". */
 .color-input .color-input-main .color-hex-input {
+  width: 100%;
+  min-width: 0;
   min-height: 32px;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+  padding: 0 10px;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
+  letter-spacing: normal;
   text-transform: uppercase;
 }
 
