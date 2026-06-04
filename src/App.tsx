@@ -5203,40 +5203,90 @@ function CatalogPreview({
                   </div>
                 </header>
                 <div className="catalog-track-list">
-                  {album.tracks.map((track) => (
-                    <button
-                      className="catalog-track"
-                      key={track.id}
-                      type="button"
-                      onClick={() => onSelectTrack(track.id)}
-                    >
-                      <span className="catalog-track-number">
-                        {track.metadata.diskNumber > 1
-                          ? `${track.metadata.diskNumber}.`
-                          : ""}
-                        {track.metadata.trackNumber || "–"}
-                      </span>
-                      <span>
-                        <strong>
-                          {track.metadata.title || "Título ausente"}
-                        </strong>
-                        <small>
-                          {track.metadata.version ||
-                            (track.packageStatus === "treated"
-                              ? "Cópia tratada"
-                              : "Arquivo original")}
-                        </small>
-                      </span>
-                      <span className="catalog-track-duration">
-                        {formatDuration(track.audioInfo?.durationSeconds)}
-                      </span>
-                      <em>
-                        {track.packageStatus === "treated"
-                          ? "Tratado"
-                          : "Original"}
-                      </em>
-                    </button>
-                  ))}
+                  {album.tracks.map((track) => {
+                    const m = track.metadata;
+                    const tagRows: Array<[string, string]> = [
+                      ["Título", m.title],
+                      ["Versão", m.version],
+                      ["Artista", m.artist],
+                      ["Álbum", m.album],
+                      ["Artista do álbum", m.albumArtist],
+                      ["Compositor", m.composer],
+                      ["Gênero", m.genre],
+                      ["Ano", m.year],
+                      [
+                        "Faixa",
+                        m.trackTotal
+                          ? `${m.trackNumber}/${m.trackTotal}`
+                          : String(m.trackNumber || ""),
+                      ],
+                      [
+                        "Disco",
+                        m.diskTotal
+                          ? `${m.diskNumber}/${m.diskTotal}`
+                          : String(m.diskNumber || ""),
+                      ],
+                      ["Idioma", m.language],
+                      ["Data de gravação", m.recordingDate],
+                      ["Copyright", m.copyright],
+                      ["Categoria", m.categoryId],
+                      ["Visibilidade", m.visibility],
+                      ["Tags", m.tags],
+                      ["Comentário", m.comment],
+                      ["Descrição", m.description],
+                      ["Idioma da letra", m.lyricsLanguage],
+                      ["Para crianças", m.madeForKids ? "Sim" : "Não"],
+                      [
+                        "Mídia sintética",
+                        m.containsSyntheticMedia ? "Sim" : "Não",
+                      ],
+                      [
+                        "Normalização",
+                        m.normalizationEnabled ? "Ativa" : "Inativa",
+                      ],
+                    ];
+                    return (
+                      <div className="catalog-track-row" key={track.id}>
+                        <button
+                          className="catalog-track"
+                          type="button"
+                          onClick={() => onSelectTrack(track.id)}
+                        >
+                          <span className="catalog-track-number">
+                            {m.diskNumber > 1 ? `${m.diskNumber}.` : ""}
+                            {m.trackNumber || "–"}
+                          </span>
+                          <span>
+                            <strong>{m.title || "Título ausente"}</strong>
+                            <small>
+                              {m.version ||
+                                (track.packageStatus === "treated"
+                                  ? "Cópia tratada"
+                                  : "Arquivo original")}
+                            </small>
+                          </span>
+                          <span className="catalog-track-duration">
+                            {formatDuration(track.audioInfo?.durationSeconds)}
+                          </span>
+                          <em>
+                            {track.packageStatus === "treated"
+                              ? "Tratado"
+                              : "Original"}
+                          </em>
+                        </button>
+                        <dl className="catalog-track-tags">
+                          {tagRows.map(([label, value]) => (
+                            <div className="catalog-track-tag" key={label}>
+                              <dt>{label}</dt>
+                              <dd className={value ? "" : "is-empty"}>
+                                {value || "—"}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
             );

@@ -4223,6 +4223,52 @@ button:disabled {
   border-top: 1px solid var(--border);
 }
 
+.catalog-track-row {
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.catalog-track-row .catalog-track {
+  border-bottom: none;
+}
+
+.catalog-track-tags {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 3px 18px;
+  margin: 0;
+  padding: 4px 12px 14px 56px;
+}
+
+.catalog-track-tag {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.catalog-track-tag dt {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+
+.catalog-track-tag dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.catalog-track-tag dd.is-empty {
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
 .catalog-track {
   display: grid;
   width: 100%;
