@@ -78,6 +78,14 @@ import {
 } from "../shared/canvas-scene-runtime.mjs";
 import type { SceneComposition } from "../shared/canvas-scene-runtime.mjs";
 import {
+  applyCoverSeriesScopePatch,
+  applySelectedTextSettingsToBatch,
+  clearCoverSeriesScopeOverride,
+  resolveAlbumArtwork,
+  resolveCoverSeriesSettings,
+  resolveTrackArtwork,
+} from "../shared/composition-scope.mjs";
+import {
   fetchJson,
   fetchJsonWithRetry,
   fetchOptional,
@@ -1520,17 +1528,11 @@ function App() {
   }
 
   function coverForTrack(track?: TrackDraft) {
-    if (cover) return cover;
-    return track?.useSuggestedCover === false
-      ? null
-      : (track?.suggestedCover ?? null);
+    return resolveTrackArtwork(track, cover);
   }
 
   function albumCoverForTrack(track?: TrackDraft) {
-    if (cover) return cover;
-    return track?.useSuggestedCover === false
-      ? null
-      : (track?.albumCoverSuggestion ?? track?.suggestedCover ?? null);
+    return resolveAlbumArtwork(track, cover);
   }
 
   function updateCoverSeriesSettingsPatch(patch: Partial<CoverSeriesSettings>) {
@@ -1540,7 +1542,7 @@ function App() {
   // Effective series settings for a track: its own override wins, otherwise the
   // shared album-wide defaults.
   function seriesSettingsForTrack(track?: TrackDraft): CoverSeriesSettings {
-    return track?.coverSeriesOverride ?? coverSeriesSettings;
+    return resolveCoverSeriesSettings(track, coverSeriesSettings);
   }
 
   // Series edits are scoped: "all" writes the album-wide defaults (and keeps any
@@ -1551,41 +1553,33 @@ function App() {
     scope: "all" | "current",
     trackId?: string,
   ) {
+    const options = { scope, trackId };
     if (scope === "current" && trackId) {
-      setTracks((current) =>
-        current.map((track) =>
-          track.id === trackId
-            ? {
-                ...track,
-                coverSeriesOverride: {
-                  ...(track.coverSeriesOverride ?? coverSeriesSettings),
-                  ...patch,
-                },
-              }
-            : track,
-        ),
+      setTracks(
+        (current) =>
+          applyCoverSeriesScopePatch(
+            current,
+            coverSeriesSettings,
+            patch,
+            options,
+          ).tracks,
       );
       return;
     }
-    setCoverSeriesSettings((current) => ({ ...current, ...patch }));
-    setTracks((current) =>
-      current.map((track) =>
-        track.coverSeriesOverride
-          ? {
-              ...track,
-              coverSeriesOverride: { ...track.coverSeriesOverride, ...patch },
-            }
-          : track,
-      ),
+    setCoverSeriesSettings(
+      (current) =>
+        applyCoverSeriesScopePatch([], current, patch, options)
+          .coverSeriesSettings,
+    );
+    setTracks(
+      (current) =>
+        applyCoverSeriesScopePatch(current, coverSeriesSettings, patch, options)
+          .tracks,
     );
   }
 
   function clearCoverSeriesOverride(trackId: string) {
-    setTracks((current) =>
-      current.map((track) =>
-        track.id === trackId ? { ...track, coverSeriesOverride: null } : track,
-      ),
-    );
+    setTracks((current) => clearCoverSeriesScopeOverride(current, trackId));
   }
 
   function saveCoverSeriesDefault() {
@@ -1614,7 +1608,13 @@ function App() {
   }
 
   function applyTextToBatch() {
-    setTracks((current) => applyTextTemplateToTracks(current, selectedTrackId));
+    setTracks((current) =>
+      applySelectedTextSettingsToBatch(
+        current,
+        selectedTrackId,
+        cloneTextSettings,
+      ),
+    );
     setBatchFeedback("Texto do vídeo aplicado ao lote selecionado.");
   }
 
@@ -8884,20 +8884,6 @@ function stripLayerFile(layer: MediaLayerV2) {
 
 function selectedTrackFrom(tracks: TrackDraft[], selectedTrackId: string) {
   return tracks.find((track) => track.id === selectedTrackId) ?? null;
-}
-
-function applyTextTemplateToTracks(
-  tracks: TrackDraft[],
-  selectedTrackId: string,
-) {
-  const source = selectedTrackFrom(tracks, selectedTrackId);
-  if (!source) return tracks;
-  const template = cloneTextSettings(source.textSettings);
-  return tracks.map((track) =>
-    track.selectedForBatch
-      ? { ...track, textSettings: cloneTextSettings(template) }
-      : track,
-  );
 }
 
 function applyVisualTemplateToTracks(
