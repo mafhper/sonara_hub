@@ -5135,6 +5135,9 @@ function CatalogPreview({
   const [artworkTrackId, setArtworkTrackId] = useState("");
   const [showSeries, setShowSeries] = useState(true);
   const [seriesScope, setSeriesScope] = useState<"all" | "current">("all");
+  // Per-track tag disclosure: 0 = primary line only, 1 = every filled tag,
+  // 2 = everything including empty fields.
+  const [tagLevels, setTagLevels] = useState<Record<string, number>>({});
   const albums = groupCatalogTracks(tracks);
   const artworkTrack = tracks.find((track) => track.id === artworkTrackId);
   const artworkAlbum = artworkTrack
@@ -5214,36 +5217,154 @@ function CatalogPreview({
                       m.diskNumber > 1 || m.diskTotal > 1
                         ? `${m.diskNumber}/${m.diskTotal || 1}`
                         : "";
+                    const flag = (
+                      on: boolean,
+                      onLabel: string,
+                      offLabel: string,
+                    ) => ({ value: on ? onLabel : offLabel, hasData: on });
                     // Fixed order so equal values render as identical chips
-                    // across tracks; empty fields are dropped, and the flags
-                    // only show when notable (title/version live in the header).
-                    const tagRows = (
-                      [
-                        ["Artista", m.artist],
-                        ["Álbum", m.album],
-                        ["Artista do álbum", m.albumArtist],
-                        ["Compositor", m.composer],
-                        ["Gênero", m.genre],
-                        ["Ano", m.year],
-                        ["Faixa", trackLabel],
-                        ["Disco", diskLabel],
-                        ["Idioma", m.language],
-                        ["Data de gravação", m.recordingDate],
-                        ["Copyright", m.copyright],
-                        ["Categoria", m.categoryId],
-                        ["Visibilidade", m.visibility],
-                        ["Tags", m.tags],
-                        ["Comentário", m.comment],
-                        ["Descrição", m.description],
-                        ["Idioma da letra", m.lyricsLanguage],
-                        ["Para crianças", m.madeForKids ? "Sim" : ""],
-                        [
-                          "Mídia sintética",
-                          m.containsSyntheticMedia ? "Sim" : "",
-                        ],
-                        ["Normalização", m.normalizationEnabled ? "Ativa" : ""],
-                      ] as Array<[string, string]>
-                    ).filter(([, value]) => Boolean(value));
+                    // across tracks. `primary` = the core tags media players and
+                    // SoundCloud surface (shown on the first line); the rest
+                    // expand on demand. `hasData` decides the disclosure level.
+                    const rows: Array<{
+                      label: string;
+                      value: string;
+                      primary: boolean;
+                      hasData: boolean;
+                    }> = [
+                      {
+                        label: "Artista",
+                        value: m.artist,
+                        primary: true,
+                        hasData: !!m.artist,
+                      },
+                      {
+                        label: "Álbum",
+                        value: m.album,
+                        primary: true,
+                        hasData: !!m.album,
+                      },
+                      {
+                        label: "Gênero",
+                        value: m.genre,
+                        primary: true,
+                        hasData: !!m.genre,
+                      },
+                      {
+                        label: "Ano",
+                        value: m.year,
+                        primary: true,
+                        hasData: !!m.year,
+                      },
+                      {
+                        label: "Faixa",
+                        value: trackLabel,
+                        primary: true,
+                        hasData: !!trackLabel,
+                      },
+                      {
+                        label: "Artista do álbum",
+                        value: m.albumArtist,
+                        primary: false,
+                        hasData: !!m.albumArtist,
+                      },
+                      {
+                        label: "Compositor",
+                        value: m.composer,
+                        primary: false,
+                        hasData: !!m.composer,
+                      },
+                      {
+                        label: "Disco",
+                        value: diskLabel,
+                        primary: false,
+                        hasData: !!diskLabel,
+                      },
+                      {
+                        label: "Idioma",
+                        value: m.language,
+                        primary: false,
+                        hasData: !!m.language,
+                      },
+                      {
+                        label: "Data de gravação",
+                        value: m.recordingDate,
+                        primary: false,
+                        hasData: !!m.recordingDate,
+                      },
+                      {
+                        label: "Copyright",
+                        value: m.copyright,
+                        primary: false,
+                        hasData: !!m.copyright,
+                      },
+                      {
+                        label: "Categoria",
+                        value: m.categoryId,
+                        primary: false,
+                        hasData: !!m.categoryId,
+                      },
+                      {
+                        label: "Visibilidade",
+                        value: m.visibility,
+                        primary: false,
+                        hasData: !!m.visibility,
+                      },
+                      {
+                        label: "Tags",
+                        value: m.tags,
+                        primary: false,
+                        hasData: !!m.tags,
+                      },
+                      {
+                        label: "Comentário",
+                        value: m.comment,
+                        primary: false,
+                        hasData: !!m.comment,
+                      },
+                      {
+                        label: "Descrição",
+                        value: m.description,
+                        primary: false,
+                        hasData: !!m.description,
+                      },
+                      {
+                        label: "Idioma da letra",
+                        value: m.lyricsLanguage,
+                        primary: false,
+                        hasData: !!m.lyricsLanguage,
+                      },
+                      {
+                        label: "Para crianças",
+                        primary: false,
+                        ...flag(m.madeForKids, "Sim", "Não"),
+                      },
+                      {
+                        label: "Mídia sintética",
+                        primary: false,
+                        ...flag(m.containsSyntheticMedia, "Sim", "Não"),
+                      },
+                      {
+                        label: "Normalização",
+                        primary: false,
+                        ...flag(m.normalizationEnabled, "Ativa", "Inativa"),
+                      },
+                    ];
+                    const level = tagLevels[track.id] ?? 0;
+                    const visibleRows = rows.filter((row) =>
+                      level >= 2
+                        ? true
+                        : row.hasData && (level >= 1 || row.primary),
+                    );
+                    const hasExtra = rows.some(
+                      (row) => row.hasData && !row.primary,
+                    );
+                    const hasEmpty = rows.some((row) => !row.hasData);
+                    const setLevel = (next: number) =>
+                      setTagLevels((current) => ({
+                        ...current,
+                        [track.id]: next,
+                      }));
                     return (
                       <div className="catalog-track-row" key={track.id}>
                         <button
@@ -5273,16 +5394,48 @@ function CatalogPreview({
                               : "Original"}
                           </em>
                         </button>
-                        {tagRows.length > 0 && (
-                          <dl className="catalog-track-tags">
-                            {tagRows.map(([label, value]) => (
-                              <div className="catalog-tag" key={label}>
-                                <dt className="catalog-tag-key">{label}</dt>
-                                <dd className="catalog-tag-value">{value}</dd>
-                              </div>
-                            ))}
-                          </dl>
-                        )}
+                        <div className="catalog-track-tags">
+                          {visibleRows.map((row) => (
+                            <span
+                              className={`catalog-tag${row.hasData ? "" : " is-empty"}`}
+                              key={row.label}
+                            >
+                              <span className="catalog-tag-key">
+                                {row.label}
+                              </span>
+                              <span className="catalog-tag-value">
+                                {row.value || "—"}
+                              </span>
+                            </span>
+                          ))}
+                          {level === 0 && (hasExtra || hasEmpty) && (
+                            <button
+                              className="catalog-tag-toggle"
+                              type="button"
+                              onClick={() => setLevel(hasExtra ? 1 : 2)}
+                            >
+                              ▾ mais
+                            </button>
+                          )}
+                          {level === 1 && hasEmpty && (
+                            <button
+                              className="catalog-tag-toggle"
+                              type="button"
+                              onClick={() => setLevel(2)}
+                            >
+                              ▾ vazias
+                            </button>
+                          )}
+                          {level >= 1 && (
+                            <button
+                              className="catalog-tag-toggle"
+                              type="button"
+                              onClick={() => setLevel(0)}
+                            >
+                              ▴ recolher
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

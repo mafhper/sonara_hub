@@ -4267,6 +4267,28 @@ button:disabled {
   white-space: nowrap;
 }
 
+.catalog-tag.is-empty {
+  border-style: dashed;
+  opacity: 0.55;
+}
+
+.catalog-tag-toggle {
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.catalog-tag-toggle:hover,
+.catalog-tag-toggle:focus-visible {
+  color: var(--text-primary);
+  background: var(--selection);
+}
+
 .catalog-track {
   display: grid;
   width: 100%;
