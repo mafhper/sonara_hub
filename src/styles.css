@@ -721,6 +721,11 @@ svg {
   stroke-width: 2;
 }
 
+.analytic-waveform.static rect {
+  fill: var(--accent, #8fb3ff);
+  opacity: 0.85;
+}
+
 .metric-strip {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

@@ -759,6 +759,12 @@ function App() {
     normalizationEnabled: false,
   });
   const [audioBands, setAudioBands] = useState<AudioBands>(emptyBands);
+  // Static full-track waveform peaks per track, decoded once on selection so
+  // the technical preview shows the shape without needing playback.
+  const [staticWaveforms, setStaticWaveforms] = useState<
+    Record<string, number[]>
+  >({});
+  const staticWaveformRequestsRef = useRef(new Set<string>());
   const [coverSeriesSettings, setCoverSeriesSettings] =
     useState<CoverSeriesSettings>(() => loadCoverSeriesSettings());
   const [fileNamePattern, setFileNamePattern] = useState<FileNamePattern>(() =>
@@ -950,6 +956,65 @@ function App() {
     void analyzeSelectedAudio();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTrackId]);
+
+  // Decode a static waveform for the selected track (once) so the technical
+  // preview shows the shape without playback.
+  useEffect(() => {
+    if (!selectedTrack) return;
+    void computeStaticWaveform(selectedTrack);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTrackId]);
+
+  async function computeStaticWaveform(track: TrackDraft) {
+    if (
+      !track ||
+      staticWaveforms[track.id] ||
+      staticWaveformRequestsRef.current.has(track.id)
+    ) {
+      return;
+    }
+    const url =
+      track.sourceUrl ??
+      (track.source === "input"
+        ? `/api/audio/${encodeURIComponent(track.sourceKey)}`
+        : "");
+    if (!track.sourceFile && !url) return;
+    staticWaveformRequestsRef.current.add(track.id);
+    try {
+      const arrayBuffer = track.sourceFile
+        ? await track.sourceFile.arrayBuffer()
+        : await (await fetch(url)).arrayBuffer();
+      const AudioCtx =
+        window.AudioContext ??
+        (window as unknown as { webkitAudioContext: typeof AudioContext })
+          .webkitAudioContext;
+      const context = new AudioCtx();
+      const audio = await context.decodeAudioData(arrayBuffer);
+      void context.close();
+      const channel = audio.getChannelData(0);
+      const buckets = 360;
+      const bucketSize = Math.max(1, Math.floor(channel.length / buckets));
+      const peaks: number[] = [];
+      for (let index = 0; index < buckets; index += 1) {
+        let max = 0;
+        const start = index * bucketSize;
+        for (let offset = 0; offset < bucketSize; offset += 1) {
+          const value = Math.abs(channel[start + offset] ?? 0);
+          if (value > max) max = value;
+        }
+        peaks.push(max);
+      }
+      const norm = Math.max(0.0001, ...peaks);
+      setStaticWaveforms((current) => ({
+        ...current,
+        [track.id]: peaks.map((peak) => peak / norm),
+      }));
+    } catch {
+      // A static waveform is a nice-to-have; ignore decode failures.
+    } finally {
+      staticWaveformRequestsRef.current.delete(track.id);
+    }
+  }
 
   useEffect(() => {
     const syncPanelMode = () => {
@@ -2993,6 +3058,9 @@ function App() {
         {workspaceMode === "audio" && audioStageView === "edit" ? (
           <AudioLibraryWorkspace
             audioBands={audioBands}
+            staticWaveformPeaks={
+              selectedTrack ? staticWaveforms[selectedTrack.id] : undefined
+            }
             batchApplyMode={batchApplyMode}
             batchCommon={batchCommon}
             folderImportProgress={folderImportProgress}
@@ -3710,10 +3778,12 @@ function AudioLibraryWorkspace({
   queuePaused,
   selectedTrack,
   selectedTrackId,
+  staticWaveformPeaks,
   tracks,
   workflowMode,
 }: {
   audioBands: AudioBands;
+  staticWaveformPeaks?: number[];
   batchApplyMode: BatchApplyMode;
   batchCommon: BatchCommonDraft;
   folderImportProgress: { current: number; total: number; name: string } | null;
@@ -4257,7 +4327,11 @@ function AudioLibraryWorkspace({
           <small>{selectedTrack?.metadata.artist || "Sem artista"}</small>
         </div>
         <div className="analytic-stage">
-          <AnalyticalWaveform samples={audioBands.samples} />
+          {staticWaveformPeaks?.length ? (
+            <StaticWaveform peaks={staticWaveformPeaks} />
+          ) : (
+            <AnalyticalWaveform samples={audioBands.samples} />
+          )}
         </div>
       </section>
       <section className="audio-stage-section metrics-section">
@@ -4313,6 +4387,37 @@ function AnalyticalWaveform({ samples }: { samples: number[] }) {
     >
       <line x1="0" x2="1000" y1="100" y2="100" />
       <polyline points={points} />
+    </svg>
+  );
+}
+
+// Static full-track waveform (mirrored bars) decoded from the audio file, so the
+// technical preview is useful without pressing play.
+function StaticWaveform({ peaks }: { peaks: number[] }) {
+  const count = peaks.length || 1;
+  const slot = 1000 / count;
+  const barWidth = Math.max(0.8, slot * 0.62);
+  return (
+    <svg
+      className="analytic-waveform static"
+      viewBox="0 0 1000 200"
+      preserveAspectRatio="none"
+    >
+      {peaks.map((peak, index) => {
+        // Gentle gamma so quiet passages still read as small bars (SoundCloud
+        // look) instead of collapsing to the baseline.
+        const height = Math.max(2, Math.pow(peak, 0.7) * 94);
+        return (
+          <rect
+            height={(height * 2).toFixed(2)}
+            key={index}
+            rx={(barWidth / 2).toFixed(2)}
+            width={barWidth.toFixed(2)}
+            x={(index * slot + (slot - barWidth) / 2).toFixed(2)}
+            y={(100 - height).toFixed(2)}
+          />
+        );
+      })}
     </svg>
   );
 }
