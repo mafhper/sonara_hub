@@ -627,9 +627,14 @@ const coverLayerPresets: Record<
 function App() {
   const [tracks, setTracks] = useState<TrackDraft[]>([]);
   const [selectedTrackId, setSelectedTrackId] = useState("");
-  const [workflowMode, setWorkflowMode] = useState<"single" | "batch">(
-    "single",
-  );
+  // Scope is no longer a manual toggle: it follows the sidebar selection —
+  // tick several tracks → "batch", one or none → "single" (acts on the active
+  // track). This unifies the old "Faixa única / Lote" screens into one catalog.
+  const selectedForBatchCount = tracks.filter(
+    (track) => track.selectedForBatch,
+  ).length;
+  const workflowMode: "single" | "batch" =
+    selectedForBatchCount >= 2 ? "batch" : "single";
   const [activeStep, setActiveStep] = useState<ActiveStep>("visual");
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("audio");
   const [audioStageView, setAudioStageView] = useState<AudioStageView>("edit");
@@ -1631,7 +1636,11 @@ function App() {
   function openAudioReview() {
     setWorkspaceMode("audio");
     setAudioStageView("edit");
-    if (tracks.length > 1) setWorkflowMode("batch");
+    // Many tracks → pre-select them all so the derived scope becomes "batch".
+    if (tracks.length > 1)
+      setTracks((current) =>
+        current.map((track) => ({ ...track, selectedForBatch: true })),
+      );
   }
 
   function openArtworkEditor(trackId = selectedTrack?.id) {
@@ -2497,7 +2506,7 @@ function App() {
 
   function applySnapshotSettings(snapshot?: ProjectSnapshot) {
     if (!snapshot) return;
-    setWorkflowMode(snapshot.workflowMode);
+    // workflowMode is derived from the restored per-track selection, not set.
     setWorkspaceMode(snapshot.workspaceMode ?? "visual");
     setAudioStageView(snapshot.audioStageView ?? "edit");
     setVisualStageView(snapshot.visualStageView ?? "editor");
@@ -2704,62 +2713,42 @@ function App() {
             )}
           </div>
         </div>
-        <div
-          className="mode-switch"
-          role="tablist"
-          aria-label="Modo de processamento"
-        >
-          <button
-            className={workflowMode === "single" ? "active" : ""}
-            type="button"
-            onClick={() => setWorkflowMode("single")}
-          >
-            Faixa única
-          </button>
-          <button
-            className={workflowMode === "batch" ? "active" : ""}
-            type="button"
-            onClick={() => setWorkflowMode("batch")}
-          >
-            Lote
-          </button>
-        </div>
         <div className="library-caption">
           <span>
             {tracks.length === 1 ? "1 música" : `${tracks.length} músicas`}
           </span>
-          {workflowMode === "batch" && (
-            <span>
-              {tracks.filter((track) => track.selectedForBatch).length}{" "}
-              selecionadas
-            </span>
-          )}
+          <span>
+            {selectedForBatchCount === 0
+              ? "fluxo individual"
+              : selectedForBatchCount === 1
+                ? "1 selecionada"
+                : `${selectedForBatchCount} selecionadas · lote`}
+          </span>
         </div>
         <div className="track-list">
           {tracks.map((track) => (
             <button
-              className={`track-row ${workflowMode === "batch" ? "batch" : ""} ${track.id === selectedTrack?.id ? "selected" : ""}`}
+              className={`track-row batch ${track.id === selectedTrack?.id ? "selected" : ""}`}
               key={track.id}
               type="button"
               onClick={() => setSelectedTrackId(track.id)}
             >
-              {workflowMode === "batch" && (
-                <input
-                  aria-label={`Selecionar ${track.metadata.title}`}
-                  checked={track.selectedForBatch}
-                  type="checkbox"
-                  onChange={(event) => {
-                    event.stopPropagation();
-                    setTracks((current) =>
-                      current.map((item) =>
-                        item.id === track.id
-                          ? { ...item, selectedForBatch: event.target.checked }
-                          : item,
-                      ),
-                    );
-                  }}
-                />
-              )}
+              <input
+                aria-label={`Selecionar ${track.metadata.title} para o lote`}
+                checked={track.selectedForBatch}
+                type="checkbox"
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => {
+                  event.stopPropagation();
+                  setTracks((current) =>
+                    current.map((item) =>
+                      item.id === track.id
+                        ? { ...item, selectedForBatch: event.target.checked }
+                        : item,
+                    ),
+                  );
+                }}
+              />
               <span className="track-cover">
                 {coverForTrack(track)?.src ? (
                   <img alt="" src={coverForTrack(track)?.src} />
@@ -3630,13 +3619,6 @@ function AudioLibraryWorkspace({
               />
             </div>
             <div className="batch-toolbar-actions">
-              <CheckField
-                label="Normalizar cópias"
-                checked={batchCommon.normalizationEnabled}
-                onChange={(normalizationEnabled) =>
-                  onBatchCommon({ ...batchCommon, normalizationEnabled })
-                }
-              />
               <TextField
                 label="Total de faixas"
                 value={
