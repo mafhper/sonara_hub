@@ -3390,25 +3390,23 @@ function App() {
         </span>
         {workspaceMode === "visual" ? (
           <nav className="steps" aria-label="Etapas do projeto">
-            {(["music", "visual", "text"] as ActiveStep[]).map(
-              (step) => (
-                <button
-                  className={
-                    visualStageView === "editor" && step === activeStep
-                      ? "active"
-                      : ""
-                  }
-                  key={step}
-                  type="button"
-                  onClick={() => {
-                    setVisualStageView("editor");
-                    setActiveStep(step);
-                  }}
-                >
-                  {stepLabel(step)}
-                </button>
-              ),
-            )}
+            {(["music", "visual", "text"] as ActiveStep[]).map((step) => (
+              <button
+                className={
+                  visualStageView === "editor" && step === activeStep
+                    ? "active"
+                    : ""
+                }
+                key={step}
+                type="button"
+                onClick={() => {
+                  setVisualStageView("editor");
+                  setActiveStep(step);
+                }}
+              >
+                {stepLabel(step)}
+              </button>
+            ))}
             <button
               className={visualStageView === "videos" ? "active" : ""}
               type="button"
