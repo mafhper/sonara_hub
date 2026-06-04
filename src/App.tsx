@@ -232,6 +232,22 @@ const outputPresets = [
   ["shorts-1080x1920", "Shorts", "1080 x 1920"],
 ];
 
+// ISO 639-2 codes the server accepts for the ID3 lyrics/language frame.
+const lyricsLanguages: Array<[string, string]> = [
+  ["und", "Indefinido"],
+  ["por", "Português"],
+  ["eng", "Inglês"],
+  ["spa", "Espanhol"],
+  ["fra", "Francês"],
+  ["ita", "Italiano"],
+  ["deu", "Alemão"],
+  ["jpn", "Japonês"],
+  ["kor", "Coreano"],
+  ["zho", "Chinês"],
+  ["rus", "Russo"],
+  ["ara", "Árabe"],
+];
+
 const PANEL_WIDTH_STORAGE_KEY = "sonara-hub-panel-widths";
 const COVER_SERIES_STORAGE_KEY = "sonara-hub-cover-series-settings";
 const DEFAULT_LEFT_RAIL_WIDTH = 256;
@@ -4425,10 +4441,11 @@ function AudioLibraryInspector({
             </div>
             <button
               className="quiet-action"
+              title="Preenche os campos acima com as tags ID3 embutidas no arquivo e o que dá para inferir do nome/pasta."
               type="button"
               onClick={onApplySuggestions}
             >
-              Aplicar sugestões do arquivo
+              <RotateCcw /> Preencher com tags do arquivo
             </button>
           </InspectorGroup>
         )}
@@ -4663,11 +4680,17 @@ function AudioLibraryInspector({
               value={metadata.lyrics}
               onChange={(lyrics) => onChange({ lyrics })}
             />
-            <TextField
-              label="Idioma ID3"
+            <SelectField
+              label="Idioma da letra (ID3)"
               value={metadata.lyricsLanguage}
               onChange={(lyricsLanguage) => onChange({ lyricsLanguage })}
-            />
+            >
+              {lyricsLanguages.map(([code, label]) => (
+                <option key={code} value={code}>
+                  {label}
+                </option>
+              ))}
+            </SelectField>
           </InspectorGroup>
         )}
         {activeInspectorTab === "quality" && (
