@@ -265,6 +265,20 @@ const youtubeLanguages: Array<[string, string]> = [
   ["ru-RU", "Russo"],
 ];
 
+// Suggested track "version" labels (free text — users can type their own).
+const versionSuggestions = [
+  "Original",
+  "Remix",
+  "Ao vivo",
+  "Acústico",
+  "Instrumental",
+  "Demo",
+  "Remaster",
+  "Edit",
+  "Radio Edit",
+  "Extended",
+];
+
 const PANEL_WIDTH_STORAGE_KEY = "sonara-hub-panel-widths";
 const COVER_SERIES_STORAGE_KEY = "sonara-hub-cover-series-settings";
 const DEFAULT_LEFT_RAIL_WIDTH = 256;
@@ -6134,6 +6148,7 @@ function MusicInspector({
         />
         <TextField
           label="Versão"
+          suggestions={versionSuggestions}
           value={metadata.version}
           onChange={(version) => onChange({ version })}
         />
@@ -6199,10 +6214,14 @@ function MusicInspector({
       </InspectorGroup>
       <InspectorGroup title="Descrição e publicação">
         <TextArea
-          label="Descrição / letra manual"
+          label="Descrição do vídeo (YouTube)"
           value={metadata.description}
           onChange={(description) => onChange({ description })}
         />
+        <p className="helper-copy">
+          Texto da página do vídeo no YouTube. A letra da música é um campo
+          separado, na Biblioteca de áudio › Letra.
+        </p>
         <TextField
           label="Tags"
           value={metadata.tags}
@@ -7119,6 +7138,7 @@ function TextInspector({
           />
           <TextField
             label="Versão"
+            suggestions={versionSuggestions}
             value={metadata.version}
             onChange={(version) => onChange({ version })}
           />
@@ -7759,15 +7779,29 @@ function TextField({
   label,
   value,
   onChange,
+  suggestions,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  suggestions?: string[];
 }) {
+  const listId = suggestions ? `dl-${label.replace(/\W+/g, "-")}` : undefined;
   return (
     <label className="field">
       <span>{label}</span>
-      <input value={value} onChange={(event) => onChange(event.target.value)} />
+      <input
+        list={listId}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {suggestions && (
+        <datalist id={listId}>
+          {suggestions.map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
+      )}
     </label>
   );
 }
