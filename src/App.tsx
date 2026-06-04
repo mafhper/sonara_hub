@@ -5205,46 +5205,45 @@ function CatalogPreview({
                 <div className="catalog-track-list">
                   {album.tracks.map((track) => {
                     const m = track.metadata;
-                    const tagRows: Array<[string, string]> = [
-                      ["Título", m.title],
-                      ["Versão", m.version],
-                      ["Artista", m.artist],
-                      ["Álbum", m.album],
-                      ["Artista do álbum", m.albumArtist],
-                      ["Compositor", m.composer],
-                      ["Gênero", m.genre],
-                      ["Ano", m.year],
+                    const trackLabel = m.trackNumber
+                      ? m.trackTotal
+                        ? `${m.trackNumber}/${m.trackTotal}`
+                        : `${m.trackNumber}`
+                      : "";
+                    const diskLabel =
+                      m.diskNumber > 1 || m.diskTotal > 1
+                        ? `${m.diskNumber}/${m.diskTotal || 1}`
+                        : "";
+                    // Fixed order so equal values render as identical chips
+                    // across tracks; empty fields are dropped, and the flags
+                    // only show when notable (title/version live in the header).
+                    const tagRows = (
                       [
-                        "Faixa",
-                        m.trackTotal
-                          ? `${m.trackNumber}/${m.trackTotal}`
-                          : String(m.trackNumber || ""),
-                      ],
-                      [
-                        "Disco",
-                        m.diskTotal
-                          ? `${m.diskNumber}/${m.diskTotal}`
-                          : String(m.diskNumber || ""),
-                      ],
-                      ["Idioma", m.language],
-                      ["Data de gravação", m.recordingDate],
-                      ["Copyright", m.copyright],
-                      ["Categoria", m.categoryId],
-                      ["Visibilidade", m.visibility],
-                      ["Tags", m.tags],
-                      ["Comentário", m.comment],
-                      ["Descrição", m.description],
-                      ["Idioma da letra", m.lyricsLanguage],
-                      ["Para crianças", m.madeForKids ? "Sim" : "Não"],
-                      [
-                        "Mídia sintética",
-                        m.containsSyntheticMedia ? "Sim" : "Não",
-                      ],
-                      [
-                        "Normalização",
-                        m.normalizationEnabled ? "Ativa" : "Inativa",
-                      ],
-                    ];
+                        ["Artista", m.artist],
+                        ["Álbum", m.album],
+                        ["Artista do álbum", m.albumArtist],
+                        ["Compositor", m.composer],
+                        ["Gênero", m.genre],
+                        ["Ano", m.year],
+                        ["Faixa", trackLabel],
+                        ["Disco", diskLabel],
+                        ["Idioma", m.language],
+                        ["Data de gravação", m.recordingDate],
+                        ["Copyright", m.copyright],
+                        ["Categoria", m.categoryId],
+                        ["Visibilidade", m.visibility],
+                        ["Tags", m.tags],
+                        ["Comentário", m.comment],
+                        ["Descrição", m.description],
+                        ["Idioma da letra", m.lyricsLanguage],
+                        ["Para crianças", m.madeForKids ? "Sim" : ""],
+                        [
+                          "Mídia sintética",
+                          m.containsSyntheticMedia ? "Sim" : "",
+                        ],
+                        ["Normalização", m.normalizationEnabled ? "Ativa" : ""],
+                      ] as Array<[string, string]>
+                    ).filter(([, value]) => Boolean(value));
                     return (
                       <div className="catalog-track-row" key={track.id}>
                         <button
@@ -5274,16 +5273,16 @@ function CatalogPreview({
                               : "Original"}
                           </em>
                         </button>
-                        <dl className="catalog-track-tags">
-                          {tagRows.map(([label, value]) => (
-                            <div className="catalog-track-tag" key={label}>
-                              <dt>{label}</dt>
-                              <dd className={value ? "" : "is-empty"}>
-                                {value || "—"}
-                              </dd>
-                            </div>
-                          ))}
-                        </dl>
+                        {tagRows.length > 0 && (
+                          <dl className="catalog-track-tags">
+                            {tagRows.map(([label, value]) => (
+                              <div className="catalog-tag" key={label}>
+                                <dt className="catalog-tag-key">{label}</dt>
+                                <dd className="catalog-tag-value">{value}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        )}
                       </div>
                     );
                   })}

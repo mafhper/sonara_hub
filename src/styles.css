@@ -4232,41 +4232,39 @@ button:disabled {
 }
 
 .catalog-track-tags {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 3px 18px;
-  margin: 0;
-  padding: 4px 12px 14px 56px;
-}
-
-.catalog-track-tag {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 2px 12px 14px 56px;
 }
 
-.catalog-track-tag dt {
+.catalog-tag {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 320px;
+  padding: 2px 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--surface-2, rgb(255 255 255 / 3%));
+  line-height: 1.5;
+}
+
+.catalog-tag-key {
   flex: 0 0 auto;
   color: var(--text-dim);
   font-size: var(--font-xs);
   font-weight: 600;
 }
 
-.catalog-track-tag dd {
+.catalog-tag-value {
   margin: 0;
   overflow: hidden;
   color: var(--text-secondary);
   font-size: var(--font-xs);
-  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.catalog-track-tag dd.is-empty {
-  color: var(--text-dim);
-  opacity: 0.6;
 }
 
 .catalog-track {
