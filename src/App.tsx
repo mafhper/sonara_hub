@@ -3390,23 +3390,29 @@ function App() {
         </span>
         {workspaceMode === "visual" ? (
           <nav className="steps" aria-label="Etapas do projeto">
-            {(["music", "visual", "text"] as ActiveStep[]).map((step) => (
-              <button
-                className={
-                  visualStageView === "editor" && step === activeStep
-                    ? "active"
-                    : ""
-                }
-                key={step}
-                type="button"
-                onClick={() => {
-                  setVisualStageView("editor");
-                  setActiveStep(step);
-                }}
-              >
-                {stepLabel(step)}
-              </button>
-            ))}
+            {(["music", "visual", "text"] as ActiveStep[]).map((step) => {
+              const StepIcon = { music: Music2, visual: Image, text: FileText }[
+                step
+              ];
+              return (
+                <button
+                  className={
+                    visualStageView === "editor" && step === activeStep
+                      ? "active"
+                      : ""
+                  }
+                  key={step}
+                  type="button"
+                  onClick={() => {
+                    setVisualStageView("editor");
+                    setActiveStep(step);
+                  }}
+                >
+                  <StepIcon />
+                  {stepLabel(step)}
+                </button>
+              );
+            })}
             <button
               className={visualStageView === "videos" ? "active" : ""}
               type="button"
@@ -3435,6 +3441,7 @@ function App() {
                 setActiveStep("export");
               }}
             >
+              <Download />
               {stepLabel("export")}
             </button>
           </nav>
