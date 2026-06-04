@@ -1,9 +1,14 @@
 name: GitHub Pages
 
+# NOTE (2026-06-04): the push-triggered deploy is DISABLED while this repository
+# is PRIVATE — free-tier private repos cannot publish GitHub Pages, so every push
+# made this workflow fail. RE-ENABLE when the repo goes public again by
+# uncommenting the `push:` trigger below. `workflow_dispatch` is kept so the
+# deploy can still be run manually if Pages becomes available (e.g. GitHub Pro).
 on:
-  push:
-    branches:
-      - main
+  # push:
+  #   branches:
+  #     - main
   workflow_dispatch:
 
 permissions:
