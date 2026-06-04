@@ -4603,27 +4603,6 @@ function AudioLibraryInspector({
                   />
                   <div className="cover-series-meta">
                     <p className="inspector-kicker">Textos complementares</p>
-                    <p className="helper-copy">
-                      Ajuste cada tipo separadamente. A ordem é aplicada de cima
-                      para baixo.
-                    </p>
-                    <CoverSeriesMetaOrderEditor
-                      value={coverSeriesSettings.metaOrder}
-                      visibility={{
-                        title: coverSeriesSettings.includeTitle,
-                        album: coverSeriesSettings.includeAlbum,
-                        artist: coverSeriesSettings.includeArtist,
-                        year: coverSeriesSettings.includeYear,
-                      }}
-                      onChange={(metaOrder) =>
-                        onCoverSeriesSettings({ metaOrder })
-                      }
-                      onToggle={(key, value) =>
-                        onCoverSeriesSettings({
-                          [coverSeriesIncludeKey[key]]: value,
-                        })
-                      }
-                    />
                     <RangeField
                       label="Espaço entre linhas"
                       max={48}
@@ -4631,69 +4610,9 @@ function AudioLibraryInspector({
                       value={coverSeriesSettings.metaGap}
                       onChange={(metaGap) => onCoverSeriesSettings({ metaGap })}
                     />
-                    <CoverSeriesMetaControls
-                      enabled={coverSeriesSettings.includeTitle}
-                      label="Nome da música"
-                      onStyle={(patch) =>
-                        onCoverSeriesSettings({
-                          metaStyles: {
-                            ...coverSeriesSettings.metaStyles,
-                            title: {
-                              ...coverSeriesSettings.metaStyles.title,
-                              ...patch,
-                            },
-                          },
-                        })
-                      }
-                      style={coverSeriesSettings.metaStyles.title}
-                    />
-                    <CoverSeriesMetaControls
-                      enabled={coverSeriesSettings.includeAlbum}
-                      label="Nome do álbum"
-                      onStyle={(patch) =>
-                        onCoverSeriesSettings({
-                          metaStyles: {
-                            ...coverSeriesSettings.metaStyles,
-                            album: {
-                              ...coverSeriesSettings.metaStyles.album,
-                              ...patch,
-                            },
-                          },
-                        })
-                      }
-                      style={coverSeriesSettings.metaStyles.album}
-                    />
-                    <CoverSeriesMetaControls
-                      enabled={coverSeriesSettings.includeArtist}
-                      label="Autor"
-                      onStyle={(patch) =>
-                        onCoverSeriesSettings({
-                          metaStyles: {
-                            ...coverSeriesSettings.metaStyles,
-                            artist: {
-                              ...coverSeriesSettings.metaStyles.artist,
-                              ...patch,
-                            },
-                          },
-                        })
-                      }
-                      style={coverSeriesSettings.metaStyles.artist}
-                    />
-                    <CoverSeriesMetaControls
-                      enabled={coverSeriesSettings.includeYear}
-                      label="Ano"
-                      onStyle={(patch) =>
-                        onCoverSeriesSettings({
-                          metaStyles: {
-                            ...coverSeriesSettings.metaStyles,
-                            year: {
-                              ...coverSeriesSettings.metaStyles.year,
-                              ...patch,
-                            },
-                          },
-                        })
-                      }
-                      style={coverSeriesSettings.metaStyles.year}
+                    <CoverSeriesFieldsEditor
+                      settings={coverSeriesSettings}
+                      onChange={onCoverSeriesSettings}
                     />
                   </div>
                   <button
@@ -5853,25 +5772,76 @@ function Transport({
 
 function CoverSeriesMetaControls({
   enabled,
+  index,
+  isFirst,
+  isLast,
   label,
+  onMove,
   onStyle,
+  onToggle,
   style,
 }: {
   enabled: boolean;
+  index: number;
+  isFirst: boolean;
+  isLast: boolean;
   label: string;
+  onMove: (direction: -1 | 1) => void;
   onStyle: (patch: Partial<CoverSeriesMetaStyle>) => void;
+  onToggle: () => void;
   style: CoverSeriesMetaStyle;
 }) {
+  const stop = (event: ReactMouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
   return (
     <details
-      className={`cover-series-meta-field ${enabled ? "" : "is-hidden-field"}`}
+      className={`text-field-style ${enabled ? "" : "is-hidden-field"}`}
       open={enabled}
     >
       <summary>
-        <span>{label}</span>
-        <small>{enabled ? "estilo" : "oculto"}</small>
+        <span>
+          {index + 1}. {label}
+        </span>
+        <span className="text-field-style-actions">
+          <button
+            aria-label={enabled ? `Ocultar ${label}` : `Mostrar ${label}`}
+            aria-pressed={enabled}
+            title={enabled ? "Visível na capa" : "Oculto"}
+            type="button"
+            onClick={(event) => {
+              stop(event);
+              onToggle();
+            }}
+          >
+            {enabled ? <Eye /> : <EyeOff />}
+          </button>
+          <button
+            aria-label={`Mover ${label} para cima`}
+            disabled={isFirst}
+            type="button"
+            onClick={(event) => {
+              stop(event);
+              onMove(-1);
+            }}
+          >
+            <ChevronUp />
+          </button>
+          <button
+            aria-label={`Mover ${label} para baixo`}
+            disabled={isLast}
+            type="button"
+            onClick={(event) => {
+              stop(event);
+              onMove(1);
+            }}
+          >
+            <ChevronDown />
+          </button>
+        </span>
       </summary>
-      <div>
+      <div className="text-field-style-body">
         {enabled ? (
           <>
             <div className="two-columns">
@@ -5936,73 +5906,60 @@ const coverSeriesIncludeKey: Record<
   year: "includeYear",
 };
 
-function CoverSeriesMetaOrderEditor({
+// One unified list for the numbered-cover complementary texts: order +
+// visibility + per-field style live in a single disclosure row per field,
+// mirroring the video-text editor. Both call sites pass the same
+// (patch) => void onChange, so this stays DRY.
+function CoverSeriesFieldsEditor({
   onChange,
-  onToggle,
-  value,
-  visibility,
+  settings,
 }: {
-  onChange: (value: string) => void;
-  onToggle: (key: CoverSeriesMetaKey, value: boolean) => void;
-  value: string;
-  visibility: Record<CoverSeriesMetaKey, boolean>;
+  onChange: (patch: Partial<CoverSeriesSettings>) => void;
+  settings: CoverSeriesSettings;
 }) {
-  const order = coverSeriesMetaOrder(value);
+  const order = coverSeriesMetaOrder(settings.metaOrder);
+  const visibility: Record<CoverSeriesMetaKey, boolean> = {
+    title: settings.includeTitle,
+    album: settings.includeAlbum,
+    artist: settings.includeArtist,
+    year: settings.includeYear,
+  };
   const move = (key: CoverSeriesMetaKey, direction: -1 | 1) => {
     const index = order.indexOf(key);
     const target = index + direction;
     if (target < 0 || target >= order.length) return;
     const next = [...order];
     [next[index], next[target]] = [next[target], next[index]];
-    onChange(next.join(", "));
+    onChange({ metaOrder: next.join(", ") });
   };
   return (
-    <div className="meta-order-editor">
-      <span className="inspector-kicker">Ordem dos campos</span>
-      {order.map((key, index) => {
-        const visible = visibility[key];
-        return (
-          <div
-            className={`text-order-row ${visible ? "" : "is-hidden-field"}`}
-            key={key}
-          >
-            <span>
-              {index + 1}. {coverSeriesMetaLabels[key]}
-            </span>
-            <div>
-              <button
-                aria-label={
-                  visible
-                    ? `Ocultar ${coverSeriesMetaLabels[key]}`
-                    : `Mostrar ${coverSeriesMetaLabels[key]}`
-                }
-                aria-pressed={visible}
-                title={visible ? "Visível na capa" : "Oculto"}
-                type="button"
-                onClick={() => onToggle(key, !visible)}
-              >
-                {visible ? <Eye /> : <EyeOff />}
-              </button>
-              <button
-                aria-label={`Mover ${coverSeriesMetaLabels[key]} para cima`}
-                disabled={index === 0}
-                type="button"
-                onClick={() => move(key, -1)}
-              >
-                <ArrowUp />
-              </button>
-              <button
-                aria-label={`Mover ${coverSeriesMetaLabels[key]} para baixo`}
-                disabled={index === order.length - 1}
-                type="button"
-                onClick={() => move(key, 1)}
-              >
-                <ArrowDown />
-              </button>
-            </div>
-          </div>
-        );
-      })}
+    <div className="text-field-style-stack">
+      <span className="inspector-kicker">
+        Campos complementares · ordem, exibição e estilo
+      </span>
+      {order.map((key, index) => (
+        <CoverSeriesMetaControls
+          enabled={visibility[key]}
+          index={index}
+          isFirst={index === 0}
+          isLast={index === order.length - 1}
+          key={key}
+          label={coverSeriesMetaLabels[key]}
+          style={settings.metaStyles[key]}
+          onMove={(direction) => move(key, direction)}
+          onStyle={(patch) =>
+            onChange({
+              metaStyles: {
+                ...settings.metaStyles,
+                [key]: { ...settings.metaStyles[key], ...patch },
+              },
+            })
+          }
+          onToggle={() =>
+            onChange({ [coverSeriesIncludeKey[key]]: !visibility[key] })
+          }
+        />
+      ))}
     </div>
   );
 }
@@ -6018,18 +5975,6 @@ function CoverSeriesEditor({
   onSaveDefault: () => void;
   settings: CoverSeriesSettings;
 }) {
-  function updateMetaStyle(
-    key: CoverSeriesMetaKey,
-    patch: Partial<CoverSeriesMetaStyle>,
-  ) {
-    onChange({
-      metaStyles: {
-        ...settings.metaStyles,
-        [key]: { ...settings.metaStyles[key], ...patch },
-      },
-    });
-  }
-
   return (
     <div className={`cover-series-editor ${compact ? "compact" : ""}`}>
       <CheckField
@@ -6109,19 +6054,6 @@ function CoverSeriesEditor({
           </div>
           <div className="cover-series-section cover-series-meta">
             <p className="cover-series-section-title">Textos complementares</p>
-            <CoverSeriesMetaOrderEditor
-              value={settings.metaOrder}
-              visibility={{
-                title: settings.includeTitle,
-                album: settings.includeAlbum,
-                artist: settings.includeArtist,
-                year: settings.includeYear,
-              }}
-              onChange={(metaOrder) => onChange({ metaOrder })}
-              onToggle={(key, value) =>
-                onChange({ [coverSeriesIncludeKey[key]]: value })
-              }
-            />
             <RangeField
               label="Espaço entre linhas"
               max={48}
@@ -6129,22 +6061,7 @@ function CoverSeriesEditor({
               value={settings.metaGap}
               onChange={(metaGap) => onChange({ metaGap })}
             />
-            {(
-              [
-                ["title", "Nome da música", "includeTitle"],
-                ["album", "Nome do álbum", "includeAlbum"],
-                ["artist", "Autor", "includeArtist"],
-                ["year", "Ano", "includeYear"],
-              ] as const
-            ).map(([key, label, visibilityKey]) => (
-              <CoverSeriesMetaControls
-                enabled={settings[visibilityKey]}
-                key={key}
-                label={label}
-                onStyle={(patch) => updateMetaStyle(key, patch)}
-                style={settings.metaStyles[key]}
-              />
-            ))}
+            <CoverSeriesFieldsEditor settings={settings} onChange={onChange} />
           </div>
           <button
             className="quiet-action"
