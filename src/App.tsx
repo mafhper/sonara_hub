@@ -469,6 +469,7 @@ const defaultCoverSeriesSettings: CoverSeriesSettings = {
   x: 50,
   y: 89,
   letterSpacing: 18,
+  includeNumber: true,
   includeTitle: false,
   includeAlbum: false,
   includeArtist: false,
@@ -5161,6 +5162,13 @@ function AudioLibraryInspector({
                   <p className="inspector-kicker cover-series-kicker">
                     Numeração principal
                   </p>
+                  <CheckField
+                    label="Mostrar número da série"
+                    checked={coverSeriesSettings.includeNumber !== false}
+                    onChange={(includeNumber) =>
+                      onCoverSeriesSettings({ includeNumber })
+                    }
+                  />
                   <SelectField
                     label="Sequência"
                     value={coverSeriesSettings.style}
@@ -6335,20 +6343,22 @@ function CoverSeriesOverlay({
       className="cover-series-overlay"
       viewBox="0 0 1600 1600"
     >
-      <text
-        dominantBaseline="auto"
-        fill={settings.color}
-        fillOpacity={settings.opacity / 100}
-        fontFamily="Georgia, Times New Roman, serif"
-        fontSize={settings.fontSize}
-        fontWeight="400"
-        letterSpacing={settings.letterSpacing}
-        textAnchor="middle"
-        x={coverSeriesAxis(settings.x, 8, 92)}
-        y={coverSeriesAxis(settings.y, 8, 94)}
-      >
-        {coverSeriesPreviewLabel(track, settings)}
-      </text>
+      {settings.includeNumber !== false && (
+        <text
+          dominantBaseline="auto"
+          fill={settings.color}
+          fillOpacity={settings.opacity / 100}
+          fontFamily="Georgia, Times New Roman, serif"
+          fontSize={settings.fontSize}
+          fontWeight="400"
+          letterSpacing={settings.letterSpacing}
+          textAnchor="middle"
+          x={coverSeriesAxis(settings.x, 8, 92)}
+          y={coverSeriesAxis(settings.y, 8, 94)}
+        >
+          {coverSeriesPreviewLabel(track, settings)}
+        </text>
+      )}
       {lines.map((line) => {
         const y = lineY + line.style.offsetY;
         lineY += line.style.fontSize + settings.metaGap;
@@ -6856,6 +6866,11 @@ function CoverSeriesEditor({
         <>
           <div className="cover-series-section">
             <p className="cover-series-section-title">Sequência &amp; cor</p>
+            <CheckField
+              label="Mostrar número da série"
+              checked={settings.includeNumber !== false}
+              onChange={(includeNumber) => onChange({ includeNumber })}
+            />
             <div className="cover-series-editor-grid">
               <SelectField
                 label="Sequência"

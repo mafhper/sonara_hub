@@ -877,6 +877,7 @@ async function processAudio({
       {
         index: draft.trackNumber,
         style: seriesSettings.style,
+        includeNumber: seriesSettings.includeNumber,
         label: coverSeriesLabel(draft, seriesSettings),
         sublines: coverSeriesSublines(draft, seriesSettings),
         fontSize: seriesSettings.fontSize,
@@ -1426,6 +1427,7 @@ function normalizeCoverSeriesSettings(value = {}, fallbackStyle = "roman") {
     x: clampNumber(Number(value.x ?? 50), 8, 92),
     y: clampNumber(Number(value.y ?? 89), 8, 94),
     letterSpacing: clampNumber(Number(value.letterSpacing ?? 18), 0, 80),
+    includeNumber: value.includeNumber !== false,
     includeTitle: value.includeTitle === true,
     includeAlbum: value.includeAlbum === true,
     includeArtist: value.includeArtist === true,

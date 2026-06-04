@@ -237,6 +237,7 @@ export async function createNumberedCover(
   {
     index = 1,
     style = "roman",
+    includeNumber = true,
     label,
     sublines = [],
     fontSize = 112,
@@ -250,7 +251,9 @@ export async function createNumberedCover(
   } = {},
 ) {
   const numeral =
-    label || (style === "arabic" ? String(index) : romanNumeral(index));
+    includeNumber === false
+      ? ""
+      : label || (style === "arabic" ? String(index) : romanNumeral(index));
   const safeMetaFontSize = Math.max(
     18,
     Math.min(72, Number(metaFontSize) || 34),

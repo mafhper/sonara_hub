@@ -157,6 +157,7 @@ export type CoverSeriesSettings = {
   x: number;
   y: number;
   letterSpacing: number;
+  includeNumber: boolean;
   includeTitle: boolean;
   includeAlbum: boolean;
   includeArtist: boolean;
