@@ -248,6 +248,23 @@ const lyricsLanguages: Array<[string, string]> = [
   ["ara", "Árabe"],
 ];
 
+// BCP-47 tags for the YouTube defaultLanguage/defaultAudioLanguage fields.
+const youtubeLanguages: Array<[string, string]> = [
+  ["pt-BR", "Português (Brasil)"],
+  ["pt-PT", "Português (Portugal)"],
+  ["en-US", "Inglês (EUA)"],
+  ["en-GB", "Inglês (Reino Unido)"],
+  ["es-ES", "Espanhol (Espanha)"],
+  ["es-419", "Espanhol (Latam)"],
+  ["fr-FR", "Francês"],
+  ["it-IT", "Italiano"],
+  ["de-DE", "Alemão"],
+  ["ja-JP", "Japonês"],
+  ["ko-KR", "Coreano"],
+  ["zh-CN", "Chinês (Simplificado)"],
+  ["ru-RU", "Russo"],
+];
+
 const PANEL_WIDTH_STORAGE_KEY = "sonara-hub-panel-widths";
 const COVER_SERIES_STORAGE_KEY = "sonara-hub-cover-series-settings";
 const DEFAULT_LEFT_RAIL_WIDTH = 256;
@@ -7567,11 +7584,17 @@ function ExportInspector({
           <option value="unlisted">Não listado</option>
           <option value="public">Publico</option>
         </SelectField>
-        <TextField
+        <SelectField
           label="Idioma"
           value={metadata.language}
           onChange={(language) => onMetadata({ language })}
-        />
+        >
+          {youtubeLanguages.map(([code, label]) => (
+            <option key={code} value={code}>
+              {label}
+            </option>
+          ))}
+        </SelectField>
         <TextArea
           label="Descrição"
           value={metadata.description}
@@ -7602,24 +7625,6 @@ function ExportInspector({
           A exportação inclui um arquivo `.youtube.json`. O upload por OAuth
           fica para uma etapa posterior.
         </p>
-      </InspectorGroup>
-      <InspectorGroup title="Fila no palco central">
-        <p className="helper-copy">
-          {renderJobs.length
-            ? `${renderJobs.length} exportação${renderJobs.length === 1 ? "" : "ões"} registrada${renderJobs.length === 1 ? "" : "s"} · ${activeRenderJobs} ativa${activeRenderJobs === 1 ? "" : "s"}.`
-            : "Ao exportar, o acompanhamento aparece no palco central em Fila de vídeos."}
-        </p>
-        {renderJobs.some((job) =>
-          ["done", "error", "canceled"].includes(job.status),
-        ) && (
-          <button
-            className="quiet-action queue-clear-action"
-            type="button"
-            onClick={onClearCompleted}
-          >
-            <Trash2 /> Limpar histórico de vídeos
-          </button>
-        )}
       </InspectorGroup>
     </>
   );
