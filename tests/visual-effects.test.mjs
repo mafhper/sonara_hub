@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  builtinPresetMap,
   builtinVisualPresets,
   effectIds,
   normalizeVisualSettings,
@@ -23,6 +24,8 @@ const expectedIds = [
   "vortex-whirlpool",
   "vortex-galaxy",
   "starfield",
+  "starfield-prism",
+  "starfield-warm",
 ];
 
 test("catalog exposes the broad families plus the ported shader presets", () => {
@@ -58,6 +61,25 @@ test("ported shader presets normalize and share fullscreen renderers", () => {
     ["arms", "twist", "zoom", "glow"],
   );
   assert.equal(vortex.advanced.arms, 57);
+});
+
+test("starfield presets share the renderer and expose the colour-variety control", () => {
+  const ids = ["starfield", "starfield-prism", "starfield-warm"];
+  for (const id of ids) {
+    const scene = normalizeVisualSettings(builtinPresetMap.get(id));
+    assert.equal(scene.rendererId, "starfield");
+    assert.deepEqual(
+      scene.controls.map((entry) => entry.key),
+      ["density", "warp", "twinkle", "glow", "colorVar"],
+    );
+    assert.ok(scene.advanced.colorVar >= 0 && scene.advanced.colorVar <= 100);
+  }
+  // The prism preset must carry markedly more colour variety than the warm one.
+  const prism = normalizeVisualSettings(
+    builtinPresetMap.get("starfield-prism"),
+  );
+  const warm = normalizeVisualSettings(builtinPresetMap.get("starfield-warm"));
+  assert.ok(prism.advanced.colorVar > warm.advanced.colorVar);
 });
 
 test("normalizing a real shader preset object preserves its renderer and advanced params", () => {

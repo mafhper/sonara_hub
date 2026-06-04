@@ -218,6 +218,13 @@ void main() {
   // aproximarem da câmera. Substitui o antigo efeito "space" removido.
   starfield: `${shaderPrelude}
 float starHash(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 52853.13); }
+// Luminance-preserving hue rotation (Rodrigues around the grey axis), so each
+// star can take a distinct tint without changing its brightness.
+vec3 hueShiftColor(vec3 color, float angle) {
+  const vec3 k = vec3(0.57735026);
+  float c = cos(angle);
+  return color * c + cross(k, color) * sin(angle) + k * dot(k, color) * (1.0 - c);
+}
 void main() {
   vec2 res = u_resolution.xy;
   vec2 uv01 = gl_FragCoord.xy / res;
@@ -227,6 +234,7 @@ void main() {
   float warp = 0.35 + u_param1 * 1.7;
   float twinkleAmt = u_param2;
   float glow = 0.45 + u_param3 * 1.4;
+  float colorVar = u_param4;
   vec3 col = u_colorA * 0.10;
   for (int i = 0; i < 6; i++) {
     float fi = float(i);
@@ -244,7 +252,11 @@ void main() {
     float radius = (0.04 + 0.12 * persp) * glow;
     float star = present * smoothstep(radius, 0.0, d);
     float tw = mix(1.0, 0.45 + 0.55 * sin(t * 5.0 + rnd * 40.0), twinkleAmt);
-    vec3 starCol = mix(u_colorB, u_accentColor, starHash(cell + 5.0));
+    // Per-star colour: blend the two star tints, then spread the hue by an
+    // amount the user controls so the field reads as many-coloured stars.
+    vec3 baseStar = mix(u_colorB, u_accentColor, starHash(cell + 5.0));
+    float hueShift = (starHash(cell + 9.3) - 0.5) * colorVar * 2.4;
+    vec3 starCol = max(vec3(0.0), hueShiftColor(baseStar, hueShift));
     col += star * fade * tw * starCol * (0.55 + persp * 0.95);
   }
   col *= 1.0 + u_audioHigh * u_audioReaction * 0.7;
