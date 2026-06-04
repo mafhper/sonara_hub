@@ -60,6 +60,26 @@ test("ported shader presets normalize and share fullscreen renderers", () => {
   assert.equal(vortex.advanced.arms, 57);
 });
 
+test("normalizing a real shader preset object preserves its renderer and advanced params", () => {
+  // The actual builtin objects (and any saved scene) carry id !== rendererId for
+  // shader presets — id "plasma-nebula", rendererId "plasma". Normalizing must
+  // resolve the base by id and keep the renderer/advanced shape, otherwise the
+  // export silently collapses every shader scene back to liquid-mesh.
+  for (const preset of builtinVisualPresets) {
+    const normalized = normalizeVisualSettings(preset);
+    assert.equal(
+      normalized.rendererId,
+      preset.rendererId,
+      `renderer changed for ${preset.id}`,
+    );
+    assert.deepEqual(
+      Object.keys(normalized.advanced),
+      Object.keys(preset.advanced),
+      `advanced keys changed for ${preset.id}`,
+    );
+  }
+});
+
 test("legacy visual fields normalize into the V4 contract", () => {
   const visual = normalizeVisualSettings({
     effect: "fire",

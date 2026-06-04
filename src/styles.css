@@ -5420,7 +5420,7 @@ button:disabled {
 
 .color-slider {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) 30px;
+  grid-template-columns: 14px minmax(0, 1fr) 42px;
   align-items: center;
   gap: 7px;
 }
@@ -5432,10 +5432,28 @@ button:disabled {
 }
 
 .color-slider-value {
+  width: 100%;
   color: var(--text-muted);
   font-size: var(--font-xs);
   font-variant-numeric: tabular-nums;
   text-align: right;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 4px;
+  -moz-appearance: textfield;
+}
+
+.color-slider-value::-webkit-inner-spin-button,
+.color-slider-value::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.color-slider-value:focus {
+  outline: none;
+  border-color: var(--accent, #6ea8fe);
+  color: var(--text);
 }
 
 .color-slider input[type="range"] {

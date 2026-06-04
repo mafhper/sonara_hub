@@ -31,6 +31,7 @@ import { createTempFileRegistry } from "./temp-files.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
+import { normalizeTextSettings } from "../shared/text-settings.mjs";
 import {
   normalizeFfmpegSpawnError,
   resolveFfmpegPath,
@@ -1384,37 +1385,6 @@ function normalizeCompositionSettings(body) {
   return {
     mediaLayers,
     textSettings: normalizeTextSettings(raw.textSettings),
-  };
-}
-
-function normalizeTextSettings(value = {}) {
-  const fields = value.fields ?? {};
-  return {
-    fields: {
-      title: fields.title !== false,
-      artist: fields.artist !== false,
-      album: fields.album === true,
-      year: fields.year === true,
-      version: fields.version === true,
-    },
-    preset: ["top-left", "bottom-center", "cover-left"].includes(value.preset)
-      ? value.preset
-      : "top-left",
-    fontFamily: ["Inter", "Georgia", "Arial"].includes(value.fontFamily)
-      ? value.fontFamily
-      : "Inter",
-    fontSize: clampNumber(Number(value.fontSize ?? 42), 18, 96),
-    fontWeight: clampNumber(Number(value.fontWeight ?? 650), 300, 850),
-    letterSpacing: clampNumber(Number(value.letterSpacing ?? 0), 0, 16),
-    lineHeight: clampNumber(Number(value.lineHeight ?? 118), 90, 180),
-    color: isHexColor(value.color) ? value.color : "#f7f8fb",
-    opacity: clampNumber(Number(value.opacity ?? 94), 20, 100),
-    x: clampNumber(Number(value.x ?? 5), 0, 100),
-    y: clampNumber(Number(value.y ?? 7), 0, 100),
-    align: ["left", "center", "right"].includes(value.align)
-      ? value.align
-      : "left",
-    shadow: clampNumber(Number(value.shadow ?? 48), 0, 100),
   };
 }
 

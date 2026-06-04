@@ -425,10 +425,28 @@ export function normalizeVisualSettings(input = {}) {
       : input.visualSettings && typeof input.visualSettings === "object"
         ? input.visualSettings
         : input;
+  // Resolve the base builtin by preset id first (the map is keyed by id), then
+  // fall back to a rendererId match. Shader presets share a rendererId across
+  // several ids (e.g. plasma-nebula/plasma-lava → "plasma"), so resolving by
+  // rendererId alone never hits the id-keyed map and silently collapsed every
+  // shader scene back to liquid-mesh — dropping the renderer and its advanced
+  // params on both preview and export.
   const requestedId = String(
-    source.rendererId ?? source.baseEffectId ?? source.effect ?? "liquid-mesh",
+    source.id ??
+      source.rendererId ??
+      source.baseEffectId ??
+      source.effect ??
+      "liquid-mesh",
   );
-  const base = getBuiltinPreset(requestedId);
+  const requestedRenderer = String(
+    source.rendererId ?? source.baseEffectId ?? source.effect ?? requestedId,
+  );
+  const base =
+    builtinPresetMap.get(requestedId) ??
+    builtinVisualPresets.find(
+      (item) => item.rendererId === requestedRenderer,
+    ) ??
+    builtinVisualPresets[0];
   const incomingCommon = source.common ?? source;
   const incomingColors = source.colors ?? {};
   const incomingAdvanced = source.advanced ?? {};

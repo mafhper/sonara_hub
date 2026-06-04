@@ -4809,7 +4809,7 @@ function AudioLibraryInspector({
               <button
                 className="quiet-action"
                 type="button"
-                onClick={onRestoreSuggestedCover}
+                onClick={() => onRestoreSuggestedCover()}
               >
                 <RotateCcw /> Usar arte oferecida
               </button>
@@ -6514,7 +6514,7 @@ function MusicInspector({
           <button
             className="quiet-action"
             type="button"
-            onClick={onRestoreSuggestedCover}
+            onClick={() => onRestoreSuggestedCover()}
           >
             <RotateCcw /> Usar arte oferecida
           </button>
@@ -8447,6 +8447,10 @@ function ColorSlider({
   trackBackground: string;
   value: number;
 }) {
+  // The value is editable directly (type the HSL number) as well as draggable;
+  // clamp on change so an out-of-range entry can't push the channel past its max.
+  const clamp = (next: number) =>
+    Number.isFinite(next) ? Math.min(max, Math.max(0, Math.round(next))) : 0;
   return (
     <label className="color-slider">
       <span className="color-slider-label">{label}</span>
@@ -8458,7 +8462,15 @@ function ColorSlider({
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
       />
-      <span className="color-slider-value">{value}</span>
+      <input
+        aria-label={label}
+        className="color-slider-value"
+        max={max}
+        min={0}
+        type="number"
+        value={value}
+        onChange={(event) => onChange(clamp(Number(event.target.value)))}
+      />
     </label>
   );
 }
