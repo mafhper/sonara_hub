@@ -700,9 +700,13 @@ function App() {
   const [resizingPanel, setResizingPanel] = useState<
     "library" | "inspector" | null
   >(null);
-  const [lastRemovedLayer, setLastRemovedLayer] = useState<MediaLayerV2 | null>(
-    null,
-  );
+  // One-step undo for the whole layer list of a track, so a mis-click on
+  // "Aplicar capa" (or remove/add) can be reverted without losing prior tweaks.
+  const [layersUndo, setLayersUndo] = useState<{
+    trackId: string;
+    layers: MediaLayerV2[];
+    label: string;
+  } | null>(null);
   const [folderImportProgress, setFolderImportProgress] = useState<{
     current: number;
     total: number;
@@ -1497,6 +1501,28 @@ function App() {
     setBatchFeedback("Texto do vídeo aplicado ao lote selecionado.");
   }
 
+  function captureLayersUndo(label: string) {
+    if (!selectedTrack) return;
+    setLayersUndo({
+      trackId: selectedTrack.id,
+      layers: selectedTrack.layers,
+      label,
+    });
+  }
+
+  function undoLayers() {
+    if (!layersUndo) return;
+    const snapshot = layersUndo;
+    setTracks((current) =>
+      current.map((track) =>
+        track.id === snapshot.trackId
+          ? { ...track, layers: snapshot.layers }
+          : track,
+      ),
+    );
+    setLayersUndo(null);
+  }
+
   function addCoverLayerPreset(preset: CoverLayerPreset) {
     if (!selectedTrack) return;
     const nextLayers = layersWithCoverPreset(selectedTrack, preset);
@@ -1504,6 +1530,7 @@ function App() {
       setError("Escolha uma capa planejada ou oferecida pela pasta antes.");
       return;
     }
+    captureLayersUndo("aplicar capa");
     updateSelectedTrack({ layers: nextLayers });
   }
 
@@ -1993,6 +2020,8 @@ function App() {
           order: selectedTrack.layers.length + index,
         }),
       );
+    if (!additions.length) return;
+    captureLayersUndo("adicionar mídia");
     updateSelectedTrack({ layers: [...selectedTrack.layers, ...additions] });
   }
 
@@ -2007,23 +2036,12 @@ function App() {
 
   function removeLayer(id: string) {
     if (!selectedTrack) return;
-    const removed =
-      selectedTrack.layers.find((layer) => layer.id === id) ?? null;
-    setLastRemovedLayer(removed);
+    captureLayersUndo("remover camada");
     updateSelectedTrack({
       layers: selectedTrack.layers
         .filter((layer) => layer.id !== id)
         .map((layer, order) => ({ ...layer, order })),
     });
-  }
-
-  function undoRemoveLayer() {
-    if (!selectedTrack || !lastRemovedLayer || selectedTrack.layers.length >= 3)
-      return;
-    updateSelectedTrack({
-      layers: [...selectedTrack.layers, lastRemovedLayer],
-    });
-    setLastRemovedLayer(null);
   }
 
   function moveLayer(id: string, direction: -1 | 1) {
@@ -3065,7 +3083,11 @@ function App() {
             ) : activeStep === "visual" ? (
               <VisualInspector
                 layers={selectedTrack.layers}
-                lastRemovedLayer={lastRemovedLayer}
+                layerUndoLabel={
+                  layersUndo && layersUndo.trackId === selectedTrack.id
+                    ? layersUndo.label
+                    : null
+                }
                 presets={visualPresets}
                 scene={selectedScene}
                 onAddLayer={() => layerInputRef.current?.click()}
@@ -3086,7 +3108,7 @@ function App() {
                 onPlayful={updatePlayful}
                 onRemoveLayer={removeLayer}
                 onSavePreset={() => void savePreset()}
-                onUndoLayer={undoRemoveLayer}
+                onUndoLayer={undoLayers}
                 onUpdateLayer={updateLayer}
                 onSelectPreset={selectPreset}
                 onWaveform={updateWaveform}
@@ -6234,7 +6256,7 @@ function MusicInspector({
 
 function VisualInspector(props: {
   layers: MediaLayerV2[];
-  lastRemovedLayer: MediaLayerV2 | null;
+  layerUndoLabel: string | null;
   presets: ScenePresetV3[];
   scene: ScenePresetV3;
   onAddLayer: () => void;
@@ -6779,7 +6801,7 @@ function VisualInspector(props: {
 
 function LayerEditor(props: {
   layers: MediaLayerV2[];
-  lastRemovedLayer: MediaLayerV2 | null;
+  layerUndoLabel: string | null;
   onAddLayer: () => void;
   onApplyCoverLayer: (preset: CoverLayerPreset) => void;
   onApplyCoverLayerBatch?: (preset: CoverLayerPreset) => void;
@@ -6795,14 +6817,15 @@ function LayerEditor(props: {
       <div className="inline-actions">
         <button
           disabled={props.layers.length >= 3}
+          title="Adiciona uma imagem, SVG ou vídeo como camada sobreposta."
           type="button"
           onClick={props.onAddLayer}
         >
-          <Upload /> Adicionar
+          <Upload /> Adicionar mídia
         </button>
-        {props.lastRemovedLayer && (
+        {props.layerUndoLabel && (
           <button type="button" onClick={props.onUndoLayer}>
-            <RotateCcw /> Desfazer
+            <RotateCcw /> Desfazer {props.layerUndoLabel}
           </button>
         )}
       </div>
