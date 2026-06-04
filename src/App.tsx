@@ -3253,6 +3253,9 @@ function App() {
                 suggestedCover={selectedTrack.suggestedCover}
                 workflowMode={workflowMode}
                 onAnalyze={() => void analyzeSelectedAudio()}
+                onApplyPublicationBatch={
+                  workflowMode === "batch" ? applyPublicationToBatch : undefined
+                }
                 onApplySuggestions={() =>
                   updateMetadata(
                     metadataFromAudio(
@@ -3371,9 +3374,6 @@ function App() {
                 onPreset={setOutputPreset}
                 onQuality={setQualityProfile}
                 onUseDarkAudio={() => selectPreset("audio-dark")}
-                onApplyBatch={
-                  workflowMode === "batch" ? applyPublicationToBatch : undefined
-                }
               />
             )}
           </div>
@@ -4717,6 +4717,7 @@ function AudioLibraryInspector({
   metadata,
   workflowMode,
   onAnalyze,
+  onApplyPublicationBatch,
   onApplySuggestions,
   onChange,
   onChooseCover,
@@ -4735,6 +4736,7 @@ function AudioLibraryInspector({
   metadata: TrackMetadata;
   workflowMode: "single" | "batch";
   onAnalyze: () => void;
+  onApplyPublicationBatch?: () => void;
   onApplySuggestions: () => void;
   onChange: (patch: Partial<TrackMetadata>) => void;
   onChooseCover: () => void;
@@ -4759,73 +4761,127 @@ function AudioLibraryInspector({
     <div className="audio-inspector-tabbed">
       <div className="audio-inspector-tab-content">
         {activeInspectorTab === "data" && (
-          <InspectorGroup title="Dados" open>
-            <TextField
-              label="Título"
-              value={metadata.title}
-              onChange={(title) => onChange({ title })}
-            />
-            <TextField
-              label="Artista"
-              value={metadata.artist}
-              onChange={(artist) => onChange({ artist })}
-            />
-            <TextField
-              label="Álbum"
-              value={metadata.album}
-              onChange={(album) => onChange({ album })}
-            />
-            <TextField
-              label="Artista do álbum"
-              value={metadata.albumArtist}
-              onChange={(albumArtist) => onChange({ albumArtist })}
-            />
-            <TextField
-              label="Gênero"
-              value={metadata.genre}
-              onChange={(genre) => onChange({ genre })}
-            />
-            <TextField
-              label="Compositor"
-              value={metadata.composer}
-              onChange={(composer) => onChange({ composer })}
-            />
-            <TextArea
-              label="Comentário ID3"
-              rows={3}
-              value={metadata.comment}
-              onChange={(comment) => onChange({ comment })}
-            />
-            <TextField
-              label="Ano"
-              value={metadata.year}
-              onChange={(year) => onChange({ year })}
-            />
-            <div className="two-columns">
+          <>
+            <InspectorGroup title="Dados" open>
               <TextField
-                label="Faixa"
-                value={String(metadata.trackNumber)}
-                onChange={(value) =>
-                  onChange({ trackNumber: Math.max(1, Number(value) || 1) })
-                }
+                label="Título"
+                value={metadata.title}
+                onChange={(title) => onChange({ title })}
               />
               <TextField
-                label="Total"
-                value={String(metadata.trackTotal)}
-                onChange={(value) =>
-                  onChange({ trackTotal: Math.max(1, Number(value) || 1) })
+                label="Artista"
+                value={metadata.artist}
+                onChange={(artist) => onChange({ artist })}
+              />
+              <TextField
+                label="Álbum"
+                value={metadata.album}
+                onChange={(album) => onChange({ album })}
+              />
+              <TextField
+                label="Artista do álbum"
+                value={metadata.albumArtist}
+                onChange={(albumArtist) => onChange({ albumArtist })}
+              />
+              <TextField
+                label="Gênero"
+                value={metadata.genre}
+                onChange={(genre) => onChange({ genre })}
+              />
+              <TextField
+                label="Compositor"
+                value={metadata.composer}
+                onChange={(composer) => onChange({ composer })}
+              />
+              <TextArea
+                label="Comentário ID3"
+                rows={3}
+                value={metadata.comment}
+                onChange={(comment) => onChange({ comment })}
+              />
+              <TextField
+                label="Ano"
+                value={metadata.year}
+                onChange={(year) => onChange({ year })}
+              />
+              <div className="two-columns">
+                <TextField
+                  label="Faixa"
+                  value={String(metadata.trackNumber)}
+                  onChange={(value) =>
+                    onChange({ trackNumber: Math.max(1, Number(value) || 1) })
+                  }
+                />
+                <TextField
+                  label="Total"
+                  value={String(metadata.trackTotal)}
+                  onChange={(value) =>
+                    onChange({ trackTotal: Math.max(1, Number(value) || 1) })
+                  }
+                />
+              </div>
+              <button
+                className="quiet-action"
+                title="Preenche os campos acima com as tags ID3 embutidas no arquivo e o que dá para inferir do nome/pasta."
+                type="button"
+                onClick={onApplySuggestions}
+              >
+                <RotateCcw /> Preencher com tags do arquivo
+              </button>
+            </InspectorGroup>
+            <InspectorGroup title="Publicação YouTube">
+              <p className="helper-copy">
+                Defina aqui, junto com os dados da faixa, para não passar
+                despercebido na exportação. A saída inclui um `.youtube.json`.
+              </p>
+              <SelectField
+                label="Privacidade"
+                value={metadata.visibility}
+                onChange={(visibility) => onChange({ visibility })}
+              >
+                <option value="private">Privado</option>
+                <option value="unlisted">Não listado</option>
+                <option value="public">Público</option>
+              </SelectField>
+              <SelectField
+                label="Idioma"
+                value={metadata.language}
+                onChange={(language) => onChange({ language })}
+              >
+                {youtubeLanguages.map(([code, label]) => (
+                  <option key={code} value={code}>
+                    {label}
+                  </option>
+                ))}
+              </SelectField>
+              <TextArea
+                label="Descrição"
+                value={metadata.description}
+                onChange={(description) => onChange({ description })}
+              />
+              <TextField
+                label="Tags"
+                value={metadata.tags}
+                onChange={(tags) => onChange({ tags })}
+              />
+              <CheckField
+                label="Declarar mídia sintética / IA"
+                checked={metadata.containsSyntheticMedia}
+                onChange={(containsSyntheticMedia) =>
+                  onChange({ containsSyntheticMedia })
                 }
               />
-            </div>
-            <button
-              className="quiet-action"
-              title="Preenche os campos acima com as tags ID3 embutidas no arquivo e o que dá para inferir do nome/pasta."
-              type="button"
-              onClick={onApplySuggestions}
-            >
-              <RotateCcw /> Preencher com tags do arquivo
-            </button>
-          </InspectorGroup>
+              {onApplyPublicationBatch && (
+                <button
+                  className="upload-action"
+                  type="button"
+                  onClick={onApplyPublicationBatch}
+                >
+                  <Layers3 /> Aplicar publicação ao lote
+                </button>
+              )}
+            </InspectorGroup>
+          </>
         )}
         {activeInspectorTab === "art" && (
           <InspectorGroup title="Arte" open>
@@ -8175,7 +8231,6 @@ function ExportInspector({
   onChooseOutput,
   onClearCompleted,
   onExport,
-  onApplyBatch,
   onMetadata,
   onPreset,
   onQuality,
@@ -8194,7 +8249,6 @@ function ExportInspector({
   onChooseOutput: () => void;
   onClearCompleted: () => void;
   onExport: () => void;
-  onApplyBatch?: () => void;
   onMetadata: (patch: Partial<TrackMetadata>) => void;
   onPreset: (value: string) => void;
   onQuality: (value: string) => void;
@@ -8293,56 +8347,31 @@ function ExportInspector({
         </button>
       </InspectorGroup>
       <InspectorGroup title="Publicação YouTube">
-        <SelectField
-          label="Privacidade"
-          value={metadata.visibility}
-          onChange={(visibility) => onMetadata({ visibility })}
-        >
-          <option value="private">Privado</option>
-          <option value="unlisted">Não listado</option>
-          <option value="public">Publico</option>
-        </SelectField>
-        <SelectField
-          label="Idioma"
-          value={metadata.language}
-          onChange={(language) => onMetadata({ language })}
-        >
-          {youtubeLanguages.map(([code, label]) => (
-            <option key={code} value={code}>
-              {label}
-            </option>
-          ))}
-        </SelectField>
-        <TextArea
-          label="Descrição"
-          value={metadata.description}
-          onChange={(description) => onMetadata({ description })}
-        />
-        <TextField
-          label="Tags"
-          value={metadata.tags}
-          onChange={(tags) => onMetadata({ tags })}
-        />
-        <CheckField
-          label="Declarar midia sintetica / IA"
-          checked={metadata.containsSyntheticMedia}
-          onChange={(containsSyntheticMedia) =>
-            onMetadata({ containsSyntheticMedia })
-          }
-        />
-        {onApplyBatch && (
-          <button
-            className="upload-action"
-            type="button"
-            onClick={onApplyBatch}
-          >
-            <Layers3 /> Aplicar publicação ao lote
-          </button>
-        )}
         <p className="helper-copy">
-          A exportação inclui um arquivo `.youtube.json`. O upload por OAuth
-          fica para uma etapa posterior.
+          Privacidade, idioma, descrição e tags agora ficam junto dos dados da
+          faixa (aba <strong>Dados</strong>), para não passarem despercebidos. A
+          exportação inclui um arquivo `.youtube.json`.
         </p>
+        <dl className="export-summary">
+          <div>
+            <dt>Privacidade</dt>
+            <dd>
+              {metadata.visibility === "public"
+                ? "Público"
+                : metadata.visibility === "private"
+                  ? "Privado"
+                  : "Não listado"}
+            </dd>
+          </div>
+          <div>
+            <dt>Tags</dt>
+            <dd>{metadata.tags ? metadata.tags : "—"}</dd>
+          </div>
+          <div>
+            <dt>Mídia sintética</dt>
+            <dd>{metadata.containsSyntheticMedia ? "Declarada" : "Não"}</dd>
+          </div>
+        </dl>
       </InspectorGroup>
     </>
   );
