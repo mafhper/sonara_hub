@@ -52,6 +52,7 @@ import {
   Fragment,
   type CSSProperties,
   type ChangeEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useEffect,
@@ -7185,57 +7186,6 @@ function TextInspector({
             </option>
           ))}
         </SelectField>
-        <div className="text-order-panel">
-          <span className="inspector-kicker">Ordem dos campos</span>
-          {orderedFields.map((field, index) => {
-            const visible = textSettings.fields[field];
-            return (
-              <div
-                className={`text-order-row ${visible ? "" : "is-hidden-field"}`}
-                key={field}
-              >
-                <span>
-                  {index + 1}. {textFieldLabels[field]}
-                </span>
-                <div>
-                  <button
-                    aria-label={
-                      visible
-                        ? `Ocultar ${textFieldLabels[field]}`
-                        : `Mostrar ${textFieldLabels[field]}`
-                    }
-                    aria-pressed={visible}
-                    title={visible ? "Visível no vídeo" : "Oculto"}
-                    type="button"
-                    onClick={() =>
-                      onTextSettings({
-                        fields: { ...textSettings.fields, [field]: !visible },
-                      })
-                    }
-                  >
-                    {visible ? <Eye /> : <EyeOff />}
-                  </button>
-                  <button
-                    aria-label={`Mover ${textFieldLabels[field]} para cima`}
-                    disabled={index === 0}
-                    type="button"
-                    onClick={() => moveTextField(field, -1)}
-                  >
-                    <ChevronUp />
-                  </button>
-                  <button
-                    aria-label={`Mover ${textFieldLabels[field]} para baixo`}
-                    disabled={index === orderedFields.length - 1}
-                    type="button"
-                    onClick={() => moveTextField(field, 1)}
-                  >
-                    <ChevronDown />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
         <SelectField
           label="Fonte"
           value={textSettings.fontFamily}
@@ -7350,14 +7300,28 @@ function TextInspector({
           <Check /> Aplicar estilo global aos campos visíveis
         </button>
         <div className="text-field-style-stack">
-          <span className="inspector-kicker">Ajuste por campo</span>
-          {orderedFields.map((field) => (
+          <span className="inspector-kicker">
+            Campos do texto · ordem, exibição e estilo
+          </span>
+          {orderedFields.map((field, index) => (
             <TextFieldStyleEditor
               field={field}
+              index={index}
+              isFirst={index === 0}
+              isLast={index === orderedFields.length - 1}
               key={field}
               style={textSettings.fieldStyles[field]}
               visible={textSettings.fields[field]}
               onChange={(patch) => updateFieldStyle(field, patch)}
+              onMove={(direction) => moveTextField(field, direction)}
+              onToggleVisible={() =>
+                onTextSettings({
+                  fields: {
+                    ...textSettings.fields,
+                    [field]: !textSettings.fields[field],
+                  },
+                })
+              }
             />
           ))}
         </div>
@@ -7377,21 +7341,79 @@ function TextInspector({
 
 function TextFieldStyleEditor({
   field,
+  index,
+  isFirst,
+  isLast,
   onChange,
+  onMove,
+  onToggleVisible,
   style,
   visible,
 }: {
   field: TextFieldKey;
+  index: number;
+  isFirst: boolean;
+  isLast: boolean;
   onChange: (patch: Partial<TextFieldStyle>) => void;
+  onMove: (direction: -1 | 1) => void;
+  onToggleVisible: () => void;
   style: TextFieldStyle;
   visible: boolean;
 }) {
+  // Buttons live inside <summary>; stop the click from toggling the disclosure.
+  const stop = (event: ReactMouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
   return (
-    <details className="text-field-style" open={visible}>
+    <details
+      className={`text-field-style ${visible ? "" : "is-hidden-field"}`}
+      open={visible}
+    >
       <summary>
-        <span>{textFieldLabels[field]}</span>
-        <small>{visible ? "visível" : "oculto"}</small>
-        <ChevronDown />
+        <span>
+          {index + 1}. {textFieldLabels[field]}
+        </span>
+        <span className="text-field-style-actions">
+          <button
+            aria-label={
+              visible
+                ? `Ocultar ${textFieldLabels[field]}`
+                : `Mostrar ${textFieldLabels[field]}`
+            }
+            aria-pressed={visible}
+            title={visible ? "Visível no vídeo" : "Oculto"}
+            type="button"
+            onClick={(event) => {
+              stop(event);
+              onToggleVisible();
+            }}
+          >
+            {visible ? <Eye /> : <EyeOff />}
+          </button>
+          <button
+            aria-label={`Mover ${textFieldLabels[field]} para cima`}
+            disabled={isFirst}
+            type="button"
+            onClick={(event) => {
+              stop(event);
+              onMove(-1);
+            }}
+          >
+            <ChevronUp />
+          </button>
+          <button
+            aria-label={`Mover ${textFieldLabels[field]} para baixo`}
+            disabled={isLast}
+            type="button"
+            onClick={(event) => {
+              stop(event);
+              onMove(1);
+            }}
+          >
+            <ChevronDown />
+          </button>
+        </span>
       </summary>
       <div className="text-field-style-body">
         <SelectField

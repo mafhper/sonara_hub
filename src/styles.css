@@ -1410,7 +1410,7 @@ svg {
 
 .text-field-style summary {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
   cursor: pointer;
@@ -1421,6 +1421,11 @@ svg {
   list-style: none;
 }
 
+.text-field-style.is-hidden-field summary > span:first-child {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
 .text-field-style summary::-webkit-details-marker {
   display: none;
 }
@@ -1428,11 +1433,29 @@ svg {
 .text-field-style summary svg {
   width: 13px;
   height: 13px;
-  transition: transform 140ms ease;
 }
 
-.text-field-style[open] summary svg {
-  transform: rotate(180deg);
+/* Visibility + reorder controls inside the disclosure summary */
+.text-field-style-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.text-field-style-actions button {
+  display: inline-flex;
+  width: 26px;
+  min-height: 26px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--button-border);
+  border-radius: var(--radius);
+  background: var(--button-bg);
+  color: var(--button-text);
+}
+
+.text-field-style-actions button:disabled {
+  cursor: default;
+  opacity: 0.38;
 }
 
 .text-field-style-body {
