@@ -4780,6 +4780,7 @@ function AudioLibraryInspector({
         )}
         {activeInspectorTab === "art" && (
           <InspectorGroup title="Arte" open>
+            <p className="inspector-kicker">Arte da capa</p>
             {cover ? (
               <div className="cover-preview">
                 <img alt="" src={cover.src} />
