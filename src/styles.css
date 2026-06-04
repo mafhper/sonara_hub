@@ -4567,6 +4567,31 @@ button:disabled {
   white-space: normal;
 }
 
+.waveform-gradient-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--space-2);
+}
+
+.waveform-gradient-swatch {
+  width: 44px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  padding: 0;
+  transition:
+    transform 120ms ease,
+    border-color 120ms ease;
+}
+
+.waveform-gradient-swatch:hover,
+.waveform-gradient-swatch:focus-visible {
+  border-color: var(--focus);
+  transform: translateY(-1px);
+}
+
 .waveform-color-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

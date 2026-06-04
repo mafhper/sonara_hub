@@ -288,6 +288,19 @@ const versionSuggestions = [
   "Extended",
 ];
 
+// Quick-pick gradients for the waveform (color, secondaryColor, tertiaryColor).
+const waveformGradientPresets: Array<{
+  name: string;
+  colors: [string, string, string];
+}> = [
+  { name: "Aurora", colors: ["#7bd7ff", "#9b8cff", "#f6a6ff"] },
+  { name: "Pôr do sol", colors: ["#ffd479", "#ff7e5f", "#7a4cff"] },
+  { name: "Esmeralda", colors: ["#34e5b3", "#2bb3a3", "#1e6b8f"] },
+  { name: "Brasa", colors: ["#ffe08a", "#ff9f45", "#ff5252"] },
+  { name: "Gelo", colors: ["#eaf2ff", "#a9c2e8", "#6f86b6"] },
+  { name: "Neon", colors: ["#00f5d4", "#00bbf9", "#9b5de5"] },
+];
+
 const PANEL_WIDTH_STORAGE_KEY = "sonara-hub-panel-widths";
 const COVER_SERIES_STORAGE_KEY = "sonara-hub-cover-series-settings";
 const FILE_NAME_PATTERN_STORAGE_KEY = "sonara-hub-file-name-pattern";
@@ -6740,6 +6753,28 @@ function VisualInspector(props: {
                 <option value="gradient">Gradiente</option>
                 <option value="bands">Cores por banda</option>
               </SelectField>
+              <div className="waveform-gradient-presets">
+                {waveformGradientPresets.map((preset) => (
+                  <button
+                    aria-label={`Gradiente ${preset.name}`}
+                    className="waveform-gradient-swatch"
+                    key={preset.name}
+                    style={{
+                      background: `linear-gradient(90deg, ${preset.colors[0]}, ${preset.colors[1]}, ${preset.colors[2]})`,
+                    }}
+                    title={preset.name}
+                    type="button"
+                    onClick={() =>
+                      props.onWaveform({
+                        colorMode: "gradient",
+                        color: preset.colors[0],
+                        secondaryColor: preset.colors[1],
+                        tertiaryColor: preset.colors[2],
+                      })
+                    }
+                  />
+                ))}
+              </div>
               <div className="waveform-color-grid">
                 <ColorInput
                   label="Principal"
