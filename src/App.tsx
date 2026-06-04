@@ -7820,13 +7820,6 @@ function TextInspector({
           value={scene.common.shade}
           onChange={(value) => onCommon("shade", value)}
         />
-        <button
-          className="quiet-action"
-          type="button"
-          onClick={applyGlobalStyleToVisibleFields}
-        >
-          <Check /> Aplicar estilo global aos campos visíveis
-        </button>
         <div className="text-field-style-stack">
           <span className="inspector-kicker">
             Campos do texto · ordem, exibição e estilo
@@ -7853,15 +7846,36 @@ function TextInspector({
             />
           ))}
         </div>
-        {onApplyBatch && (
+        <div className="text-action-row">
           <button
-            className="upload-action"
+            className="quiet-action"
             type="button"
-            onClick={onApplyBatch}
+            title="Restaurar a tipografia e a posição padrão deste texto"
+            onClick={() =>
+              onTextSettings(cloneTextSettings(defaultTextSettings))
+            }
           >
-            <Layers3 /> Aplicar texto ao lote
+            <RotateCcw /> Reset
           </button>
-        )}
+          <button
+            className="quiet-action"
+            type="button"
+            title="Aplicar o estilo global aos campos de texto visíveis"
+            onClick={applyGlobalStyleToVisibleFields}
+          >
+            <Check /> Aplicar
+          </button>
+          {onApplyBatch && (
+            <button
+              className="upload-action"
+              type="button"
+              title="Aplicar este texto a todas as faixas do lote"
+              onClick={onApplyBatch}
+            >
+              <Layers3 /> Aplicar a todos
+            </button>
+          )}
+        </div>
       </InspectorGroup>
     </>
   );

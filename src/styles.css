@@ -4289,6 +4289,20 @@ button:disabled {
   background: var(--selection);
 }
 
+.text-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.text-action-row > * {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
 .catalog-track {
   display: grid;
   width: 100%;
