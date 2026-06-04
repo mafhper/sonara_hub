@@ -5399,6 +5399,23 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+/* The custom ‹›/⌄⌃ steppers already cover increment, so hide the native number
+   spinners — they reserve width that clipped the value (e.g. "720" → "7."). */
+.number-step-field input {
+  min-width: 0;
+  padding-right: 4px;
+  padding-left: 4px;
+  text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.number-step-field input::-webkit-inner-spin-button,
+.number-step-field input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .color-input {
   display: grid;
   gap: 7px;
