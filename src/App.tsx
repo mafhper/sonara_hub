@@ -2070,15 +2070,44 @@ function App() {
   }
 
   async function savePreset() {
-    if (selectedScene.source !== "custom") return;
+    // Editing a custom preset: persist the current adjustments in place.
+    if (selectedScene.source === "custom") {
+      try {
+        await fetchJson(`/api/visual-presets/${selectedScene.id}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(selectedScene),
+        });
+        setVisualPresets((current) =>
+          current.map((preset) =>
+            preset.id === selectedScene.id ? selectedScene : preset,
+          ),
+        );
+        setBatchFeedback(`Preset "${selectedScene.name}" salvo.`);
+      } catch (reason) {
+        setError(localApiMessage(reason, "salvar o preset"));
+      }
+      return;
+    }
+    // Editing a builtin: "Salvar" immediately forks a new custom preset from the
+    // current adjustments (no prompt) so tweaks are never lost. The new preset
+    // persists until deleted from the preset UI or by storage cleanup. Use
+    // "Duplicar" when you want to name the copy explicitly.
     try {
-      await fetchJson(`/api/visual-presets/${selectedScene.id}`, {
-        method: "PUT",
+      const created = await fetchJson<ScenePresetV3>("/api/visual-presets", {
+        method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(selectedScene),
+        body: JSON.stringify({
+          ...selectedScene,
+          name: `${selectedScene.name} personalizado`,
+          source: "custom",
+        }),
       });
+      setVisualPresets((current) => [...current, created]);
+      updateScene(created);
+      setBatchFeedback(`Preset "${created.name}" criado a partir dos ajustes.`);
     } catch (reason) {
-      setError(localApiMessage(reason, "salvar o preset"));
+      setError(localApiMessage(reason, "criar o preset"));
     }
   }
 
@@ -6813,8 +6842,12 @@ function VisualInspector(props: {
             <Copy /> Duplicar
           </button>
           <button
-            disabled={scene.source !== "custom"}
             type="button"
+            title={
+              scene.source === "custom"
+                ? "Salvar os ajustes neste preset"
+                : "Criar um preset novo a partir dos ajustes atuais"
+            }
             onClick={props.onSavePreset}
           >
             <Save /> Salvar
