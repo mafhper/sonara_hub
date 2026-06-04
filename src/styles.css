@@ -5021,6 +5021,92 @@ button:disabled {
   border-bottom: 0;
 }
 
+/* Full-width settings block (no side action column) */
+.settings-section-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: var(--space-3);
+}
+
+.filename-pattern {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.filename-pattern-rows {
+  display: grid;
+  gap: 4px;
+}
+
+.filename-pattern-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--stage-surface-low);
+  padding: 6px 10px;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+.filename-pattern-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.filename-pattern-actions button {
+  display: inline-flex;
+  width: 26px;
+  min-height: 26px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--button-border);
+  border-radius: var(--radius);
+  background: var(--button-bg);
+  color: var(--button-text);
+}
+
+.filename-pattern-actions button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.filename-pattern-actions svg {
+  width: 13px;
+  height: 13px;
+}
+
+.filename-pattern-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filename-pattern-add .quiet-action {
+  width: auto;
+  min-height: 28px;
+  padding: 0 10px;
+}
+
+.filename-pattern-sep {
+  max-width: 180px;
+}
+
+.filename-pattern-preview {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+
+.filename-pattern-preview code {
+  color: var(--text-primary);
+  font-family: var(--mono, monospace);
+  word-break: break-all;
+}
+
 .settings-section h3 {
   color: var(--text-primary);
   font-size: var(--font-lg);

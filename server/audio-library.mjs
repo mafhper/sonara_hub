@@ -8,6 +8,7 @@ import {
   normalizeFfmpegSpawnError,
   resolveFfmpegPath,
 } from "./ffmpeg-tool.mjs";
+import { buildNameFromPattern } from "../shared/file-naming.mjs";
 
 export function inferAudioTags(filePath) {
   const pathApi = /(^[a-z]:|\\)/i.test(String(filePath))
@@ -55,9 +56,11 @@ function parseDiscFolder(value) {
   return number ? Number(number) : 0;
 }
 
-export function buildTreatedFileName(tags) {
-  const track = String(tags.trackNumber || 0).padStart(2, "0");
-  return `${safeName(tags.album)} - ${track} - ${safeName(tags.title)}.mp3`;
+export function buildTreatedFileName(tags, pattern) {
+  // pattern is optional; when absent the default reproduces the historical
+  // "Álbum - 01 - Música" layout.
+  const base = buildNameFromPattern(pattern, tags, safeName);
+  return `${base || safeName(tags.title) || "tratado"}.mp3`;
 }
 
 export function buildTreatedAlbumDirectoryName(tags) {

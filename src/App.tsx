@@ -94,6 +94,13 @@ import {
 } from "../shared/destructive-audio-batch.mjs";
 import { directoryImportPrefix } from "../shared/audio-import.mjs";
 import {
+  buildNameFromPattern,
+  defaultFileNamePattern,
+  fileNameTokenLabels,
+  fileNameTokens,
+  normalizeFileNamePattern,
+} from "../shared/file-naming.mjs";
+import {
   albumArtworkDirectoryPaths,
   chooseAlbumArtworkForTrack,
   chooseArtworkForTrack,
@@ -283,6 +290,9 @@ const versionSuggestions = [
 
 const PANEL_WIDTH_STORAGE_KEY = "sonara-hub-panel-widths";
 const COVER_SERIES_STORAGE_KEY = "sonara-hub-cover-series-settings";
+const FILE_NAME_PATTERN_STORAGE_KEY = "sonara-hub-file-name-pattern";
+
+type FileNamePattern = { tokens: string[]; separator: string };
 const DEFAULT_LEFT_RAIL_WIDTH = 256;
 const DEFAULT_RIGHT_RAIL_WIDTH = 456;
 const PANEL_MIN_PREVIEW_WIDTH = 520;
@@ -738,6 +748,9 @@ function App() {
   const [audioBands, setAudioBands] = useState<AudioBands>(emptyBands);
   const [coverSeriesSettings, setCoverSeriesSettings] =
     useState<CoverSeriesSettings>(() => loadCoverSeriesSettings());
+  const [fileNamePattern, setFileNamePattern] = useState<FileNamePattern>(() =>
+    loadFileNamePattern(),
+  );
   const [analyzingTrackIds, setAnalyzingTrackIds] = useState<string[]>([]);
   const [embeddedArtworkByTrackId, setEmbeddedArtworkByTrackId] = useState<
     Record<string, string | null>
@@ -1502,6 +1515,12 @@ function App() {
     setBatchFeedback("Série visual salva como padrão local.");
   }
 
+  function updateFileNamePattern(next: FileNamePattern) {
+    const normalized = normalizeFileNamePattern(next);
+    setFileNamePattern(normalized);
+    saveFileNamePattern(normalized);
+  }
+
   function updateTextSettings(patch: Partial<TextOverlaySettings>) {
     const trackId = selectedTrackId;
     setTracks((current) =>
@@ -1902,6 +1921,7 @@ function App() {
     formData.append("coverSeries", String(trackSeries.enabled));
     formData.append("coverStyle", trackSeries.style);
     formData.append("coverSeriesSettings", JSON.stringify(trackSeries));
+    formData.append("fileNamePattern", JSON.stringify(fileNamePattern));
     try {
       const data = await fetchJson<{ jobId: string }>("/api/audio/process", {
         method: "POST",
@@ -3402,6 +3422,29 @@ function App() {
                 >
                   <Trash2 /> Limpar temporários
                 </button>
+              </section>
+              <section className="settings-section settings-section-stack">
+                <div>
+                  <h3>Nomenclatura dos arquivos tratados</h3>
+                  <p>
+                    Monte o nome dos MP3 tratados na pasta de destino com os
+                    campos que quiser, na ordem que preferir.
+                  </p>
+                </div>
+                <FileNamePatternEditor
+                  pattern={fileNamePattern}
+                  sampleTags={
+                    selectedTrack?.metadata ?? {
+                      album: "Edge of a New",
+                      title: "The Stars Got Numbers Now",
+                      artist: "Matheus Lima",
+                      albumArtist: "Matheus Lima",
+                      year: "2026",
+                      trackNumber: 1,
+                    }
+                  }
+                  onChange={updateFileNamePattern}
+                />
               </section>
               <section className="settings-section settings-section-danger">
                 <div>
@@ -7968,6 +8011,102 @@ function SelectField({
   );
 }
 
+function FileNamePatternEditor({
+  onChange,
+  pattern,
+  sampleTags,
+}: {
+  onChange: (next: FileNamePattern) => void;
+  pattern: FileNamePattern;
+  sampleTags: Record<string, unknown>;
+}) {
+  const included = pattern.tokens;
+  const available = fileNameTokens.filter(
+    (token: string) => !included.includes(token),
+  );
+  const move = (token: string, direction: -1 | 1) => {
+    const index = included.indexOf(token);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= included.length) return;
+    const next = [...included];
+    [next[index], next[target]] = [next[target], next[index]];
+    onChange({ ...pattern, tokens: next });
+  };
+  const preview = `${buildNameFromPattern(pattern, sampleTags) || "—"}.mp3`;
+  return (
+    <div className="filename-pattern">
+      <div className="filename-pattern-rows">
+        {included.map((token, index) => (
+          <div className="filename-pattern-row" key={token}>
+            <span>
+              {index + 1}. {fileNameTokenLabels[token] ?? token}
+            </span>
+            <span className="filename-pattern-actions">
+              <button
+                aria-label="Subir"
+                disabled={index === 0}
+                type="button"
+                onClick={() => move(token, -1)}
+              >
+                <ChevronUp />
+              </button>
+              <button
+                aria-label="Descer"
+                disabled={index === included.length - 1}
+                type="button"
+                onClick={() => move(token, 1)}
+              >
+                <ChevronDown />
+              </button>
+              <button
+                aria-label={`Remover ${fileNameTokenLabels[token] ?? token}`}
+                type="button"
+                onClick={() =>
+                  onChange({
+                    ...pattern,
+                    tokens: included.filter((item) => item !== token),
+                  })
+                }
+              >
+                <X />
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+      {available.length > 0 && (
+        <div className="filename-pattern-add">
+          {available.map((token: string) => (
+            <button
+              className="quiet-action"
+              key={token}
+              type="button"
+              onClick={() =>
+                onChange({ ...pattern, tokens: [...included, token] })
+              }
+            >
+              + {fileNameTokenLabels[token] ?? token}
+            </button>
+          ))}
+        </div>
+      )}
+      <label className="field filename-pattern-sep">
+        <span>Separador</span>
+        <input
+          maxLength={6}
+          value={pattern.separator}
+          onChange={(event) =>
+            onChange({ ...pattern, separator: event.target.value })
+          }
+        />
+      </label>
+      <p className="filename-pattern-preview">
+        <span>Exemplo:</span> <code>{preview}</code>
+      </p>
+    </div>
+  );
+}
+
 function CheckField({
   checked,
   label,
@@ -8905,6 +9044,30 @@ function saveCoverSeriesSettings(settings: CoverSeriesSettings) {
     );
   } catch {
     // A reusable visual-series preference is optional local state.
+  }
+}
+
+function loadFileNamePattern(): FileNamePattern {
+  if (typeof window === "undefined")
+    return normalizeFileNamePattern(defaultFileNamePattern);
+  try {
+    const raw = window.localStorage.getItem(FILE_NAME_PATTERN_STORAGE_KEY);
+    return normalizeFileNamePattern(
+      raw ? JSON.parse(raw) : defaultFileNamePattern,
+    );
+  } catch {
+    return normalizeFileNamePattern(defaultFileNamePattern);
+  }
+}
+
+function saveFileNamePattern(pattern: FileNamePattern) {
+  try {
+    window.localStorage.setItem(
+      FILE_NAME_PATTERN_STORAGE_KEY,
+      JSON.stringify(pattern),
+    );
+  } catch {
+    // The filename pattern is an optional local preference.
   }
 }
 

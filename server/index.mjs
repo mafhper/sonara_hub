@@ -263,8 +263,9 @@ app.post(
       return;
     }
     const draft = normalizeAudioDraft(req.body.draft, audioPath);
+    const fileNamePattern = parseJsonObject(req.body.fileNamePattern);
     const jobId = crypto.randomUUID();
-    const outputName = buildTreatedFileName(draft);
+    const outputName = buildTreatedFileName(draft, fileNamePattern);
     setJob(jobId, {
       id: jobId,
       kind: "audio-process",
@@ -315,11 +316,12 @@ app.post(
       res.status(400).json({ error: "Envie ao menos um MP3 para o lote." });
       return;
     }
+    const batchFileNamePattern = parseJsonObject(req.body.fileNamePattern);
     const jobIds = [];
     for (const [index, audioFile] of audioFiles.entries()) {
       const draft = normalizeAudioDraft(drafts[index], audioFile.originalname);
       const jobId = crypto.randomUUID();
-      const outputName = buildTreatedFileName(draft);
+      const outputName = buildTreatedFileName(draft, batchFileNamePattern);
       setJob(jobId, {
         id: jobId,
         kind: "audio-process",
@@ -1925,7 +1927,9 @@ function isAudioReadable(audioPath) {
     let stderr = "";
     child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
     child.on("error", () => resolve(false));
-    child.on("close", (code) => resolve(code === 0 && !/Invalid data/i.test(stderr)));
+    child.on("close", (code) =>
+      resolve(code === 0 && !/Invalid data/i.test(stderr)),
+    );
   });
 }
 
