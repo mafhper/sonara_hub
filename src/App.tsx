@@ -4608,8 +4608,19 @@ function AudioLibraryInspector({
                     </p>
                     <CoverSeriesMetaOrderEditor
                       value={coverSeriesSettings.metaOrder}
+                      visibility={{
+                        title: coverSeriesSettings.includeTitle,
+                        album: coverSeriesSettings.includeAlbum,
+                        artist: coverSeriesSettings.includeArtist,
+                        year: coverSeriesSettings.includeYear,
+                      }}
                       onChange={(metaOrder) =>
                         onCoverSeriesSettings({ metaOrder })
+                      }
+                      onToggle={(key, value) =>
+                        onCoverSeriesSettings({
+                          [coverSeriesIncludeKey[key]]: value,
+                        })
                       }
                     />
                     <RangeField
@@ -4622,9 +4633,6 @@ function AudioLibraryInspector({
                     <CoverSeriesMetaControls
                       enabled={coverSeriesSettings.includeTitle}
                       label="Nome da música"
-                      onEnabled={(includeTitle) =>
-                        onCoverSeriesSettings({ includeTitle })
-                      }
                       onStyle={(patch) =>
                         onCoverSeriesSettings({
                           metaStyles: {
@@ -4641,9 +4649,6 @@ function AudioLibraryInspector({
                     <CoverSeriesMetaControls
                       enabled={coverSeriesSettings.includeAlbum}
                       label="Nome do álbum"
-                      onEnabled={(includeAlbum) =>
-                        onCoverSeriesSettings({ includeAlbum })
-                      }
                       onStyle={(patch) =>
                         onCoverSeriesSettings({
                           metaStyles: {
@@ -4660,9 +4665,6 @@ function AudioLibraryInspector({
                     <CoverSeriesMetaControls
                       enabled={coverSeriesSettings.includeArtist}
                       label="Autor"
-                      onEnabled={(includeArtist) =>
-                        onCoverSeriesSettings({ includeArtist })
-                      }
                       onStyle={(patch) =>
                         onCoverSeriesSettings({
                           metaStyles: {
@@ -4679,9 +4681,6 @@ function AudioLibraryInspector({
                     <CoverSeriesMetaControls
                       enabled={coverSeriesSettings.includeYear}
                       label="Ano"
-                      onEnabled={(includeYear) =>
-                        onCoverSeriesSettings({ includeYear })
-                      }
                       onStyle={(patch) =>
                         onCoverSeriesSettings({
                           metaStyles: {
@@ -5854,29 +5853,25 @@ function Transport({
 function CoverSeriesMetaControls({
   enabled,
   label,
-  onEnabled,
   onStyle,
   style,
 }: {
   enabled: boolean;
   label: string;
-  onEnabled: (enabled: boolean) => void;
   onStyle: (patch: Partial<CoverSeriesMetaStyle>) => void;
   style: CoverSeriesMetaStyle;
 }) {
   return (
-    <details className="cover-series-meta-field" open={enabled}>
+    <details
+      className={`cover-series-meta-field ${enabled ? "" : "is-hidden-field"}`}
+      open={enabled}
+    >
       <summary>
         <span>{label}</span>
-        <small>{enabled ? "Ativo" : "Oculto"}</small>
+        <small>{enabled ? "estilo" : "oculto"}</small>
       </summary>
       <div>
-        <CheckField
-          checked={enabled}
-          label={`Exibir ${label.toLowerCase()}`}
-          onChange={onEnabled}
-        />
-        {enabled && (
+        {enabled ? (
           <>
             <div className="two-columns">
               <RangeField
@@ -5917,7 +5912,7 @@ function CoverSeriesMetaControls({
               />
             </div>
           </>
-        )}
+        ) : null}
       </div>
     </details>
   );
@@ -5930,12 +5925,26 @@ const coverSeriesMetaLabels: Record<CoverSeriesMetaKey, string> = {
   year: "Ano",
 };
 
+const coverSeriesIncludeKey: Record<
+  CoverSeriesMetaKey,
+  keyof CoverSeriesSettings
+> = {
+  title: "includeTitle",
+  album: "includeAlbum",
+  artist: "includeArtist",
+  year: "includeYear",
+};
+
 function CoverSeriesMetaOrderEditor({
   onChange,
+  onToggle,
   value,
+  visibility,
 }: {
   onChange: (value: string) => void;
+  onToggle: (key: CoverSeriesMetaKey, value: boolean) => void;
   value: string;
+  visibility: Record<CoverSeriesMetaKey, boolean>;
 }) {
   const order = coverSeriesMetaOrder(value);
   const move = (key: CoverSeriesMetaKey, direction: -1 | 1) => {
@@ -5949,32 +5958,50 @@ function CoverSeriesMetaOrderEditor({
   return (
     <div className="meta-order-editor">
       <span className="inspector-kicker">Ordem dos campos</span>
-      {order.map((key, index) => (
-        <div className="text-order-row" key={key}>
-          <span>
-            {index + 1}. {coverSeriesMetaLabels[key]}
-          </span>
-          <small>{key}</small>
-          <div>
-            <button
-              aria-label={`Mover ${coverSeriesMetaLabels[key]} para cima`}
-              disabled={index === 0}
-              type="button"
-              onClick={() => move(key, -1)}
-            >
-              <ArrowUp />
-            </button>
-            <button
-              aria-label={`Mover ${coverSeriesMetaLabels[key]} para baixo`}
-              disabled={index === order.length - 1}
-              type="button"
-              onClick={() => move(key, 1)}
-            >
-              <ArrowDown />
-            </button>
+      {order.map((key, index) => {
+        const visible = visibility[key];
+        return (
+          <div
+            className={`text-order-row ${visible ? "" : "is-hidden-field"}`}
+            key={key}
+          >
+            <span>
+              {index + 1}. {coverSeriesMetaLabels[key]}
+            </span>
+            <div>
+              <button
+                aria-label={
+                  visible
+                    ? `Ocultar ${coverSeriesMetaLabels[key]}`
+                    : `Mostrar ${coverSeriesMetaLabels[key]}`
+                }
+                aria-pressed={visible}
+                title={visible ? "Visível na capa" : "Oculto"}
+                type="button"
+                onClick={() => onToggle(key, !visible)}
+              >
+                {visible ? <Eye /> : <EyeOff />}
+              </button>
+              <button
+                aria-label={`Mover ${coverSeriesMetaLabels[key]} para cima`}
+                disabled={index === 0}
+                type="button"
+                onClick={() => move(key, -1)}
+              >
+                <ArrowUp />
+              </button>
+              <button
+                aria-label={`Mover ${coverSeriesMetaLabels[key]} para baixo`}
+                disabled={index === order.length - 1}
+                type="button"
+                onClick={() => move(key, 1)}
+              >
+                <ArrowDown />
+              </button>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -6083,7 +6110,16 @@ function CoverSeriesEditor({
             <p className="cover-series-section-title">Textos complementares</p>
             <CoverSeriesMetaOrderEditor
               value={settings.metaOrder}
+              visibility={{
+                title: settings.includeTitle,
+                album: settings.includeAlbum,
+                artist: settings.includeArtist,
+                year: settings.includeYear,
+              }}
               onChange={(metaOrder) => onChange({ metaOrder })}
+              onToggle={(key, value) =>
+                onChange({ [coverSeriesIncludeKey[key]]: value })
+              }
             />
             <RangeField
               label="Espaço entre linhas"
@@ -6104,7 +6140,6 @@ function CoverSeriesEditor({
                 enabled={settings[visibilityKey]}
                 key={key}
                 label={label}
-                onEnabled={(enabled) => onChange({ [visibilityKey]: enabled })}
                 onStyle={(patch) => updateMetaStyle(key, patch)}
                 style={settings.metaStyles[key]}
               />
