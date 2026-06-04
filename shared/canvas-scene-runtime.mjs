@@ -212,6 +212,45 @@ void main() {
   color = pow(max(color, 0.0), vec3(0.92));
   gl_FragColor = vec4(finish(color, frag), 1.0);
 }`,
+  // Adaptado de nebula/packages/effects/src/effect-starfield (originalmente
+  // GL_POINTS 3D) para um campo estelar fullscreen procedural: camadas de
+  // profundidade que reciclam, com estrelas que crescem e se espalham ao se
+  // aproximarem da câmera. Substitui o antigo efeito "space" removido.
+  starfield: `${shaderPrelude}
+float starHash(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 52853.13); }
+void main() {
+  vec2 res = u_resolution.xy;
+  vec2 uv01 = gl_FragCoord.xy / res;
+  vec2 uv = (gl_FragCoord.xy - 0.5 * res) / res.y;
+  float t = u_time * (0.12 + u_speed * 0.9);
+  float density = 0.7 + u_param0 * 2.2;
+  float warp = 0.35 + u_param1 * 1.7;
+  float twinkleAmt = u_param2;
+  float glow = 0.45 + u_param3 * 1.4;
+  vec3 col = u_colorA * 0.10;
+  for (int i = 0; i < 6; i++) {
+    float fi = float(i);
+    float z = fract(fi / 6.0 + t * warp * 0.12);
+    float persp = z;
+    float fade = smoothstep(0.0, 0.18, z) * smoothstep(1.0, 0.55, z);
+    float gridScale = mix(13.0, 2.4, persp) * density;
+    vec2 g = uv * gridScale + fi * 19.0;
+    vec2 cell = floor(g);
+    vec2 f = fract(g) - 0.5;
+    float rnd = starHash(cell);
+    float present = step(0.84, rnd);
+    vec2 jitter = (vec2(starHash(cell + 3.1), starHash(cell + 7.7)) - 0.5) * 0.7;
+    float d = length(f - jitter);
+    float radius = (0.04 + 0.12 * persp) * glow;
+    float star = present * smoothstep(radius, 0.0, d);
+    float tw = mix(1.0, 0.45 + 0.55 * sin(t * 5.0 + rnd * 40.0), twinkleAmt);
+    vec3 starCol = mix(u_colorB, u_accentColor, starHash(cell + 5.0));
+    col += star * fade * tw * starCol * (0.55 + persp * 0.95);
+  }
+  col *= 1.0 + u_audioHigh * u_audioReaction * 0.7;
+  col += u_accentColor * smoothstep(0.75, 0.0, length(uv)) * 0.05 * pulse(u_audioMid, 0.3);
+  gl_FragColor = vec4(finish(col, uv01), 1.0);
+}`,
 };
 
 const blendModes = {

@@ -22,6 +22,7 @@ const expectedIds = [
   "plasma-lava",
   "vortex-whirlpool",
   "vortex-galaxy",
+  "starfield",
 ];
 
 test("catalog exposes the broad families plus the ported shader presets", () => {

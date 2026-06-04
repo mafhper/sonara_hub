@@ -380,6 +380,22 @@ export const builtinVisualPresets = [
       control("glow", "Brilho"),
     ],
   }),
+  preset({
+    id: "starfield",
+    rendererId: "starfield",
+    name: "Campo estelar 3D",
+    category: "Atmosferas",
+    note: "Estrelas voando pelo espaço com profundidade e cintilação (portado do Nebula). Substitui o antigo efeito de estrelas.",
+    colors: { base: "#05060f", effect: "#bfdbfe", light: "#67e8f9" },
+    common: { speed: 22, intensity: 80, brightness: 60, audioReaction: 24 },
+    advanced: { density: 60, warp: 30, twinkle: 55, glow: 50 },
+    controls: [
+      control("density", "Densidade"),
+      control("warp", "Velocidade"),
+      control("twinkle", "Cintilação"),
+      control("glow", "Brilho"),
+    ],
+  }),
 ];
 
 export const builtinPresetMap = new Map(
