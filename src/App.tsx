@@ -7772,6 +7772,76 @@ function TextInspector({
           value={textSettings.opacity}
           onChange={(opacity) => onTextSettings({ opacity })}
         />
+        <SelectField
+          label="Posição predefinida"
+          value=""
+          onChange={(preset) => {
+            const positions: Record<string, Partial<TextOverlaySettings>> = {
+              "top-left": { x: 5, y: 7, verticalAnchor: "top", align: "left" },
+              "top-center": {
+                x: 50,
+                y: 7,
+                verticalAnchor: "top",
+                align: "center",
+              },
+              "top-right": {
+                x: 95,
+                y: 7,
+                verticalAnchor: "top",
+                align: "right",
+              },
+              "middle-left": {
+                x: 5,
+                y: 50,
+                verticalAnchor: "middle",
+                align: "left",
+              },
+              center: {
+                x: 50,
+                y: 50,
+                verticalAnchor: "middle",
+                align: "center",
+              },
+              "middle-right": {
+                x: 95,
+                y: 50,
+                verticalAnchor: "middle",
+                align: "right",
+              },
+              "bottom-left": {
+                x: 5,
+                y: 93,
+                verticalAnchor: "bottom",
+                align: "left",
+              },
+              "bottom-center": {
+                x: 50,
+                y: 93,
+                verticalAnchor: "bottom",
+                align: "center",
+              },
+              "bottom-right": {
+                x: 95,
+                y: 93,
+                verticalAnchor: "bottom",
+                align: "right",
+              },
+            };
+            const next = positions[preset];
+            if (next) onTextSettings(next);
+          }}
+        >
+          <option value="">Escolher posição…</option>
+          <option value="top-left">Canto superior esquerdo</option>
+          <option value="top-center">Topo · centro</option>
+          <option value="top-right">Canto superior direito</option>
+          <option value="middle-left">Esquerda · centro</option>
+          <option value="center">Centro</option>
+          <option value="middle-right">Direita · centro</option>
+          <option value="bottom-left">Canto inferior esquerdo</option>
+          <option value="bottom-center">Base · centro</option>
+          <option value="bottom-right">Canto inferior direito</option>
+        </SelectField>
         <div className="two-columns">
           <RangeField
             label="Horizontal"
