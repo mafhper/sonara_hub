@@ -5416,6 +5416,147 @@ button:disabled {
   margin: 0;
 }
 
+.tag-select-field {
+  display: grid;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.tag-select-label {
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+
+.tag-select-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--stage-surface-low);
+  font-size: var(--font-xs);
+}
+
+.tag-chip > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tag-chip > button:hover {
+  color: var(--text-primary);
+  background: var(--selection);
+}
+
+.tag-select-input {
+  position: relative;
+}
+
+.tag-select-input input {
+  width: 100%;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.tag-select-input input:focus {
+  border-color: var(--focus);
+}
+
+.tag-select-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  max-height: 240px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #161922;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 45%);
+}
+
+.tag-select-menu li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tag-select-menu li > button:first-child {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tag-select-menu li > button:first-child:hover {
+  color: var(--text-primary);
+  background: var(--selection);
+}
+
+.tag-select-saved {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-style: normal;
+}
+
+.tag-select-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  min-height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.tag-select-delete:hover {
+  color: #f87171;
+  background: var(--selection);
+}
+
+.tag-select-menu svg {
+  width: 14px;
+  height: 14px;
+}
+
 .color-input {
   display: grid;
   gap: 7px;
