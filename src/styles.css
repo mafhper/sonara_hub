@@ -1309,10 +1309,19 @@ svg {
   padding: 0 11px 11px;
 }
 
+.inspector-subsection {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--stage-surface-low);
+  padding: 11px;
+}
+
 .inspector-subsection + .inspector-subsection {
-  margin-top: 12px;
-  border-top: 1px solid var(--line-soft);
-  padding-top: 10px;
+  margin-top: var(--space-3);
+}
+
+.inspector-body > .inspector-subsection:first-of-type {
+  margin-top: 6px;
 }
 
 .inspector-subsection > .quiet-action,

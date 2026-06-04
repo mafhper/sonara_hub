@@ -7699,197 +7699,214 @@ function TextInspector({
         </div>
       </InspectorGroup>
       <InspectorGroup title="Tipografia e posição" open>
-        <SelectField
-          label="Preset"
-          value={textSettings.preset}
-          onChange={(preset) =>
-            onTextSettings(
-              textPresetPatch(preset as TextOverlaySettings["preset"]),
-            )
-          }
-        >
-          {Object.entries(textStylePresetLabels).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </SelectField>
-        <SelectField
-          label="Fonte"
-          value={textSettings.fontFamily}
-          onChange={(fontFamily) =>
-            onTextSettings({
-              fontFamily: fontFamily as TextOverlaySettings["fontFamily"],
-            })
-          }
-        >
-          <option value="Inter">Inter</option>
-          <option value="Georgia">Georgia</option>
-          <option value="Arial">Arial</option>
-        </SelectField>
-        <div className="two-columns">
-          <RangeField
-            label="Tamanho"
-            max={88}
-            min={12}
-            unit="px"
-            value={textSettings.fontSize}
-            onChange={(fontSize) => onTextSettings({ fontSize })}
+        <div className="inspector-subsection">
+          <p className="inspector-kicker">Tipografia</p>
+          <SelectField
+            label="Preset"
+            value={textSettings.preset}
+            onChange={(preset) =>
+              onTextSettings(
+                textPresetPatch(preset as TextOverlaySettings["preset"]),
+              )
+            }
+          >
+            {Object.entries(textStylePresetLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </SelectField>
+          <SelectField
+            label="Fonte"
+            value={textSettings.fontFamily}
+            onChange={(fontFamily) =>
+              onTextSettings({
+                fontFamily: fontFamily as TextOverlaySettings["fontFamily"],
+              })
+            }
+          >
+            <option value="Inter">Inter</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Arial">Arial</option>
+          </SelectField>
+          <div className="two-columns">
+            <RangeField
+              label="Tamanho"
+              max={88}
+              min={12}
+              unit="px"
+              value={textSettings.fontSize}
+              onChange={(fontSize) => onTextSettings({ fontSize })}
+            />
+            <RangeField
+              label="Peso"
+              max={900}
+              min={300}
+              value={textSettings.fontWeight}
+              onChange={(fontWeight) => onTextSettings({ fontWeight })}
+            />
+          </div>
+          <div className="two-columns">
+            <RangeField
+              label="Espaçamento"
+              max={24}
+              min={-2}
+              unit="px"
+              value={textSettings.letterSpacing}
+              onChange={(letterSpacing) => onTextSettings({ letterSpacing })}
+            />
+            <RangeField
+              label="Altura"
+              max={180}
+              min={90}
+              unit="%"
+              value={textSettings.lineHeight}
+              onChange={(lineHeight) => onTextSettings({ lineHeight })}
+            />
+          </div>
+        </div>
+        <div className="inspector-subsection">
+          <p className="inspector-kicker">Cor</p>
+          <ColorInput
+            label="Cor"
+            value={textSettings.color}
+            onChange={(color) => onTextSettings({ color })}
           />
           <RangeField
-            label="Peso"
-            max={900}
-            min={300}
-            value={textSettings.fontWeight}
-            onChange={(fontWeight) => onTextSettings({ fontWeight })}
+            label="Opacidade"
+            value={textSettings.opacity}
+            onChange={(opacity) => onTextSettings({ opacity })}
           />
         </div>
-        <div className="two-columns">
+        <div className="inspector-subsection">
+          <p className="inspector-kicker">Posição</p>
+          <SelectField
+            label="Posição predefinida"
+            value=""
+            onChange={(preset) => {
+              const positions: Record<string, Partial<TextOverlaySettings>> = {
+                "top-left": {
+                  x: 5,
+                  y: 7,
+                  verticalAnchor: "top",
+                  align: "left",
+                },
+                "top-center": {
+                  x: 50,
+                  y: 7,
+                  verticalAnchor: "top",
+                  align: "center",
+                },
+                "top-right": {
+                  x: 95,
+                  y: 7,
+                  verticalAnchor: "top",
+                  align: "right",
+                },
+                "middle-left": {
+                  x: 5,
+                  y: 50,
+                  verticalAnchor: "middle",
+                  align: "left",
+                },
+                center: {
+                  x: 50,
+                  y: 50,
+                  verticalAnchor: "middle",
+                  align: "center",
+                },
+                "middle-right": {
+                  x: 95,
+                  y: 50,
+                  verticalAnchor: "middle",
+                  align: "right",
+                },
+                "bottom-left": {
+                  x: 5,
+                  y: 93,
+                  verticalAnchor: "bottom",
+                  align: "left",
+                },
+                "bottom-center": {
+                  x: 50,
+                  y: 93,
+                  verticalAnchor: "bottom",
+                  align: "center",
+                },
+                "bottom-right": {
+                  x: 95,
+                  y: 93,
+                  verticalAnchor: "bottom",
+                  align: "right",
+                },
+              };
+              const next = positions[preset];
+              if (next) onTextSettings(next);
+            }}
+          >
+            <option value="">Escolher posição…</option>
+            <option value="top-left">Canto superior esquerdo</option>
+            <option value="top-center">Topo · centro</option>
+            <option value="top-right">Canto superior direito</option>
+            <option value="middle-left">Esquerda · centro</option>
+            <option value="center">Centro</option>
+            <option value="middle-right">Direita · centro</option>
+            <option value="bottom-left">Canto inferior esquerdo</option>
+            <option value="bottom-center">Base · centro</option>
+            <option value="bottom-right">Canto inferior direito</option>
+          </SelectField>
+          <div className="two-columns">
+            <RangeField
+              label="Horizontal"
+              value={textSettings.x}
+              onChange={(x) => onTextSettings({ x })}
+            />
+            <RangeField
+              label="Vertical"
+              value={textSettings.y}
+              onChange={(y) => onTextSettings({ y })}
+            />
+          </div>
+          <SelectField
+            label="Alinhamento"
+            value={textSettings.align}
+            onChange={(align) =>
+              onTextSettings({ align: align as TextOverlaySettings["align"] })
+            }
+          >
+            <option value="left">Esquerda</option>
+            <option value="center">Centro</option>
+            <option value="right">Direita</option>
+            <option value="justify">Justificado</option>
+          </SelectField>
+          <SelectField
+            label="Âncora vertical"
+            value={textSettings.verticalAnchor}
+            onChange={(verticalAnchor) =>
+              onTextSettings({
+                verticalAnchor:
+                  verticalAnchor as TextOverlaySettings["verticalAnchor"],
+              })
+            }
+          >
+            <option value="top">Topo</option>
+            <option value="middle">Centro</option>
+            <option value="bottom">Base</option>
+          </SelectField>
+        </div>
+        <div className="inspector-subsection">
+          <p className="inspector-kicker">Fundo</p>
           <RangeField
-            label="Espaçamento"
-            max={24}
-            min={-2}
-            unit="px"
-            value={textSettings.letterSpacing}
-            onChange={(letterSpacing) => onTextSettings({ letterSpacing })}
+            label="Sombra"
+            value={textSettings.shadow}
+            onChange={(shadow) => onTextSettings({ shadow })}
           />
           <RangeField
-            label="Altura"
-            max={180}
-            min={90}
-            unit="%"
-            value={textSettings.lineHeight}
-            onChange={(lineHeight) => onTextSettings({ lineHeight })}
+            label="Escurecimento do fundo"
+            value={scene.common.shade}
+            onChange={(value) => onCommon("shade", value)}
           />
         </div>
-        <ColorInput
-          label="Cor"
-          value={textSettings.color}
-          onChange={(color) => onTextSettings({ color })}
-        />
-        <RangeField
-          label="Opacidade"
-          value={textSettings.opacity}
-          onChange={(opacity) => onTextSettings({ opacity })}
-        />
-        <SelectField
-          label="Posição predefinida"
-          value=""
-          onChange={(preset) => {
-            const positions: Record<string, Partial<TextOverlaySettings>> = {
-              "top-left": { x: 5, y: 7, verticalAnchor: "top", align: "left" },
-              "top-center": {
-                x: 50,
-                y: 7,
-                verticalAnchor: "top",
-                align: "center",
-              },
-              "top-right": {
-                x: 95,
-                y: 7,
-                verticalAnchor: "top",
-                align: "right",
-              },
-              "middle-left": {
-                x: 5,
-                y: 50,
-                verticalAnchor: "middle",
-                align: "left",
-              },
-              center: {
-                x: 50,
-                y: 50,
-                verticalAnchor: "middle",
-                align: "center",
-              },
-              "middle-right": {
-                x: 95,
-                y: 50,
-                verticalAnchor: "middle",
-                align: "right",
-              },
-              "bottom-left": {
-                x: 5,
-                y: 93,
-                verticalAnchor: "bottom",
-                align: "left",
-              },
-              "bottom-center": {
-                x: 50,
-                y: 93,
-                verticalAnchor: "bottom",
-                align: "center",
-              },
-              "bottom-right": {
-                x: 95,
-                y: 93,
-                verticalAnchor: "bottom",
-                align: "right",
-              },
-            };
-            const next = positions[preset];
-            if (next) onTextSettings(next);
-          }}
-        >
-          <option value="">Escolher posição…</option>
-          <option value="top-left">Canto superior esquerdo</option>
-          <option value="top-center">Topo · centro</option>
-          <option value="top-right">Canto superior direito</option>
-          <option value="middle-left">Esquerda · centro</option>
-          <option value="center">Centro</option>
-          <option value="middle-right">Direita · centro</option>
-          <option value="bottom-left">Canto inferior esquerdo</option>
-          <option value="bottom-center">Base · centro</option>
-          <option value="bottom-right">Canto inferior direito</option>
-        </SelectField>
-        <div className="two-columns">
-          <RangeField
-            label="Horizontal"
-            value={textSettings.x}
-            onChange={(x) => onTextSettings({ x })}
-          />
-          <RangeField
-            label="Vertical"
-            value={textSettings.y}
-            onChange={(y) => onTextSettings({ y })}
-          />
-        </div>
-        <SelectField
-          label="Alinhamento"
-          value={textSettings.align}
-          onChange={(align) =>
-            onTextSettings({ align: align as TextOverlaySettings["align"] })
-          }
-        >
-          <option value="left">Esquerda</option>
-          <option value="center">Centro</option>
-          <option value="right">Direita</option>
-          <option value="justify">Justificado</option>
-        </SelectField>
-        <SelectField
-          label="Âncora vertical"
-          value={textSettings.verticalAnchor}
-          onChange={(verticalAnchor) =>
-            onTextSettings({
-              verticalAnchor:
-                verticalAnchor as TextOverlaySettings["verticalAnchor"],
-            })
-          }
-        >
-          <option value="top">Topo</option>
-          <option value="middle">Centro</option>
-          <option value="bottom">Base</option>
-        </SelectField>
-        <RangeField
-          label="Sombra"
-          value={textSettings.shadow}
-          onChange={(shadow) => onTextSettings({ shadow })}
-        />
-        <RangeField
-          label="Escurecimento do fundo"
-          value={scene.common.shade}
-          onChange={(value) => onCommon("shade", value)}
-        />
         <div className="text-field-style-stack">
           <span className="inspector-kicker">
             Campos do texto · ordem, exibição e estilo
