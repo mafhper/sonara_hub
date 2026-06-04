@@ -3391,7 +3391,7 @@ function App() {
         {workspaceMode === "visual" ? (
           <nav className="steps" aria-label="Etapas do projeto">
             {(["music", "visual", "text"] as ActiveStep[]).map(
-              (step, index) => (
+              (step) => (
                 <button
                   className={
                     visualStageView === "editor" && step === activeStep
@@ -3405,7 +3405,6 @@ function App() {
                     setActiveStep(step);
                   }}
                 >
-                  <span>{index + 1}</span>
                   {stepLabel(step)}
                 </button>
               ),
@@ -3438,7 +3437,6 @@ function App() {
                 setActiveStep("export");
               }}
             >
-              <span>4</span>
               {stepLabel("export")}
             </button>
           </nav>
