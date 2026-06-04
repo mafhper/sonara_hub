@@ -5387,6 +5387,113 @@ button:disabled {
   box-shadow: none;
 }
 
+/* Mode toggle (HSL / HEX / RGB) sitting next to the swatch */
+.color-mode-toggle {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+}
+
+.color-mode-toggle button {
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  padding: 0 4px;
+  min-height: 32px;
+}
+
+.color-mode-toggle button.active {
+  background: var(--button-hover-bg);
+  color: var(--text-primary);
+}
+
+.color-hsl {
+  display: grid;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.color-slider {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 7px;
+}
+
+.color-slider-label {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-weight: 700;
+}
+
+.color-slider-value {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.color-slider input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.color-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 45%);
+  cursor: pointer;
+}
+
+.color-rgb {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.color-rgb-field {
+  display: grid;
+  gap: 3px;
+}
+
+.color-rgb-field span {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-weight: 700;
+}
+
+.color-rgb-field input {
+  width: 100%;
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--field-grad);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 32%);
+  color: var(--text-primary);
+  padding: 0 6px;
+  font-size: var(--font-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.color-hex-standalone {
+  margin-top: 7px;
+}
+
 .icon-toggle-row {
   display: grid;
   grid-template-columns: repeat(2, 32px) 1fr repeat(3, 32px);

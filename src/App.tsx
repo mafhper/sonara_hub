@@ -8319,40 +8319,147 @@ function ColorInput({
   onChange: (value: string) => void;
 }) {
   const hex = safeHex(value, "#ffffff");
-  // Local draft so the user can type a partial hex without it being rejected
-  // on every keystroke; we only commit once it is a valid #RRGGBB value.
+  // HSL is the default editor (easier to explore variations than hex/rgb); the
+  // stored value stays #RRGGBB. Keep HSL in local state so dragging one slider
+  // doesn't jitter from hex rounding round-trips.
+  const [mode, setMode] = useState<"hsl" | "hex" | "rgb">("hsl");
+  const [hsl, setHsl] = useState(() => hexToHsl(hex));
   const [draft, setDraft] = useState(hex.toUpperCase());
   useEffect(() => {
+    // Resync only when the value changed from outside, not from our own edit.
+    if (hslToHex(hsl.h, hsl.s, hsl.l).toLowerCase() !== hex.toLowerCase()) {
+      setHsl(hexToHsl(hex));
+    }
     setDraft(hex.toUpperCase());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hex]);
+
+  const commitHsl = (part: "h" | "s" | "l", next: number) => {
+    const updated = { ...hsl, [part]: next };
+    setHsl(updated);
+    onChange(hslToHex(updated.h, updated.s, updated.l));
+  };
   const commitDraft = (next: string) => {
     setDraft(next.toUpperCase());
-    if (/^#[0-9a-f]{6}$/i.test(next)) {
-      onChange(next);
-    }
+    if (/^#[0-9a-f]{6}$/i.test(next)) onChange(next);
   };
+  const rgb = hexToRgbColor(hex);
+  const commitRgb = (part: "r" | "g" | "b", next: number) => {
+    const channel = Math.max(0, Math.min(255, Math.round(next) || 0));
+    const updated = { ...rgb, [part]: channel };
+    onChange(rgbColorToHex(updated.r, updated.g, updated.b));
+  };
+  const hueStops = "#ff0000,#ffff00,#00ff00,#00ffff,#0000ff,#ff00ff,#ff0000";
+
   return (
     <div className="color-input">
       <span>{label}</span>
       <div className="color-input-main">
-        {/* Native system color picker — the OS dialog offers HSL/HSV/RGB tabs. */}
         <input
           aria-label={`${label} seletor de cor`}
           type="color"
           value={hex}
           onChange={(event) => onChange(event.target.value)}
         />
+        <div className="color-mode-toggle" role="tablist">
+          {(["hsl", "hex", "rgb"] as const).map((option) => (
+            <button
+              aria-selected={mode === option}
+              className={mode === option ? "active" : ""}
+              key={option}
+              role="tab"
+              type="button"
+              onClick={() => setMode(option)}
+            >
+              {option.toUpperCase()}
+            </button>
+          ))}
+        </div>
+      </div>
+      {mode === "hsl" && (
+        <div className="color-hsl">
+          <ColorSlider
+            label="H"
+            max={360}
+            trackBackground={`linear-gradient(90deg, ${hueStops})`}
+            value={hsl.h}
+            onChange={(next) => commitHsl("h", next)}
+          />
+          <ColorSlider
+            label="S"
+            max={100}
+            trackBackground={`linear-gradient(90deg, ${hslToHex(hsl.h, 0, hsl.l)}, ${hslToHex(hsl.h, 100, hsl.l)})`}
+            value={hsl.s}
+            onChange={(next) => commitHsl("s", next)}
+          />
+          <ColorSlider
+            label="L"
+            max={100}
+            trackBackground={`linear-gradient(90deg, #000, ${hslToHex(hsl.h, hsl.s, 50)}, #fff)`}
+            value={hsl.l}
+            onChange={(next) => commitHsl("l", next)}
+          />
+        </div>
+      )}
+      {mode === "hex" && (
         <input
           aria-label={`${label} hexadecimal`}
-          className="color-hex-input"
+          className="color-hex-input color-hex-standalone"
           maxLength={7}
           spellCheck={false}
           value={draft}
           onBlur={() => setDraft(hex.toUpperCase())}
           onChange={(event) => commitDraft(event.target.value)}
         />
-      </div>
+      )}
+      {mode === "rgb" && (
+        <div className="color-rgb">
+          {(["r", "g", "b"] as const).map((channel) => (
+            <label className="color-rgb-field" key={channel}>
+              <span>{channel.toUpperCase()}</span>
+              <input
+                max={255}
+                min={0}
+                type="number"
+                value={rgb[channel]}
+                onChange={(event) =>
+                  commitRgb(channel, Number(event.target.value))
+                }
+              />
+            </label>
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+function ColorSlider({
+  label,
+  max,
+  onChange,
+  trackBackground,
+  value,
+}: {
+  label: string;
+  max: number;
+  onChange: (value: number) => void;
+  trackBackground: string;
+  value: number;
+}) {
+  return (
+    <label className="color-slider">
+      <span className="color-slider-label">{label}</span>
+      <input
+        max={max}
+        min={0}
+        style={{ background: trackBackground }}
+        type="range"
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+      <span className="color-slider-value">{value}</span>
+    </label>
   );
 }
 
@@ -9126,6 +9233,63 @@ function safeHex(value: string | undefined, fallback: string) {
   return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)
     ? value
     : fallback;
+}
+
+function hexToRgbColor(hex: string) {
+  const value = safeHex(hex, "#ffffff").slice(1);
+  return {
+    r: Number.parseInt(value.slice(0, 2), 16),
+    g: Number.parseInt(value.slice(2, 4), 16),
+    b: Number.parseInt(value.slice(4, 6), 16),
+  };
+}
+
+function rgbColorToHex(r: number, g: number, b: number) {
+  const channel = (v: number) =>
+    Math.max(0, Math.min(255, Math.round(v)))
+      .toString(16)
+      .padStart(2, "0");
+  return `#${channel(r)}${channel(g)}${channel(b)}`;
+}
+
+function hexToHsl(hex: string) {
+  const { r, g, b } = hexToRgbColor(hex);
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const delta = max - min;
+  let h = 0;
+  if (delta !== 0) {
+    if (max === rn) h = ((gn - bn) / delta) % 6;
+    else if (max === gn) h = (bn - rn) / delta + 2;
+    else h = (rn - gn) / delta + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  const l = (max + min) / 2;
+  const s = delta === 0 ? 0 : delta / (1 - Math.abs(2 * l - 1));
+  return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) };
+}
+
+function hslToHex(h: number, s: number, l: number) {
+  const sn = Math.max(0, Math.min(100, s)) / 100;
+  const ln = Math.max(0, Math.min(100, l)) / 100;
+  const hue = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * ln - 1)) * sn;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = ln - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hue < 60) [r, g, b] = [c, x, 0];
+  else if (hue < 120) [r, g, b] = [x, c, 0];
+  else if (hue < 180) [r, g, b] = [0, c, x];
+  else if (hue < 240) [r, g, b] = [0, x, c];
+  else if (hue < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  return rgbColorToHex((r + m) * 255, (g + m) * 255, (b + m) * 255);
 }
 
 function coverLayerFromArtwork(
