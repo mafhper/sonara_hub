@@ -914,6 +914,17 @@ function App() {
     void restoreJobHistory();
   }, []);
 
+  // Auto-analyze the active track's quality the first time it is selected, so
+  // the Qualidade tab is populated without a manual "Analisar" click (runs once
+  // per track, lazily, to avoid hammering ffmpeg for the whole library upfront).
+  useEffect(() => {
+    if (!selectedTrack) return;
+    if (selectedTrack.audioInfo?.analysis) return;
+    if (analyzingTrackIds.includes(selectedTrack.id)) return;
+    void analyzeSelectedAudio();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTrackId]);
+
   useEffect(() => {
     const syncPanelMode = () => {
       const shouldFloat =
@@ -1817,7 +1828,9 @@ function App() {
         analysis: AudioTechnicalAnalysis;
         suggestions: Partial<AudioTagDraft>;
       }>("/api/audio/analyze", { method: "POST", body: formData });
-      updateSelectedTrack({
+      // Target the track by id (not "selected"): the user may have switched
+      // tracks while this analysis was in flight (auto-analysis runs on select).
+      updateTrackDraft(trackId, {
         audioInfo: {
           ...selectedTrack.audioInfo,
           ...payload.metadata,
