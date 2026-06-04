@@ -6,6 +6,7 @@ import {
   clearCoverSeriesScopeOverride,
   resolveAlbumArtwork,
   resolveCoverSeriesSettings,
+  resolveEffectiveComposition,
   resolveTrackArtwork,
 } from "../shared/composition-scope.mjs";
 
@@ -123,4 +124,59 @@ test("selected text settings apply only to selected batch targets and are cloned
 
   next[1].textSettings.fields.title = false;
   assert.equal(next[0].textSettings.fields.title, true);
+});
+
+test("effective composition reads scene/text/layers/metadata from the track and resolves cover", () => {
+  const track = {
+    scene: { id: "scene" },
+    textSettings: { order: ["title"] },
+    layers: [{ id: "l1" }],
+    metadata: { title: "T" },
+    suggestedCover,
+    useSuggestedCover: true,
+  };
+
+  const comp = resolveEffectiveComposition(track, {
+    sharedCover: null,
+    showMetadata: true,
+  });
+
+  // Preview and export must read the exact same per-track objects.
+  assert.equal(comp.scene, track.scene);
+  assert.equal(comp.textSettings, track.textSettings);
+  assert.equal(comp.layers, track.layers);
+  assert.equal(comp.metadata, track.metadata);
+  assert.equal(comp.cover, suggestedCover);
+  assert.equal(comp.showMetadata, true);
+});
+
+test("effective composition prefers the shared cover and honors a disabled cover", () => {
+  const track = { suggestedCover, useSuggestedCover: true };
+  assert.equal(
+    resolveEffectiveComposition(track, { sharedCover }).cover,
+    sharedCover,
+  );
+  assert.equal(
+    resolveEffectiveComposition({ ...track, useSuggestedCover: false }, {})
+      .cover,
+    null,
+  );
+});
+
+test("effective composition falls back to provided defaults when track or fields are missing", () => {
+  const fallbacks = {
+    scene: { id: "base" },
+    textSettings: { order: [] },
+    metadata: { title: "" },
+    layers: [],
+  };
+
+  const comp = resolveEffectiveComposition(null, { fallbacks });
+  assert.equal(comp.scene, fallbacks.scene);
+  assert.equal(comp.textSettings, fallbacks.textSettings);
+  assert.equal(comp.metadata, fallbacks.metadata);
+  assert.deepEqual(comp.layers, []);
+  assert.equal(comp.cover, null);
+  // showMetadata defaults to false when not provided.
+  assert.equal(comp.showMetadata, false);
 });

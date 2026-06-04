@@ -83,6 +83,7 @@ import {
   clearCoverSeriesScopeOverride,
   resolveAlbumArtwork,
   resolveCoverSeriesSettings,
+  resolveEffectiveComposition,
   resolveTrackArtwork,
 } from "../shared/composition-scope.mjs";
 import {
@@ -826,6 +827,18 @@ function App() {
         : "Planejada"
     : "";
   const selectedScene = selectedTrack?.scene ?? builtinVisualPresets[0];
+  // The preview reads the exact same effective composition the export encodes,
+  // so what is shown and what is rendered stay locked together (handoff #13).
+  const previewComposition = resolveEffectiveComposition(selectedTrack, {
+    sharedCover: cover,
+    showMetadata,
+    fallbacks: {
+      scene: builtinVisualPresets[0],
+      textSettings: defaultTextSettings,
+      metadata: defaultMetadata,
+      layers: [],
+    },
+  });
   const selectedOutput =
     outputPresets.find(([value]) => value === outputPreset) ?? outputPresets[1];
   const audioSrc = selectedTrack
@@ -2289,27 +2302,34 @@ function App() {
     // Persist a snapshot of exactly what is being submitted before the render
     // starts, so a crash/restart mid-render never forces the user to redo edits.
     void saveSnapshot(createSnapshot());
+    // Derive the exported composition from the same resolver the preview uses,
+    // so what renders can never diverge from what was shown (handoff #13).
+    const composition = resolveEffectiveComposition(track, {
+      sharedCover: cover,
+      showMetadata,
+    });
     const formData = new FormData();
     if (track.sourceFile) formData.append("audio", track.sourceFile);
     else formData.append("inputAudio", track.sourceKey);
-    for (const layer of track.layers)
+    for (const layer of composition.layers)
       formData.append("mediaLayers", layer.file);
-    const trackCover = coverForTrack(track);
-    if (trackCover) formData.append("cover", trackCover.file);
-    formData.append("visualSettings", JSON.stringify(track.scene));
+    if (composition.cover) formData.append("cover", composition.cover.file);
+    formData.append("visualSettings", JSON.stringify(composition.scene));
     formData.append(
       "compositionSettings",
       JSON.stringify({
-        mediaLayers: track.layers.map(stripLayerFile),
-        textSettings: track.textSettings,
+        mediaLayers: composition.layers.map(stripLayerFile),
+        textSettings: composition.textSettings,
       }),
     );
     formData.append("preset", outputPreset);
     formData.append("qualityProfile", qualityProfile);
     formData.append("renderMode", workflowMode);
-    formData.append("showMetadata", String(showMetadata));
-    for (const [key, value] of Object.entries(track.metadata)) {
-      formData.append(key, String(value));
+    formData.append("showMetadata", String(composition.showMetadata));
+    if (composition.metadata) {
+      for (const [key, value] of Object.entries(composition.metadata)) {
+        formData.append(key, String(value));
+      }
     }
     try {
       const data = await fetchJson<{ jobId: string }>("/api/render", {
@@ -3139,13 +3159,13 @@ function App() {
             <div className="preview-frame">
               <ScenePreview
                 audioBandsRef={audioBandsRef}
-                coverSrc={selectedCover?.src}
-                layers={selectedTrack?.layers ?? []}
-                metadata={selectedTrack?.metadata ?? defaultMetadata}
-                scene={selectedScene}
-                showMetadata={showMetadata}
+                coverSrc={previewComposition.cover?.src}
+                layers={previewComposition.layers}
+                metadata={previewComposition.metadata ?? defaultMetadata}
+                scene={previewComposition.scene ?? builtinVisualPresets[0]}
+                showMetadata={previewComposition.showMetadata}
                 textSettings={
-                  selectedTrack?.textSettings ?? defaultTextSettings
+                  previewComposition.textSettings ?? defaultTextSettings
                 }
               />
             </div>

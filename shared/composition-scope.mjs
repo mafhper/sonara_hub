@@ -71,6 +71,25 @@ export function applySelectedTextSettingsToBatch(
   );
 }
 
+// Single source of truth for the composition a track contributes to a render.
+// Both the live preview and the export payload derive from this, so the scene,
+// text, layers, metadata and cover they show/encode can never drift apart (the
+// #13 class of preview/export divergence). Consumers adapt the returned cover
+// object as needed (preview reads `.src`, export reads `.file`). `fallbacks`
+// covers the UI's no-track-selected state; the export path always passes a real
+// track so its fallbacks stay unused.
+export function resolveEffectiveComposition(track, context = {}) {
+  const { sharedCover = null, showMetadata = false, fallbacks = {} } = context;
+  return {
+    scene: track?.scene ?? fallbacks.scene ?? null,
+    textSettings: track?.textSettings ?? fallbacks.textSettings ?? null,
+    layers: track?.layers ?? fallbacks.layers ?? [],
+    metadata: track?.metadata ?? fallbacks.metadata ?? null,
+    cover: resolveTrackArtwork(track, sharedCover),
+    showMetadata: Boolean(showMetadata),
+  };
+}
+
 function cloneValue(value) {
   return value == null ? value : structuredClone(value);
 }

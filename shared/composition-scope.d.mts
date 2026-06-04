@@ -53,3 +53,41 @@ export function applySelectedTextSettingsToBatch<
   selectedTrackId: string,
   clone?: (settings: TTextSettings) => TTextSettings,
 ): TTrack[];
+
+type EffectiveCompositionTrack<TScene, TText, TLayer, TMeta, TArtwork> =
+  TrackArtworkScope<TArtwork> & {
+    scene?: TScene | null;
+    textSettings?: TText | null;
+    layers?: TLayer[];
+    metadata?: TMeta | null;
+  };
+
+export function resolveEffectiveComposition<
+  TScene,
+  TText,
+  TLayer,
+  TMeta,
+  TArtwork,
+>(
+  track:
+    | EffectiveCompositionTrack<TScene, TText, TLayer, TMeta, TArtwork>
+    | null
+    | undefined,
+  context?: {
+    sharedCover?: TArtwork | null;
+    showMetadata?: boolean;
+    fallbacks?: {
+      scene?: TScene | null;
+      textSettings?: TText | null;
+      layers?: TLayer[];
+      metadata?: TMeta | null;
+    };
+  },
+): {
+  scene: TScene | null;
+  textSettings: TText | null;
+  layers: TLayer[];
+  metadata: TMeta | null;
+  cover: TArtwork | null;
+  showMetadata: boolean;
+};
