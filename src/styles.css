@@ -4486,6 +4486,39 @@ button:disabled {
   font-size: var(--font-sm);
 }
 
+/* Per-video data summary in the "Conferir vídeos" cards */
+.video-card-data {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 10px;
+  margin: 8px 0 0;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--hairline);
+  list-style: none;
+}
+
+.video-card-data li {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.video-card-data span {
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.video-card-data strong {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .thumbnail-mode-switch,
 .stage-view-switch {
   display: flex;

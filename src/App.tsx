@@ -5553,6 +5553,46 @@ function VideoReviewGrid({
                         : "Não listado"}
                   </small>
                 </div>
+                <ul className="video-card-data">
+                  <li>
+                    <span>Efeito</span>
+                    <strong>{track.scene?.name ?? "—"}</strong>
+                  </li>
+                  <li>
+                    <span>Waveform</span>
+                    <strong>
+                      {track.scene?.waveform?.visible ? "Ligada" : "Desligada"}
+                    </strong>
+                  </li>
+                  <li>
+                    <span>Camadas</span>
+                    <strong>{track.layers.length}/3</strong>
+                  </li>
+                  <li>
+                    <span>Texto</span>
+                    <strong>
+                      {showMetadata
+                        ? `${
+                            Object.values(
+                              track.textSettings?.fields ?? {},
+                            ).filter(Boolean).length
+                          } campos`
+                        : "Oculto"}
+                    </strong>
+                  </li>
+                  <li>
+                    <span>Álbum</span>
+                    <strong>{track.metadata.album || "—"}</strong>
+                  </li>
+                  <li>
+                    <span>Ano · Versão</span>
+                    <strong>
+                      {[track.metadata.year, track.metadata.version]
+                        .filter(Boolean)
+                        .join(" · ") || "—"}
+                    </strong>
+                  </li>
+                </ul>
                 <div
                   className="thumbnail-mode-switch"
                   role="group"
