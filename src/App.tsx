@@ -3373,7 +3373,6 @@ function App() {
                 onMetadata={updateMetadata}
                 onPreset={setOutputPreset}
                 onQuality={setQualityProfile}
-                onUseDarkAudio={() => selectPreset("audio-dark")}
               />
             )}
           </div>
@@ -3427,25 +3426,13 @@ function App() {
             <button
               className={visualStageView === "queue" ? "active" : ""}
               type="button"
-              onClick={() => setVisualStageView("queue")}
-            >
-              <Loader2 />
-              Fila de vídeos
-            </button>
-            <button
-              className={
-                visualStageView === "editor" && activeStep === "export"
-                  ? "active"
-                  : ""
-              }
-              type="button"
               onClick={() => {
-                setVisualStageView("editor");
+                setVisualStageView("queue");
                 setActiveStep("export");
               }}
             >
               <Download />
-              {stepLabel("export")}
+              Fila de vídeos
             </button>
           </nav>
         ) : (
@@ -8470,7 +8457,6 @@ function ExportInspector({
   onMetadata,
   onPreset,
   onQuality,
-  onUseDarkAudio,
 }: {
   batchCount: number;
   coverName?: string;
@@ -8488,7 +8474,6 @@ function ExportInspector({
   onMetadata: (patch: Partial<TrackMetadata>) => void;
   onPreset: (value: string) => void;
   onQuality: (value: string) => void;
-  onUseDarkAudio: () => void;
 }) {
   const resolution =
     outputPresets.find(([value]) => value === outputPreset) ?? outputPresets[1];
@@ -8564,13 +8549,6 @@ function ExportInspector({
           onClick={onChooseOutput}
         >
           <FolderOpen /> {outputFolderName}
-        </button>
-        <button
-          className="upload-action"
-          type="button"
-          onClick={onUseDarkAudio}
-        >
-          <Disc3 /> Usar tela escura com áudio
         </button>
         <button
           className="primary-action wide"

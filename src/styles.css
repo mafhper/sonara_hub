@@ -5557,6 +5557,17 @@ button:disabled {
   height: 14px;
 }
 
+/* Keep the review button on one line so its label isn't clipped. */
+.stage-header-actions {
+  flex-wrap: wrap;
+}
+
+.stage-header-actions button {
+  flex: 0 0 auto;
+  overflow: visible;
+  white-space: nowrap;
+}
+
 .color-input {
   display: grid;
   gap: 7px;
