@@ -3391,9 +3391,12 @@ function App() {
         {workspaceMode === "visual" ? (
           <nav className="steps" aria-label="Etapas do projeto">
             {(["music", "visual", "text"] as ActiveStep[]).map((step) => {
-              const StepIcon = { music: Music2, visual: Image, text: FileText }[
-                step
-              ];
+              const StepIcon = {
+                music: Music2,
+                visual: Image,
+                text: FileText,
+                export: Download,
+              }[step];
               return (
                 <button
                   className={
