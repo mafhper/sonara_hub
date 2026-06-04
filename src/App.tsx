@@ -7101,43 +7101,10 @@ function TextInspector({
           checked={showMetadata}
           onChange={onToggle}
         />
-        <div className="check-stack">
-          <CheckField
-            label="Título"
-            checked={textSettings.fields.title}
-            onChange={(title) =>
-              onTextSettings({ fields: { ...textSettings.fields, title } })
-            }
-          />
-          <CheckField
-            label="Artista"
-            checked={textSettings.fields.artist}
-            onChange={(artist) =>
-              onTextSettings({ fields: { ...textSettings.fields, artist } })
-            }
-          />
-          <CheckField
-            label="Álbum"
-            checked={textSettings.fields.album}
-            onChange={(album) =>
-              onTextSettings({ fields: { ...textSettings.fields, album } })
-            }
-          />
-          <CheckField
-            label="Ano"
-            checked={textSettings.fields.year}
-            onChange={(year) =>
-              onTextSettings({ fields: { ...textSettings.fields, year } })
-            }
-          />
-          <CheckField
-            label="Versão"
-            checked={textSettings.fields.version}
-            onChange={(version) =>
-              onTextSettings({ fields: { ...textSettings.fields, version } })
-            }
-          />
-        </div>
+        <p className="helper-copy">
+          Mostre/oculte e reordene cada campo na lista “Ordem dos campos” abaixo
+          (ícone de olho + setas).
+        </p>
         <TextField
           label="Título"
           value={metadata.title}
@@ -7185,32 +7152,54 @@ function TextInspector({
         </SelectField>
         <div className="text-order-panel">
           <span className="inspector-kicker">Ordem dos campos</span>
-          {orderedFields.map((field, index) => (
-            <div className="text-order-row" key={field}>
-              <span>
-                {index + 1}. {textFieldLabels[field]}
-              </span>
-              <small>{textSettings.fields[field] ? "visível" : "oculto"}</small>
-              <div>
-                <button
-                  aria-label={`Mover ${textFieldLabels[field]} para cima`}
-                  disabled={index === 0}
-                  type="button"
-                  onClick={() => moveTextField(field, -1)}
-                >
-                  <ChevronUp />
-                </button>
-                <button
-                  aria-label={`Mover ${textFieldLabels[field]} para baixo`}
-                  disabled={index === orderedFields.length - 1}
-                  type="button"
-                  onClick={() => moveTextField(field, 1)}
-                >
-                  <ChevronDown />
-                </button>
+          {orderedFields.map((field, index) => {
+            const visible = textSettings.fields[field];
+            return (
+              <div
+                className={`text-order-row ${visible ? "" : "is-hidden-field"}`}
+                key={field}
+              >
+                <span>
+                  {index + 1}. {textFieldLabels[field]}
+                </span>
+                <div>
+                  <button
+                    aria-label={
+                      visible
+                        ? `Ocultar ${textFieldLabels[field]}`
+                        : `Mostrar ${textFieldLabels[field]}`
+                    }
+                    aria-pressed={visible}
+                    title={visible ? "Visível no vídeo" : "Oculto"}
+                    type="button"
+                    onClick={() =>
+                      onTextSettings({
+                        fields: { ...textSettings.fields, [field]: !visible },
+                      })
+                    }
+                  >
+                    {visible ? <Eye /> : <EyeOff />}
+                  </button>
+                  <button
+                    aria-label={`Mover ${textFieldLabels[field]} para cima`}
+                    disabled={index === 0}
+                    type="button"
+                    onClick={() => moveTextField(field, -1)}
+                  >
+                    <ChevronUp />
+                  </button>
+                  <button
+                    aria-label={`Mover ${textFieldLabels[field]} para baixo`}
+                    disabled={index === orderedFields.length - 1}
+                    type="button"
+                    onClick={() => moveTextField(field, 1)}
+                  >
+                    <ChevronDown />
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
         <SelectField
           label="Fonte"
