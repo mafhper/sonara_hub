@@ -6999,6 +6999,7 @@ function MusicInspector({
         <TextField
           label="Artista"
           value={metadata.artist}
+          placeholder={metadata.albumArtist || ""}
           onChange={(artist) => onChange({ artist })}
         />
         <TextField
@@ -7977,6 +7978,7 @@ function TextInspector({
         <TextField
           label="Artista"
           value={metadata.artist}
+          placeholder={metadata.albumArtist || ""}
           onChange={(artist) => onChange({ artist })}
         />
         <TextField
@@ -8742,11 +8744,13 @@ function TextField({
   value,
   onChange,
   suggestions,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   suggestions?: string[];
+  placeholder?: string;
 }) {
   const listId = suggestions ? `dl-${label.replace(/\W+/g, "-")}` : undefined;
   return (
@@ -8754,6 +8758,7 @@ function TextField({
       <span>{label}</span>
       <input
         list={listId}
+        placeholder={placeholder}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />

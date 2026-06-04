@@ -1563,7 +1563,10 @@ function drawMetadata(context, width, height, metadata, settings = {}) {
   const values = {
     title: String(metadata.title ?? "").trim(),
     version: String(metadata.version ?? "").trim(),
-    artist: String(metadata.artist ?? "").trim(),
+    // Fall back to the album artist when the track artist is empty, matching the
+    // catalog/library which shows `albumArtist || artist`. Without this the video
+    // overlay dropped the artist line for tracks that only carry an album artist.
+    artist: String(metadata.artist || metadata.albumArtist || "").trim(),
     album: String(metadata.album ?? "").trim(),
     year: String(metadata.year ?? "").trim(),
   };
