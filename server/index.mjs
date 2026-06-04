@@ -1010,6 +1010,10 @@ async function renderVideo({
       textSettings: settings.compositionSettings.textSettings,
     },
     onProgress: (progress, message) => updateJob(jobId, { progress, message }),
+    shouldCancel: () => {
+      const job = jobs.get(jobId);
+      return Boolean(job?.cancelRequested) || job?.status === "canceled";
+    },
   });
   assertJobNotCanceled(jobId);
   const muxArgs = buildWebglMuxArgs({
@@ -1313,7 +1317,7 @@ function normalizeSettings(body) {
     durationFallback: Number(body.durationFallback ?? 180),
     crf: Number(
       body.crf ??
-        (qualityProfile === "fast" ? 26 : qualityProfile === "final" ? 18 : 22),
+        (qualityProfile === "fast" ? 24 : qualityProfile === "final" ? 18 : 20),
     ),
   };
 }
@@ -1926,14 +1930,12 @@ function presetSize(preset) {
   switch (preset) {
     case "youtube-720p":
       return { width: 1280, height: 720 };
-    case "youtube-2k":
-      return { width: 2560, height: 1440 };
-    case "youtube-4k":
-      return { width: 3840, height: 2160 };
     case "shorts-1080x1920":
       return { width: 1080, height: 1920 };
     case "youtube-1080p":
     default:
+      // youtube-2k / youtube-4k were removed (WebGL context loss); any unknown
+      // or legacy preset degrades safely to 1080p.
       return { width: 1920, height: 1080 };
   }
 }

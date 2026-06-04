@@ -13,15 +13,52 @@ const runtimePath = fileURLToPath(
   new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
 );
 
-export async function renderWebglBackgroundVideo({
-  outputPath,
-  size,
-  duration,
-  settings,
-  audioEnvelope,
-  composition = {},
-  onProgress,
-}) {
+export async function renderWebglBackgroundVideo(options) {
+  const { size, onProgress } = options;
+  try {
+    await runWebglRenderAttempt(options, size);
+  } catch (error) {
+    const retryable =
+      error?.code === "WEBGL_CONTEXT_LOST" ||
+      error?.code === "WEBGL_SHADER_ERROR";
+    const reduced = reduceRenderSize(size);
+    if (retryable && reduced) {
+      onProgress?.(4, "Recuperando contexto WebGL em resolução reduzida");
+      await runWebglRenderAttempt(options, reduced);
+      return;
+    }
+    throw error;
+  }
+}
+
+// On WebGL context loss we retry once at a smaller internal size; the ffmpeg mux
+// upscales the intermediate back to the requested output resolution (lanczos),
+// so a successful-but-softer render still beats a hard crash. Returns null when
+// the size is already small enough that a retry would not help.
+function reduceRenderSize(size) {
+  const longest = Math.max(size.width, size.height);
+  const factor = Math.min(0.7, 1280 / longest);
+  if (factor >= 0.99) return null;
+  const even = (value) => Math.max(2, Math.round((value * factor) / 2) * 2);
+  return { width: even(size.width), height: even(size.height) };
+}
+
+function canceledRenderError() {
+  const error = new Error("Job cancelado");
+  error.code = "JOB_CANCELED";
+  return error;
+}
+
+async function runWebglRenderAttempt(options, size) {
+  const {
+    outputPath,
+    duration,
+    settings,
+    audioEnvelope,
+    composition = {},
+    onProgress,
+    shouldCancel,
+  } = options;
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   const rendererPath = path.join(
     path.dirname(outputPath),
@@ -44,11 +81,21 @@ export async function renderWebglBackgroundVideo({
   const file = await fs.open(outputPath, "w");
   let bytesWritten = 0;
   let writeQueue = Promise.resolve();
+  let canceled = false;
   const browser = await chromium.launch({
     headless: true,
     args: [
       "--allow-file-access-from-files",
       "--autoplay-policy=no-user-gesture-required",
+      // Keep the software (SwiftShader) path usable and ignore the GPU blocklist
+      // so headless Chromium does not refuse to start a WebGL context. Forcing a
+      // real GPU is opt-in (SONARA_FORCE_GPU=1) since it can fail to launch in a
+      // non-interactive/service context on Windows.
+      "--enable-unsafe-swiftshader",
+      "--ignore-gpu-blocklist",
+      ...(process.env.SONARA_FORCE_GPU === "1"
+        ? ["--use-angle=gl", "--enable-gpu"]
+        : []),
     ],
   });
   const context = await browser.newContext({
@@ -67,6 +114,13 @@ export async function renderWebglBackgroundVideo({
   });
 
   await page.exposeFunction("reportSceneProgress", async (progress) => {
+    // Cancellation is honored here (called once per frame): close the page so the
+    // in-flight page.evaluate rejects promptly instead of finishing the render.
+    if (typeof shouldCancel === "function" && shouldCancel()) {
+      canceled = true;
+      await page.close().catch(() => {});
+      return;
+    }
     onProgress(
       Math.max(4, Math.min(92, Math.round(progress))),
       "Renderizando cena",
@@ -91,6 +145,9 @@ export async function renderWebglBackgroundVideo({
         { durationSeconds: duration, fps: settings.webglFps },
       );
     } catch (error) {
+      if (canceled || (typeof shouldCancel === "function" && shouldCancel())) {
+        throw canceledRenderError();
+      }
       throw describeSceneRenderError(error, {
         diagnostics,
         scene: normalizeVisualSettings(settings.visualSettings ?? settings),
@@ -101,10 +158,11 @@ export async function renderWebglBackgroundVideo({
     await writeQueue;
   } finally {
     await file.close();
-    await context.close();
-    await browser.close();
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
   }
 
+  if (canceled) throw canceledRenderError();
   await assertValidWebm(outputPath, bytesWritten);
 }
 
@@ -199,9 +257,21 @@ export function buildRendererHtml({
 
     window.recordScene = async (durationSeconds, fps) => {
       if (!window.MediaRecorder) throw new Error("MediaRecorder indisponível no Chromium");
-      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp8")
-        ? "video/webm;codecs=vp8"
-        : "video/webm";
+      // Fail fast if the GPU context drops mid-render instead of stalling the
+      // frame loop; the server classifies this as WEBGL_CONTEXT_LOST and retries
+      // at a reduced resolution.
+      let contextLost = false;
+      canvas.addEventListener("webglcontextlost", (event) => {
+        event.preventDefault();
+        contextLost = true;
+      });
+      // Prefer VP9: at a given bitrate it keeps far more detail than VP8, so the
+      // intermediate WebM that ffmpeg re-encodes is effectively transparent.
+      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+        ? "video/webm;codecs=vp9"
+        : MediaRecorder.isTypeSupported("video/webm;codecs=vp8")
+          ? "video/webm;codecs=vp8"
+          : "video/webm";
       const stream = canvas.captureStream(0);
       const [track] = stream.getVideoTracks();
       if (typeof track?.requestFrame !== "function") {
@@ -209,7 +279,9 @@ export function buildRendererHtml({
       }
       const recorder = new MediaRecorder(stream, {
         mimeType,
-        videoBitsPerSecond: Math.max(3000000, canvas.width * canvas.height * 0.74),
+        // ~25 Mbps at 1080p (was ~3): keeps the intermediate near-lossless so the
+        // final x264 pass is the only meaningful quality stage.
+        videoBitsPerSecond: Math.max(24000000, Math.round(canvas.width * canvas.height * 12)),
       });
       const chunks = [];
       recorder.ondataavailable = (event) => {
@@ -221,6 +293,7 @@ export function buildRendererHtml({
       const frameDuration = 1000 / fps;
       const totalFrames = Math.max(2, Math.ceil(durationSeconds * fps));
       for (let index = 0; index < totalFrames; index += 1) {
+        if (contextLost) throw new Error("Falha ao renderizar: contexto perdido: true (WEBGL_CONTEXT_LOST)");
         const time = Math.min(durationSeconds, index / fps);
         runtime.setAudio(audioAt(time));
         runtime.render(time);

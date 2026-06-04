@@ -41,13 +41,20 @@ test("fast profile uses a 720p internal canvas", () => {
 test("automatic batch profile captures fewer frames while publishing smooth CFR video", () => {
   assert.deepEqual(
     renderTiming({ qualityProfile: "auto", renderMode: "batch" }),
-    { webglFps: 12, outputFps: 24, encoderPreset: "ultrafast" },
+    { webglFps: 15, outputFps: 24, encoderPreset: "veryfast" },
   );
 });
 
 test("final profile preserves higher frame rate and encoder quality", () => {
   assert.deepEqual(
     renderTiming({ qualityProfile: "final", renderMode: "single" }),
-    { webglFps: 30, outputFps: 30, encoderPreset: "veryfast" },
+    { webglFps: 30, outputFps: 30, encoderPreset: "medium" },
+  );
+});
+
+test("automatic single export renders crisp 30fps with a medium x264 preset", () => {
+  assert.deepEqual(
+    renderTiming({ qualityProfile: "auto", renderMode: "single" }),
+    { webglFps: 30, outputFps: 30, encoderPreset: "medium" },
   );
 });

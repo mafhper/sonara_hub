@@ -18,10 +18,12 @@ export function renderCanvasSize(outputSize, settings = {}) {
 
 export function renderTiming(settings = {}) {
   if (settings.qualityProfile === "final") {
-    return { webglFps: 30, outputFps: 30, encoderPreset: "veryfast" };
+    return { webglFps: 30, outputFps: 30, encoderPreset: "medium" };
   }
   if (settings.qualityProfile === "fast" || settings.renderMode === "batch") {
-    return { webglFps: 12, outputFps: 24, encoderPreset: "ultrafast" };
+    return { webglFps: 15, outputFps: 24, encoderPreset: "veryfast" };
   }
-  return { webglFps: 24, outputFps: 24, encoderPreset: "veryfast" };
+  // "auto" is the default path: x264 "medium" at 30 fps (was "veryfast" at 24)
+  // so the out-of-the-box 1080p export is crisp, not soft like ~480p.
+  return { webglFps: 30, outputFps: 30, encoderPreset: "medium" };
 }

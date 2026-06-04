@@ -223,11 +223,13 @@ const emptyBands: AudioBands = {
 };
 const compositionThumbnailCache = new Map<string, string>();
 const COMPOSITION_THUMBNAIL_CACHE_LIMIT = 60;
+// 2K/4K were removed: the headless WebGL renderer loses its context on the
+// FBM-heavy shaders at those sizes. Only resolutions the pipeline renders
+// reliably are offered; old sessions referencing 2k/4k fall back to 1080p.
 const outputPresets = [
   ["youtube-720p", "720p", "1280 x 720"],
   ["youtube-1080p", "1080p", "1920 x 1080"],
-  ["youtube-2k", "2K", "2560 x 1440"],
-  ["youtube-4k", "4K", "3840 x 2160"],
+  ["shorts-1080x1920", "Shorts", "1080 x 1920"],
 ];
 
 const PANEL_WIDTH_STORAGE_KEY = "sonara-hub-panel-widths";
@@ -2090,6 +2092,9 @@ function App() {
   }
 
   async function submitRender(track: TrackDraft) {
+    // Persist a snapshot of exactly what is being submitted before the render
+    // starts, so a crash/restart mid-render never forces the user to redo edits.
+    void saveSnapshot(createSnapshot());
     const formData = new FormData();
     if (track.sourceFile) formData.append("audio", track.sourceFile);
     else formData.append("inputAudio", track.sourceKey);
@@ -2481,7 +2486,13 @@ function App() {
     setAudioStageView(snapshot.audioStageView ?? "edit");
     setVisualStageView(snapshot.visualStageView ?? "editor");
     setActiveStep(snapshot.activeStep);
-    setOutputPreset(snapshot.outputPreset);
+    // Old sessions may carry a now-removed preset (youtube-2k/4k) — fall back to
+    // 1080p so we never re-submit an unsupported resolution.
+    setOutputPreset(
+      outputPresets.some(([value]) => value === snapshot.outputPreset)
+        ? snapshot.outputPreset
+        : "youtube-1080p",
+    );
     setQualityProfile(snapshot.qualityProfile);
     setShowMetadata(snapshot.showMetadata);
     setCoverSeriesSettings(
