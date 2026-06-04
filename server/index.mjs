@@ -418,6 +418,15 @@ app.post(
       return;
     }
 
+    if (!(await isAudioReadable(audioPath))) {
+      await tempFiles.cleanup(files);
+      res.status(400).json({
+        error:
+          "O arquivo de áudio está corrompido ou incompleto (envio interrompido?). Reabra a faixa e tente novamente.",
+      });
+      return;
+    }
+
     const lyricsText =
       (lyricsFile
         ? await fs.readFile(lyricsFile.path, "utf8")
@@ -1898,6 +1907,25 @@ function runFfmpeg(args, duration, onProgress) {
         new Error(`ffmpeg terminou com codigo ${code}: ${stderr.slice(-2000)}`),
       );
     });
+  });
+}
+
+// Validate that ffmpeg can actually open and decode the audio before we queue a
+// render. An aborted/truncated upload (multer "Request aborted") otherwise only
+// fails deep in the mux with a cryptic "Invalid data found when processing
+// input"; here we catch it upfront and return a clear message.
+function isAudioReadable(audioPath) {
+  const ffmpegPath = resolveFfmpegPath();
+  return new Promise((resolve) => {
+    const child = spawn(
+      ffmpegPath,
+      ["-v", "error", "-i", audioPath, "-f", "null", "-"],
+      { windowsHide: true },
+    );
+    let stderr = "";
+    child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
+    child.on("error", () => resolve(false));
+    child.on("close", (code) => resolve(code === 0 && !/Invalid data/i.test(stderr)));
   });
 }
 

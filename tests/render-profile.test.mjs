@@ -52,9 +52,9 @@ test("final profile preserves higher frame rate and encoder quality", () => {
   );
 });
 
-test("automatic single export renders crisp 30fps with a medium x264 preset", () => {
+test("automatic single export stays fast (24fps/veryfast); crispness comes from bitrate/CRF", () => {
   assert.deepEqual(
     renderTiming({ qualityProfile: "auto", renderMode: "single" }),
-    { webglFps: 30, outputFps: 30, encoderPreset: "medium" },
+    { webglFps: 24, outputFps: 24, encoderPreset: "veryfast" },
   );
 });

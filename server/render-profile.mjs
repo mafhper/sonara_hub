@@ -23,7 +23,8 @@ export function renderTiming(settings = {}) {
   if (settings.qualityProfile === "fast" || settings.renderMode === "batch") {
     return { webglFps: 15, outputFps: 24, encoderPreset: "veryfast" };
   }
-  // "auto" is the default path: x264 "medium" at 30 fps (was "veryfast" at 24)
-  // so the out-of-the-box 1080p export is crisp, not soft like ~480p.
-  return { webglFps: 30, outputFps: 30, encoderPreset: "medium" };
+  // "auto" is the default path. Crispness now comes from the VP9 high-bitrate
+  // intermediate + CRF (see webgl-export/index), so we keep the cheaper 24 fps /
+  // veryfast here to stay fast on CPU/SwiftShader; "final" carries 30 fps/medium.
+  return { webglFps: 24, outputFps: 24, encoderPreset: "veryfast" };
 }

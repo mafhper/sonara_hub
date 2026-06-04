@@ -136,6 +136,22 @@ async function runWebglRenderAttempt(options, size) {
     await writeQueue;
   });
 
+  // Server-side cancel watcher: a slow per-frame render can block the page's JS
+  // thread, so the in-page reportSceneProgress callback (and page.close) may not
+  // run. Polling here and force-closing the browser process aborts the render
+  // even when the page is wedged.
+  let cancelWatcher = null;
+  if (typeof shouldCancel === "function") {
+    cancelWatcher = setInterval(() => {
+      if (shouldCancel()) {
+        canceled = true;
+        clearInterval(cancelWatcher);
+        cancelWatcher = null;
+        browser.close().catch(() => {});
+      }
+    }, 400);
+  }
+
   try {
     await page.goto(pathToFileURL(rendererPath).href, { waitUntil: "load" });
     await page.waitForFunction(() => typeof window.recordScene === "function");
@@ -157,6 +173,7 @@ async function runWebglRenderAttempt(options, size) {
     }
     await writeQueue;
   } finally {
+    if (cancelWatcher) clearInterval(cancelWatcher);
     await file.close();
     await context.close().catch(() => {});
     await browser.close().catch(() => {});
