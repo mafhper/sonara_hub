@@ -3973,9 +3973,12 @@ function AudioLibraryWorkspace({
                   onBatchCommon({ ...batchCommon, copyright })
                 }
               />
-              <TextField
+              <TagSelectField
                 label="Gênero"
                 value={batchCommon.genre}
+                suggestions={genreSuggestions}
+                storageKey="sonara.customGenres"
+                placeholder="Buscar ou adicionar gênero…"
                 onChange={(genre) => onBatchCommon({ ...batchCommon, genre })}
               />
               <TextArea
@@ -5082,9 +5085,12 @@ function AudioLibraryInspector({
                 value={metadata.description}
                 onChange={(description) => onChange({ description })}
               />
-              <TextField
+              <TagSelectField
                 label="Tags"
                 value={metadata.tags}
+                suggestions={[]}
+                storageKey="sonara.customTags"
+                placeholder="Adicionar tag…"
                 onChange={(tags) => onChange({ tags })}
               />
               <CheckField
