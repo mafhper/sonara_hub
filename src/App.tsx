@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  Bell,
   Bold,
   Check,
   CheckCircle2,
@@ -683,6 +684,10 @@ function App() {
   const [storageUsage, setStorageUsage] = useState<StorageUsage | null>(null);
   const [cleanupBusy, setCleanupBusy] = useState(false);
   const [toasts, setToasts] = useState<ToastNotice[]>([]);
+  // Session-wide history of every toast, so dismissed/expired notices remain
+  // reachable from the bell in the topbar.
+  const [notificationLog, setNotificationLog] = useState<ToastNotice[]>([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [interactionDialog, setInteractionDialog] =
     useState<InteractionDialogState | null>(null);
   const [folderName, setFolderName] = useState("Pasta input");
@@ -822,19 +827,22 @@ function App() {
   ) {
     if (!message) return;
     const id = ++toastSequenceRef.current;
+    const notice = { id, message, tone, copyText: options.copyText };
     setToasts((current) =>
       [
         ...current.filter(
           (toast) => toast.message !== message || toast.tone !== tone,
         ),
-        { id, message, tone, copyText: options.copyText },
+        notice,
       ].slice(-4),
     );
+    setNotificationLog((current) => [notice, ...current].slice(0, 50));
     if (!options.persistent) {
-      const timer = window.setTimeout(
-        () => dismissToast(id),
-        tone === "warning" ? 7_000 : 5_000,
-      );
+      // Errors linger longer (10s) so they can be read/copied, but still clear
+      // on their own; the bell keeps the full history.
+      const duration =
+        tone === "error" ? 10_000 : tone === "warning" ? 7_000 : 5_000;
+      const timer = window.setTimeout(() => dismissToast(id), duration);
       toastTimersRef.current.set(id, timer);
     }
   }
@@ -848,7 +856,7 @@ function App() {
       setToasts((current) => current.filter((toast) => toast.tone !== "error"));
       return;
     }
-    showToast(message, "error", { copyText: message, persistent: true });
+    showToast(message, "error", { copyText: message });
   }
 
   function requestConfirmation(options: {
@@ -2690,6 +2698,33 @@ function App() {
               <Columns2 />
             </IconButton>
           </div>
+          <div className="notification-bell">
+            <IconButton
+              label="Notificações da sessão"
+              onClick={() => setNotificationsOpen((current) => !current)}
+            >
+              <Bell />
+            </IconButton>
+            {notificationLog.length > 0 && (
+              <span className="notification-bell-count">
+                {Math.min(99, notificationLog.length)}
+              </span>
+            )}
+            {notificationsOpen && (
+              <NotificationCenter
+                notifications={notificationLog}
+                onClose={() => setNotificationsOpen(false)}
+                onClear={() => {
+                  setNotificationLog([]);
+                  setNotificationsOpen(false);
+                }}
+                onCopy={(text) => {
+                  void copyTextToClipboard(text);
+                  showToast("Notificação copiada.", "info");
+                }}
+              />
+            )}
+          </div>
           <IconButton
             label="Configurações locais"
             onClick={() => void openLocalSettings()}
@@ -3423,6 +3458,69 @@ function toastIcon(tone: ToastTone) {
   if (tone === "success") return <CheckCircle2 />;
   if (tone === "warning" || tone === "error") return <AlertTriangle />;
   return <Info />;
+}
+
+function NotificationCenter({
+  notifications,
+  onClear,
+  onClose,
+  onCopy,
+}: {
+  notifications: ToastNotice[];
+  onClear: () => void;
+  onClose: () => void;
+  onCopy: (text: string) => void;
+}) {
+  return (
+    <div
+      className="notification-overlay"
+      role="presentation"
+      onMouseDown={onClose}
+    >
+      <section
+        aria-label="Notificações da sessão"
+        className="notification-panel"
+        role="dialog"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header>
+          <strong>Notificações da sessão</strong>
+          {notifications.length > 0 && (
+            <button className="quiet-action" type="button" onClick={onClear}>
+              Limpar
+            </button>
+          )}
+        </header>
+        {notifications.length === 0 ? (
+          <p className="helper-copy">Nenhuma notificação ainda.</p>
+        ) : (
+          <ul className="notification-list">
+            {notifications.map((notice) => (
+              <li
+                className={`notification-item ${notice.tone}`}
+                key={notice.id}
+              >
+                <span className="notification-item-icon">
+                  {toastIcon(notice.tone)}
+                </span>
+                <p>{notice.message}</p>
+                {notice.copyText && (
+                  <button
+                    aria-label="Copiar"
+                    className="icon-button"
+                    type="button"
+                    onClick={() => onCopy(notice.copyText ?? notice.message)}
+                  >
+                    <Copy />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
 }
 
 function InteractionDialog({

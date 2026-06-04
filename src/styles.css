@@ -1926,6 +1926,112 @@ svg {
   gap: var(--space-2);
 }
 
+/* Topbar notification bell + session history panel */
+.notification-bell {
+  position: relative;
+  display: inline-flex;
+}
+
+.notification-bell-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #0b0d11;
+  font-size: 10px;
+  font-weight: 760;
+  pointer-events: none;
+}
+
+.notification-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+}
+
+.notification-panel {
+  position: absolute;
+  top: 52px;
+  right: 14px;
+  width: min(420px, calc(100vw - 28px));
+  max-height: min(70vh, 560px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--elev-3, 0 18px 48px rgb(0 0 0 / 55%));
+}
+
+.notification-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 12px;
+}
+
+.notification-panel header .quiet-action {
+  width: auto;
+  min-height: 26px;
+  padding: 0 10px;
+}
+
+.notification-panel > .helper-copy {
+  margin: 0;
+  padding: 16px 12px;
+}
+
+.notification-list {
+  margin: 0;
+  padding: 6px;
+  overflow: auto;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.notification-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  border-radius: var(--radius);
+  padding: 8px 9px;
+  background: var(--stage-surface-low);
+}
+
+.notification-item p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.notification-item-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.notification-item.error .notification-item-icon,
+.notification-item.warning .notification-item-icon {
+  color: var(--status-danger, #e06b6b);
+}
+
+.notification-item.success .notification-item-icon {
+  color: var(--accent);
+}
+
 .toast-notice {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
