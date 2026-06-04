@@ -2384,6 +2384,11 @@ button:disabled {
   background: var(--selection-strong);
 }
 
+/* Original tracks that already have a treated copy collapse visually. */
+.track-row.has-treated:not(.selected) {
+  opacity: 0.5;
+}
+
 .track-row input,
 .check-field input,
 .batch-table input[type="checkbox"] {

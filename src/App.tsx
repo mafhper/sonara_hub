@@ -2401,10 +2401,18 @@ function App() {
         hasEmbeddedCover: Boolean(originCover),
         analysis: job.analysis,
       },
-      selectedForBatch: false,
+      // The treated copy is what the video step should use, so it lands
+      // selected; the original is deselected so the scope moves to the treated
+      // set and the originals visually collapse (dimmed in the sidebar).
+      selectedForBatch: true,
     };
-    setTracks((current) => [...current, treated]);
-    if (workflowMode !== "batch") setSelectedTrackId(treated.id);
+    setTracks((current) => [
+      ...current.map((track) =>
+        track.id === origin.id ? { ...track, selectedForBatch: false } : track,
+      ),
+      treated,
+    ]);
+    setSelectedTrackId(treated.id);
   }
 
   async function maybeFinalizeDestructiveAudioBatch() {
@@ -2811,51 +2819,64 @@ function App() {
           </span>
         </div>
         <div className="track-list">
-          {tracks.map((track) => (
-            <button
-              className={`track-row batch ${track.id === selectedTrack?.id ? "selected" : ""}`}
-              key={track.id}
-              type="button"
-              onClick={() => setSelectedTrackId(track.id)}
-            >
-              <input
-                aria-label={`Selecionar ${track.metadata.title} para o lote`}
-                checked={track.selectedForBatch}
-                type="checkbox"
-                onClick={(event) => event.stopPropagation()}
-                onChange={(event) => {
-                  event.stopPropagation();
-                  setTracks((current) =>
-                    current.map((item) =>
-                      item.id === track.id
-                        ? { ...item, selectedForBatch: event.target.checked }
-                        : item,
-                    ),
-                  );
-                }}
-              />
-              <span className="track-cover">
-                {coverForTrack(track)?.src ? (
-                  <img alt="" src={coverForTrack(track)?.src} />
-                ) : (
-                  <Music2 />
-                )}
-              </span>
-              <span className="track-copy">
-                <strong>{track.metadata.title}</strong>
-                <small>
-                  <span>
-                    {formatDuration(track.audioInfo?.durationSeconds)}
-                  </span>
-                  <em>
-                    {track.packageStatus === "treated" ? "Tratado" : "Original"}
-                  </em>
-                  {track.metadata.version && <em>{track.metadata.version}</em>}
-                </small>
-              </span>
-              <span className="track-status" />
-            </button>
-          ))}
+          {(() => {
+            // Originals that already produced a treated copy collapse (dim) so
+            // the eye goes to the treated set, which is what the video step uses.
+            const treatedOrigins = new Set(
+              tracks
+                .filter((track) => track.packageStatus === "treated")
+                .map((track) => track.variantOf),
+            );
+            return tracks.map((track) => (
+              <button
+                className={`track-row batch ${track.id === selectedTrack?.id ? "selected" : ""} ${treatedOrigins.has(track.id) ? "has-treated" : ""}`}
+                key={track.id}
+                type="button"
+                onClick={() => setSelectedTrackId(track.id)}
+              >
+                <input
+                  aria-label={`Selecionar ${track.metadata.title} para o lote`}
+                  checked={track.selectedForBatch}
+                  type="checkbox"
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) => {
+                    event.stopPropagation();
+                    setTracks((current) =>
+                      current.map((item) =>
+                        item.id === track.id
+                          ? { ...item, selectedForBatch: event.target.checked }
+                          : item,
+                      ),
+                    );
+                  }}
+                />
+                <span className="track-cover">
+                  {coverForTrack(track)?.src ? (
+                    <img alt="" src={coverForTrack(track)?.src} />
+                  ) : (
+                    <Music2 />
+                  )}
+                </span>
+                <span className="track-copy">
+                  <strong>{track.metadata.title}</strong>
+                  <small>
+                    <span>
+                      {formatDuration(track.audioInfo?.durationSeconds)}
+                    </span>
+                    <em>
+                      {track.packageStatus === "treated"
+                        ? "Tratado"
+                        : "Original"}
+                    </em>
+                    {track.metadata.version && (
+                      <em>{track.metadata.version}</em>
+                    )}
+                  </small>
+                </span>
+                <span className="track-status" />
+              </button>
+            ));
+          })()}
         </div>
         <div className="library-actions">
           <button
