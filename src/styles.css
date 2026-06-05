@@ -2628,7 +2628,6 @@ button:disabled {
   font-size: var(--font-sm);
 }
 
-.library-header small,
 .library-mode-note {
   display: block;
   margin-top: 8px;
@@ -2637,19 +2636,31 @@ button:disabled {
   line-height: 1.4;
 }
 
-.library-header small {
+.library-mode-badge {
+  display: block;
   width: fit-content;
   border: 1px solid var(--status-ok-border);
   border-radius: 999px;
   background: rgb(128 202 165 / 8%);
   color: var(--status-ok);
+  font-size: var(--font-sm);
+  line-height: 1.4;
   padding: 3px 7px;
 }
 
-.library-header small.write {
+.library-mode-badge.write {
   border-color: var(--status-warn-border);
   background: rgb(226 195 107 / 10%);
   color: var(--status-warn);
+}
+
+.library-project-status {
+  display: block;
+  border-left: 2px solid var(--status-ok-border);
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  line-height: 1.35;
+  padding-left: 8px;
 }
 
 .library-mode-note {
@@ -2657,15 +2668,9 @@ button:disabled {
 }
 
 .library-mode-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  display: grid;
+  gap: 6px;
   margin-top: 10px;
-}
-
-.library-mode-row small {
-  margin-top: 0;
 }
 
 .library-mode-cancel {

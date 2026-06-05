@@ -3666,7 +3666,7 @@ function App() {
               >
                 {inputProjects.map((project) => (
                   <option key={project.id} value={project.id}>
-                    {project.name} · {project.trackCount}
+                    {projectOptionLabel(project)}
                   </option>
                 ))}
               </select>
@@ -3684,12 +3684,18 @@ function App() {
             </button>
           </div>
           <div className="library-mode-row">
-            <small className={workspaceWriteEnabled ? "write" : ""}>
+            <small
+              className={`library-mode-badge ${workspaceWriteEnabled ? "write" : ""}`}
+            >
               {workspaceWriteEnabled
                 ? "Substitui originais ao finalizar"
                 : "Não destrutivo"}
             </small>
-            {projectStateStatus && <small>{projectStateStatus}</small>}
+            {projectStateStatus && (
+              <small className="library-project-status">
+                {projectStateStatus}
+              </small>
+            )}
           </div>
         </div>
         <div className="library-caption">
@@ -11220,6 +11226,10 @@ function stripLayerFile(layer: MediaLayerV2) {
 
 function selectedTrackFrom(tracks: TrackDraft[], selectedTrackId: string) {
   return tracks.find((track) => track.id === selectedTrackId) ?? null;
+}
+
+function projectOptionLabel(project: InputProjectOption) {
+  return `${project.name} (${project.trackCount} música${project.trackCount === 1 ? "" : "s"})`;
 }
 
 function applyVisualTemplateToTracks(

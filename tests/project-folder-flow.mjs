@@ -149,6 +149,10 @@ try {
   const projectSelect = page.locator(".library-project-picker select");
   await projectSelect.waitFor();
   assert.equal(await projectSelect.locator("option").count(), 2);
+  assert.deepEqual(await projectSelect.locator("option").allTextContents(), [
+    "Projeto Alpha (1 música)",
+    "Projeto Beta (1 música)",
+  ]);
   assert.equal(await projectSelect.inputValue(), "Projeto Alpha");
   await page
     .locator(".library-directory-row", { hasText: "Mock Entrada" })
