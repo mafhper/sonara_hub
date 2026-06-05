@@ -12,6 +12,7 @@ page.on("console", (message) => {
   if (!["error", "warning"].includes(message.type())) return;
   const text = message.text();
   if (text.includes("AudioContext was not allowed")) return;
+  if (text.includes("GPU stall due to ReadPixels")) return;
   errors.push(`${message.type()}: ${text}`);
 });
 page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
@@ -23,6 +24,19 @@ page.on("requestfailed", (request) => {
 
 await page.addInitScript(
   ({ alphaBytes, betaBytes }) => {
+    const createdObjectUrls = [];
+    const revokedObjectUrls = [];
+    const nativeCreateObjectURL = URL.createObjectURL.bind(URL);
+    const nativeRevokeObjectURL = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = (value) => {
+      const url = nativeCreateObjectURL(value);
+      createdObjectUrls.push(url);
+      return url;
+    };
+    URL.revokeObjectURL = (url) => {
+      revokedObjectUrls.push(url);
+      nativeRevokeObjectURL(url);
+    };
     class MockFileHandle {
       constructor(name, payload, type = "application/octet-stream") {
         this.kind = "file";
@@ -44,10 +58,15 @@ await page.addInitScript(
       async createWritable() {
         return {
           write: async (data) => {
-            this.payload =
-              typeof data === "string" ? data : await new Response(data).text();
-            this.textPayload = this.payload;
-            this.type = "application/json";
+            if (typeof data === "string") {
+              this.payload = data;
+              this.textPayload = data;
+              this.type = "application/json";
+              return;
+            }
+            const buffer = await new Response(data).arrayBuffer();
+            this.payload = Array.from(new Uint8Array(buffer));
+            this.textPayload = "";
           },
           close: async () => {},
         };
@@ -124,9 +143,17 @@ await page.addInitScript(
         const readProjectState = (project) =>
           project.children[".sonara"]?.children?.["project.json"]
             ?.textPayload ?? "";
+        const readProjectAssets = (project) =>
+          Object.keys(
+            project.children[".sonara"]?.children?.assets?.children ?? {},
+          );
         return {
+          alphaAssets: readProjectAssets(alpha),
           alphaState: readProjectState(alpha),
+          betaAssets: readProjectAssets(beta),
           betaState: readProjectState(beta),
+          objectUrlsCreated: createdObjectUrls.length,
+          objectUrlsRevoked: revokedObjectUrls.length,
           outputName: outputRoot.name,
         };
       },
@@ -158,6 +185,9 @@ try {
     .locator(".library-directory-row", { hasText: "Mock Entrada" })
     .waitFor();
   await page.locator(".track-row", { hasText: "alpha" }).waitFor();
+  await page.waitForFunction(
+    () => window.__sonaraMockFS.dump().objectUrlsCreated > 0,
+  );
   await page.getByRole("tab", { name: "Letra" }).click();
   await page.getByText("Letras detectadas").waitFor();
   await page.waitForFunction(() =>
@@ -171,6 +201,26 @@ try {
   await page
     .locator(".library-directory-row", { hasText: "Mock Saida" })
     .waitFor();
+  await page
+    .locator('input[type="file"][accept="image/*,.svg"]')
+    .setInputFiles({
+      name: "manual-cover.png",
+      mimeType: "image/png",
+      buffer: tinyPng(),
+    });
+  await page.getByRole("button", { name: "Estúdio visual" }).click();
+  await page
+    .locator('input[type="file"][accept="image/*,video/*,.svg"]')
+    .setInputFiles({
+      name: "manual-layer.svg",
+      mimeType: "image/svg+xml",
+      buffer: Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#48a"/></svg>',
+      ),
+    });
+  await page.getByText("Camadas · 1/3").waitFor();
+  await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
+  await page.getByRole("tab", { name: "Dados" }).click();
 
   const titleInput = page
     .locator(".inspector-scroll label.field", { hasText: "Título" })
@@ -178,7 +228,16 @@ try {
     .first();
   await titleInput.fill("Alpha Editado");
   await page.waitForFunction(
-    () => window.__sonaraMockFS.dump().alphaState.includes("Alpha Editado"),
+    () => {
+      const dump = window.__sonaraMockFS.dump();
+      return (
+        dump.alphaState.includes("Alpha Editado") &&
+        dump.alphaState.includes('"assetManifest"') &&
+        dump.alphaState.includes('"coverAssetId"') &&
+        dump.alphaState.includes('"assetId"') &&
+        dump.alphaAssets.length >= 2
+      );
+    },
     null,
     { timeout: 7_000 },
   );
@@ -190,6 +249,9 @@ try {
       "Projeto Beta",
   );
   await page.locator(".track-row", { hasText: "beta" }).waitFor();
+  await page.waitForFunction(
+    () => window.__sonaraMockFS.dump().objectUrlsRevoked > 0,
+  );
 
   await projectSelect.selectOption("Projeto Alpha");
   await page.waitForFunction(
@@ -198,6 +260,17 @@ try {
       "Projeto Alpha",
   );
   await page.locator(".track-row", { hasText: "Alpha Editado" }).waitFor();
+  await page.getByRole("button", { name: "Estúdio visual" }).click();
+  await page.getByText("Camadas · 1/3").waitFor();
+  const restoredSnapshot = JSON.parse(
+    await page.evaluate(() => window.__sonaraMockFS.dump().alphaState),
+  );
+  assert.deepEqual(
+    restoredSnapshot.assetManifest.files
+      .map((file) => file.originalName)
+      .sort(),
+    ["manual-cover.png", "manual-layer.svg"],
+  );
 
   await page.getByRole("button", { name: "Configurações locais" }).click();
   await page.getByRole("button", { name: "Limpar projeto atual" }).click();
@@ -209,6 +282,10 @@ try {
   assert.equal(
     await page.evaluate(() => window.__sonaraMockFS.dump().alphaState),
     "",
+  );
+  assert.deepEqual(
+    await page.evaluate(() => window.__sonaraMockFS.dump().alphaAssets),
+    [],
   );
 
   assert.deepEqual(failedRequests, []);
@@ -242,4 +319,11 @@ function makeWave(frequency = 220) {
   header.write("data", 36);
   header.writeUInt32LE(data.length, 40);
   return Buffer.concat([header, data]);
+}
+
+function tinyPng() {
+  return Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGOSHzRgAAAAABJRU5ErkJggg==",
+    "base64",
+  );
 }

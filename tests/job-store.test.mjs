@@ -16,9 +16,26 @@ test("job store marks interrupted work as an explicit recoverable error", () => 
   ]);
 
   assert.equal(queued.status, "error");
+  assert.equal(queued.errorCode, "server-restart");
+  assert.match(queued.errorDetail, /servidor local foi encerrado/);
   assert.match(queued.message, /reinicializacao do servidor local/);
   assert.equal(done.status, "done");
   assert.equal(done.message, "Pronto");
+});
+
+test("job store preserves requested cancellation across restart", () => {
+  const [job] = restoreInterruptedJobs([
+    {
+      id: "canceling",
+      status: "running",
+      cancelRequested: true,
+      message: "Cancelando",
+    },
+  ]);
+
+  assert.equal(job.status, "canceled");
+  assert.equal(job.cancelRequested, true);
+  assert.match(job.message, /cancelado antes da reinicializacao/);
 });
 
 test("job store writes atomically and keeps only recent jobs", async () => {

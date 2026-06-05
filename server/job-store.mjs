@@ -24,15 +24,27 @@ export async function saveJobHistory(filePath, jobs, limit = 50) {
 }
 
 export function restoreInterruptedJobs(jobs) {
-  return jobs.map((job) =>
-    activeStatuses.has(job.status)
-      ? {
-          ...job,
-          status: "error",
-          message:
-            "Processamento interrompido pela reinicializacao do servidor local",
-          updatedAt: new Date().toISOString(),
-        }
-      : job,
-  );
+  return jobs.map((job) => {
+    if (!activeStatuses.has(job.status)) return job;
+    if (job.cancelRequested) {
+      return {
+        ...job,
+        status: "canceled",
+        message:
+          "Processamento cancelado antes da reinicializacao do servidor local",
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    return {
+      ...job,
+      status: "error",
+      errorCode: job.errorCode ?? "server-restart",
+      errorDetail:
+        job.errorDetail ??
+        "O servidor local foi encerrado antes de concluir este job.",
+      message:
+        "Processamento interrompido pela reinicializacao do servidor local",
+      updatedAt: new Date().toISOString(),
+    };
+  });
 }
