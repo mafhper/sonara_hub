@@ -15,17 +15,21 @@ sem uploads, sem contas e sem depender da nuvem.
 
 ## O que você consegue fazer
 
-- **Tratar e organizar o áudio** — abra uma pasta de músicas, revise tags
-  ID3, capas e letras, analise loudness e pico verdadeiro e gere cópias MP3
-  tratadas sem alterar os arquivos originais.
-- **Transformar faixas em vídeo** — escolha uma cena animada, ajuste cores e
-  reação à música, adicione camadas de mídia, waveform e texto. A mesma engine
-  alimenta a prévia e a exportação, então o resultado final fica fiel ao editor.
-- **Capas em série** — a partir de uma arte base, gere uma série visual para
-  o álbum (I, II, III… ou textos), conferindo todas as capas lado a lado.
-- **Publicar com facilidade** — revise a grade de vídeos e exporte em 720p,
-  1080p, 2K ou 4K, com um sidecar `.youtube.json` opcional para apoiar a
-  publicação.
+- **Biblioteca de áudio** — abra uma Pasta de Entrada, escolha o projeto/álbum,
+  revise tags ID3, capas, letras, descrição de publicação, análise técnica e
+  gere cópias MP3 tratadas sem alterar os originais.
+- **Catálogo e capas** — confira o álbum como coleção, escolha artes detectadas
+  na pasta, gere capas em série e ajuste textos complementares por faixa ou por
+  série.
+- **Estúdio visual** — escolha cenas animadas, paletas, camadas de mídia,
+  waveform, capa, textos e fade individual de capa/textos. A prévia e a
+  exportação usam a mesma composição efetiva.
+- **Fila de vídeos** — revise as faixas, escolha Pasta de Saída, política de
+  backup/sobrescrita e exporte vídeos em 720p ou 1080p com sidecar
+  `.youtube.json`.
+- **Divulgação** — gere imagens, clips curtos e manifestos JSON/Markdown para
+  publicação do álbum usando, preferencialmente, os ajustes visuais já criados
+  no vídeo.
 
 ## Veja em ação
 
@@ -53,13 +57,43 @@ cores, intensidade e reação ao áudio ajustáveis:
 - **Composições** — vinil reativo com a capa do álbum e tela escura para áudio.
 - **Cenas leves** — formas lúdicas, mesh colorido e faixas de piano.
 
+## Qualidade e benchmark
+
+O Sonara Hub já tem uma trilha de testes e benchmark para acompanhar qualidade,
+performance e degradação ao longo do desenvolvimento:
+
+- `npm test` cobre regras compartilhadas, metadados, capas, letras, exportação,
+  armazenamento e validações do pipeline.
+- `npm run test:ui` cobre fluxos principais da interface, incluindo Pasta de
+  Entrada, projetos, catálogo, vídeo e divulgação.
+- `npm run test:render` valida presets representativos no renderer WebGL.
+- `npm run bench:render` serve como referência local para comparar tempo,
+  tamanho de saída e comportamento do render/export entre rodadas.
+
+Sem baseline suficiente, o benchmark é tratado como referência inicial, não como
+prova de regressão. A ideia é acumular dados para saber quando o projeto está
+saudável, degradando ou pedindo nova instrumentação.
+
+## Trilha de desenvolvimento
+
+- **2K e 4K estão previstos.** Eles saíram da trilha ativa por enquanto porque
+  estou sem uma GPU decente para desenvolver e validar esses presets com
+  segurança. Assim que isso se resolver, a trilha de resoluções maiores volta.
+- **Desktop virá depois da base estável.** Quando a plataforma estiver funcional
+  e estável como app local, o próximo passo será começar o porte para uma
+  aplicação desktop.
+- **Prioridade atual: funcionalidade basal.** Não vou gastar energia escovando
+  bits em detalhes que uma versão desktop nativa deve resolver melhor; primeiro
+  preciso garantir que o fluxo essencial funciona bem.
+
 ## Como funciona
 
 1. Abra uma pasta de músicas (ou adicione faixas avulsas).
 2. Revise metadados, arte, letra e análise técnica na **Biblioteca de áudio**.
 3. Gere as cópias tratadas e confira a página de catálogo.
 4. No **Estúdio visual**, aplique cenas, capas, camadas, texto e waveform.
-5. Exporte os vídeos na resolução desejada.
+5. Exporte vídeos e, se quiser, gere assets de divulgação a partir da mesma
+   identidade visual.
 
 ## O site do projeto
 
