@@ -25,6 +25,7 @@ import {
 } from "./audio-library.mjs";
 import { createPresetStore, PresetStoreError } from "./preset-store.mjs";
 import { loadJobHistory, saveJobHistory } from "./job-store.mjs";
+import { multipartJobRoute } from "./multipart-route.mjs";
 import { renderCanvasSize, renderTiming } from "./render-profile.mjs";
 import { safeSvgBuffer } from "./svg-safety.mjs";
 import {
@@ -83,6 +84,8 @@ const upload = multer({
   limits: { fileSize: 250 * 1024 * 1024 },
 });
 const tempFiles = createTempFileRegistry(uploadDir);
+const jobSubmitRoute = (code, handler) =>
+  multipartJobRoute({ code, handler, logUnexpectedError, tempFiles });
 const jobs = new Map(
   (await loadJobHistory(jobHistoryPath)).map((job) => [job.id, job]),
 );
@@ -262,7 +265,7 @@ app.post(
     { name: "cover", maxCount: 1 },
     { name: "albumCover", maxCount: 1 },
   ]),
-  async (req, res) => {
+  jobSubmitRoute("AUDIO_PROCESS_SUBMIT_ERROR", async (req, res) => {
     const files = req.files ?? {};
     const audioFile = Array.isArray(files.audio) ? files.audio[0] : null;
     const coverFile = Array.isArray(files.cover) ? files.cover[0] : null;
@@ -311,7 +314,7 @@ app.post(
       uploadedFiles: files,
     });
     res.json({ jobId });
-  },
+  }),
 );
 
 app.post(
@@ -321,7 +324,7 @@ app.post(
     { name: "cover", maxCount: 1 },
     { name: "albumCover", maxCount: 1 },
   ]),
-  async (req, res) => {
+  jobSubmitRoute("AUDIO_BATCH_SUBMIT_ERROR", async (req, res) => {
     const files = req.files ?? {};
     const audioFiles = Array.isArray(files.audioBatch) ? files.audioBatch : [];
     const coverFile = Array.isArray(files.cover) ? files.cover[0] : null;
@@ -369,7 +372,7 @@ app.post(
       jobIds.push(jobId);
     }
     res.json({ jobIds });
-  },
+  }),
 );
 
 app.post(
@@ -414,7 +417,7 @@ app.post(
     { name: "cover", maxCount: 1 },
     { name: "lyricsFile", maxCount: 1 },
   ]),
-  async (req, res) => {
+  jobSubmitRoute("VIDEO_RENDER_SUBMIT_ERROR", async (req, res) => {
     const files = req.files ?? {};
     const audioFile = Array.isArray(files.audio) ? files.audio[0] : null;
     const backgroundFile = Array.isArray(files.background)
@@ -489,7 +492,7 @@ app.post(
     });
 
     res.json({ jobId });
-  },
+  }),
 );
 
 app.post(
@@ -500,7 +503,7 @@ app.post(
     { name: "mediaLayers", maxCount: 3 },
     { name: "cover", maxCount: 1 },
   ]),
-  async (req, res) => {
+  jobSubmitRoute("PUBLICATION_ASSET_SUBMIT_ERROR", async (req, res) => {
     const files = req.files ?? {};
     const audioFile = Array.isArray(files.audio) ? files.audio[0] : null;
     const backgroundFile = Array.isArray(files.background)
@@ -574,7 +577,7 @@ app.post(
     });
 
     res.json({ jobId });
-  },
+  }),
 );
 
 app.post(
@@ -585,7 +588,7 @@ app.post(
     { name: "mediaLayers", maxCount: 3 },
     { name: "cover", maxCount: 1 },
   ]),
-  async (req, res) => {
+  jobSubmitRoute("VIDEO_BATCH_SUBMIT_ERROR", async (req, res) => {
     const files = req.files ?? {};
     const uploadedAudioFiles = Array.isArray(files.audioBatch)
       ? files.audioBatch
@@ -683,7 +686,7 @@ app.post(
     }
 
     res.json({ jobIds });
-  },
+  }),
 );
 
 app.get("/api/jobs/:id", (req, res) => {
