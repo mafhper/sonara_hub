@@ -9248,7 +9248,14 @@ function metadataFromAudio(
   return {
     ...fallback,
     title: info?.title || suggestions?.title || fallback.title,
-    artist: info?.artist || suggestions?.artist || fallback.artist,
+    // Many files tag only the album artist; treat it as the track artist when the
+    // track-level artist is empty so the field (and the video text) get filled.
+    artist:
+      info?.artist ||
+      info?.albumArtist ||
+      suggestions?.artist ||
+      suggestions?.albumArtist ||
+      fallback.artist,
     album: info?.album || suggestions?.album || fallback.album,
     albumArtist:
       info?.albumArtist || suggestions?.albumArtist || fallback.albumArtist,
