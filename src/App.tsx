@@ -222,6 +222,7 @@ type InputProjectOption = {
   handle: FileSystemDirectoryHandle;
   trackCount: number;
 };
+type ProjectCleanupScope = "current" | "selected" | "all";
 type BatchCommonDraft = {
   artist: string;
   album: string;
@@ -935,6 +936,7 @@ function App() {
   const [folderName, setFolderName] = useState("Projeto não selecionado");
   const [inputProjects, setInputProjects] = useState<InputProjectOption[]>([]);
   const [selectedInputProjectId, setSelectedInputProjectId] = useState("");
+  const [cleanupProjectIds, setCleanupProjectIds] = useState<string[]>([]);
   const [projectStateStatus, setProjectStateStatus] = useState("");
   const [workspaceWriteEnabled, setWorkspaceWriteEnabled] = useState(false);
   const [outputFolderName, setOutputFolderName] = useState("Pasta de Saída");
@@ -1381,6 +1383,16 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const validProjectIds = new Set(inputProjects.map((project) => project.id));
+    setCleanupProjectIds((current) => {
+      const next = current.filter((projectId) =>
+        validProjectIds.has(projectId),
+      );
+      return next.length === current.length ? current : next;
+    });
+  }, [inputProjects]);
+
   async function loadInitialWorkspace() {
     try {
       const [snapshot, presetPayload] = await Promise.all([
@@ -1549,16 +1561,32 @@ function App() {
     }
   }
 
-  async function cleanupProjectState(scope: "current" | "all") {
+  function toggleCleanupProjectSelection(projectId: string, selected: boolean) {
+    setCleanupProjectIds((current) => {
+      if (selected) {
+        return current.includes(projectId) ? current : [...current, projectId];
+      }
+      return current.filter((item) => item !== projectId);
+    });
+  }
+
+  async function cleanupProjectState(scope: ProjectCleanupScope) {
+    const selectedProjectIds = new Set(cleanupProjectIds);
     const targets =
       scope === "current"
         ? inputProjects.filter(
             (project) => project.id === selectedInputProjectId,
           )
-        : inputProjects;
+        : scope === "selected"
+          ? inputProjects.filter((project) =>
+              selectedProjectIds.has(project.id),
+            )
+          : inputProjects;
     if (!targets.length) {
       setBatchFeedback(
-        "Nenhum projeto da Pasta de Entrada foi detectado.",
+        scope === "selected"
+          ? "Selecione ao menos um projeto para limpar."
+          : "Nenhum projeto da Pasta de Entrada foi detectado.",
         "info",
       );
       return;
@@ -1566,15 +1594,24 @@ function App() {
     const label =
       scope === "current"
         ? `as preferências de ${targets[0].name}`
-        : `as preferências de ${targets.length} projetos`;
+        : scope === "selected"
+          ? `as preferências de ${targets.length} projeto${targets.length === 1 ? "" : "s"} selecionado${targets.length === 1 ? "" : "s"}`
+          : `as preferências de ${targets.length} projetos`;
     if (
       !(await requestConfirmation({
         title:
           scope === "current"
             ? "Limpar projeto atual?"
-            : "Limpar todos os projetos?",
+            : scope === "selected"
+              ? "Limpar projetos selecionados?"
+              : "Limpar todos os projetos?",
         message: `Excluir ${label}? Arquivos de áudio, capas e backups não serão removidos.`,
-        confirmLabel: scope === "current" ? "Limpar projeto" : "Limpar todos",
+        confirmLabel:
+          scope === "current"
+            ? "Limpar projeto"
+            : scope === "selected"
+              ? "Limpar selecionados"
+              : "Limpar todos",
         tone: "danger",
       }))
     ) {
@@ -1583,18 +1620,26 @@ function App() {
     setCleanupBusy(true);
     try {
       cancelPendingProjectSnapshotSave();
+      const cleanedProjectIds = new Set(targets.map((project) => project.id));
       await Promise.all(
         targets.map((project) => removeProjectSnapshot(project.handle)),
+      );
+      setCleanupProjectIds((current) =>
+        current.filter((projectId) => !cleanedProjectIds.has(projectId)),
       );
       setProjectStateStatus(
         scope === "current"
           ? "Preferências do projeto atual limpas."
-          : "Preferências dos projetos da entrada limpas.",
+          : scope === "selected"
+            ? "Preferências dos projetos selecionados limpas."
+            : "Preferências dos projetos da entrada limpas.",
       );
       setBatchFeedback(
         scope === "current"
           ? "Preferências do projeto atual removidas."
-          : "Preferências de todos os projetos detectados removidas.",
+          : scope === "selected"
+            ? "Preferências dos projetos selecionados removidas."
+            : "Preferências de todos os projetos detectados removidas.",
         "info",
       );
     } catch (reason) {
@@ -4422,17 +4467,51 @@ function App() {
                 </div>
               </section>
               <section className="settings-section">
-                <div>
-                  <h3>Dados dos projetos</h3>
-                  <p>
-                    Limpe apenas os snapshots `.sonara/project.json` gravados em
-                    cada projeto da Pasta de Entrada.
-                  </p>
-                  <small>
-                    {inputProjects.length
-                      ? `${inputProjects.length} projeto${inputProjects.length === 1 ? "" : "s"} detectado${inputProjects.length === 1 ? "" : "s"}`
-                      : "Nenhum projeto detectado"}
-                  </small>
+                <div className="settings-project-cleanup">
+                  <div>
+                    <h3>Dados dos projetos</h3>
+                    <p>
+                      Limpe apenas os snapshots `.sonara/project.json` gravados
+                      em cada projeto da Pasta de Entrada.
+                    </p>
+                    <small>
+                      {inputProjects.length
+                        ? `${inputProjects.length} projeto${inputProjects.length === 1 ? "" : "s"} detectado${inputProjects.length === 1 ? "" : "s"}`
+                        : "Nenhum projeto detectado"}
+                    </small>
+                  </div>
+                  {inputProjects.length > 0 && (
+                    <div
+                      aria-label="Projetos para limpeza seletiva"
+                      className="settings-project-list"
+                    >
+                      {inputProjects.map((project) => (
+                        <label
+                          className="settings-project-option"
+                          key={project.id}
+                        >
+                          <input
+                            aria-label={`Selecionar ${project.name} para limpeza`}
+                            checked={cleanupProjectIds.includes(project.id)}
+                            type="checkbox"
+                            onChange={(event) =>
+                              toggleCleanupProjectSelection(
+                                project.id,
+                                event.target.checked,
+                              )
+                            }
+                          />
+                          <span className="settings-project-copy">
+                            <strong>{project.name}</strong>
+                            <small>
+                              {project.trackCount} música
+                              {project.trackCount === 1 ? "" : "s"}
+                            </small>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="settings-action-stack">
                   <button
@@ -4442,6 +4521,14 @@ function App() {
                     onClick={() => void cleanupProjectState("current")}
                   >
                     <Trash2 /> Limpar projeto atual
+                  </button>
+                  <button
+                    className="quiet-action settings-action danger-action"
+                    disabled={cleanupBusy || cleanupProjectIds.length === 0}
+                    type="button"
+                    onClick={() => void cleanupProjectState("selected")}
+                  >
+                    <Trash2 /> Limpar selecionados
                   </button>
                   <button
                     className="quiet-action settings-action danger-action"

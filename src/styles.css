@@ -5635,6 +5635,57 @@ button:disabled {
   gap: var(--space-2);
 }
 
+.settings-project-cleanup {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.settings-project-list {
+  display: grid;
+  max-width: 560px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-2);
+}
+
+.settings-project-option {
+  display: grid;
+  min-height: 42px;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--stage-surface-low);
+  color: var(--text-primary);
+  padding: 7px 9px;
+}
+
+.settings-project-option input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+
+.settings-project-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.settings-project-copy strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-project-copy small {
+  margin-top: 0;
+  font-size: var(--font-xs);
+}
+
 .danger-action {
   border-color: var(--status-danger-border);
   color: var(--status-danger);
