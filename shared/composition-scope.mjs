@@ -1,6 +1,7 @@
 export function resolveTrackArtwork(track, sharedCover = null) {
-  if (sharedCover) return sharedCover;
   if (track?.useSuggestedCover === false) return null;
+  if (track?.coverOverride) return track.coverOverride;
+  if (sharedCover) return sharedCover;
   return track?.suggestedCover ?? null;
 }
 
@@ -54,6 +55,35 @@ export function clearCoverSeriesScopeOverride(tracks, trackId) {
   return tracks.map((track) =>
     track.id === trackId ? { ...track, coverSeriesOverride: null } : track,
   );
+}
+
+export function applyCoverSeriesMetaStylePatch(
+  settings,
+  key,
+  patch,
+  { target = "field" } = {},
+) {
+  const metaStyles = settings?.metaStyles ?? {};
+  if (!metaStyles[key]) return settings;
+  const entries =
+    target === "all"
+      ? Object.keys(metaStyles)
+      : Object.keys(metaStyles).filter((item) => item === key);
+  return {
+    ...settings,
+    metaStyles: {
+      ...metaStyles,
+      ...Object.fromEntries(
+        entries.map((entry) => [
+          entry,
+          {
+            ...metaStyles[entry],
+            ...patch,
+          },
+        ]),
+      ),
+    },
+  };
 }
 
 export function applySelectedTextSettingsToBatch(

@@ -263,25 +263,43 @@ export async function createNumberedCover(
     .map((line) => {
       const candidate =
         line && typeof line === "object" ? line : { text: line };
+      const role = String(candidate.role ?? "meta");
+      const maxFontSize = role === "series" ? 240 : 72;
       return {
+        role,
         text: String(candidate.text ?? "").trim(),
         fontSize: Math.max(
           18,
-          Math.min(72, Number(candidate.fontSize) || safeMetaFontSize),
+          Math.min(maxFontSize, Number(candidate.fontSize) || safeMetaFontSize),
         ),
         color: /^#[0-9a-f]{6}$/i.test(String(candidate.color ?? ""))
           ? candidate.color
           : color,
+        fontWeight: Math.max(
+          300,
+          Math.min(900, Number(candidate.fontWeight) || 520),
+        ),
+        fontStyle: candidate.fontStyle === "italic" ? "italic" : "normal",
+        textAnchor:
+          candidate.align === "left"
+            ? "start"
+            : candidate.align === "right"
+              ? "end"
+              : "middle",
         opacity: Math.max(
           0.1,
           Math.min(1, (Number(candidate.opacity) || 76) / 100),
+        ),
+        letterSpacing: Math.max(
+          0,
+          Math.min(80, Number(candidate.letterSpacing) || 5),
         ),
         offsetX: Math.max(-320, Math.min(320, Number(candidate.offsetX) || 0)),
         offsetY: Math.max(-320, Math.min(320, Number(candidate.offsetY) || 0)),
       };
     })
     .filter((line) => line.text)
-    .slice(0, 4);
+    .slice(0, 5);
   const mainY = Math.round(
     (Math.max(8, Math.min(94, Number(y) || 89)) / 100) * 1600,
   );
@@ -294,19 +312,40 @@ export async function createNumberedCover(
     0,
     Math.min(80, Number(letterSpacing) || 18),
   );
-  let metaY = mainY + Math.round(safeFontSize * 0.48);
+  const mainLine = numeral
+    ? [
+        {
+          role: "series",
+          text: numeral,
+          fontSize: safeFontSize,
+          color,
+          fontWeight: 400,
+          fontStyle: "normal",
+          textAnchor: "middle",
+          opacity: safeOpacity,
+          letterSpacing: safeLetterSpacing,
+          offsetX: 0,
+          offsetY: 0,
+        },
+      ]
+    : [];
+  const lines = [...mainLine, ...safeSublines].slice(0, 5);
+  let lineY = mainY;
   const overlay = Buffer.from(`
     <svg width="1600" height="1600" xmlns="http://www.w3.org/2000/svg">
       <style>
-        .number { font-family: "Georgia", "Times New Roman", serif; font-size: ${safeFontSize}px; font-weight: 400; letter-spacing: ${safeLetterSpacing}px; }
-        .meta { font-family: "Inter", "Arial", sans-serif; font-weight: 520; letter-spacing: 5px; }
+        .series { font-family: "Georgia", "Times New Roman", serif; }
+        .meta { font-family: "Inter", "Arial", sans-serif; }
       </style>
-      <text x="${mainX}" y="${mainY}" text-anchor="middle" class="number" fill="${escapeXml(color)}" fill-opacity="${safeOpacity}">${escapeXml(numeral)}</text>
-      ${safeSublines
+      ${lines
         .map((line) => {
-          const y = metaY + line.offsetY;
-          metaY += line.fontSize + safeMetaGap;
-          return `<text x="${mainX + line.offsetX}" y="${y}" text-anchor="middle" class="meta" font-size="${line.fontSize}px" fill="${escapeXml(line.color)}" fill-opacity="${line.opacity}">${escapeXml(line.text)}</text>`;
+          const y = lineY + line.offsetY;
+          lineY +=
+            line.role === "series"
+              ? Math.round(line.fontSize * 0.48) + safeMetaGap
+              : line.fontSize + safeMetaGap;
+          const cssClass = line.role === "series" ? "series" : "meta";
+          return `<text x="${mainX + line.offsetX}" y="${y}" text-anchor="${line.textAnchor}" class="${cssClass}" font-size="${line.fontSize}px" font-weight="${line.fontWeight}" font-style="${line.fontStyle}" letter-spacing="${line.letterSpacing}px" fill="${escapeXml(line.color)}" fill-opacity="${line.opacity}">${escapeXml(line.text)}</text>`;
         })
         .join("")}
     </svg>

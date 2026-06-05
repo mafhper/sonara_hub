@@ -78,6 +78,37 @@ const commonDefaults = {
   shade: 18,
 };
 
+const paletteProfiles = [
+  { id: "original", name: "Original" },
+  {
+    id: "deep",
+    name: "Profunda",
+    base: { hue: -10, saturation: 10, lightness: -12 },
+    effect: { hue: -18, saturation: 14, lightness: -4 },
+    light: { hue: -6, saturation: 8, lightness: 6 },
+    common: { intensity: 4, speed: -4, brightness: -6, audioReaction: 2 },
+    advanced: [6, -4, 8, 7, -2, 4],
+  },
+  {
+    id: "warm",
+    name: "Quente",
+    base: { hue: 24, saturation: 8, lightness: -6 },
+    effect: { hue: 34, saturation: 16, lightness: 2 },
+    light: { hue: 22, saturation: 12, lightness: 8 },
+    common: { intensity: 2, speed: -2, brightness: 4, audioReaction: -1 },
+    advanced: [-4, 5, -2, 6, 4, -3],
+  },
+  {
+    id: "prism",
+    name: "Prisma",
+    base: { hue: 56, saturation: 18, lightness: -8 },
+    effect: { hue: 124, saturation: 20, lightness: 5 },
+    light: { hue: -86, saturation: 18, lightness: 10 },
+    common: { intensity: 6, speed: 3, brightness: 3, audioReaction: 6 },
+    advanced: [8, 6, 10, 8, 12, 6],
+  },
+];
+
 const control = (key, label, min = 0, max = 100, unit = "%") => ({
   key,
   label,
@@ -98,7 +129,16 @@ function preset({
   controls,
   playful,
   cloudLight,
+  palettes,
 }) {
+  const normalizedCommon = { ...commonDefaults, ...common };
+  const normalizedPalettes = normalizePalettes(
+    palettes,
+    [],
+    colors,
+    normalizedCommon,
+    advanced,
+  );
   return {
     schemaVersion: VISUAL_SCHEMA_VERSION,
     id,
@@ -108,7 +148,8 @@ function preset({
     category,
     note,
     colors,
-    common: { ...commonDefaults, ...common },
+    palettes: normalizedPalettes,
+    common: normalizedCommon,
     advanced,
     controls,
     waveform: { ...waveformDefaults },
@@ -383,46 +424,66 @@ export const builtinVisualPresets = [
   preset({
     id: "starfield",
     rendererId: "starfield",
-    name: "Campo estelar 3D",
+    name: "Campo Estelar",
     category: "Atmosferas",
     note: "Estrelas voando pelo espaço com profundidade, cintilação e matizes variados (portado do Nebula). Substitui o antigo efeito de estrelas.",
     colors: { base: "#05060f", effect: "#bfdbfe", light: "#67e8f9" },
     common: { speed: 22, intensity: 80, brightness: 60, audioReaction: 24 },
     advanced: { density: 60, warp: 30, twinkle: 55, glow: 50, colorVar: 32 },
-    controls: [
-      control("density", "Densidade"),
-      control("warp", "Velocidade"),
-      control("twinkle", "Cintilação"),
-      control("glow", "Brilho"),
-      control("colorVar", "Variedade de cor"),
+    palettes: [
+      {
+        id: "original",
+        name: "Original",
+        colors: { base: "#05060f", effect: "#bfdbfe", light: "#67e8f9" },
+        common: { speed: 22, intensity: 80, brightness: 60, audioReaction: 24 },
+        advanced: {
+          density: 60,
+          warp: 30,
+          twinkle: 55,
+          glow: 50,
+          colorVar: 32,
+        },
+      },
+      {
+        id: "prism",
+        name: "Prisma",
+        colors: { base: "#0a0420", effect: "#f0abfc", light: "#7dd3fc" },
+        common: { speed: 20, intensity: 82, brightness: 58, audioReaction: 26 },
+        advanced: {
+          density: 66,
+          warp: 28,
+          twinkle: 62,
+          glow: 56,
+          colorVar: 88,
+        },
+      },
+      {
+        id: "warm",
+        name: "Quente",
+        colors: { base: "#0a0703", effect: "#fde68a", light: "#fff7ed" },
+        common: { speed: 18, intensity: 76, brightness: 58, audioReaction: 20 },
+        advanced: {
+          density: 54,
+          warp: 26,
+          twinkle: 48,
+          glow: 52,
+          colorVar: 16,
+        },
+      },
+      {
+        id: "deep",
+        name: "Profunda",
+        colors: { base: "#020817", effect: "#7dd3fc", light: "#a78bfa" },
+        common: { speed: 26, intensity: 86, brightness: 54, audioReaction: 28 },
+        advanced: {
+          density: 72,
+          warp: 36,
+          twinkle: 70,
+          glow: 62,
+          colorVar: 64,
+        },
+      },
     ],
-  }),
-  preset({
-    id: "starfield-prism",
-    rendererId: "starfield",
-    name: "Campo estelar prisma",
-    category: "Atmosferas",
-    note: "Estrelas multicoloridas com forte variação de matiz, como um céu de nebulosa.",
-    colors: { base: "#0a0420", effect: "#f0abfc", light: "#7dd3fc" },
-    common: { speed: 20, intensity: 82, brightness: 58, audioReaction: 26 },
-    advanced: { density: 66, warp: 28, twinkle: 62, glow: 56, colorVar: 88 },
-    controls: [
-      control("density", "Densidade"),
-      control("warp", "Velocidade"),
-      control("twinkle", "Cintilação"),
-      control("glow", "Brilho"),
-      control("colorVar", "Variedade de cor"),
-    ],
-  }),
-  preset({
-    id: "starfield-warm",
-    rendererId: "starfield",
-    name: "Campo estelar quente",
-    category: "Atmosferas",
-    note: "Estrelas brancas e douradas com variação suave, um céu noturno cálido.",
-    colors: { base: "#0a0703", effect: "#fde68a", light: "#fff7ed" },
-    common: { speed: 18, intensity: 76, brightness: 58, audioReaction: 20 },
-    advanced: { density: 54, warp: 26, twinkle: 48, glow: 52, colorVar: 16 },
     controls: [
       control("density", "Densidade"),
       control("warp", "Velocidade"),
@@ -437,6 +498,10 @@ export const builtinPresetMap = new Map(
   builtinVisualPresets.map((item) => [item.id, item]),
 );
 export const effectIds = builtinVisualPresets.map((item) => item.id);
+const legacyPresetAliases = new Map([
+  ["starfield-prism", { baseId: "starfield", paletteId: "prism" }],
+  ["starfield-warm", { baseId: "starfield", paletteId: "warm" }],
+]);
 export const removedEffectIds = [
   "clouds",
   "fire",
@@ -447,10 +512,24 @@ export const removedEffectIds = [
   "rain-window",
   "aurora",
   "embers",
+  "starfield-prism",
+  "starfield-warm",
 ];
 
 export function getBuiltinPreset(id) {
   return builtinPresetMap.get(id) ?? builtinVisualPresets[0];
+}
+
+export function normalizeVisualPresetList(value = builtinVisualPresets) {
+  const normalized = [];
+  const seen = new Set();
+  for (const item of Array.isArray(value) ? value : builtinVisualPresets) {
+    const preset = normalizeVisualSettings(item);
+    if (seen.has(preset.id)) continue;
+    seen.add(preset.id);
+    normalized.push(preset);
+  }
+  return normalized;
 }
 
 export function normalizeVisualSettings(input = {}) {
@@ -476,22 +555,33 @@ export function normalizeVisualSettings(input = {}) {
   const requestedRenderer = String(
     source.rendererId ?? source.baseEffectId ?? source.effect ?? requestedId,
   );
+  const legacyAlias =
+    legacyPresetAliases.get(requestedId) ??
+    legacyPresetAliases.get(requestedRenderer);
   const base =
-    builtinPresetMap.get(requestedId) ??
+    builtinPresetMap.get(legacyAlias?.baseId ?? requestedId) ??
     builtinVisualPresets.find(
       (item) => item.rendererId === requestedRenderer,
     ) ??
     builtinVisualPresets[0];
-  const incomingCommon = source.common ?? source;
-  const incomingColors = source.colors ?? {};
-  const incomingAdvanced = source.advanced ?? {};
+  const aliasPalette = legacyAlias
+    ? base.palettes.find((palette) => palette.id === legacyAlias.paletteId)
+    : null;
+  const incomingCommon =
+    source.common ??
+    (hasCommonFields(source) ? source : aliasPalette?.common) ??
+    source;
+  const incomingColors =
+    source.colors ?? (hasColorFields(source) ? {} : aliasPalette?.colors) ?? {};
+  const incomingAdvanced = source.advanced ?? aliasPalette?.advanced ?? {};
   const incomingWaveform = source.waveform ?? {};
   const incomingWaveformAdvanced = incomingWaveform.advanced ?? {};
 
   return {
     schemaVersion: VISUAL_SCHEMA_VERSION,
-    id: String(source.id ?? base.id),
-    name: String(source.name ?? base.name),
+    id: source.source === "custom" && source.id ? String(source.id) : base.id,
+    name:
+      source.source === "custom" ? String(source.name ?? base.name) : base.name,
     rendererId: base.rendererId,
     source: source.source === "custom" ? "custom" : "builtin",
     category: String(source.category ?? base.category),
@@ -501,6 +591,13 @@ export function normalizeVisualSettings(input = {}) {
       effect: hex(incomingColors.effect ?? source.colorB, base.colors.effect),
       light: hex(incomingColors.light ?? source.accentColor, base.colors.light),
     },
+    palettes: normalizePalettes(
+      source.palettes,
+      base.palettes,
+      base.colors,
+      base.common,
+      base.advanced,
+    ),
     common: {
       intensity: number(incomingCommon.intensity, base.common.intensity),
       speed: number(incomingCommon.speed, base.common.speed),
@@ -660,6 +757,199 @@ function normalizeCloudLight(value = {}, fallback = cloudLightDefaults) {
   };
 }
 
+function createPaletteSet(colors, common, advanced) {
+  return paletteProfiles.map((profile) => ({
+    id: profile.id,
+    name: profile.name,
+    colors:
+      profile.id === "original"
+        ? normalizePaletteColors(colors, colors)
+        : {
+            base: adjustHex(colors.base, profile.base),
+            effect: adjustHex(colors.effect, profile.effect),
+            light: adjustHex(colors.light, profile.light),
+          },
+    common:
+      profile.id === "original"
+        ? normalizePaletteCommon(common, common)
+        : adjustCommon(common, profile.common),
+    advanced:
+      profile.id === "original"
+        ? normalizePaletteNumbers(advanced, advanced)
+        : adjustAdvanced(advanced, profile.advanced),
+  }));
+}
+
+function normalizePalettes(
+  value,
+  fallback = [],
+  fallbackColors,
+  fallbackCommon,
+  fallbackAdvanced,
+) {
+  const generated = createPaletteSet(
+    fallbackColors,
+    fallbackCommon,
+    fallbackAdvanced,
+  );
+  const source = Array.isArray(value) && value.length ? value : fallback;
+  const normalized = [];
+  for (const [index, item] of (Array.isArray(source) ? source : []).entries()) {
+    const colors = normalizePaletteColors(item?.colors, fallbackColors);
+    const common = normalizePaletteCommon(item?.common, fallbackCommon);
+    const advanced = normalizePaletteNumbers(item?.advanced, fallbackAdvanced);
+    const id = slugifyPaletteId(item?.id ?? item?.name ?? index);
+    if (!id || normalized.some((palette) => palette.id === id)) continue;
+    normalized.push({
+      id,
+      name: String(
+        item?.name || generated[index]?.name || `Paleta ${index + 1}`,
+      ),
+      colors,
+      common,
+      advanced,
+    });
+    if (normalized.length === 4) break;
+  }
+  for (const generatedPalette of generated) {
+    if (normalized.length === 4) break;
+    if (normalized.some((palette) => palette.id === generatedPalette.id)) {
+      continue;
+    }
+    normalized.push(generatedPalette);
+  }
+  return normalized.slice(0, 4);
+}
+
+function normalizePaletteColors(value = {}, fallback) {
+  return {
+    base: hex(value.base, fallback.base),
+    effect: hex(value.effect, fallback.effect),
+    light: hex(value.light, fallback.light),
+  };
+}
+
+function normalizePaletteNumbers(value = {}, fallback = {}) {
+  return Object.fromEntries(
+    Object.entries(fallback).map(([key, fallbackValue]) => [
+      key,
+      number(value?.[key], fallbackValue),
+    ]),
+  );
+}
+
+function normalizePaletteCommon(value = {}, fallback = {}) {
+  return Object.fromEntries(
+    Object.entries(fallback).map(([key, fallbackValue]) => [
+      key,
+      number(value?.[key], fallbackValue, 0, key === "direction" ? 360 : 100),
+    ]),
+  );
+}
+
+function adjustCommon(value = {}, patch = {}) {
+  return Object.fromEntries(
+    Object.entries(value).map(([key, current]) => [
+      key,
+      number(
+        Number(current) + (patch[key] ?? 0),
+        current,
+        0,
+        key === "direction" ? 360 : 100,
+      ),
+    ]),
+  );
+}
+
+function adjustAdvanced(value = {}, deltas = []) {
+  return Object.fromEntries(
+    Object.entries(value).map(([key, current], index) => [
+      key,
+      number(Number(current) + (deltas[index % deltas.length] ?? 0), current),
+    ]),
+  );
+}
+
+function adjustHex(value, patch = {}) {
+  const hsl = hexToHsl(value);
+  return hslToHex(
+    hsl.h + (patch.hue ?? 0),
+    hsl.s + (patch.saturation ?? 0),
+    hsl.l + (patch.lightness ?? 0),
+  );
+}
+
+function hexToHsl(value) {
+  const hexValue = hex(value, "#ffffff").slice(1);
+  const r = parseInt(hexValue.slice(0, 2), 16) / 255;
+  const g = parseInt(hexValue.slice(2, 4), 16) / 255;
+  const b = parseInt(hexValue.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const lightness = (max + min) / 2;
+  if (max === min) {
+    return { h: 0, s: 0, l: Math.round(lightness * 100) };
+  }
+  const delta = max - min;
+  const saturation =
+    lightness > 0.5 ? delta / (2 - max - min) : delta / (max + min);
+  let hue =
+    max === r
+      ? (g - b) / delta + (g < b ? 6 : 0)
+      : max === g
+        ? (b - r) / delta + 2
+        : (r - g) / delta + 4;
+  hue /= 6;
+  return {
+    h: Math.round(hue * 360),
+    s: Math.round(saturation * 100),
+    l: Math.round(lightness * 100),
+  };
+}
+
+function hslToHex(hue, saturation, lightness) {
+  const h = (((Number(hue) || 0) % 360) + 360) % 360;
+  const s = clamp(Number(saturation) || 0, 0, 100) / 100;
+  const l = clamp(Number(lightness) || 0, 0, 100) / 100;
+  const chroma = (1 - Math.abs(2 * l - 1)) * s;
+  const segment = h / 60;
+  const x = chroma * (1 - Math.abs((segment % 2) - 1));
+  const [r1, g1, b1] =
+    segment < 1
+      ? [chroma, x, 0]
+      : segment < 2
+        ? [x, chroma, 0]
+        : segment < 3
+          ? [0, chroma, x]
+          : segment < 4
+            ? [0, x, chroma]
+            : segment < 5
+              ? [x, 0, chroma]
+              : [chroma, 0, x];
+  const m = l - chroma / 2;
+  return `#${[r1, g1, b1]
+    .map((channel) =>
+      Math.round((channel + m) * 255)
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")}`;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function slugifyPaletteId(value) {
+  return String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 40);
+}
+
 function parseJson(value) {
   try {
     return JSON.parse(value);
@@ -684,4 +974,21 @@ function boolean(value, fallback) {
   if (value === undefined || value === null || value === "") return fallback;
   if (typeof value === "boolean") return value;
   return String(value) === "true";
+}
+
+function hasCommonFields(value = {}) {
+  return [
+    "intensity",
+    "speed",
+    "brightness",
+    "direction",
+    "audioReaction",
+    "shade",
+  ].some((key) => value[key] !== undefined);
+}
+
+function hasColorFields(value = {}) {
+  return ["colorA", "colorB", "accentColor"].some(
+    (key) => value[key] !== undefined,
+  );
 }

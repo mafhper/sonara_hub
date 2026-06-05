@@ -12,14 +12,14 @@ export async function loadSnapshot() {
 }
 
 export async function saveDirectoryHandle(
-  key: "music-directory" | "output-directory",
+  key: "input-directory" | "music-directory" | "output-directory",
   handle: FileSystemDirectoryHandle,
 ) {
   return put(key, handle);
 }
 
 export async function loadDirectoryHandle(
-  key: "music-directory" | "output-directory",
+  key: "input-directory" | "music-directory" | "output-directory",
 ) {
   return get<FileSystemDirectoryHandle>(key);
 }

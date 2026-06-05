@@ -6,6 +6,8 @@ import {
   chooseArtworkForTrack,
   listArtworkOptionsForTrack,
   singleTrackArtworkFileName,
+  treatedAlbumArtworkFileName,
+  treatedTrackArtworkPath,
 } from "../shared/artwork-convention.mjs";
 
 test("album artwork directory stays above disc folders", () => {
@@ -156,5 +158,13 @@ test("single tracks use an adjacent predictable artwork file", () => {
       artworkPaths: ["Singles/Blue Hour.cover.jpg"],
     }),
     "Singles/Blue Hour.cover.jpg",
+  );
+});
+
+test("treated packages keep only album artwork at root and track artwork in extras", () => {
+  assert.equal(treatedAlbumArtworkFileName, "album.jpg");
+  assert.equal(
+    treatedTrackArtworkPath("Jardim dos Ventos - 02 - O Menino.mp3"),
+    "extras/Jardim dos Ventos - 02 - O Menino.cover.jpg",
   );
 });

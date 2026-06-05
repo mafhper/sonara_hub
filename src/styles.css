@@ -477,6 +477,63 @@ svg {
   font-size: 9px;
 }
 
+.library-output-label {
+  margin-top: var(--space-3);
+}
+
+.library-directory-row {
+  min-width: 0;
+}
+
+.library-project-picker {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+
+.library-project-picker span {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-weight: 760;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.library-project-picker select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--control-bg);
+  color: var(--text-secondary);
+  padding: 7px 8px;
+  font-size: var(--font-sm);
+}
+
+.library-open-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.library-header .library-open-actions button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--stage-surface-low);
+  color: var(--text-secondary);
+}
+
+.library-header .library-open-actions svg {
+  width: 13px;
+  height: 13px;
+}
+
 .mode-switch {
   display: flex;
   gap: 2px;
@@ -620,6 +677,14 @@ svg {
   gap: 6px;
   border-top: 1px solid var(--line-soft);
   padding: 10px;
+}
+
+.library-write-toggle {
+  margin-top: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--stage-surface-low);
+  padding: 8px;
 }
 
 .dashed-action,
@@ -1630,6 +1695,92 @@ svg {
 .preset-chip-grid button:hover {
   border-color: var(--focus);
   background: var(--button-hover-bg);
+}
+
+.visual-palette-section {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.palette-option-list {
+  display: grid;
+  gap: 5px;
+}
+
+.palette-option-list > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 82px;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--stage-surface-low);
+  color: inherit;
+  cursor: pointer;
+  padding: 6px 7px;
+  text-align: left;
+  transition:
+    border-color 130ms ease,
+    background 130ms ease,
+    box-shadow 130ms ease;
+}
+
+.palette-option-list > button:hover,
+.palette-option-list > button:focus-visible {
+  border-color: var(--focus);
+  background: var(--button-hover-bg);
+}
+
+.palette-option-list > button.active {
+  border-color: var(--focus);
+  box-shadow: var(--glow-focus);
+}
+
+.palette-option-list span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-option-list > button.active span {
+  color: var(--text-primary);
+}
+
+.palette-swatch-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 78px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--stage-surface-low);
+}
+
+.palette-swatch-strip i {
+  display: block;
+  min-height: 18px;
+}
+
+.palette-swatch-strip i + i {
+  border-left: 1px solid rgb(0 0 0 / 28%);
+}
+
+.visual-color-section {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.visual-color-grid {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.visual-color-grid .color-input {
+  margin-top: 0;
 }
 
 .check-field input {
@@ -4059,6 +4210,11 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.cover-series-meta-target {
+  display: grid;
+  gap: 7px;
+}
+
 .segmented {
   display: grid;
   grid-auto-flow: column;
@@ -4803,6 +4959,22 @@ button:disabled {
   white-space: nowrap;
 }
 
+.cover-fade-controls,
+.text-fade-controls {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--stage-surface-low) 82%, transparent);
+}
+
+.cover-fade-controls .helper-copy,
+.text-fade-controls .helper-copy {
+  margin-top: 0;
+}
+
 .stage-view-switch {
   height: 100%;
   justify-content: center;
@@ -5284,6 +5456,11 @@ button:disabled {
   min-width: 184px;
   padding: 0 var(--space-3);
   white-space: nowrap;
+}
+
+.settings-action-stack {
+  display: grid;
+  gap: var(--space-2);
 }
 
 .danger-action {

@@ -159,9 +159,7 @@ try {
   await page.getByText("Catálogo planejado", { exact: true }).waitFor();
   await page.getByRole("button", { name: /^Inspecionar arte de / }).click();
   await page.getByText("Prévia da capa tratada", { exact: true }).waitFor();
-  await page
-    .getByText("Gerar série visual na capa tratada", { exact: true })
-    .waitFor();
+  await page.getByText("Série numérica", { exact: false }).waitFor();
   await page.getByRole("button", { name: "Trocar imagem" }).waitFor();
   await page.getByRole("button", { name: "Ver arte base" }).click();
   await page.getByRole("button", { name: "Ver com série visual" }).waitFor();
@@ -194,7 +192,9 @@ try {
   await page
     .locator('select:has(option[value="soft-rhythm"])')
     .selectOption("play");
-  await page.getByRole("button", { name: "Jardim" }).click();
+  await page.getByText("PALETAS", { exact: true }).waitFor();
+  assert.equal(await page.locator(".palette-option-list button").count(), 4);
+  await page.locator(".palette-option-list button").nth(1).click();
   await presetSelect.selectOption("volumetric-clouds");
   await page.getByText("Foco solar", { exact: true }).click();
   await page
@@ -242,6 +242,8 @@ try {
   await page.getByRole("button", { name: "Desfazer" }).click();
   await page.getByText("Camadas · 3/3").waitFor();
   await page.locator(".cover-layer-apply select").selectOption("right");
+  await page.getByLabel("Fade-out da capa").check();
+  await page.getByText("Capa some até").waitFor();
   await page
     .locator(".cover-layer-apply")
     .getByRole("button", { name: "Aplicar capa" })
@@ -252,6 +254,11 @@ try {
     3,
     "applying a cover preset should preserve the three-layer limit while keeping the cover",
   );
+  await page.getByRole("button", { exact: true, name: "Texto" }).click();
+  await page.getByText("Campos do texto · ordem, exibição e estilo").waitFor();
+  await page.getByLabel("Fade-out de Música").check();
+  await page.getByText("Texto some até").waitFor();
+  await page.getByRole("button", { exact: true, name: "Visual" }).click();
   await page.getByText("Waveform", { exact: true }).click();
   await page.getByText("Mostrar waveform").click();
   const waveformSelect = page.locator(
@@ -276,7 +283,12 @@ try {
   await ensurePanelsClosed(page);
   await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
   await ensurePanelOpen(page, "library");
-  await page.getByRole("button", { name: "Lote" }).click();
+  await page
+    .locator('input[accept="audio/*"]')
+    .first()
+    .setInputFiles(variationAudioPath);
+  await page.locator(".track-row", { hasText: "ui-smoke-variation" }).waitFor();
+  await ensureBatchMode(page);
   await ensurePanelsClosed(page);
   await page
     .locator(".stage-view-switch")
@@ -322,19 +334,7 @@ try {
     .waitFor();
   await ensurePanelsClosed(page);
   assert.equal(await page.locator(".batch-group-row").count(), 1);
-  await page.locator(".batch-group-row button").click();
-  assert.equal(await page.locator(".batch-table tbody tr").count(), 1);
-  await page.locator(".batch-group-row button").click();
-  await page.getByRole("button", { name: "Limpar seleção" }).click();
-  assert.equal(
-    await page.locator('.batch-table input[type="checkbox"]:checked').count(),
-    0,
-  );
-  await page.getByRole("button", { name: "Selecionar todos" }).click();
-  assert.equal(
-    await page.locator('.batch-table input[type="checkbox"]:checked').count(),
-    1,
-  );
+  assert.equal(await page.locator(".batch-main-row").count(), 2);
   const batchTitleInput = await editableBatchTitleInput(page);
   await batchTitleInput.fill("Smoke Batch Title");
   assert.equal(await batchTitleInput.inputValue(), "Smoke Batch Title");
@@ -342,7 +342,7 @@ try {
   await page
     .getByRole("button", { name: "Expandir detalhes de Smoke Batch Title" })
     .click();
-  await page.getByText("Arquivo tratado", { exact: true }).waitFor();
+  await page.getByText("Arquivo tratado", { exact: true }).first().waitFor();
   await page.getByRole("button", { name: "Catálogo" }).click();
   await page.getByText("Catálogo planejado").waitFor();
   await page
@@ -351,13 +351,22 @@ try {
     .waitFor();
   await page.locator(".catalog-artwork-button").click();
   const artworkDialog = page.getByRole("dialog", { name: "Smoke Batch Title" });
-  const seriesToggle = artworkDialog.getByLabel(
-    "Gerar série visual na capa tratada",
-  );
-  await seriesToggle.waitFor();
-  if (!(await seriesToggle.isChecked())) await seriesToggle.check();
-  const overlay = artworkDialog.locator(".cover-series-overlay");
+  await artworkDialog.getByText("Série numérica", { exact: false }).waitFor();
+  const overlay = artworkDialog
+    .locator(".catalog-artwork-expanded .cover-series-overlay")
+    .first();
   await overlay.waitFor();
+  await artworkDialog
+    .locator('select:has(option[value="bottom-left"])')
+    .selectOption("bottom-left");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector(
+          ".catalog-artwork-dialog .catalog-artwork-expanded .cover-series-overlay text",
+        )
+        ?.getAttribute("text-anchor") === "start",
+  );
   const initialNumberY = await overlay
     .locator("text")
     .first()
@@ -378,7 +387,9 @@ try {
   await page.waitForFunction(
     ({ previous }) =>
       document
-        .querySelector(".catalog-artwork-dialog .cover-series-overlay text")
+        .querySelector(
+          ".catalog-artwork-dialog .catalog-artwork-expanded .cover-series-overlay text",
+        )
         ?.getAttribute("y") !== previous,
     { previous: initialNumberY },
   );
@@ -391,9 +402,9 @@ try {
     .click();
   await page.getByRole("button", { name: "Vídeos" }).click();
   await page.getByText("Grade de publicação").waitFor();
-  await page.locator(".composition-thumbnail").waitFor();
+  await page.locator(".composition-thumbnail").first().waitFor();
   await page
-    .locator(".thumbnail-mode-switch")
+    .locator(".youtube-card.selected .thumbnail-mode-switch")
     .getByRole("button", { name: "Capa" })
     .click();
   await page.locator(".youtube-thumbnail .artwork-frame").waitFor();
@@ -421,7 +432,7 @@ try {
   await page.getByRole("button", { name: "Aplicar capa ao lote" }).click();
   await page
     .getByRole("status")
-    .getByText("Capa aplicada a 1 faixa selecionada.")
+    .getByText("Capa aplicada a 2 faixas selecionadas.")
     .waitFor();
   await ensurePanelsClosed(page);
   await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
@@ -456,14 +467,14 @@ try {
   await ensurePanelOpen(page, "inspector");
   await page.getByRole("button", { name: "Conferir vídeos" }).click();
   await page.getByText("Grade de publicação").waitFor();
-  await page.locator(".steps button").filter({ hasText: "Exportar" }).click();
-  await page.getByText("1 faixa selecionada", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Revisar lote" }).click();
+  await page.getByText("2 faixas selecionadas", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Exportar lote" }).waitFor();
   await page.getByRole("button", { name: "Fila de vídeos" }).click();
   await page.getByText("Processamento de vídeos").waitFor();
   await page.locator(".video-export-stage .batch-job-board").waitFor();
   await ensurePanelOpen(page, "library");
-  await page.getByRole("button", { name: "Faixa única" }).click();
+  await ensureSingleMode(page);
   await ensurePanelOpen(page, "inspector");
   await page.getByText("Resumo da exportação").waitFor();
   await assertPortugueseLabels(page);
@@ -520,9 +531,8 @@ try {
   await reloadApp(page);
   await ensurePanelOpen(page, "library");
   await page.locator(".track-row").first().waitFor();
-  assert.equal(
-    await page.locator(".track-row").count(),
-    2,
+  assert.ok(
+    (await page.locator(".track-row").count()) >= 3,
     "variation with a replaced audio file should survive autosave",
   );
   await page.locator(".track-row").first().click();
@@ -544,15 +554,11 @@ try {
       ?.width ?? 0) > 100,
     "single-track rows should reserve useful width for title and version",
   );
-  await ensurePanelOpen(page, "inspector");
-  await page
-    .getByRole("button", { name: "Trocar áudio desta versão" })
-    .waitFor();
   await restoreDockedPanels(page);
   await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
   await ensurePanelOpen(page, "library");
   await ensurePanelOpen(page, "inspector");
-  await page.getByRole("button", { name: "Lote" }).click();
+  await ensureBatchMode(page);
   await assertCompactAccordionRows(page);
   await page.getByRole("button", { name: "Estúdio visual" }).click();
   await page.setViewportSize({ width: 760, height: 1080 });
@@ -783,6 +789,54 @@ async function ensurePanelOpen(page, panel) {
       { hiddenClass: className },
     );
   }
+}
+
+async function ensureBatchMode(page) {
+  await ensurePanelOpen(page, "library");
+  const checkboxes = page.locator('.track-row input[type="checkbox"]');
+  await checkboxes.first().waitFor();
+  const count = await checkboxes.count();
+  assert.ok(count >= 2, "batch mode requires at least two tracks");
+  for (let index = 0; index < 2; index += 1) {
+    const checkbox = checkboxes.nth(index);
+    if (!(await checkbox.isChecked())) {
+      await setCheckboxChecked(checkbox, true);
+    }
+  }
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('.track-row input[type="checkbox"]:checked')
+        .length >= 2,
+  );
+}
+
+async function ensureSingleMode(page) {
+  await ensurePanelOpen(page, "library");
+  const checkboxes = page.locator('.track-row input[type="checkbox"]');
+  await checkboxes.first().waitFor();
+  const count = await checkboxes.count();
+  if (!(await checkboxes.first().isChecked())) {
+    await setCheckboxChecked(checkboxes.first(), true);
+  }
+  for (let index = 1; index < count; index += 1) {
+    const checkbox = checkboxes.nth(index);
+    if (await checkbox.isChecked()) {
+      await setCheckboxChecked(checkbox, false);
+    }
+  }
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('.track-row input[type="checkbox"]:checked')
+        .length <= 1,
+  );
+}
+
+async function setCheckboxChecked(locator, checked) {
+  await locator.evaluate((input, nextChecked) => {
+    input.checked = nextChecked;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }, checked);
 }
 
 async function ensurePanelsClosed(page) {

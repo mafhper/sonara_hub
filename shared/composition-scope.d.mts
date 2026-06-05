@@ -1,5 +1,6 @@
 type TrackArtworkScope<TArtwork> = {
   suggestedCover?: TArtwork | null;
+  coverOverride?: TArtwork | null;
   albumCoverSuggestion?: TArtwork | null;
   useSuggestedCover?: boolean;
 };
@@ -44,6 +45,17 @@ export function clearCoverSeriesScopeOverride<
   TSettings,
   TTrack extends CoverSeriesScopedTrack<TSettings>,
 >(tracks: TTrack[], trackId: string): TTrack[];
+
+export function applyCoverSeriesMetaStylePatch<
+  TSettings extends { metaStyles?: Record<string, unknown> },
+  TKey extends keyof NonNullable<TSettings["metaStyles"]> & string,
+  TStyle extends NonNullable<TSettings["metaStyles"]>[TKey],
+>(
+  settings: TSettings,
+  key: TKey,
+  patch: Partial<TStyle>,
+  options?: { target?: "field" | "all" },
+): TSettings;
 
 export function applySelectedTextSettingsToBatch<
   TTextSettings,

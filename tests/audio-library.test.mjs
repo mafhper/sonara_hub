@@ -284,6 +284,9 @@ test("cover series renders ordered metadata lines with independent styles", asyn
       {
         text: "The Light Through the Kitchen Window",
         fontSize: 42,
+        fontWeight: 760,
+        fontStyle: "italic",
+        align: "right",
         color: "#f4d58d",
         opacity: 86,
         offsetX: -34,
@@ -292,6 +295,9 @@ test("cover series renders ordered metadata lines with independent styles", asyn
       {
         text: "The Beauty of Almost",
         fontSize: 30,
+        fontWeight: 560,
+        fontStyle: "normal",
+        align: "left",
         color: "#c7d9e8",
         opacity: 72,
         offsetX: 28,

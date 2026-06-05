@@ -1,0 +1,799 @@
+import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import { spawn, spawnSync } from "node:child_process";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { performance } from "node:perf_hooks";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import ffmpegPath from "ffmpeg-static";
+import { buildWebglMuxArgs } from "../server/video-mux.mjs";
+import { renderCanvasSize, renderTiming } from "../server/render-profile.mjs";
+import { sampleAudioEnvelope } from "../server/audio-envelope.mjs";
+import { renderWebglBackgroundVideo } from "../server/webgl-export.mjs";
+import { builtinVisualPresets } from "../shared/visual-effects.mjs";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const benchRoot = path.join(root, ".dev", "bench");
+const runsDir = path.join(benchRoot, "runs");
+const historyPath = path.join(benchRoot, "render-history.jsonl");
+const latestReportPath = path.join(benchRoot, "latest-render-report.md");
+const runId = new Date().toISOString().replace(/[:.]/g, "-");
+const runDir = path.join(runsDir, `${runId}-render`);
+const outputDir = path.join(runDir, "outputs");
+const assetsDir = path.join(runDir, "assets");
+const profile =
+  option("profile") ?? process.env.SONARA_BENCH_PROFILE ?? "quick";
+const audioPath = path.join(assetsDir, "bench-audio.m4a");
+const layerPath = path.join(assetsDir, "bench-layer.png");
+const coverPath = path.join(assetsDir, "bench-cover.png");
+const modeCases = buildCases(profile);
+const audioMode =
+  option("audio") ?? process.env.SONARA_BENCH_AUDIO ?? "synthetic";
+
+await fs.mkdir(outputDir, { recursive: true });
+await fs.mkdir(assetsDir, { recursive: true });
+
+await writeFixturePng(layerPath);
+await writeFixturePng(coverPath);
+const maxDuration = Math.max(...modeCases.map((item) => item.duration));
+const audioSource = await prepareBenchAudio(audioPath, maxDuration, audioMode);
+const audioEnvelope =
+  audioSource.kind === "input"
+    ? await sampleAudioEnvelope(audioPath, 2)
+    : syntheticAudioEnvelope();
+
+const history = await readHistory(historyPath);
+const run = {
+  runId,
+  kind: "render-benchmark",
+  profile,
+  createdAt: new Date().toISOString(),
+  git: gitInfo(),
+  environment: environmentInfo(),
+  audioSource,
+  thresholds: {
+    totalMs: 1.25,
+    peakRssMb: 1.3,
+    webmBytes: 1.2,
+    mp4Bytes: 1.2,
+  },
+  cases: [],
+  warnings: [],
+};
+
+console.log(`Sonara render benchmark (${profile})`);
+console.log(`Audio: ${audioSource.label}`);
+console.log(`Outputs: ${path.relative(root, outputDir)}`);
+
+for (const benchCase of modeCases) {
+  const result = await runCase(benchCase);
+  result.warnings = compareWithHistory(result, history, run.thresholds);
+  run.cases.push(result);
+  run.warnings.push(
+    ...result.warnings.map((warning) => `${result.id}: ${warning}`),
+  );
+  const status = result.warnings.length ? "WARN" : "OK";
+  console.log(
+    `${status} ${result.id}: ${formatMs(result.totalMs)} total, ${formatMs(result.webmStageMs)} webm, ${formatMs(result.muxMs)} mux, ${result.peakRssMb.toFixed(1)} MB rss`,
+  );
+}
+
+await fs.writeFile(
+  path.join(runDir, "render.json"),
+  JSON.stringify(run, null, 2),
+);
+await fs.appendFile(historyPath, `${JSON.stringify(run)}\n`);
+await fs.writeFile(latestReportPath, renderMarkdown(run));
+
+console.log(`Report: ${path.relative(root, latestReportPath)}`);
+if (run.warnings.length) {
+  console.warn("Performance warnings:");
+  for (const warning of run.warnings) console.warn(`- ${warning}`);
+}
+
+async function runCase(benchCase) {
+  const timing = renderTiming({
+    qualityProfile: benchCase.qualityProfile,
+    renderMode: "single",
+  });
+  const settings = {
+    visualSettings: benchCase.scene,
+    qualityProfile: benchCase.qualityProfile,
+    renderMode: "single",
+    webglFps: benchCase.webglFps ?? timing.webglFps,
+    outputFps: benchCase.outputFps ?? timing.outputFps,
+    encoderPreset: benchCase.encoderPreset ?? timing.encoderPreset,
+    crf: benchCase.crf ?? 22,
+  };
+  const internalSize = renderCanvasSize(benchCase.outputSize, settings);
+  const webmPath = path.join(outputDir, `${benchCase.id}.webm`);
+  const mp4Path = path.join(outputDir, `${benchCase.id}.mp4`);
+  const progressMessages = [];
+  const monitor = startMemoryMonitor();
+  const started = performance.now();
+
+  const webmStarted = performance.now();
+  await renderWebglBackgroundVideo({
+    outputPath: webmPath,
+    size: internalSize,
+    duration: benchCase.duration,
+    settings,
+    audioEnvelope,
+    composition: benchCase.composition,
+    onProgress: (_progress, message) => {
+      if (message) progressMessages.push(message);
+    },
+  });
+  const webmStageMs = performance.now() - webmStarted;
+
+  const muxStarted = performance.now();
+  await runFfmpeg(
+    buildWebglMuxArgs({
+      audioPath,
+      duration: benchCase.duration,
+      metadata: benchMetadata(benchCase),
+      outputPath: mp4Path,
+      outputSize: benchCase.outputSize,
+      settings,
+      subtitlePath: null,
+      webglVideoPath: webmPath,
+    }),
+  );
+  const muxMs = performance.now() - muxStarted;
+
+  const validationStarted = performance.now();
+  await openWithFfmpeg(mp4Path);
+  const validationMs = performance.now() - validationStarted;
+  const memory = monitor.stop();
+  const webmStat = await fs.stat(webmPath);
+  const mp4Stat = await fs.stat(mp4Path);
+  const totalMs = performance.now() - started;
+  const rendererId = benchCase.scene.rendererId ?? benchCase.scene.id;
+  const params = {
+    id: benchCase.id,
+    profile,
+    sceneId: benchCase.scene.id,
+    rendererId,
+    outputSize: benchCase.outputSize,
+    internalSize,
+    duration: benchCase.duration,
+    webglFps: settings.webglFps,
+    outputFps: settings.outputFps,
+    qualityProfile: settings.qualityProfile,
+    waveform: benchCase.scene.waveform,
+    compositionKey: benchCase.compositionKey,
+    audioSource: audioSource.kind,
+  };
+  return {
+    id: benchCase.id,
+    paramsHash: hash(params),
+    sceneId: benchCase.scene.id,
+    rendererId,
+    category: benchCase.category,
+    outputSize: benchCase.outputSize,
+    internalSize,
+    duration: benchCase.duration,
+    webglFps: settings.webglFps,
+    outputFps: settings.outputFps,
+    qualityProfile: settings.qualityProfile,
+    totalMs: round(totalMs),
+    webmStageMs: round(webmStageMs),
+    muxMs: round(muxMs),
+    validationMs: round(validationMs),
+    webmBytes: webmStat.size,
+    mp4Bytes: mp4Stat.size,
+    peakRssMb: round(memory.peakRssMb),
+    startRssMb: round(memory.startRssMb),
+    endRssMb: round(memory.endRssMb),
+    memoryDeltaMb: round(memory.endRssMb - memory.startRssMb),
+    retryWebgl: progressMessages.some((message) =>
+      /Recuperando contexto WebGL/i.test(message),
+    ),
+    outputWebm: path.relative(root, webmPath),
+    outputMp4: path.relative(root, mp4Path),
+  };
+}
+
+function buildCases(selectedProfile) {
+  const baseCases = [
+    {
+      id: "audio-dark-720p-fast",
+      category: "baseline",
+      scene: preset("audio-dark"),
+      outputSize: { width: 1280, height: 720 },
+      duration: 2,
+      qualityProfile: "fast",
+      composition: textComposition(),
+      compositionKey: "text-simple",
+    },
+    {
+      id: "liquid-waveform-720p-fast",
+      category: "waveform",
+      scene: withWaveform(preset("liquid-mesh"), {
+        type: "spectrum-bars",
+        colorMode: "gradient",
+      }),
+      outputSize: { width: 1280, height: 720 },
+      duration: 2,
+      qualityProfile: "fast",
+      composition: textComposition(),
+      compositionKey: "text-simple",
+    },
+    {
+      id: "plasma-720p-fast",
+      category: "shader",
+      scene: preset("plasma-nebula"),
+      outputSize: { width: 1280, height: 720 },
+      duration: 2,
+      qualityProfile: "fast",
+      composition: textComposition(),
+      compositionKey: "text-simple",
+    },
+    {
+      id: "starfield-layers-720p-fast",
+      category: "shader+layers",
+      scene: withWaveform(preset("starfield"), { type: "radial-ring" }),
+      outputSize: { width: 1280, height: 720 },
+      duration: 2,
+      qualityProfile: "fast",
+      composition: layeredComposition(),
+      compositionKey: "two-image-layers+cover+text",
+    },
+    {
+      id: "clouds-sun-1080p-auto",
+      category: "shader+1080p",
+      scene: cloudsWithSun(),
+      outputSize: { width: 1920, height: 1080 },
+      duration: 2,
+      qualityProfile: "auto",
+      composition: textComposition(),
+      compositionKey: "text-simple",
+      crf: 23,
+    },
+  ];
+  if (selectedProfile !== "full") return baseCases;
+  return [
+    ...baseCases,
+    {
+      id: "vortex-1080p-auto",
+      category: "shader+1080p",
+      scene: preset("vortex-galaxy"),
+      outputSize: { width: 1920, height: 1080 },
+      duration: 3,
+      qualityProfile: "auto",
+      composition: textComposition(),
+      compositionKey: "text-simple",
+      crf: 23,
+    },
+    {
+      id: "playful-720p-fast",
+      category: "canvas2d",
+      scene: preset("playful-shapes"),
+      outputSize: { width: 1280, height: 720 },
+      duration: 2,
+      qualityProfile: "fast",
+      composition: textComposition(),
+      compositionKey: "text-simple",
+    },
+    {
+      id: "piano-ribbons-720p-fast",
+      category: "canvas2d",
+      scene: withWaveform(preset("piano-ribbons"), { type: "filled-ribbon" }),
+      outputSize: { width: 1280, height: 720 },
+      duration: 2,
+      qualityProfile: "fast",
+      composition: textComposition(),
+      compositionKey: "text-simple",
+    },
+  ];
+}
+
+function preset(id) {
+  const found = builtinVisualPresets.find((item) => item.id === id);
+  assert.ok(found, `Missing visual preset ${id}`);
+  return structuredClone(found);
+}
+
+function withWaveform(scene, patch) {
+  return {
+    ...scene,
+    waveform: {
+      ...scene.waveform,
+      visible: true,
+      opacity: 72,
+      height: 16,
+      color: "#9fd4ff",
+      secondaryColor: "#f6c663",
+      tertiaryColor: "#ef7cad",
+      advanced: { ...scene.waveform.advanced },
+      ...patch,
+    },
+  };
+}
+
+function cloudsWithSun() {
+  const scene = preset("volumetric-clouds");
+  scene.cloudLight = {
+    ...scene.cloudLight,
+    enabled: true,
+    intensity: 74,
+    color: "#ffe0a3",
+    motion: 28,
+    speed: 42,
+    direction: 24,
+  };
+  return scene;
+}
+
+function textComposition() {
+  return {
+    metadata: benchMetadata(),
+    showMetadata: true,
+    textSettings: {
+      fields: {
+        title: true,
+        artist: true,
+        album: true,
+        year: true,
+        version: false,
+      },
+      order: ["title", "artist", "album", "year"],
+      preset: "side-left",
+      fontFamily: "Inter",
+      fontSize: 34,
+      fontWeight: 720,
+      letterSpacing: 1,
+      lineHeight: 116,
+      color: "#f7f8fb",
+      opacity: 92,
+      x: 7,
+      y: 78,
+      align: "left",
+      verticalAnchor: "bottom",
+      shadow: 42,
+    },
+  };
+}
+
+function layeredComposition() {
+  const base = textComposition();
+  return {
+    ...base,
+    coverSrc: pathToFileURL(coverPath).href,
+    layers: [
+      layer("layer-a", 0, 82, 48, 50, 50, "screen"),
+      layer("layer-b", 1, 58, 74, 74, 30, "overlay"),
+    ],
+  };
+}
+
+function layer(id, order, opacity, scale, x, y, blendMode) {
+  return {
+    id,
+    kind: "image",
+    src: pathToFileURL(layerPath).href,
+    opacity,
+    scale,
+    x,
+    y,
+    rotation: order ? -8 : 12,
+    blur: 0,
+    maskOpacity: 0,
+    shadow: { opacity: 22, blur: 24, x: 0, y: 12 },
+    visible: true,
+    fit: "contain",
+    blendMode,
+    loop: true,
+    order,
+  };
+}
+
+function benchMetadata(benchCase = {}) {
+  return {
+    title: benchCase.id ?? "Benchmark Sonara",
+    version: "Bench",
+    artist: "Sonara QA",
+    album: "Render Bench",
+    genre: "Ambient",
+    description: "",
+    comment: "",
+    tags: "benchmark, sonara",
+    visibility: "private",
+    categoryId: "10",
+    language: "pt-BR",
+    recordingDate: "2026-06-04",
+    copyright: "",
+    outputFileName: "",
+    useEmbeddedCover: false,
+    containsSyntheticMedia: true,
+    madeForKids: false,
+    albumArtist: "Sonara QA",
+    composer: "",
+    year: "2026",
+    trackNumber: 1,
+    trackTotal: 1,
+    diskNumber: 1,
+    diskTotal: 1,
+    lyrics: "",
+    lyricsLanguage: "por",
+    normalizationEnabled: false,
+  };
+}
+
+function runFfmpeg(args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpegPath, args, { windowsHide: true });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
+    child.on("error", reject);
+    child.on("close", (code) =>
+      code === 0
+        ? resolve()
+        : reject(new Error(stderr.slice(-2000) || `ffmpeg ${code}`)),
+    );
+  });
+}
+
+function openWithFfmpeg(filePath) {
+  return runFfmpeg(["-v", "error", "-i", filePath, "-f", "null", "-"]);
+}
+
+async function prepareBenchAudio(filePath, duration, mode) {
+  if (mode === "input") {
+    const input = await findLargestInputAudio();
+    if (input) {
+      trimInputAudio(input.path, filePath, duration);
+      return {
+        kind: "input",
+        label: `input/${input.relativePath}`,
+        sourcePath: input.relativePath,
+        sourceBytes: input.size,
+        trimmedDurationSeconds: Math.max(2, duration + 0.2),
+      };
+    }
+    createSyntheticAudio(filePath, duration);
+    return {
+      kind: "synthetic",
+      label: "synthetic sine (fallback: input folder has no audio)",
+    };
+  }
+  createSyntheticAudio(filePath, duration);
+  return { kind: "synthetic", label: "synthetic sine" };
+}
+
+function createSyntheticAudio(filePath, duration) {
+  const result = spawnSync(
+    ffmpegPath,
+    [
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      `sine=frequency=330:duration=${Math.max(2, duration + 0.2)}`,
+      "-ac",
+      "2",
+      "-ar",
+      "44100",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      filePath,
+    ],
+    { windowsHide: true },
+  );
+  if (result.status !== 0) throw new Error(result.stderr.toString());
+}
+
+function trimInputAudio(inputPath, outputPath, duration) {
+  const result = spawnSync(
+    ffmpegPath,
+    [
+      "-y",
+      "-i",
+      inputPath,
+      "-map",
+      "0:a:0",
+      "-t",
+      String(Math.max(2, duration + 0.2)),
+      "-vn",
+      "-ac",
+      "2",
+      "-ar",
+      "44100",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      outputPath,
+    ],
+    { windowsHide: true },
+  );
+  if (result.status !== 0) throw new Error(result.stderr.toString());
+}
+
+async function findLargestInputAudio() {
+  const inputRoot = path.join(root, "input");
+  const candidates = [];
+  await walk(inputRoot, async (filePath) => {
+    if (!/\.(mp3|wav|m4a|flac|aac)$/i.test(filePath)) return;
+    const stat = await fs.stat(filePath);
+    candidates.push({
+      path: filePath,
+      relativePath: path.relative(inputRoot, filePath),
+      size: stat.size,
+    });
+  }).catch((error) => {
+    if (error.code !== "ENOENT") throw error;
+  });
+  return candidates.sort((a, b) => b.size - a.size)[0] ?? null;
+}
+
+async function walk(directory, visit) {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      await walk(fullPath, visit);
+    } else if (entry.isFile()) {
+      await visit(fullPath);
+    }
+  }
+}
+
+async function writeFixturePng(filePath) {
+  await fs.writeFile(
+    filePath,
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAD0lEQVR42mNk+M+ABzDhkQAP/wL+zKxQfAAAAABJRU5ErkJggg==",
+      "base64",
+    ),
+  );
+}
+
+function startMemoryMonitor() {
+  const start = process.memoryUsage();
+  let peak = start;
+  const timer = setInterval(() => {
+    const current = process.memoryUsage();
+    if (current.rss > peak.rss) peak = current;
+  }, 50);
+  return {
+    stop() {
+      clearInterval(timer);
+      const end = process.memoryUsage();
+      if (end.rss > peak.rss) peak = end;
+      return {
+        startRssMb: bytesToMb(start.rss),
+        peakRssMb: bytesToMb(peak.rss),
+        endRssMb: bytesToMb(end.rss),
+      };
+    },
+  };
+}
+
+async function readHistory(filePath) {
+  try {
+    const text = await fs.readFile(filePath, "utf8");
+    return text
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+function compareWithHistory(result, runs, thresholds) {
+  const previous = runs
+    .flatMap((item) => item.cases ?? [])
+    .filter(
+      (item) =>
+        item.id === result.id &&
+        item.paramsHash === result.paramsHash &&
+        Number.isFinite(item.totalMs),
+    )
+    .slice(-12);
+  if (previous.length < 2) return ["baseline insuficiente para regressao"];
+
+  const warnings = [];
+  compareMetric(
+    warnings,
+    "tempo total",
+    result.totalMs,
+    median(previous, "totalMs"),
+    thresholds.totalMs,
+    "ms",
+  );
+  compareMetric(
+    warnings,
+    "RSS pico",
+    result.peakRssMb,
+    median(previous, "peakRssMb"),
+    thresholds.peakRssMb,
+    "MB",
+  );
+  compareMetric(
+    warnings,
+    "WebM bytes",
+    result.webmBytes,
+    median(previous, "webmBytes"),
+    thresholds.webmBytes,
+    "bytes",
+  );
+  compareMetric(
+    warnings,
+    "MP4 bytes",
+    result.mp4Bytes,
+    median(previous, "mp4Bytes"),
+    thresholds.mp4Bytes,
+    "bytes",
+  );
+  if (result.retryWebgl && !previous.some((item) => item.retryWebgl)) {
+    warnings.push("retry WebGL apareceu neste run");
+  }
+  return warnings;
+}
+
+function compareMetric(warnings, label, current, baseline, multiplier, unit) {
+  if (
+    !Number.isFinite(current) ||
+    !Number.isFinite(baseline) ||
+    baseline <= 0
+  ) {
+    return;
+  }
+  if (current > baseline * multiplier) {
+    warnings.push(
+      `${label} acima do baseline: ${formatNumber(current)} ${unit} vs mediana ${formatNumber(baseline)} ${unit}`,
+    );
+  }
+}
+
+function median(items, key) {
+  const values = items
+    .map((item) => Number(item[key]))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  if (!values.length) return Number.NaN;
+  const middle = Math.floor(values.length / 2);
+  return values.length % 2
+    ? values[middle]
+    : (values[middle - 1] + values[middle]) / 2;
+}
+
+function renderMarkdown(runData) {
+  const rows = runData.cases
+    .map((item) =>
+      [
+        item.id,
+        item.rendererId,
+        `${item.outputSize.width}x${item.outputSize.height}`,
+        `${item.duration}s`,
+        formatMs(item.webmStageMs),
+        formatMs(item.muxMs),
+        formatMs(item.validationMs),
+        formatMs(item.totalMs),
+        `${item.peakRssMb.toFixed(1)} MB`,
+        `${(item.mp4Bytes / 1024 / 1024).toFixed(2)} MB`,
+        item.warnings.length ? item.warnings.join("; ") : "ok",
+      ].join(" | "),
+    )
+    .join("\n");
+  const warnings = runData.warnings.length
+    ? runData.warnings.map((item) => `- ${item}`).join("\n")
+    : "- Nenhum alerta alem de baseline insuficiente.";
+  return `# Sonara Hub render benchmark
+
+Run: \`${runData.runId}\`
+Profile: \`${runData.profile}\`
+Commit: \`${runData.git.commit}\`
+Branch: \`${runData.git.branch}\`
+Environment: ${runData.environment.platform} ${runData.environment.release}, Node ${runData.environment.node}
+Audio: ${runData.audioSource.label}
+
+## Results
+
+Case | Renderer | Output | Duration | WebM stage | Mux | Validate | Total | Peak RSS | MP4 | Status
+--- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---
+${rows}
+
+## Warnings
+
+${warnings}
+
+## Notes
+
+- WebM stage includes browser render, deterministic canvas capture and WebM validation inside \`renderWebglBackgroundVideo\`.
+- Regression warnings are warn-only. Functional failures still fail the benchmark process.
+- Baseline uses previous local runs with the same case and parameter hash from \`.dev/bench/render-history.jsonl\`.
+`;
+}
+
+function gitInfo() {
+  return {
+    branch: command("git", ["branch", "--show-current"]),
+    commit: command("git", ["rev-parse", "HEAD"]),
+    status: command("git", ["status", "--short"]),
+  };
+}
+
+function environmentInfo() {
+  return {
+    platform: process.platform,
+    release: os.release(),
+    arch: process.arch,
+    node: process.version,
+    cpus: os.cpus().length,
+    totalMemoryMb: round(bytesToMb(os.totalmem())),
+    ffmpeg: ffmpegPath,
+  };
+}
+
+function command(name, args) {
+  const result = spawnSync(name, args, {
+    cwd: root,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return result.status === 0 ? result.stdout.trim() : "";
+}
+
+function option(name) {
+  const prefix = `--${name}=`;
+  return process.argv
+    .find((arg) => arg.startsWith(prefix))
+    ?.slice(prefix.length);
+}
+
+function hash(value) {
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify(value))
+    .digest("hex");
+}
+
+function bytesToMb(value) {
+  return value / 1024 / 1024;
+}
+
+function round(value) {
+  return Math.round(value * 100) / 100;
+}
+
+function formatMs(value) {
+  return `${Math.round(value)}ms`;
+}
+
+function formatNumber(value) {
+  return Number(value).toFixed(1);
+}
+
+function syntheticAudioEnvelope() {
+  return {
+    frameRate: 2,
+    frames: [
+      frame(0.12, 0.1, 0.08, 0.05),
+      frame(0.42, 0.5, 0.28, 0.16),
+      frame(0.2, 0.18, 0.22, 0.14),
+    ],
+  };
+}
+
+function frame(energy, bass, mid, high) {
+  return {
+    energy,
+    bass,
+    mid,
+    high,
+    samples: Array.from(
+      { length: 64 },
+      (_, index) => Math.sin(index * 0.35) * energy,
+    ),
+    spectrum: Array.from({ length: 24 }, (_, index) =>
+      Math.max(0.04, bass * (1 - index / 36) + high * (index / 32)),
+    ),
+  };
+}

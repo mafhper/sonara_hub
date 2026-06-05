@@ -95,6 +95,10 @@ export type MediaLayerV2 = {
   blur: number;
   maskOpacity: number;
   shadow: { opacity: number; blur: number; x: number; y: number };
+  coverFadeOut?: {
+    enabled: boolean;
+    endPercent: number;
+  };
   fit: "cover" | "contain";
   blendMode: "normal" | "screen" | "multiply" | "overlay";
   loop: boolean;
@@ -144,6 +148,10 @@ export type TextFieldStyle = {
   lineHeight: number;
   color: string;
   opacity: number;
+  fadeOut?: {
+    enabled: boolean;
+    endPercent: number;
+  };
   align: "left" | "center" | "right";
 };
 
@@ -162,16 +170,25 @@ export type CoverSeriesSettings = {
   includeAlbum: boolean;
   includeArtist: boolean;
   includeYear: boolean;
+  embedAlbumCover: boolean;
   metaOrder: string;
   metaFontSize: number;
   metaGap: number;
   metaStyles: Record<CoverSeriesMetaKey, CoverSeriesMetaStyle>;
 };
 
-export type CoverSeriesMetaKey = "title" | "album" | "artist" | "year";
+export type CoverSeriesMetaKey =
+  | "series"
+  | "title"
+  | "album"
+  | "artist"
+  | "year";
 
 export type CoverSeriesMetaStyle = {
   fontSize: number;
+  fontWeight: number;
+  fontStyle: "normal" | "italic";
+  align: "left" | "center" | "right";
   color: string;
   opacity: number;
   offsetX: number;
@@ -182,7 +199,7 @@ export type ArtworkSuggestion = {
   file: File;
   src: string;
   relativePath: string;
-  source: "folder";
+  source: "folder" | "manual";
 };
 
 export type TrackDraft = {
@@ -202,6 +219,7 @@ export type TrackDraft = {
   selectedForBatch: boolean;
   packageStatus?: "original" | "treated";
   suggestedCover?: ArtworkSuggestion;
+  coverOverride?: ArtworkSuggestion | null;
   artworkOptions?: ArtworkSuggestion[];
   albumCoverSuggestion?: ArtworkSuggestion;
   useSuggestedCover?: boolean;
@@ -258,6 +276,7 @@ export type ProjectSnapshot = {
     selectedForBatch: boolean;
     packageStatus?: TrackDraft["packageStatus"];
     useSuggestedCover?: boolean;
+    coverOverride?: ArtworkSuggestion | null;
     thumbnailPreviewMode?: TrackDraft["thumbnailPreviewMode"];
     coverSeriesOverride?: CoverSeriesSettings | null;
   }>;

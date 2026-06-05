@@ -10,11 +10,11 @@ npm run test:release
 
 ## Niveis
 
-| Nivel         | Quando executar  | Escopo                                            |
-| ------------- | ---------------- | ------------------------------------------------- |
-| PR            | A cada alteracao | formatacao, tipos, testes unitarios e build       |
-| Release local | Antes de uma tag | PR + smoke UI + smoke de render                   |
-| Exploratorio  | Antes da v1.0.0  | jornadas completas, pastas reais e revisao visual |
+| Nivel         | Quando executar  | Escopo                                                 |
+| ------------- | ---------------- | ------------------------------------------------------ |
+| PR            | A cada alteracao | formatacao, tipos, testes unitarios e build            |
+| Release local | Antes de uma tag | PR + smoke UI + smoke de render + benchmark de render  |
+| Exploratorio  | Antes da v1.0.0  | jornadas completas, pastas reais, performance e visual |
 
 ## Cobertura automatizada atual
 
@@ -31,6 +31,7 @@ npm run test:release
 | Variações         | trocar audio, aguardar autosave, recarregar e manter a segunda versao   | Release local |
 | Renderizadores    | nove familias em 720p e amostras adicionais 1080p, 2K e 4K              | Release local |
 | Waveforms         | cinco estilos decorativos em 720p e controles contextuais               | Release local |
+| Performance       | benchmark local de render/export com historico em `.dev/bench/`         | Release local |
 
 ## Jornadas obrigatorias
 
@@ -84,9 +85,20 @@ de dois frames para confirmar movimento nos efeitos animados.
 
 ## Performance
 
-Registrar tempo total e tamanho do MP4 para J01, J03 e E01. Alertar quando o
-tempo aumentar mais de 25% sem justificativa ou quando um lote curto produzir
-arquivos com FPS irregular.
+Executar:
+
+```powershell
+npm run bench:render
+npm run bench:render -- --audio=input
+```
+
+Registrar tempo total, etapa WebM/Chromium, mux, validacao, pico de RSS, tamanho
+do WebM/MP4 e retries WebGL. O historico local fica em `.dev/bench/`.
+
+Alertar quando o tempo aumentar mais de 25% sem justificativa, quando o pico de
+RSS aumentar mais de 30%, quando os tamanhos variarem mais de 20% ou quando um
+lote curto produzir arquivos com FPS irregular. Sem baseline suficiente, registrar
+o run como referencia inicial em vez de afirmar regressao.
 
 ## Antes da tag
 
@@ -94,8 +106,9 @@ arquivos com FPS irregular.
    `npm audit --audit-level=high`. Como `ffmpeg-static` baixa o binario no
    script de instalacao, executar `npm rebuild ffmpeg-static` antes dos testes
    locais de audio e render.
-2. Executar `npm run test:release` com `npm run dev` ativo.
-3. Executar J01-J10 e E01-E09.
-4. Revisar `git status` e o diff para excluir arquivos pessoais, `.env`,
+2. Executar `npm run bench:render` e `npm run bench:render -- --audio=input`.
+3. Executar `npm run test:release` com `npm run dev` ativo.
+4. Executar J01-J10 e E01-E09.
+5. Revisar `git status` e o diff para excluir arquivos pessoais, `.env`,
    `.dev/`, `outputs/` e dados locais.
-5. Registrar artefatos, tempos e riscos aceitos no candidato a release.
+6. Registrar artefatos, tempos e riscos aceitos no candidato a release.

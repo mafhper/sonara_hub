@@ -23,6 +23,7 @@ npm run build            # build do app
 npm run test:ui          # smoke Playwright do app
 npm run test:flow        # jornada local completa
 npm run test:render      # smoke dos renderizadores
+npm run bench:render     # benchmark local de render/export
 npm run test:release     # gate ampliado de release
 npm run site:dev         # promo-site
 npm run site:build       # build do promo-site
@@ -44,11 +45,37 @@ Antes de publicar uma branch candidata a release, mantenha `npm run dev` ativo
 e execute:
 
 ```powershell
+npm run bench:render
+npm run bench:render -- --audio=input
 npm run test:release
 ```
 
 A matriz exploratória fica em
 [`release-test-bench.md`](release-test-bench.md).
+
+## Benchmark de render/export
+
+`npm run bench:render` mede uma matriz curta de renderização/exportação sem
+depender do servidor dev. O comando gera WebM e MP4 curtos, valida as saídas com
+FFmpeg e registra tempo total, etapa WebM/Chromium, mux, validação, tamanho dos
+arquivos e pico de RSS.
+
+Os resultados ficam em `.dev/bench/`, fora do Git:
+
+- `render-history.jsonl`: histórico acumulado local.
+- `latest-render-report.md`: resumo da última execução.
+- `runs/`: saídas e JSON detalhado por rodada.
+
+Por padrão o benchmark usa áudio sintético para comparação estável. Para
+exercitar exemplos reais da pasta `input/`, use:
+
+```powershell
+npm run bench:render -- --audio=input
+```
+
+Alertas de degradação são não bloqueantes enquanto o baseline local ainda está
+sendo calibrado. Falhas funcionais de render, mux ou validação continuam
+falhando o comando.
 
 ## Promo-site e GitHub Pages
 

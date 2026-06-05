@@ -77,7 +77,6 @@ try {
   }
 
   await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
-  await page.getByRole("button", { name: "Lote" }).click();
   await page.getByRole("button", { name: "Selecionar todos" }).click();
 
   const batch = page.getByRole("group", { name: "Dados comuns do lote" });
@@ -104,6 +103,7 @@ try {
     fullPage: true,
   });
 
+  await page.getByRole("tab", { name: "Qualidade" }).click();
   await page
     .locator(".inspector-panel")
     .getByRole("button", { name: "Processar selecionados" })
@@ -117,12 +117,28 @@ try {
   for (const job of audioJobs) {
     assert.equal(job.status, "done", JSON.stringify(job, null, 2));
     if (job.outputUrl) cleanupUrls.push(job.outputUrl);
-    if (job.thumbnailUrl) cleanupUrls.push(job.thumbnailUrl);
+    if (job.sidecarUrl) {
+      cleanupUrls.push(job.sidecarUrl);
+      assert.match(job.sidecarUrl, /\.mp3\.soundcloud\.json$/);
+      const sidecar = await downloadJsonOutput(job.sidecarUrl);
+      assert.equal(
+        sidecar.upload.endpoint,
+        "POST https://api.soundcloud.com/tracks",
+      );
+      assert.equal(
+        sidecar.upload.fields["track[asset_data]"]?.endsWith(".mp3"),
+        true,
+      );
+    }
+    if (job.thumbnailUrl) {
+      cleanupUrls.push(job.thumbnailUrl);
+      assert.match(job.thumbnailUrl, /\/extras\/.+\.cover\.jpg$/);
+    }
     if (job.albumArtworkUrl) {
       cleanupUrls.push(job.albumArtworkUrl);
       assert.match(
         job.albumArtworkUrl,
-        /\/outputs\/audio\/QA%20Complete%20Flow%20\d+\/folder\.jpg$/,
+        /\/outputs\/audio\/QA%20Complete%20Flow%20\d+\/album\.jpg$/,
       );
       assert.equal(
         (await fetch(`${apiUrl}${job.albumArtworkUrl}`)).status,
@@ -168,10 +184,9 @@ try {
     .getByText("Visual aplicado ao lote selecionado.")
     .waitFor();
   await page.locator(".steps button").filter({ hasText: "Texto" }).click();
-  await page
-    .locator(".inspector-panel .check-field", { hasText: "Ano" })
-    .click();
-  await page.getByRole("button", { name: "Aplicar texto ao lote" }).click();
+  const showYear = page.getByRole("button", { name: "Mostrar Ano" });
+  if ((await showYear.count()) > 0) await showYear.click();
+  await page.getByRole("button", { name: "Aplicar a todos" }).click();
   await page
     .getByRole("status")
     .getByText("Texto do vídeo aplicado ao lote selecionado.")
@@ -181,7 +196,7 @@ try {
     fullPage: true,
   });
 
-  await page.locator(".steps button").filter({ hasText: "Exportar" }).click();
+  await page.locator(".steps button").filter({ hasText: "Fila" }).click();
   await page.getByLabel("Resolução").selectOption("youtube-720p");
   await page.getByLabel("Perfil de qualidade").selectOption("fast");
   const renderResponses = [];

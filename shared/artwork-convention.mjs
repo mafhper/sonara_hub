@@ -17,6 +17,9 @@ const genericArtworkNames = [
   "imagem",
 ];
 
+export const treatedAlbumArtworkFileName = "album.jpg";
+export const treatedTrackArtworkDirectoryName = "extras";
+
 export function isArtworkName(name) {
   return artworkExtensions.has(extensionOf(name));
 }
@@ -35,6 +38,17 @@ export function albumArtworkDirectoryPaths(audioPaths) {
 
 export function singleTrackArtworkFileName(audioPath) {
   return `${stemOf(fileNameOf(audioPath))}.cover.jpg`;
+}
+
+export function treatedTrackArtworkFileName(audioPath) {
+  return `${stemOf(fileNameOf(audioPath))}.cover.jpg`;
+}
+
+export function treatedTrackArtworkPath(audioPath) {
+  return joinPath(
+    treatedTrackArtworkDirectoryName,
+    treatedTrackArtworkFileName(audioPath),
+  );
 }
 
 export function chooseArtworkForTrack({

@@ -2,7 +2,18 @@
 
 ## Benchmark de render longo
 
-O render longo ainda precisa de um benchmark dedicado antes de qualquer tentativa
+Existe um benchmark automatizado curto para render/export em
+`tests/render-benchmark.mjs`, executado por:
+
+```powershell
+npm run bench:render
+npm run bench:render -- --audio=input
+```
+
+Ele registra historico local em `.dev/bench/` e mede tempo total, etapa
+WebM/Chromium, mux FFmpeg, validacao, tamanhos de saida e pico de RSS.
+
+O debito restante e criar uma matriz longa dedicada antes de qualquer tentativa
 de aceleracao da captura deterministica do canvas.
 
 O benchmark deve medir:

@@ -72,6 +72,14 @@ export type CloudLightSettings = {
   direction: number;
 };
 
+export type VisualPalette = {
+  id: string;
+  name: string;
+  colors: { base: string; effect: string; light: string };
+  common: Record<string, number>;
+  advanced: Record<string, number>;
+};
+
 export type ScenePresetV4 = {
   schemaVersion: 4;
   id: string;
@@ -85,11 +93,15 @@ export type ScenePresetV4 = {
     | "color-mesh"
     | "piano-ribbons"
     | "vinyl"
-    | "audio-dark";
+    | "audio-dark"
+    | "plasma"
+    | "vortex"
+    | "starfield";
   source: "builtin" | "custom";
   category: string;
   note: string;
   colors: { base: string; effect: string; light: string };
+  palettes: VisualPalette[];
   common: Record<string, number>;
   advanced: Record<string, number>;
   controls: VisualControl[];
@@ -105,6 +117,7 @@ export const builtinVisualPresets: ScenePresetV4[];
 export const effectIds: string[];
 export const removedEffectIds: string[];
 export function getBuiltinPreset(id: string): ScenePresetV4;
+export function normalizeVisualPresetList(input?: unknown): ScenePresetV4[];
 export function normalizeVisualSettings(input?: unknown): ScenePresetV4;
 export function parseVisualCollection(
   value: unknown,

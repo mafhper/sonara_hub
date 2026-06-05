@@ -332,7 +332,14 @@ export function createSceneRuntime(
 
     for (const layer of composition.layers ?? []) {
       if (layer.visible !== false && layer.element) {
-        drawMediaLayer(context, width, height, layer);
+        drawMediaLayer(
+          context,
+          width,
+          height,
+          layer,
+          time,
+          composition.durationSeconds,
+        );
       }
     }
 
@@ -358,6 +365,8 @@ export function createSceneRuntime(
         height,
         composition.metadata ?? {},
         composition.textSettings ?? {},
+        time,
+        composition.durationSeconds,
       );
     }
     if (scene.common?.shade) {
@@ -966,9 +975,42 @@ function drawDarkSurface(context, width, height, scene, audio, time) {
   context.fillRect(0, 0, width, height);
 }
 
-function drawMediaLayer(context, width, height, layer) {
+export function effectiveLayerOpacity(layer, time = 0, durationSeconds = null) {
+  return effectiveTimedOpacity(
+    clampPercent(layer.opacity ?? 100) / 100,
+    layer.coverFadeOut,
+    time,
+    durationSeconds,
+  );
+}
+
+function effectiveTimedOpacity(
+  baseOpacity,
+  fadeOut,
+  time = 0,
+  durationSeconds = null,
+) {
+  if (!fadeOut?.enabled) return baseOpacity;
+  const duration = Number(durationSeconds);
+  if (!(duration > 0)) return baseOpacity;
+  const endPercent = clampNumber(Number(fadeOut.endPercent ?? 35), 1, 100);
+  const endTime = duration * (endPercent / 100);
+  if (!(endTime > 0)) return 0;
+  return baseOpacity * clampNumber(1 - Math.max(0, time) / endTime, 0, 1);
+}
+
+function drawMediaLayer(
+  context,
+  width,
+  height,
+  layer,
+  time = 0,
+  durationSeconds = null,
+) {
   const element = layer.element;
   if (!element) return;
+  const opacity = effectiveLayerOpacity(layer, time, durationSeconds);
+  if (opacity <= 0) return;
   const naturalWidth = element.videoWidth || element.naturalWidth || width;
   const naturalHeight = element.videoHeight || element.naturalHeight || height;
   const targetWidth = width * ((layer.scale ?? 100) / 100);
@@ -985,7 +1027,7 @@ function drawMediaLayer(context, width, height, layer) {
   context.save();
   context.globalCompositeOperation =
     blendModes[layer.blendMode] ?? "source-over";
-  context.globalAlpha = (layer.opacity ?? 100) / 100;
+  context.globalAlpha = opacity;
   context.shadowColor = `rgba(0,0,0,${(shadow.opacity ?? 0) / 100})`;
   context.shadowBlur = shadow.blur ?? 0;
   context.shadowOffsetX = shadow.x ?? 0;
@@ -1006,6 +1048,14 @@ function drawMediaLayer(context, width, height, layer) {
     context.fillRect(-drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
   }
   context.restore();
+}
+
+function clampPercent(value) {
+  return clampNumber(Number(value), 0, 100);
+}
+
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, Number.isFinite(value) ? value : min));
 }
 
 function drawVinyl(
@@ -1472,6 +1522,11 @@ function syntheticSpectrum(audio, time) {
   });
 }
 
+const defaultTextFadeOut = {
+  enabled: false,
+  endPercent: 70,
+};
+
 const defaultTextSettings = {
   fields: {
     title: true,
@@ -1491,6 +1546,7 @@ const defaultTextSettings = {
       lineHeight: 116,
       color: "#f7f8fb",
       opacity: 96,
+      fadeOut: defaultTextFadeOut,
       align: "left",
     },
     version: {
@@ -1502,6 +1558,7 @@ const defaultTextSettings = {
       lineHeight: 118,
       color: "#cbd2dc",
       opacity: 72,
+      fadeOut: defaultTextFadeOut,
       align: "left",
     },
     artist: {
@@ -1513,6 +1570,7 @@ const defaultTextSettings = {
       lineHeight: 120,
       color: "#cbd2dc",
       opacity: 82,
+      fadeOut: defaultTextFadeOut,
       align: "left",
     },
     album: {
@@ -1524,6 +1582,7 @@ const defaultTextSettings = {
       lineHeight: 122,
       color: "#d6c7a4",
       opacity: 72,
+      fadeOut: defaultTextFadeOut,
       align: "left",
     },
     year: {
@@ -1535,6 +1594,7 @@ const defaultTextSettings = {
       lineHeight: 116,
       color: "#a5afbc",
       opacity: 62,
+      fadeOut: defaultTextFadeOut,
       align: "left",
     },
   },
@@ -1552,7 +1612,15 @@ const defaultTextSettings = {
   shadow: 48,
 };
 
-function drawMetadata(context, width, height, metadata, settings = {}) {
+function drawMetadata(
+  context,
+  width,
+  height,
+  metadata,
+  settings = {},
+  time = 0,
+  durationSeconds = null,
+) {
   const textSettings = {
     ...defaultTextSettings,
     ...settings,
@@ -1603,10 +1671,12 @@ function drawMetadata(context, width, height, metadata, settings = {}) {
   context.shadowBlur = Math.max(0, textSettings.shadow * scale * 0.4);
   let cursorY = y;
   for (const line of lines) {
-    context.fillStyle = hexToRgba(
-      line.style.color,
-      Math.max(0, Math.min(100, line.style.opacity)) / 100,
-    );
+    const opacity = effectiveTextOpacity(line.style, time, durationSeconds);
+    if (opacity <= 0) {
+      cursorY += line.lineHeight;
+      continue;
+    }
+    context.fillStyle = hexToRgba(line.style.color, opacity);
     context.textAlign =
       line.style.align === "justify" ? "left" : line.style.align;
     context.font = `${line.style.fontStyle === "italic" ? "italic " : ""}${Math.round(line.style.fontWeight)} ${line.fontSize}px ${fontFamilyStack(line.style.fontFamily)}`;
@@ -1614,6 +1684,15 @@ function drawMetadata(context, width, height, metadata, settings = {}) {
     cursorY += line.lineHeight;
   }
   context.restore();
+}
+
+export function effectiveTextOpacity(style, time = 0, durationSeconds = null) {
+  return effectiveTimedOpacity(
+    clampPercent(style.opacity ?? 100) / 100,
+    style.fadeOut,
+    time,
+    durationSeconds,
+  );
 }
 
 function normalizeMetadataOrder(order) {
@@ -1659,9 +1738,22 @@ function mergeMetadataFieldStyle(field, style = {}) {
         ? style.color
         : fallback.color,
     opacity: clampValue(style.opacity, fallback.opacity, 0, 100),
+    fadeOut: normalizeTextFadeOut(style.fadeOut ?? fallback.fadeOut),
     align: ["left", "center", "right"].includes(style.align)
       ? style.align
       : fallback.align,
+  };
+}
+
+function normalizeTextFadeOut(value = {}) {
+  return {
+    enabled: value?.enabled === true,
+    endPercent: clampValue(
+      value?.endPercent,
+      defaultTextFadeOut.endPercent,
+      5,
+      95,
+    ),
   };
 }
 

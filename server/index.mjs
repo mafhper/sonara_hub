@@ -18,6 +18,7 @@ import {
   createNumberedCover,
   inferAudioTags,
   processMp3Copy,
+  romanNumeral,
 } from "./audio-library.mjs";
 import { createPresetStore, PresetStoreError } from "./preset-store.mjs";
 import { loadJobHistory, saveJobHistory } from "./job-store.mjs";
@@ -32,6 +33,11 @@ import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
 import { normalizeTextSettings } from "../shared/text-settings.mjs";
+import {
+  treatedAlbumArtworkFileName,
+  treatedTrackArtworkPath,
+} from "../shared/artwork-convention.mjs";
+import { buildNameFromPattern } from "../shared/file-naming.mjs";
 import {
   normalizeFfmpegSpawnError,
   resolveFfmpegPath,
@@ -264,7 +270,9 @@ app.post(
       return;
     }
     const draft = normalizeAudioDraft(req.body.draft, audioPath);
-    const fileNamePattern = parseJsonObject(req.body.fileNamePattern);
+    const fileNamePattern = req.body.fileNamePattern
+      ? parseJsonObject(req.body.fileNamePattern)
+      : null;
     const jobId = crypto.randomUUID();
     const outputName = buildTreatedFileName(draft, fileNamePattern);
     setJob(jobId, {
@@ -437,8 +445,11 @@ app.post(
       (await readTextIfExists(path.join(rootDir, "lyrics.txt")));
     const settings = normalizeSettings(req.body);
     const metadata = normalizeMetadata(req.body);
+    const fileNamePattern = req.body.fileNamePattern
+      ? parseJsonObject(req.body.fileNamePattern)
+      : null;
     const jobId = crypto.randomUUID();
-    const outputName = buildOutputFileName(metadata);
+    const outputName = buildOutputFileName(metadata, null, fileNamePattern);
     const outputPath = path.join(outputDir, outputName);
 
     setJob(jobId, {
@@ -509,6 +520,9 @@ app.post(
 
     const settings = normalizeSettings(req.body);
     const commonMetadata = normalizeMetadata(req.body);
+    const fileNamePattern = req.body.fileNamePattern
+      ? parseJsonObject(req.body.fileNamePattern)
+      : null;
     const trackSettings = parseTrackSettings(req.body.trackSettings);
     const jobIds = [];
 
@@ -533,7 +547,11 @@ app.post(
             : title,
       };
       const jobId = crypto.randomUUID();
-      const outputName = buildOutputFileName(metadata, index + 1);
+      const outputName = buildOutputFileName(
+        metadata,
+        index + 1,
+        fileNamePattern,
+      );
       const outputPath = path.join(outputDir, outputName);
 
       setJob(jobId, {
@@ -683,6 +701,17 @@ app.use((req, res, next) => {
     return;
   }
   res.sendFile(distIndex);
+});
+
+app.use((error, req, res, next) => {
+  if (res.headersSent) {
+    next(error);
+    return;
+  }
+  logUnexpectedError(`${req.method} ${req.originalUrl}`, error);
+  res.status(500).json({
+    error: error instanceof Error ? error.message : String(error),
+  });
 });
 
 app.listen(port, "127.0.0.1", () => {
@@ -862,14 +891,16 @@ async function processAudio({
   const jobWorkDir = path.join(workDir, jobId);
   await fs.mkdir(jobWorkDir, { recursive: true });
   const albumCoverPath = albumCoverFile?.path ?? coverFile?.path ?? null;
-  let coverPath = coverFile?.path ?? null;
-  if (coverPath && coverSeries) {
+  const originalCoverPath = coverFile?.path ?? null;
+  let embeddedCoverPath = originalCoverPath;
+  let trackArtworkPath = originalCoverPath;
+  if (originalCoverPath && coverSeries) {
     const seriesSettings = normalizeCoverSeriesSettings(
       coverSeriesSettings,
       coverStyle,
     );
-    coverPath = await createNumberedCover(
-      coverPath,
+    const seriesCoverPath = await createNumberedCover(
+      originalCoverPath,
       path.join(
         jobWorkDir,
         `${String(draft.trackNumber).padStart(2, "0")}.jpg`,
@@ -877,8 +908,8 @@ async function processAudio({
       {
         index: draft.trackNumber,
         style: seriesSettings.style,
-        includeNumber: seriesSettings.includeNumber,
-        label: coverSeriesLabel(draft, seriesSettings),
+        includeNumber: false,
+        label: "",
         sublines: coverSeriesSublines(draft, seriesSettings),
         fontSize: seriesSettings.fontSize,
         color: seriesSettings.color,
@@ -890,6 +921,10 @@ async function processAudio({
         metaGap: seriesSettings.metaGap,
       },
     );
+    trackArtworkPath = seriesCoverPath;
+    embeddedCoverPath = seriesSettings.embedAlbumCover
+      ? (albumCoverPath ?? originalCoverPath)
+      : seriesCoverPath;
   }
   assertJobNotCanceled(jobId);
   updateJob(jobId, { progress: 42, message: "Gravando metadados limpos" });
@@ -902,30 +937,48 @@ async function processAudio({
     inputName: audioName,
     outputPath,
     draft,
-    coverPath,
+    coverPath: embeddedCoverPath,
     normalizationEnabled: draft.normalizationEnabled,
   });
   assertJobNotCanceled(jobId);
   let thumbnailUrl = null;
-  if (coverPath) {
-    const thumbnailName = `${path.basename(outputName, ".mp3")}.cover.jpg`;
-    await fs.copyFile(coverPath, path.join(albumOutputDir, thumbnailName));
-    thumbnailUrl = outputUrl("audio", albumDirectoryName, thumbnailName);
+  if (trackArtworkPath) {
+    const thumbnailRelativePath = treatedTrackArtworkPath(outputName);
+    const thumbnailPath = path.join(
+      albumOutputDir,
+      ...thumbnailRelativePath.split("/"),
+    );
+    await fs.mkdir(path.dirname(thumbnailPath), { recursive: true });
+    await fs.copyFile(trackArtworkPath, thumbnailPath);
+    thumbnailUrl = outputUrl(
+      "audio",
+      albumDirectoryName,
+      ...thumbnailRelativePath.split("/"),
+    );
   }
   let albumArtworkUrl = null;
+  let albumArtworkPath = null;
   if (albumCoverPath) {
-    const albumArtworkName = "folder.jpg";
-    await createAlbumFolderCover(
-      albumCoverPath,
-      path.join(albumOutputDir, albumArtworkName),
-    );
+    const albumArtworkName = treatedAlbumArtworkFileName;
+    albumArtworkPath = path.join(albumOutputDir, albumArtworkName);
+    await createAlbumFolderCover(albumCoverPath, albumArtworkPath);
     albumArtworkUrl = outputUrl("audio", albumDirectoryName, albumArtworkName);
   }
+  await writeSoundCloudSidecar(outputPath, draft, {
+    artworkPath: albumArtworkPath,
+    sourceFileName: audioName,
+    outputAnalysis: result.analysis,
+  });
   updateJob(jobId, {
     status: "done",
     progress: 100,
     message: "Copia tratada validada",
     outputUrl: outputUrl("audio", albumDirectoryName, outputName),
+    sidecarUrl: outputUrl(
+      "audio",
+      albumDirectoryName,
+      `${outputName}.soundcloud.json`,
+    ),
     thumbnailUrl,
     albumArtworkUrl,
     analysis: result.analysis,
@@ -1018,6 +1071,7 @@ async function renderVideo({
     composition: {
       layers: mediaLayers.map(toCanvasLayer),
       coverSrc: cover?.path ? pathToFileURL(cover.path).href : "",
+      durationSeconds: settings.compositionSettings.durationSeconds || duration,
       metadata,
       showMetadata: settings.showMetadata,
       textSettings: settings.compositionSettings.textSettings,
@@ -1350,6 +1404,7 @@ function normalizeCompositionSettings(body) {
         rotation: clampNumber(Number(layer.rotation ?? 0), -180, 180),
         blur: clampNumber(Number(layer.blur ?? 0), 0, 48),
         maskOpacity: clampNumber(Number(layer.maskOpacity ?? 0), 0, 90),
+        coverFadeOut: normalizeCoverFadeOut(layer.coverFadeOut),
         shadow: {
           opacity: clampNumber(
             Number(layer.shadow?.opacity ?? layer.shadowOpacity ?? 0),
@@ -1384,32 +1439,71 @@ function normalizeCompositionSettings(body) {
       }))
     : [];
   return {
+    durationSeconds: clampNumber(
+      Number(raw.durationSeconds ?? 0),
+      0,
+      24 * 60 * 60,
+    ),
     mediaLayers,
     textSettings: normalizeTextSettings(raw.textSettings),
   };
 }
 
+function normalizeCoverFadeOut(value = {}) {
+  return {
+    enabled: value?.enabled === true,
+    endPercent: clampNumber(Number(value?.endPercent ?? 35), 5, 95),
+  };
+}
+
+const coverSeriesMetaKeys = ["series", "title", "album", "artist", "year"];
+
 function normalizeCoverSeriesSettings(value = {}, fallbackStyle = "roman") {
+  const legacyColor = isHexColor(value.color) ? value.color : "#fffaf1";
   const metaFontSize = clampNumber(Number(value.metaFontSize ?? 34), 18, 72);
   const metaStyles = {
+    series: normalizeCoverSeriesMetaStyle(
+      value.metaStyles?.series,
+      {
+        fontSize: clampNumber(Number(value.fontSize ?? 112), 18, 180),
+        fontWeight: 400,
+        fontStyle: "normal",
+        align: "center",
+        color: legacyColor,
+        opacity: clampNumber(Number(value.opacity ?? 92), 20, 100),
+      },
+      180,
+    ),
     title: normalizeCoverSeriesMetaStyle(value.metaStyles?.title, {
       fontSize: Math.max(38, metaFontSize),
-      color: value.color,
+      fontWeight: 720,
+      fontStyle: "normal",
+      align: "center",
+      color: legacyColor,
       opacity: 88,
     }),
     album: normalizeCoverSeriesMetaStyle(value.metaStyles?.album, {
       fontSize: metaFontSize,
-      color: value.color,
+      fontWeight: 560,
+      fontStyle: "normal",
+      align: "center",
+      color: legacyColor,
       opacity: 76,
     }),
     artist: normalizeCoverSeriesMetaStyle(value.metaStyles?.artist, {
       fontSize: Math.max(18, metaFontSize - 2),
-      color: value.color,
+      fontWeight: 620,
+      fontStyle: "normal",
+      align: "center",
+      color: legacyColor,
       opacity: 72,
     }),
     year: normalizeCoverSeriesMetaStyle(value.metaStyles?.year, {
       fontSize: Math.max(18, metaFontSize - 6),
-      color: value.color,
+      fontWeight: 640,
+      fontStyle: "normal",
+      align: "center",
+      color: legacyColor,
       opacity: 68,
     }),
   };
@@ -1422,7 +1516,7 @@ function normalizeCoverSeriesSettings(value = {}, fallbackStyle = "roman") {
         : "roman",
     sequence: String(value.sequence ?? "I, II, III, IV, V").slice(0, 300),
     fontSize: clampNumber(Number(value.fontSize ?? 112), 38, 240),
-    color: isHexColor(value.color) ? value.color : "#fffaf1",
+    color: legacyColor,
     opacity: clampNumber(Number(value.opacity ?? 92), 20, 100),
     x: clampNumber(Number(value.x ?? 50), 8, 92),
     y: clampNumber(Number(value.y ?? 89), 8, 94),
@@ -1432,6 +1526,7 @@ function normalizeCoverSeriesSettings(value = {}, fallbackStyle = "roman") {
     includeAlbum: value.includeAlbum === true,
     includeArtist: value.includeArtist === true,
     includeYear: value.includeYear === true,
+    embedAlbumCover: value.embedAlbumCover === true,
     metaOrder: normalizeCoverSeriesMetaOrder(value.metaOrder),
     metaFontSize,
     metaGap: clampNumber(Number(value.metaGap ?? 10), 0, 48),
@@ -1439,13 +1534,32 @@ function normalizeCoverSeriesSettings(value = {}, fallbackStyle = "roman") {
   };
 }
 
-function normalizeCoverSeriesMetaStyle(value = {}, fallback = {}) {
+function normalizeCoverSeriesMetaStyle(
+  value = {},
+  fallback = {},
+  maxFontSize = 72,
+) {
   return {
     fontSize: clampNumber(
       Number(value.fontSize ?? fallback.fontSize ?? 34),
       18,
-      72,
+      maxFontSize,
     ),
+    fontWeight: clampNumber(
+      Number(value.fontWeight ?? fallback.fontWeight ?? 520),
+      300,
+      900,
+    ),
+    fontStyle: ["normal", "italic"].includes(value.fontStyle)
+      ? value.fontStyle
+      : fallback.fontStyle === "italic"
+        ? "italic"
+        : "normal",
+    align: ["left", "center", "right"].includes(value.align)
+      ? value.align
+      : ["left", "center", "right"].includes(fallback.align)
+        ? fallback.align
+        : "center",
     color: isHexColor(value.color)
       ? value.color
       : isHexColor(fallback.color)
@@ -1462,16 +1576,20 @@ function normalizeCoverSeriesMetaStyle(value = {}, fallback = {}) {
 }
 
 function normalizeCoverSeriesMetaOrder(value) {
-  const allowed = new Set(["title", "album", "artist", "year"]);
-  const entries = String(value ?? "title, album, artist, year")
+  const allowed = new Set(coverSeriesMetaKeys);
+  const entries = String(value ?? "series, title, album, artist, year")
     .split(/[\n,;|]+/)
     .map((entry) => entry.trim().toLowerCase())
     .filter((entry) => allowed.has(entry));
-  return [...new Set([...entries, "title", "album", "artist", "year"])];
+  const promoted = entries.includes("series")
+    ? entries
+    : ["series", ...entries];
+  return [...new Set([...promoted, ...coverSeriesMetaKeys])];
 }
 
 function coverSeriesLabel(draft, settings) {
-  if (settings.style !== "custom") return "";
+  if (settings.style === "arabic") return String(draft.trackNumber || 1);
+  if (settings.style === "roman") return romanNumeral(draft.trackNumber || 1);
   const entries = settings.sequence
     .split(/[\n,;|]+/)
     .map((entry) => entry.trim())
@@ -1483,6 +1601,7 @@ function coverSeriesLabel(draft, settings) {
 
 function coverSeriesSublines(draft, settings) {
   const values = {
+    series: settings.includeNumber && coverSeriesLabel(draft, settings),
     title: settings.includeTitle && draft.title,
     album: settings.includeAlbum && draft.album,
     artist: settings.includeArtist && (draft.albumArtist || draft.artist),
@@ -1494,6 +1613,7 @@ function coverSeriesSublines(draft, settings) {
       role,
       text: values[role],
       ...settings.metaStyles[role],
+      letterSpacing: role === "series" ? settings.letterSpacing : 5,
     }));
 }
 
@@ -1607,9 +1727,12 @@ function normalizeAudioDraft(value, audioPath) {
   };
 }
 
-function buildOutputFileName(metadata, index = null) {
+function buildOutputFileName(metadata, index = null, fileNamePattern = null) {
   const base =
     metadata.outputFileName ||
+    (fileNamePattern
+      ? buildNameFromPattern(fileNamePattern, metadata, slugify)
+      : "") ||
     [metadata.artist, metadata.title, metadata.version]
       .filter(Boolean)
       .join(" - ");
@@ -1713,6 +1836,135 @@ async function writeYoutubeSidecar(
   );
 }
 
+async function writeSoundCloudSidecar(
+  outputPath,
+  draft,
+  { artworkPath = null, sourceFileName = "", outputAnalysis = null } = {},
+) {
+  const primaryGenre = soundCloudPrimaryGenre(draft);
+  const tags = soundCloudTags(draft, primaryGenre);
+  const sidecar = {
+    api: "SoundCloud API",
+    references: [
+      "https://developers.soundcloud.com/docs/api/",
+      "https://help.soundcloud.com/hc/en-us/articles/360039171614-Upload-Requirements",
+      "https://help.soundcloud.com/hc/en-us/articles/46022345620123-Edit-and-customize-your-tracks",
+    ],
+    upload: {
+      endpoint: "POST https://api.soundcloud.com/tracks",
+      auth: "OAuth 2.1 Authorization Code; send Authorization: OAuth ACCESS_TOKEN",
+      contentType: "multipart/form-data",
+      fields: {
+        "track[title]": soundCloudTrackTitle(draft),
+        "track[asset_data]": path.basename(outputPath),
+        "track[description]": soundCloudDescription(draft),
+        "track[genre]": primaryGenre,
+        "track[tag_list]": formatSoundCloudTagList(tags),
+        "track[sharing]": "private",
+        "track[artwork_data]": artworkPath ? path.basename(artworkPath) : null,
+      },
+    },
+    metadata: {
+      title: draft.title,
+      artist: draft.artist,
+      album: draft.album,
+      albumArtist: draft.albumArtist,
+      genre: draft.genre,
+      year: draft.year,
+      trackNumber: draft.trackNumber,
+      trackTotal: draft.trackTotal,
+      diskNumber: draft.diskNumber,
+      diskTotal: draft.diskTotal,
+      sourceFileName: path.basename(sourceFileName || outputPath),
+    },
+    quality: {
+      outputFileName: path.basename(outputPath),
+      preferredSource: "WAV, FLAC, AIFF or ALAC when a lossless master exists",
+      acceptedSource:
+        "MP3 is accepted, but this treated package is optimized for clean ID3 delivery, not as a lossless master.",
+      headroomTarget:
+        "Keep roughly -0.5 to -1 dBFS peak headroom before upload.",
+      analysis: outputAnalysis,
+    },
+    artwork: {
+      fileName: artworkPath ? path.basename(artworkPath) : null,
+      recommendation: "JPG or PNG, square, at least 800x800, under 2 MB.",
+    },
+    notes: [
+      "Use the first tag/genre as the main discoverability category.",
+      "Prefer specific subgenres or moods, avoid duplicate near-synonyms, and keep multi-word tags together.",
+      "SoundCloud transcodes uploads for streaming; enable downloads if listeners should receive the original uploaded file.",
+    ],
+  };
+  await fs.writeFile(
+    `${outputPath}.soundcloud.json`,
+    JSON.stringify(sidecar, null, 2),
+    "utf8",
+  );
+}
+
+function soundCloudTrackTitle(draft) {
+  const title = String(draft.title ?? "").trim() || "Untitled Track";
+  return title.slice(0, 100);
+}
+
+function soundCloudDescription(draft) {
+  const lines = [
+    draft.comment,
+    draft.album ? `Album: ${draft.album}` : "",
+    draft.artist ? `Artist: ${draft.artist}` : "",
+    draft.year ? `Year: ${draft.year}` : "",
+  ]
+    .map((line) => String(line ?? "").trim())
+    .filter(Boolean);
+  return lines.join("\n").slice(0, 4000);
+}
+
+function soundCloudPrimaryGenre(draft) {
+  const [firstGenre] = String(draft.genre ?? "").split(/[,;|]+/);
+  return soundCloudTag(firstGenre) || "Music";
+}
+
+function soundCloudTags(draft, primaryGenre) {
+  return uniqueStrings(
+    [
+      primaryGenre,
+      ...String(draft.genre ?? "")
+        .split(/[,;|]+/)
+        .map(soundCloudTag),
+      soundCloudTag(draft.artist),
+      soundCloudTag(draft.album),
+      soundCloudTag(draft.year),
+    ].filter(Boolean),
+  ).slice(0, 12);
+}
+
+function soundCloudTag(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s&-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 64);
+}
+
+function formatSoundCloudTagList(tags) {
+  return tags.map((tag) => (/\s/.test(tag) ? `"${tag}"` : tag)).join(" ");
+}
+
+function uniqueStrings(values) {
+  const seen = new Set();
+  const result = [];
+  for (const value of values) {
+    const key = String(value).toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(value);
+  }
+  return result;
+}
+
 async function prepareBackground(file, jobWorkDir, size) {
   const originalName = file.originalname || "";
   const ext = path.extname(originalName).toLowerCase();
@@ -1753,6 +2005,7 @@ async function prepareMediaLayers(files, layerSettings, jobWorkDir, size) {
       rotation: settings.rotation ?? 0,
       blur: settings.blur ?? 0,
       maskOpacity: settings.maskOpacity ?? 0,
+      coverFadeOut: settings.coverFadeOut,
       shadow: {
         opacity: settings.shadow?.opacity ?? settings.shadowOpacity ?? 0,
         blur: settings.shadow?.blur ?? settings.shadowBlur ?? 18,
@@ -2004,9 +2257,17 @@ function handlePresetStoreError(error, res) {
     res.status(404).json({ error: error.message, code: error.code });
     return;
   }
+  logUnexpectedError("visual preset store", error);
   res.status(500).json({
     error: error instanceof Error ? error.message : String(error),
   });
+}
+
+function logUnexpectedError(context, error) {
+  console.error(
+    `[server:500] ${context}`,
+    error instanceof Error ? (error.stack ?? error.message) : error,
+  );
 }
 
 function formatAssTime(seconds) {

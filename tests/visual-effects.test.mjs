@@ -4,6 +4,7 @@ import {
   builtinPresetMap,
   builtinVisualPresets,
   effectIds,
+  normalizeVisualPresetList,
   normalizeVisualSettings,
   parseVisualCollection,
   removedEffectIds,
@@ -24,8 +25,6 @@ const expectedIds = [
   "vortex-whirlpool",
   "vortex-galaxy",
   "starfield",
-  "starfield-prism",
-  "starfield-warm",
 ];
 
 test("catalog exposes the broad families plus the ported shader presets", () => {
@@ -37,6 +36,41 @@ test("catalog exposes the broad families plus the ported shader presets", () => 
   assert.ok(removedEffectIds.includes("fire"));
   assert.ok(removedEffectIds.includes("rain-window"));
   assert.equal(new Set(expectedIds).size, builtinVisualPresets.length);
+});
+
+test("every visual preset exposes four reusable palettes", () => {
+  for (const preset of builtinVisualPresets) {
+    const visual = normalizeVisualSettings(preset);
+    assert.equal(visual.palettes.length, 4, preset.id);
+    assert.deepEqual(visual.palettes[0].colors, visual.colors, preset.id);
+    assert.deepEqual(visual.palettes[0].common, visual.common, preset.id);
+    assert.deepEqual(visual.palettes[0].advanced, visual.advanced, preset.id);
+    assert.equal(
+      new Set(
+        visual.palettes.map((palette) =>
+          JSON.stringify({
+            colors: palette.colors,
+            common: palette.common,
+            advanced: palette.advanced,
+          }),
+        ),
+      ).size,
+      4,
+      preset.id,
+    );
+    for (const palette of visual.palettes) {
+      assert.match(palette.id, /^[a-z0-9-]+$/, preset.id);
+      assert.ok(palette.name.length > 0, preset.id);
+      assert.match(palette.colors.base, /^#[0-9a-f]{6}$/i, preset.id);
+      assert.match(palette.colors.effect, /^#[0-9a-f]{6}$/i, preset.id);
+      assert.match(palette.colors.light, /^#[0-9a-f]{6}$/i, preset.id);
+      assert.deepEqual(Object.keys(palette.common), Object.keys(visual.common));
+      assert.deepEqual(
+        Object.keys(palette.advanced),
+        Object.keys(visual.advanced),
+      );
+    }
+  }
 });
 
 test("ported shader presets normalize and share fullscreen renderers", () => {
@@ -63,23 +97,52 @@ test("ported shader presets normalize and share fullscreen renderers", () => {
   assert.equal(vortex.advanced.arms, 57);
 });
 
-test("starfield presets share the renderer and expose the colour-variety control", () => {
-  const ids = ["starfield", "starfield-prism", "starfield-warm"];
-  for (const id of ids) {
-    const scene = normalizeVisualSettings(builtinPresetMap.get(id));
-    assert.equal(scene.rendererId, "starfield");
-    assert.deepEqual(
-      scene.controls.map((entry) => entry.key),
-      ["density", "warp", "twinkle", "glow", "colorVar"],
-    );
-    assert.ok(scene.advanced.colorVar >= 0 && scene.advanced.colorVar <= 100);
-  }
-  // The prism preset must carry markedly more colour variety than the warm one.
-  const prism = normalizeVisualSettings(
-    builtinPresetMap.get("starfield-prism"),
+test("starfield uses one preset with parameterized palettes", () => {
+  const scene = normalizeVisualSettings(builtinPresetMap.get("starfield"));
+  assert.equal(scene.rendererId, "starfield");
+  assert.equal(scene.name, "Campo Estelar");
+  assert.deepEqual(
+    scene.controls.map((entry) => entry.key),
+    ["density", "warp", "twinkle", "glow", "colorVar"],
   );
-  const warm = normalizeVisualSettings(builtinPresetMap.get("starfield-warm"));
+  assert.deepEqual(
+    scene.palettes.map((palette) => palette.id),
+    ["original", "prism", "warm", "deep"],
+  );
+  const prism = scene.palettes.find((palette) => palette.id === "prism");
+  const warm = scene.palettes.find((palette) => palette.id === "warm");
   assert.ok(prism.advanced.colorVar > warm.advanced.colorVar);
+
+  const legacyPrism = normalizeVisualSettings({
+    rendererId: "starfield-prism",
+    name: "Campo estelar prisma",
+  });
+  assert.equal(legacyPrism.id, "starfield");
+  assert.equal(legacyPrism.name, "Campo Estelar");
+  assert.equal(legacyPrism.rendererId, "starfield");
+  assert.equal(legacyPrism.advanced.colorVar, prism.advanced.colorVar);
+});
+
+test("legacy starfield catalog entries collapse into one preset option", () => {
+  const starfield = builtinPresetMap.get("starfield");
+  const presets = normalizeVisualPresetList([
+    starfield,
+    {
+      ...starfield,
+      id: "starfield-prism",
+      name: "Campo estelar prisma",
+    },
+    {
+      ...starfield,
+      id: "starfield-warm",
+      name: "Campo estelar quente",
+    },
+  ]);
+
+  assert.deepEqual(
+    presets.filter((preset) => preset.rendererId === "starfield"),
+    [normalizeVisualSettings(starfield)],
+  );
 });
 
 test("normalizing a real shader preset object preserves its renderer and advanced params", () => {

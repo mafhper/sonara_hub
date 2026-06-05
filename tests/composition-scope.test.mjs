@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  applyCoverSeriesMetaStylePatch,
   applyCoverSeriesScopePatch,
   applySelectedTextSettingsToBatch,
   clearCoverSeriesScopeOverride,
@@ -13,6 +14,7 @@ import {
 const sharedCover = { id: "shared-cover" };
 const suggestedCover = { id: "track-cover" };
 const albumCover = { id: "album-cover" };
+const coverOverride = { id: "manual-track-cover" };
 
 test("artwork resolver keeps album cover, per-track cover and disabled cover scopes separate", () => {
   const track = {
@@ -23,6 +25,10 @@ test("artwork resolver keeps album cover, per-track cover and disabled cover sco
 
   assert.equal(resolveTrackArtwork(track, sharedCover), sharedCover);
   assert.equal(resolveAlbumArtwork(track, sharedCover), sharedCover);
+  assert.equal(
+    resolveTrackArtwork({ ...track, coverOverride }, sharedCover),
+    coverOverride,
+  );
   assert.equal(resolveTrackArtwork(track, null), suggestedCover);
   assert.equal(resolveAlbumArtwork(track, null), albumCover);
 
@@ -104,6 +110,44 @@ test("cover-series override can be cleared without touching other tracks", () =>
 
   assert.deepEqual(next[0], { id: "a", coverSeriesOverride: null });
   assert.equal(next[1], tracks[1]);
+});
+
+test("cover-series meta style patch targets one field or every complementary text", () => {
+  const settings = {
+    metaStyles: {
+      title: { fontWeight: 720, color: "#ffffff" },
+      album: { fontWeight: 560, color: "#cccccc" },
+      artist: { fontWeight: 620, color: "#aaaaaa" },
+    },
+  };
+
+  const titleOnly = applyCoverSeriesMetaStylePatch(
+    settings,
+    "title",
+    { color: "#ffcc00" },
+    { target: "field" },
+  );
+
+  assert.deepEqual(titleOnly.metaStyles.title, {
+    fontWeight: 720,
+    color: "#ffcc00",
+  });
+  assert.equal(titleOnly.metaStyles.album, settings.metaStyles.album);
+  assert.equal(titleOnly.metaStyles.artist, settings.metaStyles.artist);
+
+  const allFields = applyCoverSeriesMetaStylePatch(
+    settings,
+    "title",
+    { fontWeight: 800 },
+    { target: "all" },
+  );
+
+  assert.deepEqual(
+    Object.values(allFields.metaStyles).map((style) => style.fontWeight),
+    [800, 800, 800],
+  );
+  assert.equal(allFields.metaStyles.title.color, "#ffffff");
+  assert.equal(allFields.metaStyles.album.color, "#cccccc");
 });
 
 test("selected text settings apply only to selected batch targets and are cloned", () => {
