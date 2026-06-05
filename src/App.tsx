@@ -80,7 +80,6 @@ import {
 } from "../shared/canvas-scene-runtime.mjs";
 import type { SceneComposition } from "../shared/canvas-scene-runtime.mjs";
 import {
-  applyCoverSeriesMetaStylePatch,
   applyCoverSeriesScopePatch,
   applySelectedTextSettingsToBatch,
   clearCoverSeriesScopeOverride,
@@ -119,6 +118,19 @@ import {
 } from "../shared/video-output-folder.mjs";
 import type { VideoOutputConflictMode } from "../shared/video-output-folder.mjs";
 import {
+  isLyricsTextPath,
+  listLyricsOptionsForTrack,
+} from "../shared/lyrics-convention.mjs";
+import type { LyricsPathSuggestion } from "../shared/lyrics-convention.mjs";
+import {
+  clampPublicationClipDuration,
+  clampPublicationClipStart,
+  publicationAssetPresetById,
+  publicationAssetPresetLabel,
+  publicationAssetPresets,
+} from "../shared/publication-assets.mjs";
+import type { PublicationAssetPreset } from "../shared/publication-assets.mjs";
+import {
   albumArtworkDirectoryPaths,
   chooseAlbumArtworkForTrack,
   chooseArtworkForTrack,
@@ -141,6 +153,7 @@ import type {
   CoverSeriesMetaKey,
   CoverSeriesMetaStyle,
   CoverSeriesSettings,
+  LyricsSuggestion,
   MediaLayerV2,
   ProjectSnapshot,
   RenderJob,
@@ -184,7 +197,8 @@ declare global {
 type ActiveStep = "music" | "visual" | "text" | "export";
 type WorkspaceMode = "audio" | "visual";
 type AudioStageView = "edit" | "catalog" | "videos";
-type VisualStageView = "editor" | "videos" | "queue";
+type VisualStageView = "editor" | "videos" | "promotion" | "queue";
+type PublicationAssetMode = "single" | "group" | "all";
 type CoverFadeOutSettings = NonNullable<MediaLayerV2["coverFadeOut"]>;
 type TextFadeOutSettings = NonNullable<TextFieldStyle["fadeOut"]>;
 type PreparedVideoOutputProject = {
@@ -193,6 +207,12 @@ type PreparedVideoOutputProject = {
   backupName: string;
   project: FileSystemDirectoryHandle;
   projectName: string;
+};
+type PreparedPublicationOutputProject = PreparedVideoOutputProject & {
+  clips: FileSystemDirectoryHandle;
+  dados: FileSystemDirectoryHandle;
+  imagens: FileSystemDirectoryHandle;
+  publicacao: FileSystemDirectoryHandle;
 };
 type InputProjectOption = {
   id: string;
@@ -842,6 +862,14 @@ function App() {
     useState<ScenePresetV3[]>(builtinVisualPresets);
   const [outputPreset, setOutputPreset] = useState("youtube-1080p");
   const [qualityProfile, setQualityProfile] = useState("auto");
+  const [publicationPresetId, setPublicationPresetId] =
+    useState("youtube-thumbnail");
+  const [publicationClipStart, setPublicationClipStart] = useState(0);
+  const [publicationClipDuration, setPublicationClipDuration] = useState(15);
+  const [publicationIncludeLyrics, setPublicationIncludeLyrics] =
+    useState(false);
+  const [publicationAssetMode, setPublicationAssetMode] =
+    useState<PublicationAssetMode>("single");
   const [showMetadata, setShowMetadata] = useState(true);
   const [cover, setCover] = useState<{ file: File; src: string } | null>(null);
   const [pendingCoverTrackId, setPendingCoverTrackId] = useState("");
@@ -943,6 +971,15 @@ function App() {
     projects: new Map(),
     stamp: "",
   });
+  const publicationOutputRunRef = useRef<{
+    conflictMode: VideoOutputConflictMode;
+    projects: Map<string, Promise<PreparedPublicationOutputProject>>;
+    stamp: string;
+  }>({
+    conflictMode: "backup",
+    projects: new Map(),
+    stamp: "",
+  });
   const inputDirectoryRef = useRef<FileSystemDirectoryHandle | null>(null);
   const musicDirectoryRef = useRef<FileSystemDirectoryHandle | null>(null);
   const projectSaveTimerRef = useRef<number | null>(null);
@@ -992,6 +1029,12 @@ function App() {
   });
   const selectedOutput =
     outputPresets.find(([value]) => value === outputPreset) ?? outputPresets[1];
+  const selectedPublicationPreset =
+    publicationAssetPresetById(publicationPresetId);
+  const publicationPresetSelection = publicationPresetsForMode(
+    selectedPublicationPreset,
+    publicationAssetMode,
+  );
   const audioSrc = selectedTrack
     ? (selectedTrack.sourceUrl ??
       (selectedTrack.source === "input"
@@ -1251,6 +1294,11 @@ function App() {
     activeStep,
     outputPreset,
     qualityProfile,
+    publicationPresetId,
+    publicationClipStart,
+    publicationClipDuration,
+    publicationIncludeLyrics,
+    publicationAssetMode,
     showMetadata,
     cover,
     coverSeriesSettings,
@@ -1373,7 +1421,9 @@ function App() {
     await loadStorageUsage();
   }
 
-  async function clearCompletedJobs(scope: "terminal" | "video-render") {
+  async function clearCompletedJobs(
+    scope: "terminal" | "video-render" | "publication-asset",
+  ) {
     try {
       const payload = await fetchJson<{
         jobs: RenderJob[];
@@ -1618,10 +1668,8 @@ function App() {
   ) {
     setError("");
     setFolderImportProgress({ current: 0, total: 0, name: "Lendo pasta" });
-    const { audioEntries, artworkEntries } = await collectDirectoryAssets(
-      handle,
-      directoryImportPrefix(handle.name),
-    );
+    const { audioEntries, artworkEntries, lyricEntries } =
+      await collectDirectoryAssets(handle, directoryImportPrefix(handle.name));
     const next: TrackDraft[] = [];
     setFolderImportProgress({
       current: 0,
@@ -1652,11 +1700,25 @@ function App() {
     setPlayerArtworkSource("planned");
     setEmbeddedArtworkByTrackId({});
     embeddedArtworkRequestsRef.current.clear();
-    setWorkspaceTracks(
-      attachSuggestedArtwork(finalizeImportedTracks(next), artworkEntries),
-      snapshot,
+    const withArtwork = attachSuggestedArtwork(
+      finalizeImportedTracks(next),
+      artworkEntries,
     );
+    const withLyrics = await attachSuggestedLyrics(withArtwork, lyricEntries);
+    setWorkspaceTracks(withLyrics, snapshot);
     setFolderImportProgress(null);
+    const detectedLyrics = withLyrics.filter(
+      (track) => track.lyricsOptions?.length,
+    ).length;
+    const appliedLyrics = withLyrics.filter(
+      (track) => track.lyricsSourcePath,
+    ).length;
+    if (lyricEntries.length) {
+      setBatchFeedback(
+        `${lyricEntries.length} arquivo${lyricEntries.length === 1 ? "" : "s"} de letra detectado${lyricEntries.length === 1 ? "" : "s"} · ${appliedLyrics} aplicado${appliedLyrics === 1 ? "" : "s"} automaticamente · ${detectedLyrics - appliedLyrics} para revisar.`,
+        detectedLyrics === appliedLyrics ? "info" : "warning",
+      );
+    }
   }
 
   async function readUploadedAudioMetadata(
@@ -1874,8 +1936,10 @@ function App() {
     setTracks((current) => clearCoverSeriesScopeOverride(current, trackId));
   }
 
-  function saveCoverSeriesDefault() {
-    saveCoverSeriesSettings(coverSeriesSettings);
+  function saveCoverSeriesDefault(settings = coverSeriesSettings) {
+    const normalized = normalizeCoverSeriesClient(settings);
+    setCoverSeriesSettings(normalized);
+    saveCoverSeriesSettings(normalized);
     setBatchFeedback("Série visual salva como padrão local.");
   }
 
@@ -2151,6 +2215,41 @@ function App() {
       ),
     );
     setBatchFeedback("Alteracao salva na linha.");
+  }
+
+  async function applyLyricsSuggestion(suggestion: LyricsSuggestion) {
+    const trackId = selectedTrackId;
+    if (!suggestion.file) {
+      setError("O arquivo de letra detectado não está mais disponível.");
+      return;
+    }
+    const lyrics = await suggestion.file.text();
+    setTracks((current) =>
+      current.map((track) =>
+        track.id === trackId
+          ? {
+              ...track,
+              metadata: { ...track.metadata, lyrics },
+              lyricsSourcePath: suggestion.relativePath,
+              lyricsOptions: (track.lyricsOptions ?? []).map((option) => ({
+                ...option,
+                autoApplied: option.relativePath === suggestion.relativePath,
+              })),
+            }
+          : track,
+      ),
+    );
+    setBatchFeedback(`Letra aplicada de ${suggestion.fileName}.`, "info");
+  }
+
+  function ignoreLyricsSuggestions() {
+    const trackId = selectedTrackId;
+    setTracks((current) =>
+      current.map((track) =>
+        track.id === trackId ? { ...track, lyricsOptions: [] } : track,
+      ),
+    );
+    setBatchFeedback("Sugestões de letra ignoradas para esta faixa.", "info");
   }
 
   function openAudioReview() {
@@ -2658,7 +2757,7 @@ function App() {
   async function exportSelected() {
     if (!selectedTrack) return;
     setError("");
-    if (!(await confirmVideoOutputPolicy())) return;
+    if (!(await confirmVideoOutputPolicy("vídeos"))) return;
     videoOutputRunRef.current = {
       conflictMode: videoOutputConflictMode,
       projects: new Map(),
@@ -2675,7 +2774,26 @@ function App() {
     }
   }
 
-  async function confirmVideoOutputPolicy() {
+  async function exportPublicationAssets() {
+    if (!selectedTrack || reviewTracks.length === 0) return;
+    setError("");
+    if (!(await confirmVideoOutputPolicy("assets de divulgação"))) return;
+    publicationOutputRunRef.current = {
+      conflictMode: videoOutputConflictMode,
+      projects: new Map(),
+      stamp: videoOutputBackupStamp(),
+    };
+    setWorkspaceMode("visual");
+    setVisualStageView("promotion");
+    const targets = workflowMode === "batch" ? reviewTracks : [selectedTrack];
+    for (const track of targets) {
+      for (const preset of publicationPresetSelection) {
+        await submitPublicationAsset(track, preset);
+      }
+    }
+  }
+
+  async function confirmVideoOutputPolicy(subject = "vídeos") {
     if (!outputDirectoryRef.current || videoOutputConflictMode === "backup") {
       return true;
     }
@@ -2689,7 +2807,7 @@ function App() {
         ? "Limpar destino antes de exportar?"
         : "Sobrescrever arquivos existentes?",
       message: destructive
-        ? `A subpasta "${projectName}" dentro da Pasta de Saída será esvaziada antes de receber os vídeos. Outras pastas da saída não serão tocadas.`
+        ? `A subpasta "${projectName}" dentro da Pasta de Saída será esvaziada antes de receber ${subject}. Outras pastas da saída não serão tocadas.`
         : `Arquivos novos serão gravados dentro de "${projectName}" e arquivos de mesmo nome serão substituídos. Outras pastas da saída não serão tocadas.`,
       confirmLabel: destructive ? "Limpar e exportar" : "Sobrescrever",
       tone: destructive ? "danger" : "default",
@@ -2753,6 +2871,71 @@ function App() {
     }
   }
 
+  async function submitPublicationAsset(
+    track: TrackDraft,
+    preset: PublicationAssetPreset,
+  ) {
+    void saveSnapshot(createSnapshot());
+    const composition = resolveEffectiveComposition(track, {
+      sharedCover: cover,
+      showMetadata,
+    });
+    const formData = new FormData();
+    if (track.sourceFile) formData.append("audio", track.sourceFile);
+    else formData.append("inputAudio", track.sourceKey);
+    for (const layer of composition.layers)
+      formData.append("mediaLayers", layer.file);
+    if (composition.cover) formData.append("cover", composition.cover.file);
+    formData.append("visualSettings", JSON.stringify(composition.scene));
+    formData.append(
+      "compositionSettings",
+      JSON.stringify({
+        mediaLayers: composition.layers.map(stripLayerFile),
+        durationSeconds: track.audioInfo?.durationSeconds ?? null,
+        textSettings: composition.textSettings,
+      }),
+    );
+    formData.append("preset", outputPreset);
+    formData.append("qualityProfile", qualityProfile);
+    formData.append("renderMode", workflowMode);
+    formData.append("showMetadata", String(composition.showMetadata));
+    formData.append("publicationPresetId", preset.id);
+    formData.append("clipStart", String(publicationClipStart));
+    formData.append("clipDuration", String(publicationClipDuration));
+    formData.append("includeFullLyrics", String(publicationIncludeLyrics));
+    if (composition.metadata) {
+      for (const [key, value] of Object.entries(composition.metadata)) {
+        formData.append(key, String(value));
+      }
+    }
+    try {
+      const data = await fetchJson<{ jobId: string }>(
+        "/api/publication-assets",
+        {
+          method: "POST",
+          body: formData,
+        },
+      );
+      const job: RenderJob = {
+        id: data.jobId,
+        kind: "publication-asset",
+        status: "queued",
+        progress: 0,
+        message: `Divulgação: ${preset.label} · ${track.metadata.title}`,
+        outputUrl: null,
+        sidecarUrl: null,
+        thumbnailUrl: null,
+        markdownUrl: null,
+        assetUrls: [],
+        metadata: track.metadata,
+      };
+      setJobs((current) => [job, ...current]);
+      pollJob(job.id);
+    } catch (reason) {
+      setError(localApiMessage(reason, "iniciar a divulgação"));
+    }
+  }
+
   async function copyJobError(job: RenderJob) {
     await copyTextToClipboard(jobErrorReport(job));
     setBatchFeedback("Erro copiado para a área de transferência.");
@@ -2786,6 +2969,12 @@ function App() {
               setError(localApiMessage(reason, "integrar a cópia tratada")),
             );
             void maybeFinalizeDestructiveAudioBatch();
+          } else if (job.kind === "publication-asset") {
+            void copyPublicationOutput(job).catch((reason) =>
+              setError(
+                localApiMessage(reason, "copiar os assets de divulgação"),
+              ),
+            );
           } else {
             void copyOutput(job).catch((reason) =>
               setError(
@@ -2902,6 +3091,34 @@ function App() {
     );
   }
 
+  async function copyPublicationOutput(job: RenderJob) {
+    const handle = outputDirectoryRef.current;
+    if (!handle || !job.outputUrl || !job.sidecarUrl) return;
+    let permission = await handle.queryPermission?.({ mode: "readwrite" });
+    if (permission !== "granted") {
+      permission = await handle.requestPermission?.({ mode: "readwrite" });
+    }
+    if (permission !== "granted") {
+      throw new Error("A pasta de saída precisa de permissão para escrita.");
+    }
+    const target = await publicationOutputProjectForJob(handle, job);
+    const primaryDirectory = publicationAssetDirectoryForUrl(
+      target,
+      job.outputUrl,
+    );
+    await copyUrlToDirectory(primaryDirectory, job.outputUrl);
+    await copyUrlToDirectory(target.dados, job.sidecarUrl);
+    if (job.markdownUrl) {
+      await copyUrlToDirectory(target.dados, job.markdownUrl);
+    }
+    setBatchFeedback(
+      target.backupName
+        ? `Asset copiado para ${outputFolderName}\\${target.projectName}\\assets\\publicacao. Conteúdo anterior movido para backup\\${target.backupName}.`
+        : `Asset copiado para ${outputFolderName}\\${target.projectName}\\assets\\publicacao.`,
+      "info",
+    );
+  }
+
   async function videoOutputProjectForJob(
     handle: FileSystemDirectoryHandle,
     job: RenderJob,
@@ -2919,6 +3136,31 @@ function App() {
     let project = run.projects.get(key);
     if (!project) {
       project = prepareVideoOutputProject(handle, projectName, {
+        backupStamp: run.stamp,
+        conflictMode: run.conflictMode,
+      });
+      run.projects.set(key, project);
+    }
+    return project;
+  }
+
+  async function publicationOutputProjectForJob(
+    handle: FileSystemDirectoryHandle,
+    job: RenderJob,
+  ) {
+    const run = publicationOutputRunRef.current;
+    if (!run.stamp) {
+      run.stamp = videoOutputBackupStamp();
+      run.conflictMode = videoOutputConflictMode;
+    }
+    const projectName = videoOutputProjectDirectoryName(
+      job.metadata,
+      selectedInputProjectName(),
+    );
+    const key = `${run.conflictMode}\u0000${projectName}`;
+    let project = run.projects.get(key);
+    if (!project) {
+      project = preparePublicationOutputProject(handle, projectName, {
         backupStamp: run.stamp,
         conflictMode: run.conflictMode,
       });
@@ -3110,6 +3352,11 @@ function App() {
       selectedTrackId,
       outputPreset,
       qualityProfile,
+      publicationPresetId,
+      publicationClipStart,
+      publicationClipDuration,
+      publicationIncludeLyrics,
+      publicationAssetMode,
       showMetadata,
       coverFile: cover?.file,
       coverSeriesSettings,
@@ -3129,6 +3376,7 @@ function App() {
         selectedForBatch: track.selectedForBatch,
         packageStatus: track.packageStatus,
         useSuggestedCover: track.useSuggestedCover,
+        lyricsSourcePath: track.lyricsSourcePath,
         coverOverride: track.coverOverride ?? null,
         thumbnailPreviewMode: track.thumbnailPreviewMode,
         coverSeriesOverride: track.coverSeriesOverride ?? null,
@@ -3177,6 +3425,25 @@ function App() {
         : "youtube-1080p",
     );
     setQualityProfile(snapshot.qualityProfile);
+    setPublicationPresetId(
+      publicationAssetPresets.some(
+        (preset) => preset.id === snapshot.publicationPresetId,
+      )
+        ? snapshot.publicationPresetId!
+        : "youtube-thumbnail",
+    );
+    setPublicationClipStart(
+      clampPublicationClipStart(snapshot.publicationClipStart ?? 0),
+    );
+    setPublicationClipDuration(
+      clampPublicationClipDuration(snapshot.publicationClipDuration ?? 15),
+    );
+    setPublicationIncludeLyrics(Boolean(snapshot.publicationIncludeLyrics));
+    setPublicationAssetMode(
+      ["single", "group", "all"].includes(String(snapshot.publicationAssetMode))
+        ? snapshot.publicationAssetMode!
+        : "single",
+    );
     setShowMetadata(snapshot.showMetadata);
     setCoverSeriesSettings(
       normalizeCoverSeriesClient(snapshot.coverSeriesSettings),
@@ -3618,6 +3885,30 @@ function App() {
             showMetadata={showMetadata}
             tracks={reviewTracks}
           />
+        ) : workspaceMode === "visual" && visualStageView === "promotion" ? (
+          <PublicationAssetsWorkspace
+            assetMode={publicationAssetMode}
+            clipDuration={publicationClipDuration}
+            clipStart={publicationClipStart}
+            includeLyrics={publicationIncludeLyrics}
+            jobs={jobs}
+            preset={selectedPublicationPreset}
+            presetCount={publicationPresetSelection.length}
+            queuePaused={queuePaused}
+            selectedCount={reviewTracks.length}
+            tracks={reviewTracks}
+            onCancelAllJobs={() => void cancelAllJobs()}
+            onCancelJob={(id) => void cancelJob(id)}
+            onClearTerminalJobs={() =>
+              void clearCompletedJobs("publication-asset")
+            }
+            onCopyJobError={(job) => void copyJobError(job)}
+            onExport={() => void exportPublicationAssets()}
+            onPauseQueue={() => void pauseQueue()}
+            onPreset={setPublicationPresetId}
+            onResumeQueue={() => void resumeQueue()}
+            onReviewVideos={() => setVisualStageView("videos")}
+          />
         ) : workspaceMode === "visual" && visualStageView === "queue" ? (
           <VideoExportWorkspace
             jobs={jobs}
@@ -3700,6 +3991,8 @@ function App() {
                 cover={selectedCover}
                 coverSeriesSettings={coverSeriesSettings}
                 fileNamePattern={fileNamePattern}
+                lyricsOptions={selectedTrack.lyricsOptions ?? []}
+                lyricsSourcePath={selectedTrack.lyricsSourcePath}
                 metadata={selectedTrack.metadata}
                 suggestedCover={selectedTrack.suggestedCover}
                 workflowMode={workflowMode}
@@ -3721,10 +4014,44 @@ function App() {
                 onClearCover={clearSelectedCover}
                 onCoverSeriesSettings={updateCoverSeriesSettingsPatch}
                 onFileNamePattern={updateFileNamePattern}
+                onApplyLyricsSuggestion={(suggestion) =>
+                  void applyLyricsSuggestion(suggestion)
+                }
+                onIgnoreLyricsSuggestions={ignoreLyricsSuggestions}
                 onRestoreSuggestedCover={restoreSuggestedCover}
                 onSaveCoverSeriesDefault={saveCoverSeriesDefault}
                 onProcess={() => void processReviewedAudio()}
                 isAnalyzing={analyzingTrackIds.includes(selectedTrack.id)}
+              />
+            ) : visualStageView === "promotion" ? (
+              <PublicationInspector
+                assetMode={publicationAssetMode}
+                clipDuration={publicationClipDuration}
+                clipStart={publicationClipStart}
+                includeLyrics={publicationIncludeLyrics}
+                outputConflictMode={videoOutputConflictMode}
+                outputFolderName={outputFolderName}
+                presetId={publicationPresetId}
+                selectedCount={reviewTracks.length}
+                selectedPreset={selectedPublicationPreset}
+                onAssetMode={setPublicationAssetMode}
+                onChooseOutput={() => void chooseOutputDirectory()}
+                onClipDuration={(value) =>
+                  setPublicationClipDuration(
+                    clampPublicationClipDuration(value),
+                  )
+                }
+                onClipStart={(value) =>
+                  setPublicationClipStart(clampPublicationClipStart(value))
+                }
+                onExport={() => void exportPublicationAssets()}
+                onIncludeLyrics={setPublicationIncludeLyrics}
+                onOutputConflictMode={(value) =>
+                  setVideoOutputConflictMode(
+                    normalizeVideoOutputConflictMode(value),
+                  )
+                }
+                onPreset={setPublicationPresetId}
               />
             ) : activeStep === "music" ? (
               <MusicInspector
@@ -3884,6 +4211,17 @@ function App() {
               Conferir vídeos
             </button>
             <button
+              className={visualStageView === "promotion" ? "active" : ""}
+              type="button"
+              onClick={() => {
+                setVisualStageView("promotion");
+                setActiveStep("export");
+              }}
+            >
+              <Image />
+              Divulgação
+            </button>
+            <button
               className={visualStageView === "queue" ? "active" : ""}
               type="button"
               onClick={() => {
@@ -3926,7 +4264,9 @@ function App() {
         <span className="project-state">
           {workspaceMode === "audio"
             ? `${reviewTracks.length} selecionada${reviewTracks.length === 1 ? "" : "s"} · ${treatedTrackCount} tratada${treatedTrackCount === 1 ? "" : "s"} · ${audioWarningCount} alerta${audioWarningCount === 1 ? "" : "s"}`
-            : `${selectedOutput[1]} · ${selectedTrack?.layers.length ?? 0}/3 camadas · waveform ${selectedScene.waveform.visible ? "ativa" : "desligada"}`}
+            : visualStageView === "promotion"
+              ? `${publicationAssetPresetLabel(publicationPresetId)} · ${publicationPresetSelection.length} preset${publicationPresetSelection.length === 1 ? "" : "s"}`
+              : `${selectedOutput[1]} · ${selectedTrack?.layers.length ?? 0}/3 camadas · waveform ${selectedScene.waveform.visible ? "ativa" : "desligada"}`}
         </span>
       </footer>
 
@@ -5091,6 +5431,191 @@ function VideoExportWorkspace({
   );
 }
 
+function PublicationAssetsWorkspace({
+  assetMode,
+  clipDuration,
+  clipStart,
+  includeLyrics,
+  jobs,
+  preset,
+  presetCount,
+  queuePaused,
+  selectedCount,
+  tracks,
+  onCancelAllJobs,
+  onCancelJob,
+  onClearTerminalJobs,
+  onCopyJobError,
+  onExport,
+  onPauseQueue,
+  onPreset,
+  onResumeQueue,
+  onReviewVideos,
+}: {
+  assetMode: PublicationAssetMode;
+  clipDuration: number;
+  clipStart: number;
+  includeLyrics: boolean;
+  jobs: RenderJob[];
+  preset: PublicationAssetPreset;
+  presetCount: number;
+  queuePaused: boolean;
+  selectedCount: number;
+  tracks: TrackDraft[];
+  onCancelAllJobs: () => void;
+  onCancelJob: (id: string) => void;
+  onClearTerminalJobs: () => void;
+  onCopyJobError: (job: RenderJob) => void;
+  onExport: () => void;
+  onPauseQueue: () => void;
+  onPreset: (presetId: string) => void;
+  onResumeQueue: () => void;
+  onReviewVideos: () => void;
+}) {
+  const publicationJobs = jobs.filter(
+    (job) => job.kind === "publication-asset",
+  );
+  const expectedCount = Math.max(0, selectedCount * presetCount);
+  const selectedPresetIds = new Set(
+    publicationPresetsForMode(preset, assetMode).map((item) => item.id),
+  );
+  return (
+    <div className="review-stage publication-stage">
+      <header className="review-stage-header">
+        <div>
+          <span className="overline">Divulgação</span>
+          <h1>Assets de publicação</h1>
+          <p>
+            Gere peças a partir da composição revisada: fundo, capa, textos,
+            waveform e metadados do projeto.
+          </p>
+        </div>
+        <div className="stage-header-actions">
+          <strong>
+            {expectedCount || presetCount} asset
+            {(expectedCount || presetCount) === 1 ? "" : "s"}
+          </strong>
+          <button type="button" onClick={onReviewVideos}>
+            <Video /> Conferir vídeos
+          </button>
+          <button
+            className="primary-action"
+            disabled={selectedCount === 0}
+            type="button"
+            onClick={onExport}
+          >
+            <Download /> Gerar assets
+          </button>
+        </div>
+      </header>
+      <section className="stage-surface publication-overview">
+        <div>
+          <span className="overline">Preset base</span>
+          <strong>{preset.label}</strong>
+          <small>
+            {preset.width}x{preset.height} ·{" "}
+            {preset.kind === "clip" ? "clip curto" : "imagem"}
+          </small>
+        </div>
+        <div>
+          <span className="overline">Disparo</span>
+          <strong>{publicationAssetModeLabel(assetMode)}</strong>
+          <small>
+            {presetCount} preset{presetCount === 1 ? "" : "s"} para{" "}
+            {selectedCount} faixa{selectedCount === 1 ? "" : "s"}
+          </small>
+        </div>
+        <div>
+          <span className="overline">Trecho</span>
+          <strong>
+            {clipStart}s · {clipDuration}s
+          </strong>
+          <small>
+            {includeLyrics ? "Letras no pacote" : "Letras só sinalizadas"}
+          </small>
+        </div>
+      </section>
+      <section className="stage-surface publication-preset-gallery">
+        <header>
+          <div>
+            <span className="overline">Opções de asset</span>
+            <strong>Formatos disponíveis</strong>
+          </div>
+          <small>
+            Os cards marcados entram no disparo atual. Clique para trocar o
+            preset base.
+          </small>
+        </header>
+        <div className="publication-preset-grid">
+          {publicationAssetPresets.map((option) => {
+            const selected = option.id === preset.id;
+            const included = selectedPresetIds.has(option.id);
+            return (
+              <button
+                className={`${selected ? "selected" : ""} ${included ? "included" : ""}`}
+                key={option.id}
+                type="button"
+                onClick={() => onPreset(option.id)}
+              >
+                <span
+                  className="publication-preset-ratio"
+                  style={{ aspectRatio: `${option.width} / ${option.height}` }}
+                >
+                  <Image />
+                </span>
+                <strong>{option.label}</strong>
+                <small>
+                  {option.platform} · {option.width}x{option.height}
+                </small>
+                <em>{option.kind === "clip" ? "clip" : "imagem"}</em>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+      <section className="stage-surface publication-track-list">
+        <header>
+          <div>
+            <span className="overline">Faixas selecionadas</span>
+            <strong>{selectedCount || "Nenhuma"} no escopo atual</strong>
+          </div>
+        </header>
+        {tracks.length ? (
+          <div>
+            {tracks.map((track) => (
+              <div className="publication-track-row" key={track.id}>
+                <strong>{track.metadata.title || "Faixa sem título"}</strong>
+                <small>
+                  {track.metadata.album || "Sem álbum"} ·{" "}
+                  {track.metadata.lyrics ? "com letra" : "sem letra"}
+                </small>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="helper-copy">
+            Selecione uma faixa ou marque faixas na biblioteca para gerar em
+            lote.
+          </p>
+        )}
+      </section>
+      <BatchJobBoard
+        emptyCopy="Ao gerar divulgação, cada imagem, clip e manifesto aparece aqui com progresso e links finais."
+        jobs={publicationJobs}
+        kind="publication-asset"
+        queuePaused={queuePaused}
+        title="Geração de divulgação"
+        onCancelAll={onCancelAllJobs}
+        onCancelJob={onCancelJob}
+        onClearTerminal={onClearTerminalJobs}
+        onCopyJobError={onCopyJobError}
+        onPause={onPauseQueue}
+        onResume={onResumeQueue}
+      />
+    </div>
+  );
+}
+
 function BatchJobBoard({
   jobs,
   kind = "audio-process",
@@ -5200,9 +5725,23 @@ function BatchJobBoard({
                         <Download /> MP4
                       </a>
                     )}
+                    {kind === "publication-asset" && job.outputUrl && (
+                      <a href={job.outputUrl} download title="Baixar asset">
+                        <Download /> Asset
+                      </a>
+                    )}
                     {job.sidecarUrl && (
                       <a href={job.sidecarUrl} download title="Baixar JSON">
                         <Download /> JSON
+                      </a>
+                    )}
+                    {kind === "publication-asset" && job.markdownUrl && (
+                      <a
+                        href={job.markdownUrl}
+                        download
+                        title="Baixar Markdown"
+                      >
+                        <Download /> MD
                       </a>
                     )}
                     <span className="job-terminal-state">
@@ -5446,9 +5985,12 @@ function AudioLibraryInspector({
   cover,
   coverSeriesSettings,
   fileNamePattern,
+  lyricsOptions,
+  lyricsSourcePath,
   metadata,
   workflowMode,
   onAnalyze,
+  onApplyLyricsSuggestion,
   onApplyPublicationBatch,
   onApplySuggestions,
   onChange,
@@ -5456,6 +5998,7 @@ function AudioLibraryInspector({
   onClearCover,
   onCoverSeriesSettings,
   onFileNamePattern,
+  onIgnoreLyricsSuggestions,
   isAnalyzing,
   onProcess,
   onRestoreSuggestedCover,
@@ -5467,9 +6010,12 @@ function AudioLibraryInspector({
   cover: { file: File; src: string } | null;
   coverSeriesSettings: CoverSeriesSettings;
   fileNamePattern: FileNamePattern;
+  lyricsOptions: LyricsSuggestion[];
+  lyricsSourcePath?: string;
   metadata: TrackMetadata;
   workflowMode: "single" | "batch";
   onAnalyze: () => void;
+  onApplyLyricsSuggestion: (suggestion: LyricsSuggestion) => void;
   onApplyPublicationBatch?: () => void;
   onApplySuggestions: () => void;
   onChange: (patch: Partial<TrackMetadata>) => void;
@@ -5477,10 +6023,11 @@ function AudioLibraryInspector({
   onClearCover: () => void;
   onCoverSeriesSettings: (patch: Partial<CoverSeriesSettings>) => void;
   onFileNamePattern: (next: FileNamePattern) => void;
+  onIgnoreLyricsSuggestions: () => void;
   isAnalyzing: boolean;
   onProcess: () => void;
   onRestoreSuggestedCover: () => void;
-  onSaveCoverSeriesDefault: () => void;
+  onSaveCoverSeriesDefault: (settings?: CoverSeriesSettings) => void;
   suggestedCover?: ArtworkSuggestion;
 }) {
   const [activeInspectorTab, setActiveInspectorTab] = useState<
@@ -5702,6 +6249,50 @@ function AudioLibraryInspector({
         )}
         {activeInspectorTab === "lyrics" && (
           <InspectorGroup title="Letra" open>
+            {lyricsOptions.length > 0 && (
+              <div className="lyrics-suggestion-panel">
+                <div className="lyrics-suggestion-head">
+                  <div>
+                    <p className="inspector-kicker">Letras detectadas</p>
+                    <small>
+                      {lyricsSourcePath
+                        ? `Aplicada de ${lyricsSourcePath}`
+                        : "Escolha uma letra detectada na Pasta de Entrada."}
+                    </small>
+                  </div>
+                  <button
+                    className="quiet-action"
+                    type="button"
+                    onClick={onIgnoreLyricsSuggestions}
+                  >
+                    <X /> Ignorar
+                  </button>
+                </div>
+                <div className="lyrics-suggestion-list">
+                  {lyricsOptions.map((suggestion) => (
+                    <button
+                      className={
+                        suggestion.relativePath === lyricsSourcePath
+                          ? "active"
+                          : ""
+                      }
+                      key={suggestion.relativePath}
+                      type="button"
+                      onClick={() => onApplyLyricsSuggestion(suggestion)}
+                    >
+                      <strong>{suggestion.fileName}</strong>
+                      <span>
+                        {lyricsMatchLabel(suggestion)} ·{" "}
+                        {suggestion.relativePath}
+                      </span>
+                      {suggestion.preview && (
+                        <small>{suggestion.preview}</small>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <TextArea
               label="Letra manual sem sincronizacao"
               value={metadata.lyrics}
@@ -5889,7 +6480,7 @@ function CatalogPreview({
     trackId?: string,
   ) => void;
   onRestoreSuggestedCover: (trackId?: string) => void;
-  onSaveCoverSeriesDefault: () => void;
+  onSaveCoverSeriesDefault: (settings?: CoverSeriesSettings) => void;
   onSelectTrack: (trackId: string) => void;
   onSelectSuggestedCover: (trackId: string, relativePath: string) => void;
   tracks: TrackDraft[];
@@ -6365,9 +6956,7 @@ function CatalogPreview({
                   </button>
                 </div>
                 <div className="cover-series-scope">
-                  <span className="cover-series-scope-label">
-                    Aplicar ajustes a
-                  </span>
+                  <span className="cover-series-scope-label">Estilo afeta</span>
                   <div
                     className="segmented"
                     role="tablist"
@@ -6380,7 +6969,7 @@ function CatalogPreview({
                       type="button"
                       onClick={() => setSeriesScope("all")}
                     >
-                      Todas as faixas
+                      Série
                     </button>
                     <button
                       aria-selected={seriesScope === "current"}
@@ -6389,7 +6978,7 @@ function CatalogPreview({
                       type="button"
                       onClick={() => setSeriesScope("current")}
                     >
-                      Só esta faixa
+                      Único
                     </button>
                   </div>
                   {seriesScope === "current" && hasOverride && (
@@ -6405,8 +6994,8 @@ function CatalogPreview({
                   )}
                   {seriesScope === "current" && !hasOverride && (
                     <p className="cover-series-scope-hint">
-                      Esta faixa segue o padrão do álbum. Qualquer ajuste cria
-                      um detalhe exclusivo só dela.
+                      A capa selecionada segue o padrão da série. Qualquer
+                      ajuste cria um estilo exclusivo só para ela.
                     </p>
                   )}
                 </div>
@@ -7302,8 +7891,8 @@ const coverSeriesIncludeKey: Record<
 
 // One unified list for the numbered-cover complementary texts: order +
 // visibility + per-field style live in a single disclosure row per field,
-// mirroring the video-text editor. Both call sites pass the same
-// (patch) => void onChange, so this stays DRY.
+// mirroring the video-text editor. The Único/Série scope lives above this
+// component, so controls here always edit the opened field only.
 function CoverSeriesFieldsEditor({
   onChange,
   settings,
@@ -7311,7 +7900,6 @@ function CoverSeriesFieldsEditor({
   onChange: (patch: Partial<CoverSeriesSettings>) => void;
   settings: CoverSeriesSettings;
 }) {
-  const [styleTarget, setStyleTarget] = useState<"field" | "all">("field");
   const order = coverSeriesMetaOrder(settings.metaOrder);
   const visibility: Record<CoverSeriesMetaKey, boolean> = {
     series: settings.includeNumber !== false,
@@ -7335,33 +7923,6 @@ function CoverSeriesFieldsEditor({
       <span className="inspector-kicker">
         Campos complementares · ordem, exibição e estilo
       </span>
-      <div className="cover-series-meta-target">
-        <span className="cover-series-scope-label">Estilo afeta</span>
-        <div
-          aria-label="Alvo dos estilos dos textos complementares"
-          className="segmented"
-          role="tablist"
-        >
-          <button
-            aria-selected={styleTarget === "field"}
-            className={styleTarget === "field" ? "active" : ""}
-            role="tab"
-            type="button"
-            onClick={() => setStyleTarget("field")}
-          >
-            Texto aberto
-          </button>
-          <button
-            aria-selected={styleTarget === "all"}
-            className={styleTarget === "all" ? "active" : ""}
-            role="tab"
-            type="button"
-            onClick={() => setStyleTarget("all")}
-          >
-            Todos
-          </button>
-        </div>
-      </div>
       {order.map((key, index) => (
         <CoverSeriesMetaControls
           enabled={visibility[key]}
@@ -7374,11 +7935,15 @@ function CoverSeriesFieldsEditor({
           style={coverSeriesMetaStyleForKey(settings, key)}
           onMove={(direction) => move(key, direction)}
           onStyle={(patch) =>
-            applyChange(
-              applyCoverSeriesMetaStylePatch(settings, key, patch, {
-                target: styleTarget,
-              }),
-            )
+            applyChange({
+              metaStyles: {
+                ...settings.metaStyles,
+                [key]: {
+                  ...coverSeriesMetaStyleForKey(settings, key),
+                  ...patch,
+                },
+              },
+            })
           }
           onToggle={() =>
             applyChange({ [coverSeriesIncludeKey[key]]: !visibility[key] })
@@ -7435,7 +8000,7 @@ function CoverSeriesEditor({
 }: {
   compact?: boolean;
   onChange: (patch: Partial<CoverSeriesSettings>) => void;
-  onSaveDefault: () => void;
+  onSaveDefault: (settings: CoverSeriesSettings) => void;
   settings: CoverSeriesSettings;
 }) {
   const applyChange = (patch: Partial<CoverSeriesSettings>) =>
@@ -7496,7 +8061,11 @@ function CoverSeriesEditor({
           checked={settings.embedAlbumCover === true}
           onChange={(embedAlbumCover) => applyChange({ embedAlbumCover })}
         />
-        <button className="quiet-action" type="button" onClick={onSaveDefault}>
+        <button
+          className="quiet-action"
+          type="button"
+          onClick={() => onSaveDefault(settings)}
+        >
           <Save /> Salvar como padrão
         </button>
       </div>
@@ -9142,6 +9711,140 @@ function TextFieldStyleEditor({
   );
 }
 
+function PublicationInspector({
+  assetMode,
+  clipDuration,
+  clipStart,
+  includeLyrics,
+  outputConflictMode,
+  outputFolderName,
+  presetId,
+  selectedCount,
+  selectedPreset,
+  onAssetMode,
+  onChooseOutput,
+  onClipDuration,
+  onClipStart,
+  onExport,
+  onIncludeLyrics,
+  onOutputConflictMode,
+  onPreset,
+}: {
+  assetMode: PublicationAssetMode;
+  clipDuration: number;
+  clipStart: number;
+  includeLyrics: boolean;
+  outputConflictMode: VideoOutputConflictMode;
+  outputFolderName: string;
+  presetId: string;
+  selectedCount: number;
+  selectedPreset: PublicationAssetPreset;
+  onAssetMode: (value: PublicationAssetMode) => void;
+  onChooseOutput: () => void;
+  onClipDuration: (value: number) => void;
+  onClipStart: (value: number) => void;
+  onExport: () => void;
+  onIncludeLyrics: (value: boolean) => void;
+  onOutputConflictMode: (value: string) => void;
+  onPreset: (value: string) => void;
+}) {
+  const selectionCount = publicationPresetsForMode(
+    selectedPreset,
+    assetMode,
+  ).length;
+  return (
+    <>
+      <InspectorGroup title="Divulgação" open>
+        <div className="inspector-subsection">
+          <p className="inspector-kicker">Preset</p>
+          <SelectField
+            label="Formato base"
+            value={presetId}
+            onChange={onPreset}
+          >
+            {publicationAssetPresets.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.label} · {preset.width}x{preset.height}
+              </option>
+            ))}
+          </SelectField>
+          <SelectField
+            label="Disparar"
+            value={assetMode}
+            onChange={(value) => onAssetMode(value as PublicationAssetMode)}
+          >
+            <option value="single">Individual</option>
+            <option value="group">Grupo do formato</option>
+            <option value="all">Total</option>
+          </SelectField>
+          <p className="helper-copy">
+            Gerar {selectionCount} preset{selectionCount === 1 ? "" : "s"} para{" "}
+            {selectedCount} faixa
+            {selectedCount === 1 ? "" : "s"}.
+          </p>
+        </div>
+        <div className="inspector-subsection">
+          <p className="inspector-kicker">Trecho e dados</p>
+          <RangeField
+            label="Início do trecho"
+            min={0}
+            max={300}
+            step={1}
+            unit="s"
+            value={clipStart}
+            onChange={onClipStart}
+          />
+          <RangeField
+            label="Duração do clip"
+            min={1}
+            max={30}
+            step={1}
+            unit="s"
+            value={clipDuration}
+            onChange={onClipDuration}
+          />
+          <CheckField
+            label="Incluir letras completas no pacote de dados"
+            checked={includeLyrics}
+            onChange={onIncludeLyrics}
+          />
+        </div>
+        <div className="inspector-subsection">
+          <p className="inspector-kicker">Destino</p>
+          <button
+            className="upload-action"
+            type="button"
+            onClick={onChooseOutput}
+          >
+            <FolderOpen /> {outputFolderName}
+          </button>
+          <SelectField
+            label="Se a pasta do projeto já existir"
+            value={outputConflictMode}
+            onChange={onOutputConflictMode}
+          >
+            <option value="backup">Fazer backup antes</option>
+            <option value="overwrite">Sobrescrever nomes iguais</option>
+            <option value="clear">Excluir conteúdo anterior</option>
+          </SelectField>
+          <p className="helper-copy">
+            A saída fica em assets/publicacao/imagens, clips e dados dentro da
+            subpasta do projeto.
+          </p>
+          <button
+            className="primary-action wide"
+            disabled={selectedCount === 0}
+            type="button"
+            onClick={onExport}
+          >
+            <Download /> Gerar divulgação
+          </button>
+        </div>
+      </InspectorGroup>
+    </>
+  );
+}
+
 function ExportInspector({
   batchCount,
   coverName,
@@ -9950,12 +10653,22 @@ function restoreTrack(
     saved.coverOverride,
     base.artworkOptions,
   );
+  const savedLyrics = saved.metadata?.lyrics?.trim();
   return {
     ...base,
     ...saved,
+    metadata: {
+      ...base.metadata,
+      ...saved.metadata,
+      lyrics: savedLyrics ? saved.metadata.lyrics : base.metadata.lyrics,
+    },
     sourceFile,
     sourceUrl: sourceFile ? URL.createObjectURL(sourceFile) : base.sourceUrl,
     coverOverride,
+    lyricsOptions: base.lyricsOptions,
+    lyricsSourcePath: savedLyrics
+      ? saved.lyricsSourcePath || base.lyricsSourcePath
+      : base.lyricsSourcePath,
     scene: normalizeVisualSettings(saved.scene),
     thumbnailPreviewMode: saved.thumbnailPreviewMode ?? "composition",
     textSettings: cloneTextSettings(saved.textSettings),
@@ -10069,14 +10782,18 @@ async function collectDirectoryAssets(
 ): Promise<{
   audioEntries: DirectoryAssetEntry[];
   artworkEntries: DirectoryAssetEntry[];
+  lyricEntries: DirectoryAssetEntry[];
 }> {
   const audioEntries: DirectoryAssetEntry[] = [];
   const artworkEntries: DirectoryAssetEntry[] = [];
+  const lyricEntries: DirectoryAssetEntry[] = [];
   for await (const [name, entry] of handle.entries()) {
     const relativePath = prefix ? `${prefix}/${name}` : name;
     if (entry.kind === "file") {
       if (isPrivateAssetPath(relativePath)) continue;
-      if (isArtworkName(name)) {
+      if (isLyricsTextPath(relativePath)) {
+        lyricEntries.push({ file: await entry.getFile(), relativePath });
+      } else if (isArtworkName(name)) {
         artworkEntries.push({ file: await entry.getFile(), relativePath });
       } else if (isAudioName(name) && !isPrivateAudioPath(relativePath)) {
         audioEntries.push({ file: await entry.getFile(), relativePath });
@@ -10087,10 +10804,12 @@ async function collectDirectoryAssets(
     const nested = await collectDirectoryAssets(entry, relativePath);
     audioEntries.push(...nested.audioEntries);
     artworkEntries.push(...nested.artworkEntries);
+    lyricEntries.push(...nested.lyricEntries);
   }
   return {
     audioEntries: audioEntries.sort(compareDirectoryEntries),
     artworkEntries: artworkEntries.sort(compareDirectoryEntries),
+    lyricEntries: lyricEntries.sort(compareDirectoryEntries),
   };
 }
 
@@ -10325,6 +11044,114 @@ function attachSuggestedArtwork(
       useSuggestedCover: track.useSuggestedCover ?? true,
     };
   });
+}
+
+async function attachSuggestedLyrics(
+  tracks: TrackDraft[],
+  lyricEntries: DirectoryAssetEntry[],
+) {
+  if (!lyricEntries.length) return tracks;
+  const lyricsByPath = new Map(
+    lyricEntries.map((entry) => [entry.relativePath, entry]),
+  );
+  const textByPath = new Map<string, string>();
+  const readLyricsText = async (entry: DirectoryAssetEntry) => {
+    let text = textByPath.get(entry.relativePath);
+    if (text === undefined) {
+      text = await entry.file.text();
+      textByPath.set(entry.relativePath, text);
+    }
+    return text;
+  };
+
+  return Promise.all(
+    tracks.map(async (track) => {
+      const matches = listLyricsOptionsForTrack({
+        audioPath: track.sourceKey,
+        lyricPaths: lyricEntries.map((entry) => entry.relativePath),
+        trackTitle: track.metadata.title,
+        trackNumber: track.metadata.trackNumber,
+      });
+      if (!matches.length) return track;
+      const suggestions = await Promise.all(
+        matches.map(async (match: LyricsPathSuggestion) => {
+          const entry = lyricsByPath.get(match.relativePath);
+          const text = entry ? await readLyricsText(entry) : "";
+          return {
+            file: entry?.file,
+            relativePath: match.relativePath,
+            fileName: match.relativePath.split(/[\\/]+/).at(-1) ?? "letra.txt",
+            preview: lyricPreview(text),
+            confidence: match.confidence,
+            matchedBy: match.matchedBy,
+          } satisfies LyricsSuggestion;
+        }),
+      );
+      const high = suggestions.filter(
+        (suggestion) => suggestion.confidence === "high",
+      );
+      if (high.length !== 1 || track.metadata.lyrics.trim()) {
+        return { ...track, lyricsOptions: suggestions };
+      }
+      const entry = lyricsByPath.get(high[0].relativePath);
+      if (!entry) return { ...track, lyricsOptions: suggestions };
+      return {
+        ...track,
+        metadata: {
+          ...track.metadata,
+          lyrics: await readLyricsText(entry),
+        },
+        lyricsOptions: suggestions.map((suggestion) => ({
+          ...suggestion,
+          autoApplied: suggestion.relativePath === high[0].relativePath,
+        })),
+        lyricsSourcePath: high[0].relativePath,
+      };
+    }),
+  );
+}
+
+function lyricPreview(value: string) {
+  const lines = String(value ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.slice(0, 3).join(" / ").slice(0, 160);
+}
+
+function lyricsMatchLabel(suggestion: LyricsSuggestion) {
+  const base =
+    {
+      "audio-stem": "nome do arquivo",
+      "track-title": "título da faixa",
+      "numbered-title": "número e título",
+      "numbered-audio-stem": "número e arquivo",
+      "title-with-prefix": "título com prefixo",
+      "stem-with-prefix": "arquivo com prefixo",
+      "track-number": "número da faixa",
+    }[suggestion.matchedBy] ?? "candidato";
+  return suggestion.confidence === "high" ? `match por ${base}` : base;
+}
+
+function publicationPresetsForMode(
+  selectedPreset: PublicationAssetPreset,
+  mode: PublicationAssetMode,
+) {
+  if (mode === "all") return publicationAssetPresets;
+  if (mode === "group") {
+    return publicationAssetPresets.filter(
+      (preset) => preset.kind === selectedPreset.kind,
+    );
+  }
+  return [selectedPreset];
+}
+
+function publicationAssetModeLabel(mode: PublicationAssetMode) {
+  return {
+    single: "Individual",
+    group: "Grupo do formato",
+    all: "Total",
+  }[mode];
 }
 
 async function ensureAlbumArtworkDirectories(
@@ -11310,6 +12137,41 @@ async function copyUrlToDirectory(
   const file = await handle.getFileHandle(fileName, { create: true });
   const writable = await file.createWritable();
   await response.body.pipeTo(writable);
+}
+
+async function preparePublicationOutputProject(
+  rootHandle: FileSystemDirectoryHandle,
+  projectName: string,
+  options: { backupStamp: string; conflictMode: VideoOutputConflictMode },
+): Promise<PreparedPublicationOutputProject> {
+  const project = await prepareVideoOutputProject(rootHandle, projectName, {
+    backupStamp: options.backupStamp,
+    conflictMode: options.conflictMode,
+  });
+  const publicacao = await project.assets.getDirectoryHandle("publicacao", {
+    create: true,
+  });
+  const imagens = await publicacao.getDirectoryHandle("imagens", {
+    create: true,
+  });
+  const clips = await publicacao.getDirectoryHandle("clips", {
+    create: true,
+  });
+  const dados = await publicacao.getDirectoryHandle("dados", {
+    create: true,
+  });
+  return { ...project, publicacao, imagens, clips, dados };
+}
+
+function publicationAssetDirectoryForUrl(
+  target: PreparedPublicationOutputProject,
+  url: string,
+) {
+  const fileName = decodeURIComponent(url.split("/").pop() ?? "").toLowerCase();
+  if (fileName.endsWith(".mp4")) return target.clips;
+  if (fileName.endsWith(".json") || fileName.endsWith(".md"))
+    return target.dados;
+  return target.imagens;
 }
 
 async function getWorkspaceFile(

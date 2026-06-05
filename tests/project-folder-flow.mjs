@@ -102,6 +102,13 @@ await page.addInitScript(
 
     const alpha = new MockDirectoryHandle("Projeto Alpha", {
       "alpha.wav": new MockFileHandle("alpha.wav", alphaBytes, "audio/wav"),
+      lyrics: new MockDirectoryHandle("lyrics", {
+        "alpha.txt": new MockFileHandle(
+          "alpha.txt",
+          "Primeira linha alpha\nSegunda linha alpha",
+          "text/plain",
+        ),
+      }),
     });
     const beta = new MockDirectoryHandle("Projeto Beta", {
       "beta.wav": new MockFileHandle("beta.wav", betaBytes, "audio/wav"),
@@ -147,6 +154,14 @@ try {
     .locator(".library-directory-row", { hasText: "Mock Entrada" })
     .waitFor();
   await page.locator(".track-row", { hasText: "alpha" }).waitFor();
+  await page.getByRole("tab", { name: "Letra" }).click();
+  await page.getByText("Letras detectadas").waitFor();
+  await page.waitForFunction(() =>
+    document
+      .querySelector(".inspector-panel textarea")
+      ?.value.includes("Primeira linha alpha"),
+  );
+  await page.getByRole("tab", { name: "Dados" }).click();
 
   await page.getByRole("button", { name: "Definir saída" }).click();
   await page

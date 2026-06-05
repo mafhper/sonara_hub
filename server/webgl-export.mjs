@@ -31,6 +31,24 @@ export async function renderWebglBackgroundVideo(options) {
   }
 }
 
+export async function renderWebglScenePoster(options) {
+  const { size, onProgress } = options;
+  try {
+    await runWebglPosterAttempt(options, size);
+  } catch (error) {
+    const retryable =
+      error?.code === "WEBGL_CONTEXT_LOST" ||
+      error?.code === "WEBGL_SHADER_ERROR";
+    const reduced = reduceRenderSize(size);
+    if (retryable && reduced) {
+      onProgress?.(4, "Recuperando contexto WebGL em resolução reduzida");
+      await runWebglPosterAttempt(options, reduced);
+      return;
+    }
+    throw error;
+  }
+}
+
 // On WebGL context loss we retry once at a smaller internal size; the ffmpeg mux
 // upscales the intermediate back to the requested output resolution (lanczos),
 // so a successful-but-softer render still beats a hard crash. Returns null when
@@ -157,8 +175,13 @@ async function runWebglRenderAttempt(options, size) {
     await page.waitForFunction(() => typeof window.recordScene === "function");
     try {
       await page.evaluate(
-        ({ durationSeconds, fps }) => window.recordScene(durationSeconds, fps),
-        { durationSeconds: duration, fps: settings.webglFps },
+        ({ durationSeconds, fps, startTime }) =>
+          window.recordScene(durationSeconds, fps, startTime),
+        {
+          durationSeconds: duration,
+          fps: settings.webglFps,
+          startTime: Number(options.startTime ?? 0),
+        },
       );
     } catch (error) {
       if (canceled || (typeof shouldCancel === "function" && shouldCancel())) {
@@ -181,6 +204,98 @@ async function runWebglRenderAttempt(options, size) {
 
   if (canceled) throw canceledRenderError();
   await assertValidWebm(outputPath, bytesWritten);
+}
+
+async function runWebglPosterAttempt(options, size) {
+  const {
+    outputPath,
+    settings,
+    audioEnvelope,
+    composition = {},
+    onProgress,
+    posterTime = 7.5,
+  } = options;
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  const rendererPath = path.join(
+    path.dirname(outputPath),
+    "scene-poster-renderer.html",
+  );
+  const runtimeSource = await fs.readFile(runtimePath, "utf8");
+  const runtimeUrl = `data:text/javascript;base64,${Buffer.from(runtimeSource).toString("base64")}`;
+  await fs.writeFile(
+    rendererPath,
+    buildRendererHtml({
+      runtimeUrl,
+      size,
+      scene: normalizeVisualSettings(settings.visualSettings ?? settings),
+      audioEnvelope,
+      composition,
+    }),
+    "utf8",
+  );
+
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      "--allow-file-access-from-files",
+      "--autoplay-policy=no-user-gesture-required",
+      "--enable-unsafe-swiftshader",
+      "--ignore-gpu-blocklist",
+      ...(process.env.SONARA_FORCE_GPU === "1"
+        ? ["--use-angle=gl", "--enable-gpu"]
+        : []),
+    ],
+  });
+  const context = await browser.newContext({
+    deviceScaleFactor: 1,
+    viewport: { width: size.width, height: size.height },
+  });
+  const page = await context.newPage();
+  const diagnostics = [];
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      diagnostics.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => {
+    diagnostics.push(`pageerror: ${error.message}`);
+  });
+
+  try {
+    onProgress?.(8, "Renderizando poster");
+    await page.goto(pathToFileURL(rendererPath).href, { waitUntil: "load" });
+    await page.waitForFunction(
+      () => typeof window.renderScenePoster === "function",
+    );
+    try {
+      await page.evaluate(({ time }) => window.renderScenePoster(time), {
+        time: Number(posterTime) || 0,
+      });
+    } catch (error) {
+      throw describeSceneRenderError(error, {
+        diagnostics,
+        scene: normalizeVisualSettings(settings.visualSettings ?? settings),
+        size,
+        fps: settings.webglFps,
+      });
+    }
+    await page.locator("#scene").screenshot({
+      path: outputPath,
+      type: "jpeg",
+      quality: 90,
+    });
+    onProgress?.(72, "Poster renderizado");
+  } finally {
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+  }
+
+  const stat = await fs.stat(outputPath);
+  if (stat.size < 1024) {
+    throw new Error(
+      `Poster exportado vazio ou incompleto (${stat.size} bytes).`,
+    );
+  }
 }
 
 export function describeSceneRenderError(
@@ -272,7 +387,12 @@ export function buildRendererHtml({
 
     const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-    window.recordScene = async (durationSeconds, fps) => {
+    window.renderScenePoster = (time = 0) => {
+      runtime.setAudio(audioAt(time));
+      runtime.render(time);
+    };
+
+    window.recordScene = async (durationSeconds, fps, startTime = 0) => {
       if (!window.MediaRecorder) throw new Error("MediaRecorder indisponível no Chromium");
       // Fail fast if the GPU context drops mid-render instead of stalling the
       // frame loop; the server classifies this as WEBGL_CONTEXT_LOST and retries
@@ -311,7 +431,7 @@ export function buildRendererHtml({
       const totalFrames = Math.max(2, Math.ceil(durationSeconds * fps));
       for (let index = 0; index < totalFrames; index += 1) {
         if (contextLost) throw new Error("Falha ao renderizar: contexto perdido: true (WEBGL_CONTEXT_LOST)");
-        const time = Math.min(durationSeconds, index / fps);
+        const time = Math.max(0, startTime) + Math.min(durationSeconds, index / fps);
         runtime.setAudio(audioAt(time));
         runtime.render(time);
         track.requestFrame();

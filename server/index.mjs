@@ -8,7 +8,10 @@ import express from "express";
 import { parseFile } from "music-metadata";
 import multer from "multer";
 import sharp from "sharp";
-import { renderWebglBackgroundVideo } from "./webgl-export.mjs";
+import {
+  renderWebglBackgroundVideo,
+  renderWebglScenePoster,
+} from "./webgl-export.mjs";
 import { sampleAudioEnvelope } from "./audio-envelope.mjs";
 import {
   analyzeAudioQuality,
@@ -38,6 +41,12 @@ import {
   treatedTrackArtworkPath,
 } from "../shared/artwork-convention.mjs";
 import { buildNameFromPattern } from "../shared/file-naming.mjs";
+import {
+  clampPublicationClipDuration,
+  clampPublicationClipStart,
+  publicationAssetPresetById,
+  sanitizePublicationFilePart,
+} from "../shared/publication-assets.mjs";
 import {
   normalizeFfmpegSpawnError,
   resolveFfmpegPath,
@@ -484,6 +493,91 @@ app.post(
 );
 
 app.post(
+  "/api/publication-assets",
+  upload.fields([
+    { name: "audio", maxCount: 1 },
+    { name: "background", maxCount: 1 },
+    { name: "mediaLayers", maxCount: 3 },
+    { name: "cover", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    const files = req.files ?? {};
+    const audioFile = Array.isArray(files.audio) ? files.audio[0] : null;
+    const backgroundFile = Array.isArray(files.background)
+      ? files.background[0]
+      : null;
+    const coverFile = Array.isArray(files.cover) ? files.cover[0] : null;
+    const mediaLayerFiles = Array.isArray(files.mediaLayers)
+      ? files.mediaLayers
+      : [];
+    const audioPath =
+      audioFile?.path ??
+      (await resolveInputAudio(req.body.inputAudio)) ??
+      (await findDefaultAudio());
+
+    if (!audioPath) {
+      await tempFiles.cleanup(files);
+      res.status(400).json({ error: "Nenhum áudio foi encontrado." });
+      return;
+    }
+
+    if (!(await isAudioReadable(audioPath))) {
+      await tempFiles.cleanup(files);
+      res.status(400).json({
+        error:
+          "O arquivo de áudio está corrompido ou incompleto (envio interrompido?). Reabra a faixa e tente novamente.",
+      });
+      return;
+    }
+
+    const settings = normalizeSettings(req.body);
+    const metadata = normalizeMetadata(req.body);
+    const preset = publicationAssetPresetById(req.body.publicationPresetId);
+    const clipStart = clampPublicationClipStart(req.body.clipStart);
+    const clipDuration = clampPublicationClipDuration(req.body.clipDuration);
+    const includeFullLyrics =
+      String(req.body.includeFullLyrics ?? "false") === "true";
+    const jobId = crypto.randomUUID();
+    const outputName = publicationAssetOutputName(metadata, preset);
+    const outputPath = path.join(outputDir, outputName);
+
+    setJob(jobId, {
+      id: jobId,
+      kind: "publication-asset",
+      status: "queued",
+      progress: 0,
+      message: "Na fila de divulgação",
+      outputUrl: null,
+      sidecarUrl: null,
+      thumbnailUrl: null,
+      markdownUrl: null,
+      assetUrls: [],
+      metadata,
+      createdAt: new Date().toISOString(),
+    });
+
+    enqueuePublicationAsset({
+      jobId,
+      audioPath,
+      backgroundFile,
+      mediaLayerFiles,
+      coverFile,
+      settings,
+      metadata,
+      preset,
+      clipStart,
+      clipDuration,
+      includeFullLyrics,
+      outputPath,
+      outputName,
+      uploadedFiles: files,
+    });
+
+    res.json({ jobId });
+  },
+);
+
+app.post(
   "/api/render-batch",
   upload.fields([
     { name: "audioBatch", maxCount: 50 },
@@ -618,6 +712,8 @@ app.delete("/api/jobs", async (req, res) => {
   for (const [jobId, job] of jobs) {
     if (isActiveJob(job)) continue;
     if (scope === "video-render" && job.kind !== "video-render") continue;
+    if (scope === "publication-asset" && job.kind !== "publication-asset")
+      continue;
     jobs.delete(jobId);
     removed += 1;
   }
@@ -753,6 +849,42 @@ function enqueueRender(options) {
       } catch (error) {
         // A locked work dir (Windows EBUSY) must not crash the queue; leftover
         // files are swept by the storage cleanup endpoint.
+        console.warn(
+          `Não foi possível limpar o diretório de trabalho ${options.jobId}: ${error?.code ?? error}`,
+        );
+      }
+    });
+}
+
+function enqueuePublicationAsset(options) {
+  const releaseTempFiles = tempFiles.retain(options.uploadedFiles);
+  renderQueue = renderQueue
+    .then(() =>
+      runQueuedJob(options.jobId, () => renderPublicationAsset(options)),
+    )
+    .catch((error) => {
+      if (isCanceledError(error)) return;
+      updateJob(options.jobId, {
+        status: "error",
+        message: error instanceof Error ? error.message : String(error),
+        errorCode: error?.code ? String(error.code) : "PUBLICATION_ASSET_ERROR",
+        errorDetail:
+          error?.detail ??
+          (error instanceof Error
+            ? error.stack || error.message
+            : String(error)),
+      });
+    })
+    .finally(async () => {
+      await releaseTempFiles();
+      try {
+        await fs.rm(path.join(workDir, options.jobId), {
+          recursive: true,
+          force: true,
+          maxRetries: 8,
+          retryDelay: 120,
+        });
+      } catch (error) {
         console.warn(
           `Não foi possível limpar o diretório de trabalho ${options.jobId}: ${error?.code ?? error}`,
         );
@@ -1129,6 +1261,169 @@ async function renderVideo({
     thumbnailUrl: thumbnailPath
       ? `/outputs/${path.basename(thumbnailPath)}`
       : null,
+  });
+}
+
+async function renderPublicationAsset({
+  jobId,
+  audioPath,
+  backgroundFile,
+  mediaLayerFiles = [],
+  coverFile,
+  settings,
+  metadata,
+  preset,
+  clipStart,
+  clipDuration,
+  includeFullLyrics,
+  outputPath,
+  outputName,
+}) {
+  assertJobNotCanceled(jobId);
+  updateJob(jobId, {
+    status: "running",
+    progress: 1,
+    message: "Preparando asset",
+  });
+  const audio = await analyzeAudio(audioPath);
+  const duration =
+    preset.kind === "clip"
+      ? Math.min(
+          clipDuration,
+          Math.max(
+            1,
+            Number(audio.durationSeconds ?? clipDuration) - clipStart,
+          ),
+        )
+      : 1;
+  const outputSize = { width: preset.width, height: preset.height };
+  const size = renderCanvasSize(outputSize, settings);
+  const jobWorkDir = path.join(workDir, jobId);
+  await fs.mkdir(jobWorkDir, { recursive: true });
+
+  const background = backgroundFile
+    ? await prepareBackground(backgroundFile, jobWorkDir, size)
+    : { type: "generated", path: null };
+  const mediaLayers = await prepareMediaLayers(
+    mediaLayerFiles,
+    settings.compositionSettings.mediaLayers,
+    jobWorkDir,
+    size,
+  );
+  if (background.type !== "generated" && mediaLayers.length === 0) {
+    mediaLayers.push({
+      ...background,
+      opacity: 100,
+      scale: 100,
+      x: 50,
+      y: 50,
+      rotation: 0,
+      shadow: { opacity: 0, blur: 18, x: 0, y: 12 },
+      visible: true,
+      fit: "cover",
+      blendMode: "normal",
+      loop: true,
+      order: 0,
+    });
+  }
+  const cover = coverFile
+    ? await prepareCover(coverFile, jobWorkDir, size)
+    : metadata.useEmbeddedCover
+      ? await prepareEmbeddedCover(audioPath, jobWorkDir)
+      : null;
+
+  assertJobNotCanceled(jobId);
+  updateJob(jobId, { progress: 4, message: "Renderizando divulgação" });
+  const audioEnvelope = await sampleAudioEnvelope(audioPath);
+  const composition = {
+    layers: mediaLayers.map(toCanvasLayer),
+    coverSrc: cover?.path ? pathToFileURL(cover.path).href : "",
+    durationSeconds:
+      settings.compositionSettings.durationSeconds ||
+      audio.durationSeconds ||
+      duration,
+    metadata,
+    showMetadata: settings.showMetadata,
+    textSettings: settings.compositionSettings.textSettings,
+  };
+
+  if (preset.kind === "image") {
+    await renderWebglScenePoster({
+      outputPath,
+      size,
+      settings,
+      audioEnvelope,
+      composition,
+      posterTime: clipStart,
+      onProgress: (progress, message) =>
+        updateJob(jobId, {
+          progress: Math.max(4, Math.min(90, progress)),
+          message,
+        }),
+    });
+  } else {
+    const webglVideoPath = path.join(jobWorkDir, "publication-background.webm");
+    await renderWebglBackgroundVideo({
+      outputPath: webglVideoPath,
+      size,
+      duration,
+      startTime: clipStart,
+      settings,
+      audioEnvelope,
+      composition,
+      onProgress: (progress, message) =>
+        updateJob(jobId, { progress, message }),
+      shouldCancel: () => {
+        const job = jobs.get(jobId);
+        return Boolean(job?.cancelRequested) || job?.status === "canceled";
+      },
+    });
+    assertJobNotCanceled(jobId);
+    const muxArgs = buildWebglMuxArgs({
+      audioPath,
+      audioStartSeconds: clipStart,
+      duration,
+      metadata,
+      outputPath,
+      outputSize,
+      settings,
+      subtitlePath: null,
+      webglVideoPath,
+    });
+    await runFfmpeg(muxArgs, duration, (progress, message) =>
+      updateJob(jobId, {
+        progress: Math.max(92, progress),
+        message: message.replace("Renderizando", "Finalizando"),
+      }),
+    );
+    await assertPlayableOutput(outputPath);
+  }
+
+  const manifestPath = `${outputPath}.manifest.json`;
+  const markdownPath = `${outputPath}.manifest.md`;
+  await writePublicationManifest({
+    manifestPath,
+    markdownPath,
+    outputName,
+    metadata,
+    preset,
+    clipStart,
+    duration,
+    includeFullLyrics,
+  });
+  updateJob(jobId, {
+    status: "done",
+    progress: 100,
+    message: "Asset de divulgação concluído",
+    outputUrl: `/outputs/${outputName}`,
+    sidecarUrl: `/outputs/${path.basename(manifestPath)}`,
+    markdownUrl: `/outputs/${path.basename(markdownPath)}`,
+    thumbnailUrl: preset.kind === "image" ? `/outputs/${outputName}` : null,
+    assetUrls: [
+      `/outputs/${outputName}`,
+      `/outputs/${path.basename(manifestPath)}`,
+      `/outputs/${path.basename(markdownPath)}`,
+    ],
   });
 }
 
@@ -1740,6 +2035,20 @@ function buildOutputFileName(metadata, index = null, fileNamePattern = null) {
   return `${slugify(base || "sonara-hub-video")}${suffix}.mp4`;
 }
 
+function publicationAssetOutputName(metadata, preset) {
+  const base = sanitizePublicationFilePart(
+    [
+      metadata.album || metadata.albumArtist || metadata.artist,
+      metadata.title,
+      preset.id,
+    ]
+      .filter(Boolean)
+      .join(" - "),
+    "sonara-publicacao",
+  );
+  return `${base}.${preset.extension}`;
+}
+
 function titleFromFile(fileName, album, index) {
   const base = path.basename(fileName, path.extname(fileName));
   return base || `${album || "Faixa"} ${index}`;
@@ -1755,6 +2064,92 @@ function clampNumber(value, min, max) {
 function normalizeHexColor(value, fallback) {
   const color = String(value ?? "").trim();
   return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
+}
+
+async function writePublicationManifest({
+  manifestPath,
+  markdownPath,
+  outputName,
+  metadata,
+  preset,
+  clipStart,
+  duration,
+  includeFullLyrics,
+}) {
+  const manifest = {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    preset,
+    timing: {
+      startSeconds: clipStart,
+      durationSeconds: duration,
+    },
+    metadata: {
+      title: metadata.title,
+      artist: metadata.artist,
+      album: metadata.album,
+      albumArtist: metadata.albumArtist,
+      year: metadata.year,
+      genre: metadata.genre,
+      language: metadata.language,
+      description: metadata.description,
+      tags: metadata.tags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+      hasLyrics: Boolean(metadata.lyrics?.trim()),
+      lyrics: includeFullLyrics ? metadata.lyrics : undefined,
+    },
+    includeFullLyrics,
+    files: [
+      {
+        kind: preset.kind,
+        path: `${preset.directory}/${outputName}`,
+        url: `/outputs/${outputName}`,
+      },
+      {
+        kind: "manifest-json",
+        path: `dados/${path.basename(manifestPath)}`,
+        url: `/outputs/${path.basename(manifestPath)}`,
+      },
+      {
+        kind: "manifest-markdown",
+        path: `dados/${path.basename(markdownPath)}`,
+        url: `/outputs/${path.basename(markdownPath)}`,
+      },
+    ],
+  };
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+  await fs.writeFile(
+    markdownPath,
+    publicationManifestMarkdown(manifest),
+    "utf8",
+  );
+}
+
+function publicationManifestMarkdown(manifest) {
+  const metadata = manifest.metadata;
+  const tags = metadata.tags.length ? metadata.tags.join(", ") : "—";
+  return [
+    `# ${metadata.album || metadata.title || "Asset de divulgação"}`,
+    "",
+    `- Preset: ${manifest.preset.label}`,
+    `- Formato: ${manifest.preset.width}x${manifest.preset.height}`,
+    `- Arquivo: ${manifest.files[0].path}`,
+    `- Trecho: ${manifest.timing.startSeconds}s + ${manifest.timing.durationSeconds}s`,
+    `- Faixa: ${metadata.title || "—"}`,
+    `- Artista: ${metadata.artist || metadata.albumArtist || "—"}`,
+    `- Álbum: ${metadata.album || "—"}`,
+    `- Ano: ${metadata.year || "—"}`,
+    `- Tags: ${tags}`,
+    `- Letra disponível: ${metadata.hasLyrics ? "sim" : "não"}`,
+    manifest.includeFullLyrics && metadata.lyrics
+      ? `\n## Letra\n\n${metadata.lyrics}`
+      : "",
+    "",
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
 }
 
 async function writeYoutubeSidecar(

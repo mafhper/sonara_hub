@@ -1,5 +1,6 @@
 export function buildWebglMuxArgs({
   audioPath,
+  audioStartSeconds = 0,
   duration,
   metadata,
   outputPath,
@@ -21,6 +22,9 @@ export function buildWebglMuxArgs({
     "-y",
     "-i",
     webglVideoPath,
+    ...(Number(audioStartSeconds) > 0
+      ? ["-ss", String(Math.max(0, Number(audioStartSeconds)))]
+      : []),
     "-i",
     audioPath,
     "-t",

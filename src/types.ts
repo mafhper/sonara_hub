@@ -202,6 +202,23 @@ export type ArtworkSuggestion = {
   source: "folder" | "manual";
 };
 
+export type LyricsSuggestion = {
+  file?: File;
+  relativePath: string;
+  fileName: string;
+  preview: string;
+  confidence: "high" | "medium";
+  matchedBy:
+    | "audio-stem"
+    | "track-title"
+    | "numbered-title"
+    | "numbered-audio-stem"
+    | "title-with-prefix"
+    | "stem-with-prefix"
+    | "track-number";
+  autoApplied?: boolean;
+};
+
 export type TrackDraft = {
   id: string;
   sourceKey: string;
@@ -223,6 +240,8 @@ export type TrackDraft = {
   artworkOptions?: ArtworkSuggestion[];
   albumCoverSuggestion?: ArtworkSuggestion;
   useSuggestedCover?: boolean;
+  lyricsOptions?: LyricsSuggestion[];
+  lyricsSourcePath?: string;
   thumbnailPreviewMode: "composition" | "cover";
   // Per-track override for the numbered cover series. When null/undefined the
   // track follows the global coverSeriesSettings; when set, it wins for this
@@ -232,7 +251,7 @@ export type TrackDraft = {
 
 export type RenderJob = {
   id: string;
-  kind?: "audio-process" | "video-render";
+  kind?: "audio-process" | "video-render" | "publication-asset";
   status: "queued" | "paused" | "running" | "done" | "error" | "canceled";
   progress: number;
   message: string;
@@ -241,6 +260,8 @@ export type RenderJob = {
   outputUrl: string | null;
   sidecarUrl: string | null;
   thumbnailUrl: string | null;
+  markdownUrl?: string | null;
+  assetUrls?: string[];
   albumArtworkUrl?: string | null;
   analysis?: AudioTechnicalAnalysis;
   metadata?: Partial<AudioTagDraft & TrackMetadata>;
@@ -253,7 +274,12 @@ export type ProjectSnapshot = {
   workflowMode: "single" | "batch";
   activeStep: "music" | "visual" | "text" | "export";
   audioStageView?: "edit" | "catalog" | "videos";
-  visualStageView?: "editor" | "videos" | "queue";
+  visualStageView?: "editor" | "videos" | "promotion" | "queue";
+  publicationPresetId?: string;
+  publicationClipStart?: number;
+  publicationClipDuration?: number;
+  publicationIncludeLyrics?: boolean;
+  publicationAssetMode?: "single" | "group" | "all";
   coverSeriesSettings?: CoverSeriesSettings;
   selectedTrackId: string;
   outputPreset: string;
@@ -276,6 +302,8 @@ export type ProjectSnapshot = {
     selectedForBatch: boolean;
     packageStatus?: TrackDraft["packageStatus"];
     useSuggestedCover?: boolean;
+    lyricsOptions?: LyricsSuggestion[];
+    lyricsSourcePath?: string;
     coverOverride?: ArtworkSuggestion | null;
     thumbnailPreviewMode?: TrackDraft["thumbnailPreviewMode"];
     coverSeriesOverride?: CoverSeriesSettings | null;

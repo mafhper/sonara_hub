@@ -352,6 +352,20 @@ try {
   await page.locator(".catalog-artwork-button").click();
   const artworkDialog = page.getByRole("dialog", { name: "Smoke Batch Title" });
   await artworkDialog.getByText("Série numérica", { exact: false }).waitFor();
+  await artworkDialog.getByText("Estilo afeta", { exact: true }).waitFor();
+  await artworkDialog.getByRole("tab", { name: "Único" }).click();
+  await artworkDialog.getByText("estilo exclusivo", { exact: false }).waitFor();
+  assert.equal(
+    await artworkDialog.getByRole("tab", { name: "Texto aberto" }).count(),
+    0,
+    "cover-series style scope should no longer target every text field from an opened row",
+  );
+  assert.equal(
+    await artworkDialog.getByRole("tab", { name: "Todos" }).count(),
+    0,
+    "cover-series style scope should be track/series, not opened field/all fields",
+  );
+  await artworkDialog.getByRole("tab", { name: "Série" }).click();
   const overlay = artworkDialog
     .locator(".catalog-artwork-expanded .cover-series-overlay")
     .first();
@@ -465,8 +479,29 @@ try {
   });
   await page.getByRole("button", { name: "Estúdio visual" }).click();
   await ensurePanelOpen(page, "inspector");
-  await page.getByRole("button", { name: "Conferir vídeos" }).click();
+  await page
+    .getByLabel("Etapas do projeto")
+    .getByRole("button", { name: "Conferir vídeos" })
+    .click();
   await page.getByText("Grade de publicação").waitFor();
+  await page.getByRole("button", { name: "Divulgação" }).click();
+  await page.getByText("Assets de publicação").waitFor();
+  await page.getByText("Opções de asset").waitFor();
+  await page.getByRole("button", { name: /SoundCloud banner/ }).waitFor();
+  await page.getByLabel("Disparar").selectOption("group");
+  await page
+    .locator(".publication-overview strong")
+    .getByText("Grupo do formato")
+    .waitFor();
+  await page.getByLabel("Disparar").selectOption("all");
+  await page
+    .locator(".publication-overview strong")
+    .getByText("Total")
+    .waitFor();
+  await page
+    .getByLabel("Etapas do projeto")
+    .getByRole("button", { name: "Conferir vídeos" })
+    .click();
   await page.getByRole("button", { name: "Revisar lote" }).click();
   await page.getByText("2 faixas selecionadas", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Exportar lote" }).waitFor();
