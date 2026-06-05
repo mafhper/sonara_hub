@@ -155,6 +155,7 @@ import type {
   CoverSeriesSettings,
   LyricsSuggestion,
   MediaLayerV2,
+  ProjectAssetManifestEntry,
   ProjectSnapshot,
   RenderJob,
   TextFieldKey,
@@ -363,6 +364,7 @@ const FILE_NAME_PATTERN_STORAGE_KEY = "sonara-hub-file-name-pattern";
 const INPUT_PROJECT_STORAGE_KEY = "sonara-hub-input-project";
 const PROJECT_STATE_DIRECTORY = ".sonara";
 const PROJECT_STATE_FILE = "project.json";
+const PROJECT_ASSETS_DIRECTORY = "assets";
 
 type FileNamePattern = { tokens: string[]; separator: string };
 const DEFAULT_LEFT_RAIL_WIDTH = 256;
@@ -663,6 +665,51 @@ function coverSeriesAlignedMetaStyles(
       },
     ]),
   ) as CoverSeriesSettings["metaStyles"];
+}
+
+function collectActiveObjectUrls(
+  tracks: TrackDraft[],
+  cover: { src: string } | null,
+  layersUndo: { layers: MediaLayerV2[] } | null,
+) {
+  const urls = new Set<string>();
+  addObjectUrl(urls, cover?.src);
+  for (const track of tracks) {
+    addObjectUrl(urls, track.sourceUrl);
+    addArtworkObjectUrl(urls, track.suggestedCover);
+    addArtworkObjectUrl(urls, track.coverOverride);
+    addArtworkObjectUrl(urls, track.albumCoverSuggestion);
+    for (const option of track.artworkOptions ?? []) {
+      addArtworkObjectUrl(urls, option);
+    }
+    for (const layer of track.layers) {
+      addObjectUrl(urls, layer.src);
+    }
+  }
+  for (const layer of layersUndo?.layers ?? []) {
+    addObjectUrl(urls, layer.src);
+  }
+  return urls;
+}
+
+function addArtworkObjectUrl(
+  urls: Set<string>,
+  artwork: ArtworkSuggestion | null | undefined,
+) {
+  addObjectUrl(urls, artwork?.src);
+}
+
+function addObjectUrl(urls: Set<string>, url: string | null | undefined) {
+  if (url?.startsWith("blob:")) urls.add(url);
+}
+
+function revokeObjectUrl(url: string) {
+  try {
+    URL.revokeObjectURL(url);
+  } catch {
+    // Revocation is best-effort; stale or environment-specific blob URLs should
+    // not break the editing session.
+  }
 }
 const coverLayerPresetLabels: Record<CoverLayerPreset, string> = {
   background: "Fundo",
@@ -992,6 +1039,23 @@ function App() {
   const toastSequenceRef = useRef(0);
   const toastTimersRef = useRef(new Map<number, number>());
   const dialogSequenceRef = useRef(0);
+  const activeObjectUrlsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    const nextUrls = collectActiveObjectUrls(tracks, cover, layersUndo);
+    for (const url of activeObjectUrlsRef.current) {
+      if (!nextUrls.has(url)) revokeObjectUrl(url);
+    }
+    activeObjectUrlsRef.current = nextUrls;
+  }, [cover, layersUndo, tracks]);
+
+  useEffect(
+    () => () => {
+      for (const url of activeObjectUrlsRef.current) revokeObjectUrl(url);
+      activeObjectUrlsRef.current.clear();
+    },
+    [],
+  );
 
   const selectedTrack =
     tracks.find((track) => track.id === selectedTrackId) ?? tracks[0];
@@ -10678,17 +10742,24 @@ function restoreTrack(
     scene: normalizeVisualSettings(saved.scene),
     thumbnailPreviewMode: saved.thumbnailPreviewMode ?? "composition",
     textSettings: cloneTextSettings(saved.textSettings),
-    layers: saved.layers.map((layer) => ({
-      ...layer,
-      blur: layer.blur ?? 0,
-      maskOpacity: layer.maskOpacity ?? 0,
-      src: URL.createObjectURL(layer.file),
-    })),
+    layers: saved.layers.flatMap((layer) =>
+      layer.file
+        ? [
+            {
+              ...layer,
+              file: layer.file,
+              blur: layer.blur ?? 0,
+              maskOpacity: layer.maskOpacity ?? 0,
+              src: URL.createObjectURL(layer.file),
+            },
+          ]
+        : [],
+    ),
   };
 }
 
 function restoreArtworkSuggestion(
-  value: ArtworkSuggestion | null | undefined,
+  value: ProjectSnapshot["tracks"][number]["coverOverride"],
   options: ArtworkSuggestion[] = [],
 ): ArtworkSuggestion | null | undefined {
   if (!value) return value ?? null;
@@ -10697,9 +10768,11 @@ function restoreArtworkSuggestion(
   );
   if (matched) return { ...matched, source: value.source };
   if (!value.file) return null;
+  const file = value.file;
   return {
     ...value,
-    src: URL.createObjectURL(value.file),
+    file,
+    src: URL.createObjectURL(file),
   };
 }
 
@@ -10892,7 +10965,8 @@ async function loadProjectSnapshot(
     const directory = await handle.getDirectoryHandle(PROJECT_STATE_DIRECTORY);
     const fileHandle = await directory.getFileHandle(PROJECT_STATE_FILE);
     const file = await fileHandle.getFile();
-    return JSON.parse(await file.text()) as ProjectSnapshot;
+    const snapshot = JSON.parse(await file.text()) as ProjectSnapshot;
+    return hydrateProjectSnapshotAssets(handle, snapshot);
   } catch {
     return undefined;
   }
@@ -10905,40 +10979,194 @@ async function writeProjectSnapshot(
   const directory = await handle.getDirectoryHandle(PROJECT_STATE_DIRECTORY, {
     create: true,
   });
+  const portableSnapshot = await createPortableProjectSnapshot(
+    directory,
+    snapshot,
+  );
   const file = await directory.getFileHandle(PROJECT_STATE_FILE, {
     create: true,
   });
   const writable = await file.createWritable();
-  await writable.write(
-    JSON.stringify(createPortableProjectSnapshot(snapshot), null, 2),
-  );
+  await writable.write(JSON.stringify(portableSnapshot, null, 2));
   await writable.close();
 }
 
 async function removeProjectSnapshot(handle: FileSystemDirectoryHandle) {
+  let directory: FileSystemDirectoryHandle;
   try {
-    const directory = await handle.getDirectoryHandle(PROJECT_STATE_DIRECTORY);
+    directory = await handle.getDirectoryHandle(PROJECT_STATE_DIRECTORY);
+  } catch {
+    return;
+  }
+  try {
     await directory.removeEntry(PROJECT_STATE_FILE);
   } catch {
     // Project has no saved state.
   }
+  try {
+    await directory.removeEntry(PROJECT_ASSETS_DIRECTORY, { recursive: true });
+  } catch {
+    // Project has no persisted manual assets.
+  }
 }
 
-function createPortableProjectSnapshot(snapshot: ProjectSnapshot) {
+async function createPortableProjectSnapshot(
+  directory: FileSystemDirectoryHandle,
+  snapshot: ProjectSnapshot,
+): Promise<ProjectSnapshot> {
+  const assetsDirectory = await directory.getDirectoryHandle(
+    PROJECT_ASSETS_DIRECTORY,
+    { create: true },
+  );
+  const assetsById = new Map<string, ProjectAssetManifestEntry>();
+  const registerAsset = async (file: File | undefined) => {
+    if (!file) return undefined;
+    const asset = await projectAssetManifestEntry(file);
+    if (!assetsById.has(asset.id)) {
+      await writeProjectAssetFile(assetsDirectory, asset.fileName, file);
+      assetsById.set(asset.id, asset);
+    }
+    return asset.id;
+  };
+  const coverAssetId = await registerAsset(snapshot.coverFile);
+  const tracks = [];
+  for (const track of snapshot.tracks) {
+    const coverOverrideAssetId = await registerAsset(track.coverOverride?.file);
+    const layers = [];
+    for (const layer of track.layers) {
+      const { file, ...serializableLayer } = layer;
+      layers.push({
+        ...serializableLayer,
+        assetId: await registerAsset(file),
+      });
+    }
+    tracks.push({
+      ...track,
+      sourceFile: undefined,
+      coverOverrideAssetId,
+      layers,
+      coverOverride: serializeArtworkSuggestion(track.coverOverride),
+    });
+  }
   return {
     ...snapshot,
     coverFile: undefined,
-    tracks: snapshot.tracks.map((track) => ({
-      ...track,
-      sourceFile: undefined,
-      layers: [],
-      coverOverride: serializeArtworkSuggestion(track.coverOverride),
-    })),
+    coverAssetId,
+    assetManifest: { schemaVersion: 1, files: [...assetsById.values()] },
+    tracks,
   };
 }
 
+async function hydrateProjectSnapshotAssets(
+  handle: FileSystemDirectoryHandle,
+  snapshot: ProjectSnapshot,
+): Promise<ProjectSnapshot> {
+  const entries = snapshot.assetManifest?.files ?? [];
+  if (!entries.length) return snapshot;
+  let assetsDirectory: FileSystemDirectoryHandle;
+  try {
+    const directory = await handle.getDirectoryHandle(PROJECT_STATE_DIRECTORY);
+    assetsDirectory = await directory.getDirectoryHandle(
+      PROJECT_ASSETS_DIRECTORY,
+    );
+  } catch {
+    return snapshot;
+  }
+  const filesById = new Map<string, File>();
+  await Promise.all(
+    entries.map(async (entry) => {
+      const file = await readProjectAssetFile(assetsDirectory, entry);
+      if (file) filesById.set(entry.id, file);
+    }),
+  );
+  const fileById = (id: string | undefined) =>
+    id ? filesById.get(id) : undefined;
+  return {
+    ...snapshot,
+    coverFile: snapshot.coverFile ?? fileById(snapshot.coverAssetId),
+    tracks: snapshot.tracks.map((track) => {
+      const coverOverrideFile = fileById(track.coverOverrideAssetId);
+      return {
+        ...track,
+        coverOverride:
+          track.coverOverride && coverOverrideFile
+            ? { ...track.coverOverride, file: coverOverrideFile }
+            : track.coverOverride,
+        layers: track.layers.map((layer) => ({
+          ...layer,
+          file: layer.file ?? fileById(layer.assetId),
+        })),
+      };
+    }),
+  };
+}
+
+async function projectAssetManifestEntry(
+  file: File,
+): Promise<ProjectAssetManifestEntry> {
+  const hash = await hashFile(file);
+  const fileName = projectAssetFileName(hash, file.name);
+  return {
+    id: hash,
+    fileName,
+    originalName: file.name,
+    path: `${PROJECT_ASSETS_DIRECTORY}/${fileName}`,
+    hash,
+    type: file.type,
+    size: file.size,
+    lastModified: file.lastModified,
+  };
+}
+
+async function hashFile(file: File) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    await file.arrayBuffer(),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function projectAssetFileName(hash: string, fileName: string) {
+  const cleanName =
+    fileName
+      .split(/[\\/]+/)
+      .at(-1)
+      ?.replace(/[^a-zA-Z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 96) || "asset.bin";
+  return `${hash.slice(0, 16)}-${cleanName}`;
+}
+
+async function writeProjectAssetFile(
+  handle: FileSystemDirectoryHandle,
+  fileName: string,
+  file: File,
+) {
+  const output = await handle.getFileHandle(fileName, { create: true });
+  const writable = await output.createWritable();
+  await writable.write(await file.arrayBuffer());
+  await writable.close();
+}
+
+async function readProjectAssetFile(
+  handle: FileSystemDirectoryHandle,
+  entry: ProjectAssetManifestEntry,
+) {
+  try {
+    const stored = await (await handle.getFileHandle(entry.fileName)).getFile();
+    return new File([stored], entry.originalName || stored.name, {
+      type: entry.type || stored.type,
+      lastModified: entry.lastModified ?? stored.lastModified,
+    });
+  } catch {
+    return null;
+  }
+}
+
 function serializeArtworkSuggestion(
-  value: ArtworkSuggestion | null | undefined,
+  value: ProjectSnapshot["tracks"][number]["coverOverride"],
 ) {
   if (!value) return null;
   return {

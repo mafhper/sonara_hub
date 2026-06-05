@@ -268,6 +268,31 @@ export type RenderJob = {
   cancelRequested?: boolean;
 };
 
+export type ProjectAssetManifestEntry = {
+  id: string;
+  fileName: string;
+  originalName: string;
+  path: string;
+  hash: string;
+  type: string;
+  size: number;
+  lastModified: number;
+};
+
+export type ProjectAssetManifest = {
+  schemaVersion: 1;
+  files: ProjectAssetManifestEntry[];
+};
+
+export type ProjectSnapshotLayer = Omit<MediaLayerV2, "src" | "file"> & {
+  file?: File;
+  assetId?: string;
+};
+
+export type ProjectSnapshotArtwork = Omit<ArtworkSuggestion, "file"> & {
+  file?: File;
+};
+
 export type ProjectSnapshot = {
   schemaVersion: 3 | 4;
   workspaceMode: "audio" | "visual";
@@ -280,6 +305,8 @@ export type ProjectSnapshot = {
   publicationClipDuration?: number;
   publicationIncludeLyrics?: boolean;
   publicationAssetMode?: "single" | "group" | "all";
+  assetManifest?: ProjectAssetManifest;
+  coverAssetId?: string;
   coverSeriesSettings?: CoverSeriesSettings;
   selectedTrackId: string;
   outputPreset: string;
@@ -297,14 +324,15 @@ export type ProjectSnapshot = {
     scene: ScenePresetV3;
     sourceFile?: File;
     audioInfo?: AudioInfo;
-    layers: Array<Omit<MediaLayerV2, "src">>;
+    layers: ProjectSnapshotLayer[];
     textSettings?: TextOverlaySettings;
     selectedForBatch: boolean;
     packageStatus?: TrackDraft["packageStatus"];
     useSuggestedCover?: boolean;
     lyricsOptions?: LyricsSuggestion[];
     lyricsSourcePath?: string;
-    coverOverride?: ArtworkSuggestion | null;
+    coverOverride?: ProjectSnapshotArtwork | null;
+    coverOverrideAssetId?: string;
     thumbnailPreviewMode?: TrackDraft["thumbnailPreviewMode"];
     coverSeriesOverride?: CoverSeriesSettings | null;
   }>;
