@@ -252,6 +252,16 @@ try {
   await page.waitForFunction(
     () => window.__sonaraMockFS.dump().objectUrlsRevoked > 0,
   );
+  const betaTitleInput = page
+    .locator(".inspector-scroll label.field", { hasText: "Título" })
+    .locator("input")
+    .first();
+  await betaTitleInput.fill("Beta Editado");
+  await page.waitForFunction(
+    () => window.__sonaraMockFS.dump().betaState.includes("Beta Editado"),
+    null,
+    { timeout: 7_000 },
+  );
 
   await projectSelect.selectOption("Projeto Alpha");
   await page.waitForFunction(
@@ -273,18 +283,33 @@ try {
   );
 
   await page.getByRole("button", { name: "Configurações locais" }).click();
-  await page.getByRole("button", { name: "Limpar projeto atual" }).click();
-  await page.getByRole("dialog", { name: "Limpar projeto atual?" }).waitFor();
-  await page
-    .getByRole("button", { name: "Limpar projeto", exact: true })
+  await page.getByLabel("Selecionar Projeto Alpha para limpeza").check();
+  await page.getByLabel("Selecionar Projeto Beta para limpeza").check();
+  await page.getByRole("button", { name: "Limpar selecionados" }).click();
+  const cleanupDialog = page.getByRole("dialog", {
+    name: "Limpar projetos selecionados?",
+  });
+  await cleanupDialog.waitFor();
+  await cleanupDialog
+    .getByRole("button", { name: "Limpar selecionados", exact: true })
     .click();
-  await page.getByText("Preferências do projeto atual limpas.").waitFor();
+  await page
+    .getByText("Preferências dos projetos selecionados limpas.")
+    .waitFor();
   assert.equal(
     await page.evaluate(() => window.__sonaraMockFS.dump().alphaState),
     "",
   );
   assert.deepEqual(
     await page.evaluate(() => window.__sonaraMockFS.dump().alphaAssets),
+    [],
+  );
+  assert.equal(
+    await page.evaluate(() => window.__sonaraMockFS.dump().betaState),
+    "",
+  );
+  assert.deepEqual(
+    await page.evaluate(() => window.__sonaraMockFS.dump().betaAssets),
     [],
   );
 
