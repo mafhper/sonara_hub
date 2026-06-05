@@ -5638,18 +5638,22 @@ button:disabled {
 .settings-project-cleanup {
   display: grid;
   gap: var(--space-3);
+  min-width: 0;
 }
 
 .settings-project-list {
   display: grid;
-  max-width: 560px;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
   gap: var(--space-2);
 }
 
 .settings-project-option {
   display: grid;
   min-height: 42px;
+  min-width: 0;
   grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2);
