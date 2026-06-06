@@ -7,6 +7,7 @@ import {
   cleanupJobWorkDir,
   createCanceledJobError,
   createJobRunner,
+  createJobStageTracker,
   isCanceledJobError,
   normalizeJobError,
 } from "../server/job-service.mjs";
@@ -62,6 +63,54 @@ test("job service records non-cancelled worker errors and releases resources", a
   assert.match(updates[0].patch.errorDetail, /Poster indisponivel/);
   assert.deepEqual(updates[1], { release: true });
   assert.deepEqual(cleanup, ["asset-job"]);
+});
+
+test("job stage tracker records ordered timings", () => {
+  const updates = [];
+  const ticks = [
+    Date.parse("2026-06-06T06:00:00.000Z"),
+    Date.parse("2026-06-06T06:00:02.500Z"),
+    Date.parse("2026-06-06T06:00:04.000Z"),
+  ];
+  const tracker = createJobStageTracker({
+    clock: () => ticks.shift(),
+    jobId: "render-job",
+    updateJob: (jobId, patch) => updates.push({ jobId, patch }),
+  });
+
+  tracker.enter("analyze-audio", {
+    message: "Analisando áudio",
+    progress: 1,
+    status: "running",
+  });
+  tracker.enter("webgl-render", {
+    message: "Renderizando cena",
+    progress: 4,
+  });
+  tracker.finish({ message: "Concluído", progress: 100, status: "done" });
+
+  assert.equal(updates[0].patch.stage, "analyze-audio");
+  assert.equal(updates[1].patch.stage, "webgl-render");
+  assert.deepEqual(updates[1].patch.stageTimings, [
+    {
+      durationMs: 2500,
+      endedAt: "2026-06-06T06:00:02.500Z",
+      label: "Analisando áudio",
+      stage: "analyze-audio",
+      startedAt: "2026-06-06T06:00:00.000Z",
+    },
+  ]);
+  assert.equal(updates[2].patch.stage, "complete");
+  assert.deepEqual(
+    updates[2].patch.stageTimings.map(({ durationMs, stage }) => ({
+      durationMs,
+      stage,
+    })),
+    [
+      { durationMs: 2500, stage: "analyze-audio" },
+      { durationMs: 1500, stage: "webgl-render" },
+    ],
+  );
 });
 
 test("job work dir cleanup removes files and warns instead of throwing", async () => {

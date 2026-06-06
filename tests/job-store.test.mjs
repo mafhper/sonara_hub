@@ -38,6 +38,34 @@ test("job store preserves requested cancellation across restart", () => {
   assert.match(job.message, /cancelado antes da reinicializacao/);
 });
 
+test("job store closes the active stage when work is restored after restart", () => {
+  const [job] = restoreInterruptedJobs(
+    [
+      {
+        id: "rendering",
+        message: "Renderizando cena",
+        stage: "webgl-render",
+        stageStartedAt: "2026-06-06T06:00:00.000Z",
+        status: "running",
+      },
+    ],
+    new Date("2026-06-06T06:00:03.250Z"),
+  );
+
+  assert.equal(job.status, "error");
+  assert.equal(job.stageStartedAt, null);
+  assert.deepEqual(job.stageTimings, [
+    {
+      durationMs: 3250,
+      endedAt: "2026-06-06T06:00:03.250Z",
+      interrupted: true,
+      label: "Renderizando cena",
+      stage: "webgl-render",
+      startedAt: "2026-06-06T06:00:00.000Z",
+    },
+  ]);
+});
+
 test("job store writes atomically and keeps only recent jobs", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-jobs-"));
   const filePath = path.join(root, "data", "jobs.local.json");

@@ -1362,8 +1362,7 @@ async function assertStatusIndicators(page) {
       (element) => getComputedStyle(element, "::before").content,
     );
     const errorCode = getComputedStyle(host.querySelector(".job-error-code"));
-    host.remove();
-    return {
+    const snapshot = {
       rows,
       badges,
       errorCode: {
@@ -1372,6 +1371,8 @@ async function assertStatusIndicators(page) {
         color: errorCode.color,
       },
     };
+    host.remove();
+    return snapshot;
   });
   assert.ok(indicators.rows.every((shadow) => shadow !== "none"));
   assert.deepEqual(indicators.badges, ['"✓"', '"!"', '"×"']);

@@ -3063,6 +3063,11 @@ button:disabled {
   font-size: var(--font-xs);
 }
 
+.job-stage-line {
+  display: block;
+  margin-top: var(--space-1);
+}
+
 .batch-job-row progress {
   appearance: none;
   height: 4px;

@@ -49,6 +49,57 @@ export function createJobRunner({
   };
 }
 
+export function createJobStageTracker({
+  clock = () => Date.now(),
+  jobId,
+  updateJob,
+}) {
+  let current = null;
+  const timings = [];
+  const snapshot = () => timings.map((item) => ({ ...item }));
+
+  function closeCurrent(endedAt = clock()) {
+    if (!current) return;
+    timings.push({
+      stage: current.stage,
+      label: current.label,
+      startedAt: current.startedAtIso,
+      endedAt: new Date(endedAt).toISOString(),
+      durationMs: Math.max(0, Math.round(endedAt - current.startedAtMs)),
+    });
+    current = null;
+  }
+
+  return {
+    enter(stage, patch = {}) {
+      const now = clock();
+      closeCurrent(now);
+      current = {
+        label: patch.message ? String(patch.message) : stage,
+        stage,
+        startedAtIso: new Date(now).toISOString(),
+        startedAtMs: now,
+      };
+      updateJob(jobId, {
+        ...patch,
+        stage,
+        stageStartedAt: current.startedAtIso,
+        stageTimings: snapshot(),
+      });
+    },
+    finish(patch = {}) {
+      closeCurrent();
+      updateJob(jobId, {
+        ...patch,
+        stage: patch.stage ?? "complete",
+        stageStartedAt: null,
+        stageTimings: snapshot(),
+      });
+    },
+    timings: snapshot,
+  };
+}
+
 export async function cleanupJobWorkDir(workDir, jobId, warn = console.warn) {
   try {
     await fs.rm(path.join(workDir, jobId), {

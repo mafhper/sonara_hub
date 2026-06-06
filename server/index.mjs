@@ -36,6 +36,7 @@ import {
   cleanupJobWorkDir,
   createCanceledJobError,
   createJobRunner,
+  createJobStageTracker,
   isCanceledJobError,
 } from "./job-service.mjs";
 import { createTempFileRegistry } from "./temp-files.mjs";
@@ -59,6 +60,7 @@ import {
   sanitizePublicationFilePart,
 } from "../shared/publication-assets.mjs";
 import {
+  createFfmpegProcessError,
   normalizeFfmpegSpawnError,
   resolveFfmpegPath,
 } from "./ffmpeg-tool.mjs";
@@ -958,8 +960,9 @@ async function processAudio({
   draft,
   outputName,
 }) {
+  const stages = createJobStageTracker({ jobId, updateJob });
   assertJobNotCanceled(jobId);
-  updateJob(jobId, {
+  stages.enter("audio-prepare", {
     status: "running",
     progress: 12,
     message: "Preparando pacote MP3",
@@ -1003,7 +1006,10 @@ async function processAudio({
       : seriesCoverPath;
   }
   assertJobNotCanceled(jobId);
-  updateJob(jobId, { progress: 42, message: "Gravando metadados limpos" });
+  stages.enter("audio-tags", {
+    progress: 42,
+    message: "Gravando metadados limpos",
+  });
   const albumDirectoryName = buildTreatedAlbumDirectoryName(draft);
   const albumOutputDir = path.join(treatedOutputDir, albumDirectoryName);
   await fs.mkdir(albumOutputDir, { recursive: true });
@@ -1017,6 +1023,10 @@ async function processAudio({
     normalizationEnabled: draft.normalizationEnabled,
   });
   assertJobNotCanceled(jobId);
+  stages.enter("audio-assets", {
+    progress: 74,
+    message: "Gerando capas e sidecars",
+  });
   let thumbnailUrl = null;
   if (trackArtworkPath) {
     const thumbnailRelativePath = treatedTrackArtworkPath(outputName);
@@ -1045,7 +1055,7 @@ async function processAudio({
     sourceFileName: audioName,
     outputAnalysis: result.analysis,
   });
-  updateJob(jobId, {
+  stages.finish({
     status: "done",
     progress: 100,
     message: "Copia tratada validada",
@@ -1073,8 +1083,9 @@ async function renderVideo({
   outputPath,
   outputName,
 }) {
+  const stages = createJobStageTracker({ jobId, updateJob });
   assertJobNotCanceled(jobId);
-  updateJob(jobId, {
+  stages.enter("audio-analysis", {
     status: "running",
     progress: 1,
     message: "Analisando áudio",
@@ -1135,7 +1146,7 @@ async function renderVideo({
       : null;
 
   assertJobNotCanceled(jobId);
-  updateJob(jobId, { progress: 4, message: "Preparando cena" });
+  stages.enter("webgl-render", { progress: 4, message: "Preparando cena" });
   const webglVideoPath = path.join(jobWorkDir, "webgl-background.webm");
   const audioEnvelope = await sampleAudioEnvelope(audioPath);
   await renderWebglBackgroundVideo({
@@ -1159,6 +1170,7 @@ async function renderVideo({
     },
   });
   assertJobNotCanceled(jobId);
+  stages.enter("ffmpeg-mux", { progress: 92, message: "Finalizando mux" });
   const muxArgs = buildWebglMuxArgs({
     audioPath,
     duration,
@@ -1176,6 +1188,10 @@ async function renderVideo({
     }),
   );
   assertJobNotCanceled(jobId);
+  stages.enter("output-validation", {
+    progress: 97,
+    message: "Validando arquivo final",
+  });
   await assertPlayableOutput(outputPath);
   const outputAnalysis = await analyzeAudioQuality(outputPath);
   try {
@@ -1196,7 +1212,7 @@ async function renderVideo({
     sourceAnalysis,
     outputAnalysis,
   );
-  updateJob(jobId, {
+  stages.finish({
     status: "done",
     progress: 100,
     message: "Renderização concluída",
@@ -1227,8 +1243,9 @@ async function renderPublicationAsset({
   outputPath,
   outputName,
 }) {
+  const stages = createJobStageTracker({ jobId, updateJob });
   assertJobNotCanceled(jobId);
-  updateJob(jobId, {
+  stages.enter("asset-prepare", {
     status: "running",
     progress: 1,
     message: "Preparando asset",
@@ -1281,7 +1298,10 @@ async function renderPublicationAsset({
       : null;
 
   assertJobNotCanceled(jobId);
-  updateJob(jobId, { progress: 4, message: "Renderizando divulgação" });
+  stages.enter(preset.kind === "image" ? "poster-render" : "webgl-render", {
+    progress: 4,
+    message: "Renderizando divulgação",
+  });
   const audioEnvelope = await sampleAudioEnvelope(audioPath);
   const composition = {
     layers: mediaLayers.map(toCanvasLayer),
@@ -1327,6 +1347,7 @@ async function renderPublicationAsset({
       },
     });
     assertJobNotCanceled(jobId);
+    stages.enter("ffmpeg-mux", { progress: 92, message: "Finalizando mux" });
     const muxArgs = buildWebglMuxArgs({
       audioPath,
       audioStartSeconds: clipStart,
@@ -1344,9 +1365,17 @@ async function renderPublicationAsset({
         message: message.replace("Renderizando", "Finalizando"),
       }),
     );
+    stages.enter("output-validation", {
+      progress: 97,
+      message: "Validando asset final",
+    });
     await assertPlayableOutput(outputPath);
   }
 
+  stages.enter("manifest", {
+    progress: 98,
+    message: "Gravando manifesto de divulgação",
+  });
   const manifestPath = `${outputPath}.manifest.json`;
   const markdownPath = `${outputPath}.manifest.md`;
   await writePublicationManifest({
@@ -1363,7 +1392,7 @@ async function renderPublicationAsset({
     lyricsHideTags,
     lyricsLineSpacing,
   });
-  updateJob(jobId, {
+  stages.finish({
     status: "done",
     progress: 100,
     message: "Asset de divulgação concluído",
@@ -2510,9 +2539,7 @@ function runFfmpeg(args, duration, onProgress) {
         resolve();
         return;
       }
-      reject(
-        new Error(`ffmpeg terminou com codigo ${code}: ${stderr.slice(-2000)}`),
-      );
+      reject(createFfmpegProcessError({ code, stderr }));
     });
   });
 }
@@ -2557,7 +2584,11 @@ function assertPlayableOutput(outputPath) {
         return;
       }
       reject(
-        new Error(`MP4 final invalido ou sem streams: ${stderr.slice(-2000)}`),
+        createFfmpegProcessError({
+          code,
+          kind: "output-validation",
+          stderr,
+        }),
       );
     });
   });

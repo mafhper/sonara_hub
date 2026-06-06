@@ -23,20 +23,24 @@ export async function saveJobHistory(filePath, jobs, limit = 50) {
   await fs.rename(tempPath, filePath);
 }
 
-export function restoreInterruptedJobs(jobs) {
+export function restoreInterruptedJobs(jobs, now = new Date()) {
+  const restoredAt = new Date(now);
   return jobs.map((job) => {
     if (!activeStatuses.has(job.status)) return job;
+    const stagePatch = closeInterruptedStage(job, restoredAt);
     if (job.cancelRequested) {
       return {
         ...job,
+        ...stagePatch,
         status: "canceled",
         message:
           "Processamento cancelado antes da reinicializacao do servidor local",
-        updatedAt: new Date().toISOString(),
+        updatedAt: restoredAt.toISOString(),
       };
     }
     return {
       ...job,
+      ...stagePatch,
       status: "error",
       errorCode: job.errorCode ?? "server-restart",
       errorDetail:
@@ -44,7 +48,31 @@ export function restoreInterruptedJobs(jobs) {
         "O servidor local foi encerrado antes de concluir este job.",
       message:
         "Processamento interrompido pela reinicializacao do servidor local",
-      updatedAt: new Date().toISOString(),
+      updatedAt: restoredAt.toISOString(),
     };
   });
+}
+
+function closeInterruptedStage(job, restoredAt) {
+  if (!job.stage || !job.stageStartedAt) {
+    return { stageStartedAt: null };
+  }
+  const startedAt = new Date(job.stageStartedAt);
+  const durationMs = Number.isNaN(startedAt.getTime())
+    ? 0
+    : Math.max(0, Math.round(restoredAt.getTime() - startedAt.getTime()));
+  return {
+    stageStartedAt: null,
+    stageTimings: [
+      ...(Array.isArray(job.stageTimings) ? job.stageTimings : []),
+      {
+        durationMs,
+        endedAt: restoredAt.toISOString(),
+        interrupted: true,
+        label: job.message || job.stage,
+        stage: job.stage,
+        startedAt: job.stageStartedAt,
+      },
+    ],
+  };
 }

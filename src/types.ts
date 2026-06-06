@@ -262,6 +262,16 @@ export type RenderJob = {
   status: "queued" | "paused" | "running" | "done" | "error" | "canceled";
   progress: number;
   message: string;
+  stage?: string | null;
+  stageStartedAt?: string | null;
+  stageTimings?: Array<{
+    durationMs: number;
+    endedAt: string;
+    interrupted?: boolean;
+    label: string;
+    stage: string;
+    startedAt: string;
+  }>;
   errorCode?: string;
   errorDetail?: string;
   outputUrl: string | null;
