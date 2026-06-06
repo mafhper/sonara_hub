@@ -45,7 +45,11 @@ import { buildNameFromPattern } from "../shared/file-naming.mjs";
 import {
   clampPublicationClipDuration,
   clampPublicationClipStart,
+  clampPublicationLyricsLineSpacing,
+  normalizePublicationLyricsMode,
+  publicationLyricsTextForSettings,
   publicationAssetPresetById,
+  sanitizePublicationLyricsExcerpt,
   sanitizePublicationFilePart,
 } from "../shared/publication-assets.mjs";
 import {
@@ -540,6 +544,18 @@ app.post(
     const clipDuration = clampPublicationClipDuration(req.body.clipDuration);
     const includeFullLyrics =
       String(req.body.includeFullLyrics ?? "false") === "true";
+    const lyricsMode = normalizePublicationLyricsMode(
+      req.body.lyricsMode,
+      includeFullLyrics,
+    );
+    const lyricsExcerpt = sanitizePublicationLyricsExcerpt(
+      req.body.lyricsExcerpt,
+    );
+    const lyricsHideTags =
+      String(req.body.lyricsHideTags ?? "false") === "true";
+    const lyricsLineSpacing = clampPublicationLyricsLineSpacing(
+      req.body.lyricsLineSpacing,
+    );
     const jobId = crypto.randomUUID();
     const outputName = publicationAssetOutputName(metadata, preset);
     const outputPath = path.join(outputDir, outputName);
@@ -571,6 +587,10 @@ app.post(
       clipStart,
       clipDuration,
       includeFullLyrics,
+      lyricsMode,
+      lyricsExcerpt,
+      lyricsHideTags,
+      lyricsLineSpacing,
       outputPath,
       outputName,
       uploadedFiles: files,
@@ -1279,6 +1299,10 @@ async function renderPublicationAsset({
   clipStart,
   clipDuration,
   includeFullLyrics,
+  lyricsMode,
+  lyricsExcerpt,
+  lyricsHideTags,
+  lyricsLineSpacing,
   outputPath,
   outputName,
 }) {
@@ -1413,6 +1437,10 @@ async function renderPublicationAsset({
     clipStart,
     duration,
     includeFullLyrics,
+    lyricsMode,
+    lyricsExcerpt,
+    lyricsHideTags,
+    lyricsLineSpacing,
   });
   updateJob(jobId, {
     status: "done",
@@ -2082,7 +2110,24 @@ async function writePublicationManifest({
   clipStart,
   duration,
   includeFullLyrics,
+  lyricsMode,
+  lyricsExcerpt,
+  lyricsHideTags,
+  lyricsLineSpacing,
 }) {
+  const normalizedLyricsMode = normalizePublicationLyricsMode(
+    lyricsMode,
+    includeFullLyrics,
+  );
+  const normalizedLyricsLineSpacing =
+    clampPublicationLyricsLineSpacing(lyricsLineSpacing);
+  const includedLyrics = publicationLyricsTextForSettings(metadata.lyrics, {
+    includeLyrics: normalizedLyricsMode !== "none",
+    lyricsExcerpt,
+    lyricsHideTags,
+    lyricsLineSpacing: normalizedLyricsLineSpacing,
+    lyricsMode: normalizedLyricsMode,
+  });
   const manifest = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
@@ -2105,9 +2150,14 @@ async function writePublicationManifest({
         .map((tag) => tag.trim())
         .filter(Boolean),
       hasLyrics: Boolean(metadata.lyrics?.trim()),
-      lyrics: includeFullLyrics ? metadata.lyrics : undefined,
+      lyricsMode: normalizedLyricsMode,
+      lyricsExcerpt:
+        normalizedLyricsMode === "excerpt" ? includedLyrics : undefined,
+      lyricsHideTags: Boolean(lyricsHideTags),
+      lyricsLineSpacing: normalizedLyricsLineSpacing,
+      lyrics: includedLyrics || undefined,
     },
-    includeFullLyrics,
+    includeFullLyrics: normalizedLyricsMode === "full",
     files: [
       {
         kind: preset.kind,
@@ -2137,6 +2187,12 @@ async function writePublicationManifest({
 function publicationManifestMarkdown(manifest) {
   const metadata = manifest.metadata;
   const tags = metadata.tags.length ? metadata.tags.join(", ") : "—";
+  const lyricsModeLabel =
+    {
+      full: "completa",
+      excerpt: "trecho editado",
+      none: "sem letra",
+    }[metadata.lyricsMode] ?? "sem letra";
   return [
     `# ${metadata.album || metadata.title || "Asset de divulgação"}`,
     "",
@@ -2150,9 +2206,10 @@ function publicationManifestMarkdown(manifest) {
     `- Ano: ${metadata.year || "—"}`,
     `- Tags: ${tags}`,
     `- Letra disponível: ${metadata.hasLyrics ? "sim" : "não"}`,
-    manifest.includeFullLyrics && metadata.lyrics
-      ? `\n## Letra\n\n${metadata.lyrics}`
-      : "",
+    `- Letra incluída: ${lyricsModeLabel}`,
+    `- Tags ocultas: ${metadata.lyricsHideTags ? "sim" : "não"}`,
+    `- Espaçamento da letra: ${metadata.lyricsLineSpacing}%`,
+    metadata.lyrics ? `\n## Letra\n\n${metadata.lyrics}` : "",
     "",
   ]
     .filter((line) => line !== "")

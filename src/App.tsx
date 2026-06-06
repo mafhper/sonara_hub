@@ -125,11 +125,18 @@ import type { LyricsPathSuggestion } from "../shared/lyrics-convention.mjs";
 import {
   clampPublicationClipDuration,
   clampPublicationClipStart,
+  normalizePublicationAssetOverrides,
+  publicationLyricsTextForSettings,
+  publicationAssetSettingsForPreset,
   publicationAssetPresetById,
   publicationAssetPresetLabel,
   publicationAssetPresets,
 } from "../shared/publication-assets.mjs";
-import type { PublicationAssetPreset } from "../shared/publication-assets.mjs";
+import type {
+  PublicationAssetOverrideMap,
+  PublicationAssetPreset,
+  PublicationAssetSettings,
+} from "../shared/publication-assets.mjs";
 import {
   albumArtworkDirectoryPaths,
   chooseAlbumArtworkForTrack,
@@ -924,6 +931,8 @@ function App() {
     useState(false);
   const [publicationAssetMode, setPublicationAssetMode] =
     useState<PublicationAssetMode>("single");
+  const [publicationAssetOverrides, setPublicationAssetOverrides] =
+    useState<PublicationAssetOverrideMap>({});
   const [showMetadata, setShowMetadata] = useState(true);
   const [cover, setCover] = useState<{ file: File; src: string } | null>(null);
   const [pendingCoverTrackId, setPendingCoverTrackId] = useState("");
@@ -1103,6 +1112,26 @@ function App() {
     outputPresets.find(([value]) => value === outputPreset) ?? outputPresets[1];
   const selectedPublicationPreset =
     publicationAssetPresetById(publicationPresetId);
+  const publicationDefaultSettings: PublicationAssetSettings = {
+    clipStart: publicationClipStart,
+    clipDuration: publicationClipDuration,
+    includeLyrics: publicationIncludeLyrics,
+    lyricsMode: publicationIncludeLyrics ? "full" : "none",
+    lyricsExcerpt: "",
+    lyricsHideTags: false,
+    lyricsLineSpacing: 130,
+  };
+  const selectedPublicationSettings = publicationAssetSettingsForPreset(
+    publicationPresetId,
+    publicationDefaultSettings,
+    publicationAssetOverrides,
+  );
+  const selectedPublicationLyricsPreview = selectedTrack
+    ? publicationLyricsTextForSettings(
+        selectedTrack.metadata.lyrics,
+        selectedPublicationSettings,
+      )
+    : "";
   const publicationPresetSelection = publicationPresetsForMode(
     selectedPublicationPreset,
     publicationAssetMode,
@@ -1371,6 +1400,7 @@ function App() {
     publicationClipDuration,
     publicationIncludeLyrics,
     publicationAssetMode,
+    publicationAssetOverrides,
     showMetadata,
     cover,
     coverSeriesSettings,
@@ -2887,9 +2917,41 @@ function App() {
     const targets = workflowMode === "batch" ? reviewTracks : [selectedTrack];
     for (const track of targets) {
       for (const preset of publicationPresetSelection) {
-        await submitPublicationAsset(track, preset);
+        await submitPublicationAsset(
+          track,
+          preset,
+          publicationAssetSettingsForPreset(
+            preset.id,
+            publicationDefaultSettings,
+            publicationAssetOverrides,
+          ),
+        );
       }
     }
+  }
+
+  function updatePublicationAssetOverride(
+    presetId: string,
+    patch: Partial<PublicationAssetSettings>,
+  ) {
+    setPublicationAssetOverrides((current) =>
+      normalizePublicationAssetOverrides({
+        ...current,
+        [presetId]: {
+          ...(current[presetId] ?? {}),
+          ...patch,
+        },
+      }),
+    );
+  }
+
+  function resetPublicationAssetOverride(presetId: string) {
+    setPublicationAssetOverrides((current) => {
+      if (!current[presetId]) return current;
+      const next = { ...current };
+      delete next[presetId];
+      return next;
+    });
   }
 
   async function confirmVideoOutputPolicy(subject = "vídeos") {
@@ -2973,6 +3035,7 @@ function App() {
   async function submitPublicationAsset(
     track: TrackDraft,
     preset: PublicationAssetPreset,
+    assetSettings: PublicationAssetSettings,
   ) {
     void saveSnapshot(createSnapshot());
     const composition = resolveEffectiveComposition(track, {
@@ -2999,9 +3062,19 @@ function App() {
     formData.append("renderMode", workflowMode);
     formData.append("showMetadata", String(composition.showMetadata));
     formData.append("publicationPresetId", preset.id);
-    formData.append("clipStart", String(publicationClipStart));
-    formData.append("clipDuration", String(publicationClipDuration));
-    formData.append("includeFullLyrics", String(publicationIncludeLyrics));
+    formData.append("clipStart", String(assetSettings.clipStart));
+    formData.append("clipDuration", String(assetSettings.clipDuration));
+    formData.append(
+      "includeFullLyrics",
+      String(assetSettings.lyricsMode === "full"),
+    );
+    formData.append("lyricsMode", assetSettings.lyricsMode);
+    formData.append("lyricsExcerpt", assetSettings.lyricsExcerpt);
+    formData.append("lyricsHideTags", String(assetSettings.lyricsHideTags));
+    formData.append(
+      "lyricsLineSpacing",
+      String(assetSettings.lyricsLineSpacing),
+    );
     if (composition.metadata) {
       for (const [key, value] of Object.entries(composition.metadata)) {
         formData.append(key, String(value));
@@ -3456,6 +3529,7 @@ function App() {
       publicationClipDuration,
       publicationIncludeLyrics,
       publicationAssetMode,
+      publicationAssetOverrides,
       showMetadata,
       coverFile: cover?.file,
       coverSeriesSettings,
@@ -3542,6 +3616,9 @@ function App() {
       ["single", "group", "all"].includes(String(snapshot.publicationAssetMode))
         ? snapshot.publicationAssetMode!
         : "single",
+    );
+    setPublicationAssetOverrides(
+      normalizePublicationAssetOverrides(snapshot.publicationAssetOverrides),
     );
     setShowMetadata(snapshot.showMetadata);
     setCoverSeriesSettings(
@@ -3993,13 +4070,12 @@ function App() {
         ) : workspaceMode === "visual" && visualStageView === "promotion" ? (
           <PublicationAssetsWorkspace
             assetMode={publicationAssetMode}
-            clipDuration={publicationClipDuration}
-            clipStart={publicationClipStart}
-            includeLyrics={publicationIncludeLyrics}
             jobs={jobs}
             preset={selectedPublicationPreset}
             presetCount={publicationPresetSelection.length}
             queuePaused={queuePaused}
+            lyricsPreviewText={selectedPublicationLyricsPreview}
+            selectedSettings={selectedPublicationSettings}
             selectedCount={reviewTracks.length}
             tracks={reviewTracks}
             onCancelAllJobs={() => void cancelAllJobs()}
@@ -4132,15 +4208,23 @@ function App() {
             ) : visualStageView === "promotion" ? (
               <PublicationInspector
                 assetMode={publicationAssetMode}
+                assetSettings={selectedPublicationSettings}
                 clipDuration={publicationClipDuration}
                 clipStart={publicationClipStart}
                 includeLyrics={publicationIncludeLyrics}
+                lyricsText={selectedTrack.metadata.lyrics}
                 outputConflictMode={videoOutputConflictMode}
                 outputFolderName={outputFolderName}
                 presetId={publicationPresetId}
+                presetOverrideActive={Boolean(
+                  publicationAssetOverrides[publicationPresetId],
+                )}
                 selectedCount={reviewTracks.length}
                 selectedPreset={selectedPublicationPreset}
                 onAssetMode={setPublicationAssetMode}
+                onAssetSettings={(patch) =>
+                  updatePublicationAssetOverride(publicationPresetId, patch)
+                }
                 onChooseOutput={() => void chooseOutputDirectory()}
                 onClipDuration={(value) =>
                   setPublicationClipDuration(
@@ -4158,6 +4242,9 @@ function App() {
                   )
                 }
                 onPreset={setPublicationPresetId}
+                onResetAssetSettings={() =>
+                  resetPublicationAssetOverride(publicationPresetId)
+                }
               />
             ) : activeStep === "music" ? (
               <MusicInspector
@@ -5581,13 +5668,12 @@ function VideoExportWorkspace({
 
 function PublicationAssetsWorkspace({
   assetMode,
-  clipDuration,
-  clipStart,
-  includeLyrics,
   jobs,
+  lyricsPreviewText,
   preset,
   presetCount,
   queuePaused,
+  selectedSettings,
   selectedCount,
   tracks,
   onCancelAllJobs,
@@ -5601,13 +5687,12 @@ function PublicationAssetsWorkspace({
   onReviewVideos,
 }: {
   assetMode: PublicationAssetMode;
-  clipDuration: number;
-  clipStart: number;
-  includeLyrics: boolean;
   jobs: RenderJob[];
+  lyricsPreviewText: string;
   preset: PublicationAssetPreset;
   presetCount: number;
   queuePaused: boolean;
+  selectedSettings: PublicationAssetSettings;
   selectedCount: number;
   tracks: TrackDraft[];
   onCancelAllJobs: () => void;
@@ -5627,6 +5712,13 @@ function PublicationAssetsWorkspace({
   const selectedPresetIds = new Set(
     publicationPresetsForMode(preset, assetMode).map((item) => item.id),
   );
+  const selectedTypeLabel = preset.kind === "clip" ? "clip" : "imagem";
+  const previewOrientation =
+    preset.height > preset.width
+      ? "portrait"
+      : preset.width / preset.height > 3
+        ? "wide"
+        : "landscape";
   return (
     <div className="review-stage publication-stage">
       <header className="review-stage-header">
@@ -5674,51 +5766,89 @@ function PublicationAssetsWorkspace({
           </small>
         </div>
         <div>
-          <span className="overline">Trecho</span>
+          <span className="overline">Ajuste efetivo</span>
           <strong>
-            {clipStart}s · {clipDuration}s
+            {preset.kind === "clip"
+              ? `${selectedSettings.clipStart}s · ${selectedSettings.clipDuration}s`
+              : `${preset.width}x${preset.height}`}
           </strong>
-          <small>
-            {includeLyrics ? "Letras no pacote" : "Letras só sinalizadas"}
-          </small>
+          <small>{publicationLyricsSettingLabel(selectedSettings)}</small>
         </div>
       </section>
-      <section className="stage-surface publication-preset-gallery">
-        <header>
+      <section className="stage-surface publication-focus">
+        <div className="publication-focus-controls">
           <div>
-            <span className="overline">Opções de asset</span>
-            <strong>Formatos disponíveis</strong>
+            <span className="overline">Assets disponíveis</span>
+            <strong>
+              {publicationAssetPresets.length} formatos no catálogo
+            </strong>
           </div>
-          <small>
-            Os cards marcados entram no disparo atual. Clique para trocar o
-            preset base.
-          </small>
-        </header>
-        <div className="publication-preset-grid">
-          {publicationAssetPresets.map((option) => {
-            const selected = option.id === preset.id;
-            const included = selectedPresetIds.has(option.id);
-            return (
-              <button
-                className={`${selected ? "selected" : ""} ${included ? "included" : ""}`}
-                key={option.id}
-                type="button"
-                onClick={() => onPreset(option.id)}
-              >
-                <span
-                  className="publication-preset-ratio"
-                  style={{ aspectRatio: `${option.width} / ${option.height}` }}
-                >
-                  <Image />
-                </span>
-                <strong>{option.label}</strong>
-                <small>
-                  {option.platform} · {option.width}x{option.height}
-                </small>
-                <em>{option.kind === "clip" ? "clip" : "imagem"}</em>
-              </button>
-            );
-          })}
+          <SelectField
+            label="Asset em foco"
+            value={preset.id}
+            onChange={onPreset}
+          >
+            {publicationAssetPresets.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label} · {option.width}x{option.height}
+              </option>
+            ))}
+          </SelectField>
+          <dl className="publication-asset-facts">
+            <div>
+              <dt>Tipo</dt>
+              <dd>{selectedTypeLabel}</dd>
+            </div>
+            <div>
+              <dt>Plataforma</dt>
+              <dd>{preset.platform}</dd>
+            </div>
+            <div>
+              <dt>Dimensão</dt>
+              <dd>
+                {preset.width}x{preset.height}
+              </dd>
+            </div>
+            <div>
+              <dt>No disparo</dt>
+              <dd>{selectedPresetIds.has(preset.id) ? "incluído" : "fora"}</dd>
+            </div>
+          </dl>
+        </div>
+        <div className="publication-preview-panel">
+          <div>
+            <span className="overline">Prévia do asset selecionado</span>
+            <strong>{preset.label}</strong>
+            <small>
+              {preset.extension.toUpperCase()} · {preset.directory}
+            </small>
+          </div>
+          <div
+            className={`publication-preview-frame ${preset.kind} ${previewOrientation}`}
+            style={{ aspectRatio: `${preset.width} / ${preset.height}` }}
+          >
+            <span>
+              {preset.kind === "clip" ? <Video /> : <Image />}
+              {selectedTypeLabel}
+            </span>
+            <strong>{preset.label}</strong>
+          </div>
+          <p className="publication-preview-settings">
+            {preset.kind === "clip"
+              ? `${selectedSettings.clipStart}s · ${selectedSettings.clipDuration}s`
+              : `${preset.width}x${preset.height}`}{" "}
+            · {publicationLyricsSettingLabel(selectedSettings)}
+          </p>
+          {lyricsPreviewText && (
+            <p
+              className="publication-lyrics-preview"
+              style={{
+                lineHeight: `${selectedSettings.lyricsLineSpacing}%`,
+              }}
+            >
+              {lyricsPreviewText}
+            </p>
+          )}
         </div>
       </section>
       <section className="stage-surface publication-track-list">
@@ -9915,15 +10045,19 @@ function TextFieldStyleEditor({
 
 function PublicationInspector({
   assetMode,
+  assetSettings,
   clipDuration,
   clipStart,
   includeLyrics,
+  lyricsText,
   outputConflictMode,
   outputFolderName,
   presetId,
+  presetOverrideActive,
   selectedCount,
   selectedPreset,
   onAssetMode,
+  onAssetSettings,
   onChooseOutput,
   onClipDuration,
   onClipStart,
@@ -9931,17 +10065,22 @@ function PublicationInspector({
   onIncludeLyrics,
   onOutputConflictMode,
   onPreset,
+  onResetAssetSettings,
 }: {
   assetMode: PublicationAssetMode;
+  assetSettings: PublicationAssetSettings;
   clipDuration: number;
   clipStart: number;
   includeLyrics: boolean;
+  lyricsText: string;
   outputConflictMode: VideoOutputConflictMode;
   outputFolderName: string;
   presetId: string;
+  presetOverrideActive: boolean;
   selectedCount: number;
   selectedPreset: PublicationAssetPreset;
   onAssetMode: (value: PublicationAssetMode) => void;
+  onAssetSettings: (patch: Partial<PublicationAssetSettings>) => void;
   onChooseOutput: () => void;
   onClipDuration: (value: number) => void;
   onClipStart: (value: number) => void;
@@ -9949,11 +10088,13 @@ function PublicationInspector({
   onIncludeLyrics: (value: boolean) => void;
   onOutputConflictMode: (value: string) => void;
   onPreset: (value: string) => void;
+  onResetAssetSettings: () => void;
 }) {
   const selectionCount = publicationPresetsForMode(
     selectedPreset,
     assetMode,
   ).length;
+  const lyricsOptions = publicationLyricsExcerptOptions(lyricsText);
   return (
     <>
       <InspectorGroup title="Divulgação" open>
@@ -9986,9 +10127,9 @@ function PublicationInspector({
           </p>
         </div>
         <div className="inspector-subsection">
-          <p className="inspector-kicker">Trecho e dados</p>
+          <p className="inspector-kicker">Padrão global</p>
           <RangeField
-            label="Início do trecho"
+            label="Início padrão"
             min={0}
             max={300}
             step={1}
@@ -9997,7 +10138,7 @@ function PublicationInspector({
             onChange={onClipStart}
           />
           <RangeField
-            label="Duração do clip"
+            label="Duração padrão"
             min={1}
             max={30}
             step={1}
@@ -10006,10 +10147,150 @@ function PublicationInspector({
             onChange={onClipDuration}
           />
           <CheckField
-            label="Incluir letras completas no pacote de dados"
+            label="Incluir letras completas por padrão"
             checked={includeLyrics}
             onChange={onIncludeLyrics}
           />
+        </div>
+        <div className="inspector-subsection publication-asset-override">
+          <div className="publication-asset-override-head">
+            <div>
+              <p className="inspector-kicker">Ajustes deste asset</p>
+              <strong>{selectedPreset.label}</strong>
+            </div>
+            <button
+              className="icon-button"
+              disabled={!presetOverrideActive}
+              title="Voltar ao padrão global"
+              type="button"
+              onClick={onResetAssetSettings}
+            >
+              <RotateCcw />
+            </button>
+          </div>
+          {selectedPreset.kind === "clip" ? (
+            <>
+              <NumberStepField
+                label="Início deste asset"
+                max={300}
+                min={0}
+                step={1}
+                unit="s"
+                value={assetSettings.clipStart}
+                onChange={(clipStart) => onAssetSettings({ clipStart })}
+              />
+              <NumberStepField
+                label="Duração deste asset"
+                max={30}
+                min={1}
+                step={1}
+                unit="s"
+                value={assetSettings.clipDuration}
+                onChange={(clipDuration) =>
+                  onAssetSettings({
+                    clipDuration: clampPublicationClipDuration(clipDuration),
+                  })
+                }
+              />
+            </>
+          ) : (
+            <p className="helper-copy">
+              Imagens usam a composição visual completa; os controles de trecho
+              só se aplicam a clips.
+            </p>
+          )}
+          <SelectField
+            label="Letra deste asset"
+            value={assetSettings.lyricsMode}
+            onChange={(value) => {
+              const lyricsMode =
+                value as PublicationAssetSettings["lyricsMode"];
+              onAssetSettings({
+                includeLyrics: lyricsMode !== "none",
+                lyricsExcerpt:
+                  lyricsMode === "excerpt" && !assetSettings.lyricsExcerpt
+                    ? (lyricsOptions[0]?.value ?? "")
+                    : assetSettings.lyricsExcerpt,
+                lyricsMode,
+              });
+            }}
+          >
+            <option value="none">Sem letra</option>
+            <option value="full">Letra completa</option>
+            <option value="excerpt">Trecho editado</option>
+          </SelectField>
+          {assetSettings.lyricsMode !== "none" && (
+            <>
+              <CheckField
+                label="Ocultar tags entre [ ]"
+                checked={assetSettings.lyricsHideTags}
+                onChange={(lyricsHideTags) =>
+                  onAssetSettings({ lyricsHideTags })
+                }
+              />
+              <RangeField
+                label="Espaçamento da letra"
+                max={220}
+                min={100}
+                step={5}
+                unit="%"
+                value={assetSettings.lyricsLineSpacing}
+                onChange={(lyricsLineSpacing) =>
+                  onAssetSettings({ lyricsLineSpacing })
+                }
+              />
+            </>
+          )}
+          {assetSettings.lyricsMode === "excerpt" && (
+            <>
+              {lyricsOptions.length ? (
+                <SelectField
+                  label="Trecho sugerido"
+                  value=""
+                  onChange={(value) => {
+                    const option = lyricsOptions.find(
+                      (candidate) => candidate.id === value,
+                    );
+                    if (option) {
+                      onAssetSettings({
+                        includeLyrics: true,
+                        lyricsExcerpt: option.value,
+                        lyricsMode: "excerpt",
+                      });
+                    }
+                  }}
+                >
+                  <option value="">Escolher trecho</option>
+                  {lyricsOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </SelectField>
+              ) : (
+                <p className="helper-copy">
+                  Esta faixa ainda não tem letra detectada; cole o trecho abaixo
+                  para incluir no manifesto.
+                </p>
+              )}
+              <TextArea
+                label="Trecho editável da letra"
+                rows={6}
+                value={assetSettings.lyricsExcerpt}
+                onChange={(lyricsExcerpt) =>
+                  onAssetSettings({
+                    includeLyrics: true,
+                    lyricsExcerpt,
+                    lyricsMode: "excerpt",
+                  })
+                }
+              />
+            </>
+          )}
+          <p className="helper-copy">
+            Este ajuste fica salvo no projeto para {selectedPreset.label} e não
+            altera os demais assets.
+          </p>
         </div>
         <div className="inspector-subsection">
           <p className="inspector-kicker">Destino</p>
@@ -11518,6 +11799,49 @@ function publicationAssetModeLabel(mode: PublicationAssetMode) {
     group: "Grupo do formato",
     all: "Total",
   }[mode];
+}
+
+function publicationLyricsSettingLabel(settings: PublicationAssetSettings) {
+  if (settings.lyricsMode === "full") return "letra completa";
+  if (settings.lyricsMode === "excerpt") return "trecho de letra";
+  return "sem letra";
+}
+
+function publicationLyricsExcerptOptions(value: string) {
+  const lines = String(value ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!lines.length) return [];
+  const windowSize = Math.min(4, lines.length);
+  const starts =
+    lines.length <= windowSize
+      ? [{ id: "all", label: "Letra detectada", start: 0 }]
+      : [
+          { id: "start", label: "Início da letra", start: 0 },
+          {
+            id: "middle",
+            label: "Meio da letra",
+            start: Math.max(0, Math.floor((lines.length - windowSize) / 2)),
+          },
+          {
+            id: "end",
+            label: "Final da letra",
+            start: Math.max(0, lines.length - windowSize),
+          },
+        ];
+  const seen = new Set<string>();
+  return starts
+    .map((option) => ({
+      id: option.id,
+      label: option.label,
+      value: lines.slice(option.start, option.start + windowSize).join("\n"),
+    }))
+    .filter((option) => {
+      if (seen.has(option.value)) return false;
+      seen.add(option.value);
+      return true;
+    });
 }
 
 async function ensureAlbumArtworkDirectories(
