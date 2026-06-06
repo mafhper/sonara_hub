@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  BarChart3,
   Bell,
   Bold,
   Check,
@@ -3734,6 +3735,14 @@ function App() {
               />
             )}
           </div>
+          <IconButton
+            label="Benchmarks"
+            onClick={() => {
+              window.location.assign("/benchmarks");
+            }}
+          >
+            <BarChart3 />
+          </IconButton>
           <IconButton
             label="Configurações locais"
             onClick={() => void openLocalSettings()}

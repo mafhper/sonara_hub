@@ -49,7 +49,12 @@ import { createTempFileRegistry } from "./temp-files.mjs";
 import { runRenderWorkerJob } from "./job-worker.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
-import { loadRenderBenchmarkReport } from "./benchmark-report.mjs";
+import {
+  cleanupRenderBenchmarkData,
+  loadBenchmarkCleanupPolicy,
+  loadRenderBenchmarkReport,
+  saveBenchmarkCleanupPolicy,
+} from "./benchmark-report.mjs";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
 import { normalizeTextSettings } from "../shared/text-settings.mjs";
 import {
@@ -88,6 +93,19 @@ const benchmarkHistoryPath = path.join(
   "bench",
   "render-history.jsonl",
 );
+const benchmarkRunsDir = path.join(rootDir, ".dev", "bench", "runs");
+const benchmarkBaselinePath = path.join(
+  rootDir,
+  ".dev",
+  "bench",
+  "baselines.json",
+);
+const benchmarkCleanupPolicyPath = path.join(
+  rootDir,
+  ".dev",
+  "bench",
+  "cleanup-policy.json",
+);
 const customPresetPath = path.join(
   rootDir,
   "data",
@@ -124,6 +142,7 @@ const queueWaiters = new Set();
 const presetStore = createPresetStore(customPresetPath);
 let renderQueue = Promise.resolve();
 const activeJobWorkers = new Map();
+const benchmarkExecutions = new Map();
 
 app.use(express.json({ limit: "5mb" }));
 app.use("/outputs", express.static(outputDir));
@@ -131,10 +150,78 @@ app.use("/outputs", express.static(outputDir));
 app.get("/api/dev/benchmarks", async (req, res, next) => {
   try {
     const limit = clampNumber(Number(req.query.limit ?? 250), 1, 1000);
-    res.json(await loadRenderBenchmarkReport(benchmarkHistoryPath, { limit }));
+    const activeBaseline = String(req.query.baseline ?? "stable");
+    res.json(
+      await loadRenderBenchmarkReport(benchmarkHistoryPath, {
+        activeBaseline,
+        baselinePath: benchmarkBaselinePath,
+        cleanupPolicyPath: benchmarkCleanupPolicyPath,
+        limit,
+      }),
+    );
   } catch (error) {
     next(error);
   }
+});
+
+app.put("/api/dev/benchmarks/cleanup-policy", async (req, res, next) => {
+  try {
+    res.json({
+      cleanupPolicy: await saveBenchmarkCleanupPolicy(
+        benchmarkCleanupPolicyPath,
+        req.body,
+      ),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/dev/benchmarks/cleanup", async (req, res, next) => {
+  try {
+    const policy = {
+      ...(await loadBenchmarkCleanupPolicy(benchmarkCleanupPolicyPath)),
+      ...(req.body?.policy ?? {}),
+    };
+    res.json({
+      cleanup: await cleanupRenderBenchmarkData({
+        historyPath: benchmarkHistoryPath,
+        mode: String(req.body?.mode ?? "policy"),
+        policy,
+        runId: String(req.body?.runId ?? ""),
+        runsDir: benchmarkRunsDir,
+      }),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/dev/benchmarks/run", async (req, res) => {
+  const kind = normalizeBenchmarkRunKind(req.body?.kind);
+  const running = [...benchmarkExecutions.values()].find(
+    (item) => item.status === "running" || item.status === "queued",
+  );
+  if (running) {
+    return res.status(409).json({
+      error: "Ja existe um benchmark em execucao.",
+      execution: publicBenchmarkExecution(running),
+    });
+  }
+  const execution = createBenchmarkExecution(kind);
+  benchmarkExecutions.set(execution.id, execution);
+  void runBenchmarkExecution(execution);
+  res.status(202).json({ execution: publicBenchmarkExecution(execution) });
+});
+
+app.get("/api/dev/benchmarks/run/:id", (req, res) => {
+  const execution = benchmarkExecutions.get(req.params.id);
+  if (!execution) {
+    return res
+      .status(404)
+      .json({ error: "Execucao de benchmark nao encontrada." });
+  }
+  res.json({ execution: publicBenchmarkExecution(execution) });
 });
 
 app.get("/api/visual-presets", async (_req, res) => {
@@ -2161,6 +2248,122 @@ function publicationAssetOutputName(metadata, preset) {
 function titleFromFile(fileName, album, index) {
   const base = path.basename(fileName, path.extname(fileName));
   return base || `${album || "Faixa"} ${index}`;
+}
+
+function normalizeBenchmarkRunKind(value) {
+  return ["all", "audio", "full", "quick"].includes(value) ? value : "quick";
+}
+
+function createBenchmarkExecution(kind) {
+  const id = crypto.randomUUID();
+  return {
+    id,
+    kind,
+    label: benchmarkExecutionLabel(kind),
+    status: "queued",
+    startedAt: new Date().toISOString(),
+    endedAt: "",
+    exitCode: null,
+    currentStep: "",
+    logs: [],
+  };
+}
+
+async function runBenchmarkExecution(execution) {
+  execution.status = "running";
+  appendBenchmarkLog(execution, `Iniciando ${execution.label}`);
+  const steps =
+    execution.kind === "all" ? ["quick", "full", "audio"] : [execution.kind];
+  try {
+    for (const step of steps) {
+      execution.currentStep = benchmarkExecutionLabel(step);
+      appendBenchmarkLog(execution, `> npm run ${benchmarkScriptName(step)}`);
+      await runBenchmarkStep(execution, step);
+    }
+    execution.status = "completed";
+    execution.exitCode = 0;
+    appendBenchmarkLog(execution, "Benchmark concluido.");
+  } catch (error) {
+    execution.status = "failed";
+    execution.exitCode = error?.exitCode ?? 1;
+    appendBenchmarkLog(
+      execution,
+      `Benchmark falhou: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    execution.endedAt = new Date().toISOString();
+    execution.currentStep = "";
+  }
+}
+
+function runBenchmarkStep(execution, kind) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(`npm run ${benchmarkScriptName(kind)}`, {
+      cwd: rootDir,
+      env: process.env,
+      shell: true,
+      windowsHide: true,
+    });
+    child.stdout.on("data", (chunk) =>
+      appendBenchmarkLog(execution, chunk.toString()),
+    );
+    child.stderr.on("data", (chunk) =>
+      appendBenchmarkLog(execution, chunk.toString()),
+    );
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        const error = new Error(
+          `${benchmarkScriptName(kind)} saiu com ${code}`,
+        );
+        error.exitCode = code;
+        reject(error);
+      }
+    });
+  });
+}
+
+function benchmarkScriptName(kind) {
+  return {
+    audio: "bench:render:audio",
+    full: "bench:render:full",
+    quick: "bench:render",
+  }[kind];
+}
+
+function benchmarkExecutionLabel(kind) {
+  return {
+    all: "todos os benchmarks de render",
+    audio: "render com audio da pasta input",
+    full: "render full",
+    quick: "render quick",
+  }[kind];
+}
+
+function appendBenchmarkLog(execution, text) {
+  const lines = String(text)
+    .split(/\r?\n/u)
+    .filter((line) => line.length);
+  execution.logs.push(...lines);
+  if (execution.logs.length > 500) {
+    execution.logs.splice(0, execution.logs.length - 500);
+  }
+}
+
+function publicBenchmarkExecution(execution) {
+  return {
+    id: execution.id,
+    kind: execution.kind,
+    label: execution.label,
+    status: execution.status,
+    startedAt: execution.startedAt,
+    endedAt: execution.endedAt,
+    exitCode: execution.exitCode,
+    currentStep: execution.currentStep,
+    logs: execution.logs,
+  };
 }
 
 function clampNumber(value, min, max) {

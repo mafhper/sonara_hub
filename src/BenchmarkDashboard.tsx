@@ -70,6 +70,82 @@ type BenchmarkRun = {
   };
 };
 
+type BenchmarkBaseline = {
+  slot: "stable" | "beta" | "experimental";
+  label: string;
+  runId: string;
+  found: boolean;
+  run: BenchmarkRunReference | null;
+};
+
+type BenchmarkRunReference = Pick<
+  BenchmarkRun,
+  "createdAt" | "git" | "profile" | "runId" | "summary"
+>;
+
+type BenchmarkMetricDelta = {
+  key: string;
+  label: string;
+  unit: string;
+  current: number;
+  reference: number;
+  delta: number;
+  deltaPercent: number;
+  direction: "improved" | "regressed" | "stable";
+};
+
+type BenchmarkComparison = {
+  mode: "baseline" | "previous";
+  referenceRun: BenchmarkRunReference;
+  currentRun: BenchmarkRunReference;
+  summaryDeltas: BenchmarkMetricDelta[];
+  caseDeltas: Array<{
+    id: string;
+    rendererId: string;
+    metricDeltas: BenchmarkMetricDelta[];
+    worstRegressionPercent: number;
+  }>;
+  worstRegressionPercent: number;
+};
+
+type BenchmarkScore = {
+  value: number;
+  reference: "baseline" | "previous" | "none";
+  categories: Record<string, { label: string; value: number }>;
+};
+
+type BenchmarkReleaseGate = {
+  status: "pass" | "warn" | "blocked";
+  reasons: string[];
+};
+
+type BenchmarkCleanupPolicy = {
+  enabled: boolean;
+  maxAgeDays: number;
+  maxRuns: number;
+  removeArtifacts: boolean;
+};
+
+type BenchmarkCleanupResult = {
+  mode: string;
+  removedRuns: number;
+  removedRunIds: string[];
+  removedArtifacts: number;
+  remainingRuns: number;
+};
+
+type BenchmarkExecution = {
+  id: string;
+  kind: "all" | "audio" | "full" | "quick";
+  label: string;
+  status: "completed" | "failed" | "queued" | "running";
+  startedAt: string;
+  endedAt: string;
+  exitCode: number | null;
+  currentStep: string;
+  logs: string[];
+};
+
 type BenchmarkReport = {
   generatedAt: string;
   metrics: BenchmarkMetric[];
@@ -78,6 +154,13 @@ type BenchmarkReport = {
   latestRun: BenchmarkRun | null;
   profiles: string[];
   audioKinds: string[];
+  baselines: BenchmarkBaseline[];
+  activeBaseline: string;
+  latestComparison: BenchmarkComparison | null;
+  baselineComparison: BenchmarkComparison | null;
+  score: BenchmarkScore;
+  releaseGate: BenchmarkReleaseGate;
+  cleanupPolicy: BenchmarkCleanupPolicy;
   runs: BenchmarkRun[];
   source: {
     missing: boolean;
@@ -95,6 +178,18 @@ const phaseMetrics = [
   "muxMs",
   "validationMs",
 ];
+const benchmarkTabs = [
+  { id: "render", label: "Render" },
+  { id: "gate", label: "Release Gate" },
+  { id: "history", label: "Histórico" },
+] as const;
+const defaultCleanupPolicy: BenchmarkCleanupPolicy = {
+  enabled: false,
+  maxAgeDays: 30,
+  maxRuns: 100,
+  removeArtifacts: true,
+};
+type BenchmarkTab = (typeof benchmarkTabs)[number]["id"];
 
 export default function BenchmarkDashboard() {
   const [report, setReport] = useState<BenchmarkReport | null>(null);
@@ -103,12 +198,26 @@ export default function BenchmarkDashboard() {
   const [metricKey, setMetricKey] = useState(defaultMetric);
   const [profile, setProfile] = useState("all");
   const [caseId, setCaseId] = useState("");
+  const [activeTab, setActiveTab] = useState<BenchmarkTab>("render");
+  const [baselineSlot, setBaselineSlot] = useState("stable");
+  const [cleanupDraft, setCleanupDraft] =
+    useState<BenchmarkCleanupPolicy>(defaultCleanupPolicy);
+  const [cleanupMessage, setCleanupMessage] = useState("");
+  const [selectedCleanupRunId, setSelectedCleanupRunId] = useState("");
+  const [executionKind, setExecutionKind] =
+    useState<BenchmarkExecution["kind"]>("quick");
+  const [execution, setExecution] = useState<BenchmarkExecution | null>(null);
+  const [executionCollapsed, setExecutionCollapsed] = useState(false);
 
   async function loadReport() {
     setLoading(true);
     setError("");
     try {
-      setReport(await fetchJson<BenchmarkReport>("/api/dev/benchmarks"));
+      setReport(
+        await fetchJson<BenchmarkReport>(
+          `/api/dev/benchmarks?baseline=${encodeURIComponent(baselineSlot)}`,
+        ),
+      );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -118,7 +227,131 @@ export default function BenchmarkDashboard() {
 
   useEffect(() => {
     void loadReport();
-  }, []);
+  }, [baselineSlot]);
+
+  useEffect(() => {
+    setCleanupDraft(report?.cleanupPolicy ?? defaultCleanupPolicy);
+    setSelectedCleanupRunId(report?.latestRun?.runId ?? "");
+  }, [report]);
+
+  useEffect(() => {
+    if (!execution || !["queued", "running"].includes(execution.status)) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void refreshExecution(execution.id);
+    }, 1200);
+    return () => window.clearInterval(timer);
+  }, [execution]);
+
+  async function refreshExecution(id: string) {
+    try {
+      const response = await fetchJson<{ execution: BenchmarkExecution }>(
+        `/api/dev/benchmarks/run/${id}`,
+      );
+      setExecution(response.execution);
+      if (["completed", "failed"].includes(response.execution.status)) {
+        await loadReport();
+      }
+    } catch (reason) {
+      setExecution((current) =>
+        current
+          ? {
+              ...current,
+              logs: [
+                ...current.logs,
+                reason instanceof Error ? reason.message : String(reason),
+              ],
+              status: "failed",
+            }
+          : current,
+      );
+    }
+  }
+
+  async function startBenchmarkExecution() {
+    setExecutionCollapsed(false);
+    try {
+      const response = await fetchJson<{ execution: BenchmarkExecution }>(
+        "/api/dev/benchmarks/run",
+        {
+          body: JSON.stringify({ kind: executionKind }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        },
+      );
+      setExecution(response.execution);
+    } catch (reason) {
+      setExecution({
+        currentStep: "",
+        endedAt: new Date().toISOString(),
+        exitCode: 1,
+        id: "local-error",
+        kind: executionKind,
+        label: "erro ao iniciar",
+        logs: [reason instanceof Error ? reason.message : String(reason)],
+        startedAt: new Date().toISOString(),
+        status: "failed",
+      });
+    }
+  }
+
+  async function saveCleanupPolicy() {
+    setCleanupMessage("");
+    try {
+      const response = await fetchJson<{
+        cleanupPolicy: BenchmarkCleanupPolicy;
+      }>("/api/dev/benchmarks/cleanup-policy", {
+        body: JSON.stringify(cleanupDraft),
+        headers: { "content-type": "application/json" },
+        method: "PUT",
+      });
+      setCleanupDraft(response.cleanupPolicy);
+      setCleanupMessage("Política de retenção salva.");
+      await loadReport();
+    } catch (reason) {
+      setCleanupMessage(
+        reason instanceof Error ? reason.message : String(reason),
+      );
+    }
+  }
+
+  async function runCleanup(mode: "all" | "policy" | "run") {
+    const label =
+      mode === "all"
+        ? "todos os dados de benchmark"
+        : mode === "run"
+          ? "este run"
+          : "os dados fora da política";
+    if (
+      !window.confirm(`Remover ${label}? Esta ação não afeta seus projetos.`)
+    ) {
+      return;
+    }
+    setCleanupMessage("");
+    try {
+      const response = await fetchJson<{ cleanup: BenchmarkCleanupResult }>(
+        "/api/dev/benchmarks/cleanup",
+        {
+          body: JSON.stringify({
+            mode,
+            policy: cleanupDraft,
+            runId: selectedCleanupRunId,
+          }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        },
+      );
+      setCleanupMessage(
+        `${response.cleanup.removedRuns} run(s) removido(s), ${response.cleanup.remainingRuns} restante(s).`,
+      );
+      await loadReport();
+    } catch (reason) {
+      setCleanupMessage(
+        reason instanceof Error ? reason.message : String(reason),
+      );
+    }
+  }
 
   const visibleRuns = useMemo(() => {
     const runs = report?.runs ?? [];
@@ -167,15 +400,34 @@ export default function BenchmarkDashboard() {
             <ArrowLeft /> Sonara Hub
           </a>
           <p className="bench-kicker">Benchmarks locais</p>
-          <h1>Evolução de performance</h1>
+          <h1>Benchmark Center</h1>
           <p>
-            Histórico de render/export lido de <code>.dev/bench</code>, com o
-            último run em destaque e acesso ao restante da série.
+            Histórico local lido de <code>.dev/bench</code>, com comparação por
+            commit, baseline e limpeza segura dos dados coletados.
           </p>
         </div>
-        <button type="button" onClick={() => void loadReport()}>
-          <RefreshCcw /> Atualizar
-        </button>
+        <div className="bench-hero-actions">
+          <label>
+            <span>Baseline</span>
+            <select
+              value={baselineSlot}
+              onChange={(event) => setBaselineSlot(event.target.value)}
+            >
+              {(report?.baselines ?? []).map((baseline) => (
+                <option key={baseline.slot} value={baseline.slot}>
+                  {baseline.label}
+                  {baseline.found ? "" : " (vazia)"}
+                </option>
+              ))}
+              {!report?.baselines?.length && (
+                <option value="stable">Baseline Stable</option>
+              )}
+            </select>
+          </label>
+          <button type="button" onClick={() => void loadReport()}>
+            <RefreshCcw /> Atualizar
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -184,6 +436,29 @@ export default function BenchmarkDashboard() {
           <span>{error}</span>
         </div>
       )}
+
+      <nav className="bench-tabs" aria-label="Benchmark Center">
+        {benchmarkTabs.map((tab) => (
+          <button
+            className={activeTab === tab.id ? "active" : ""}
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      <BenchmarkRunner
+        execution={execution}
+        executionCollapsed={executionCollapsed}
+        executionKind={executionKind}
+        onCloseExecution={() => setExecution(null)}
+        onExecutionCollapsed={setExecutionCollapsed}
+        onExecutionKind={setExecutionKind}
+        onStart={() => void startBenchmarkExecution()}
+      />
 
       <section className="bench-summary-grid" aria-label="Resumo do benchmark">
         <MetricCard
@@ -212,112 +487,251 @@ export default function BenchmarkDashboard() {
         />
         <MetricCard
           icon={<Activity />}
-          label="Pico RSS"
+          label="Pico de memória"
           value={formatMetric(latestRun?.summary.peakRssMb, "MB")}
-          detail={`${latestRun?.summary.retryCount ?? 0} retries WebGL`}
+          detail={`RSS · ${latestRun?.summary.retryCount ?? 0} retries WebGL`}
           tone="ok"
           trend={runRss.length ? runRss : runWarnings}
         />
       </section>
 
-      <section className="bench-panel bench-controls">
-        <label>
-          <span>Métrica</span>
-          <select
-            value={selectedMetric.key}
-            onChange={(event) => setMetricKey(event.target.value)}
-          >
-            {(report?.metrics ?? []).map((metric) => (
-              <option key={metric.key} value={metric.key}>
-                {metric.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Perfil</span>
-          <select
-            value={profile}
-            onChange={(event) => setProfile(event.target.value)}
-          >
-            <option value="all">Todos</option>
-            {(report?.profiles ?? []).map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Caso</span>
-          <select
-            value={selectedCaseId}
-            onChange={(event) => setCaseId(event.target.value)}
-          >
-            {caseOptions.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.id}
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
+      {activeTab === "render" && (
+        <>
+          <section className="bench-panel bench-controls">
+            <label>
+              <span>Métrica</span>
+              <select
+                value={selectedMetric.key}
+                onChange={(event) => setMetricKey(event.target.value)}
+              >
+                {(report?.metrics ?? []).map((metric) => (
+                  <option key={metric.key} value={metric.key}>
+                    {metric.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Perfil</span>
+              <select
+                value={profile}
+                onChange={(event) => setProfile(event.target.value)}
+              >
+                <option value="all">Todos</option>
+                {(report?.profiles ?? []).map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Caso</span>
+              <select
+                value={selectedCaseId}
+                onChange={(event) => setCaseId(event.target.value)}
+              >
+                {caseOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </section>
 
-      <section className="bench-panel bench-main-grid">
-        <div className="bench-chart-column">
-          <div className="bench-panel-title">
-            <BarChart3 />
+          <section className="bench-panel bench-main-grid">
+            <div className="bench-chart-column">
+              <div className="bench-panel-title">
+                <BarChart3 />
+                <div>
+                  <strong>{selectedMetric.label}</strong>
+                  <span>
+                    {selectedCaseId || "Sem caso selecionado"} · {series.length}{" "}
+                    ponto{series.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+              </div>
+              <MetricChart points={series} unit={selectedMetric.unit} />
+            </div>
+
+            <aside className="bench-sample-column">
+              <div className="bench-panel-title">
+                <Gauge />
+                <div>
+                  <strong>Última amostra</strong>
+                  <span>{latestCase?.rendererId || "Sem dados"}</span>
+                </div>
+              </div>
+              <PhaseBreakdown caseData={latestCase} />
+            </aside>
+          </section>
+
+          <section className="bench-panel">
+            <div className="bench-panel-title">
+              <Database />
+              <div>
+                <strong>Casos do último run</strong>
+                <span>
+                  {latestRun
+                    ? `${latestRun.profile} · ${latestRun.audioSource.label || latestRun.audioSource.kind}`
+                    : loading
+                      ? "Carregando"
+                      : "Sem histórico"}
+                </span>
+              </div>
+            </div>
+            <LatestCasesTable run={latestRun} />
+          </section>
+        </>
+      )}
+
+      {activeTab === "gate" && (
+        <ReleaseGatePanel
+          baselineComparison={report?.baselineComparison ?? null}
+          latestComparison={report?.latestComparison ?? null}
+          releaseGate={report?.releaseGate ?? null}
+          score={report?.score ?? null}
+        />
+      )}
+
+      {activeTab === "history" && (
+        <>
+          <section className="bench-panel">
+            <div className="bench-panel-title">
+              <Clock />
+              <div>
+                <strong>Histórico completo</strong>
+                <span>Runs mais recentes primeiro</span>
+              </div>
+            </div>
+            <RunHistory
+              comparison={
+                report?.baselineComparison ?? report?.latestComparison
+              }
+              runs={[...visibleRuns].reverse()}
+            />
+          </section>
+          <CleanupPanel
+            cleanupDraft={cleanupDraft}
+            cleanupMessage={cleanupMessage}
+            onCleanup={(mode) => void runCleanup(mode)}
+            onPolicyChange={setCleanupDraft}
+            onSavePolicy={() => void saveCleanupPolicy()}
+            onSelectedRun={setSelectedCleanupRunId}
+            runs={[...visibleRuns].reverse()}
+            selectedRunId={selectedCleanupRunId}
+          />
+        </>
+      )}
+
+      <footer className="bench-footer">
+        <div>
+          <strong>
+            Benchmark Center é uma ferramenta local de diagnóstico.
+          </strong>
+          <span>
+            RSS significa Resident Set Size: o pico aproximado de memória
+            residente usado pelo processo durante o benchmark, em MB.
+          </span>
+        </div>
+        <div>
+          <span>Dados privados em .dev/bench</span>
+          <span>Desktop empacotado exigirá um modo diagnóstico próprio</span>
+        </div>
+      </footer>
+    </main>
+  );
+}
+
+function BenchmarkRunner({
+  execution,
+  executionCollapsed,
+  executionKind,
+  onCloseExecution,
+  onExecutionCollapsed,
+  onExecutionKind,
+  onStart,
+}: {
+  execution: BenchmarkExecution | null;
+  executionCollapsed: boolean;
+  executionKind: BenchmarkExecution["kind"];
+  onCloseExecution: () => void;
+  onExecutionCollapsed: (collapsed: boolean) => void;
+  onExecutionKind: (kind: BenchmarkExecution["kind"]) => void;
+  onStart: () => void;
+}) {
+  const running = execution
+    ? ["queued", "running"].includes(execution.status)
+    : false;
+  return (
+    <section className="bench-panel bench-runner">
+      <div className="bench-panel-title">
+        <Activity />
+        <div>
+          <strong>Executar benchmarks</strong>
+          <span>
+            Inicia scripts locais e atualiza os dados automaticamente ao
+            concluir.
+          </span>
+        </div>
+      </div>
+      <div className="bench-runner-controls">
+        <label>
+          <span>Execução</span>
+          <select
+            disabled={running}
+            value={executionKind}
+            onChange={(event) =>
+              onExecutionKind(event.target.value as BenchmarkExecution["kind"])
+            }
+          >
+            <option value="quick">Render quick</option>
+            <option value="full">Render full</option>
+            <option value="audio">Render com áudio da pasta input</option>
+            <option value="all">Todos os benchmarks de render</option>
+          </select>
+        </label>
+        <button disabled={running} type="button" onClick={onStart}>
+          <BarChart3 /> {running ? "Executando" : "Iniciar"}
+        </button>
+      </div>
+      {execution && (
+        <div
+          className={`bench-terminal ${executionCollapsed ? "collapsed" : ""}`}
+        >
+          <header>
             <div>
-              <strong>{selectedMetric.label}</strong>
+              <strong>{execution.label}</strong>
               <span>
-                {selectedCaseId || "Sem caso selecionado"} · {series.length}{" "}
-                ponto{series.length === 1 ? "" : "s"}
+                {execution.status}
+                {execution.currentStep ? ` · ${execution.currentStep}` : ""}
               </span>
             </div>
-          </div>
-          <MetricChart points={series} unit={selectedMetric.unit} />
-        </div>
-
-        <aside className="bench-sample-column">
-          <div className="bench-panel-title">
-            <Gauge />
             <div>
-              <strong>Última amostra</strong>
-              <span>{latestCase?.rendererId || "Sem dados"}</span>
+              <button
+                type="button"
+                onClick={() => onExecutionCollapsed(!executionCollapsed)}
+              >
+                {executionCollapsed ? "Mostrar log" : "Recolher log"}
+              </button>
+              {!running && (
+                <button type="button" onClick={onCloseExecution}>
+                  Fechar
+                </button>
+              )}
             </div>
-          </div>
-          <PhaseBreakdown caseData={latestCase} />
-        </aside>
-      </section>
-
-      <section className="bench-panel">
-        <div className="bench-panel-title">
-          <Database />
-          <div>
-            <strong>Casos do último run</strong>
-            <span>
-              {latestRun
-                ? `${latestRun.profile} · ${latestRun.audioSource.label || latestRun.audioSource.kind}`
-                : loading
-                  ? "Carregando"
-                  : "Sem histórico"}
-            </span>
-          </div>
+          </header>
+          {!executionCollapsed && (
+            <pre>
+              {execution.logs.length
+                ? execution.logs.join("\n")
+                : "Aguardando saída do processo..."}
+            </pre>
+          )}
         </div>
-        <LatestCasesTable run={latestRun} />
-      </section>
-
-      <section className="bench-panel">
-        <div className="bench-panel-title">
-          <Clock />
-          <div>
-            <strong>Histórico completo</strong>
-            <span>Runs mais recentes primeiro</span>
-          </div>
-        </div>
-        <RunHistory runs={[...visibleRuns].reverse()} />
-      </section>
-    </main>
+      )}
+    </section>
   );
 }
 
@@ -680,7 +1094,7 @@ function PhaseBreakdown({ caseData }: { caseData?: BenchmarkCase | null }) {
           <strong>{formatMetric(caseData.mp4Bytes, "bytes")}</strong>
         </span>
         <span>
-          <small>RSS</small>
+          <small>Memória</small>
           <strong>{formatMetric(caseData.peakRssMb, "MB")}</strong>
         </span>
       </div>
@@ -728,7 +1142,7 @@ function LatestCasesTable({ run }: { run?: BenchmarkRun | null }) {
             <th>WebM</th>
             <th>Render</th>
             <th>Mux</th>
-            <th>RSS</th>
+            <th>Memória</th>
             <th>Status</th>
           </tr>
         </thead>
@@ -761,8 +1175,272 @@ function LatestCasesTable({ run }: { run?: BenchmarkRun | null }) {
   );
 }
 
-function RunHistory({ runs }: { runs: BenchmarkRun[] }) {
+function ReleaseGatePanel({
+  baselineComparison,
+  latestComparison,
+  releaseGate,
+  score,
+}: {
+  baselineComparison?: BenchmarkComparison | null;
+  latestComparison?: BenchmarkComparison | null;
+  releaseGate?: BenchmarkReleaseGate | null;
+  score?: BenchmarkScore | null;
+}) {
+  const comparison = baselineComparison ?? latestComparison ?? null;
+  const status = releaseGate?.status ?? "warn";
+  return (
+    <section className="bench-gate-grid">
+      <div className={`bench-panel bench-score-card is-${status}`}>
+        <div className="bench-panel-title">
+          <Gauge />
+          <div>
+            <strong>Sonara Performance Score</strong>
+            <span>
+              Referência:{" "}
+              {score?.reference === "baseline"
+                ? "baseline"
+                : score?.reference === "previous"
+                  ? "run anterior"
+                  : "sem comparação"}
+            </span>
+          </div>
+        </div>
+        <div className="bench-score-value">
+          <strong>{Math.round(score?.value ?? 0)}</strong>
+          <span>/ 100</span>
+        </div>
+        <div className="bench-gate-status">{statusLabel(status)}</div>
+        <ul className="bench-gate-reasons">
+          {(releaseGate?.reasons ?? ["Sem benchmark local."]).map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="bench-panel bench-score-breakdown">
+        <div className="bench-panel-title">
+          <Activity />
+          <div>
+            <strong>Componentes do score</strong>
+            <span>
+              Pesos: render 40%, memória 25%, exportação 20%, estabilidade 15%
+            </span>
+          </div>
+        </div>
+        {Object.entries(score?.categories ?? {}).map(([key, category]) => (
+          <ScoreRow key={key} label={category.label} value={category.value} />
+        ))}
+      </div>
+
+      <section className="bench-panel bench-gate-comparison">
+        <div className="bench-panel-title">
+          <BarChart3 />
+          <div>
+            <strong>Comparação automática</strong>
+            <span>
+              {comparison
+                ? `${shortCommit(comparison.referenceRun.git.commit)} → ${shortCommit(comparison.currentRun.git.commit)}`
+                : "Sem referência compatível"}
+            </span>
+          </div>
+        </div>
+        <ComparisonTable comparison={comparison} />
+      </section>
+    </section>
+  );
+}
+
+function ScoreRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="bench-score-row">
+      <span>{label}</span>
+      <div>
+        <i style={{ width: `${Math.max(2, Math.min(100, value))}%` }} />
+      </div>
+      <strong>{Math.round(value)}</strong>
+    </div>
+  );
+}
+
+function ComparisonTable({
+  comparison,
+}: {
+  comparison?: BenchmarkComparison | null;
+}) {
+  if (!comparison) {
+    return <div className="bench-empty">Sem comparação disponível.</div>;
+  }
+  return (
+    <div className="bench-table-wrap">
+      <table className="bench-table bench-comparison-table">
+        <thead>
+          <tr>
+            <th>Métrica</th>
+            <th>Referência</th>
+            <th>Atual</th>
+            <th>Delta</th>
+            <th>Direção</th>
+          </tr>
+        </thead>
+        <tbody>
+          {comparison.summaryDeltas.map((delta) => (
+            <tr key={delta.key}>
+              <td>
+                <strong>{delta.label}</strong>
+                <span>{delta.key}</span>
+              </td>
+              <td>{formatMetric(delta.reference, delta.unit)}</td>
+              <td>{formatMetric(delta.current, delta.unit)}</td>
+              <td>{formatPercent(delta.deltaPercent)}</td>
+              <td>
+                <span className={`bench-direction is-${delta.direction}`}>
+                  {directionLabel(delta.direction)}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CleanupPanel({
+  cleanupDraft,
+  cleanupMessage,
+  onCleanup,
+  onPolicyChange,
+  onSavePolicy,
+  onSelectedRun,
+  runs,
+  selectedRunId,
+}: {
+  cleanupDraft: BenchmarkCleanupPolicy;
+  cleanupMessage: string;
+  onCleanup: (mode: "all" | "policy" | "run") => void;
+  onPolicyChange: (policy: BenchmarkCleanupPolicy) => void;
+  onSavePolicy: () => void;
+  onSelectedRun: (runId: string) => void;
+  runs: BenchmarkRun[];
+  selectedRunId: string;
+}) {
+  return (
+    <section className="bench-panel bench-cleanup-panel">
+      <div className="bench-panel-title">
+        <Database />
+        <div>
+          <strong>Retenção e limpeza</strong>
+          <span>Remove apenas dados locais de benchmark em .dev/bench.</span>
+        </div>
+      </div>
+      <div className="bench-cleanup-grid">
+        <label className="bench-check-row">
+          <input
+            checked={cleanupDraft.enabled}
+            type="checkbox"
+            onChange={(event) =>
+              onPolicyChange({
+                ...cleanupDraft,
+                enabled: event.target.checked,
+              })
+            }
+          />
+          <span>Usar política automática como critério padrão</span>
+        </label>
+        <label>
+          <span>Manter últimos runs</span>
+          <input
+            min="5"
+            type="number"
+            value={cleanupDraft.maxRuns}
+            onChange={(event) =>
+              onPolicyChange({
+                ...cleanupDraft,
+                maxRuns: Number(event.target.value),
+              })
+            }
+          />
+        </label>
+        <label>
+          <span>Remover após</span>
+          <input
+            min="1"
+            type="number"
+            value={cleanupDraft.maxAgeDays}
+            onChange={(event) =>
+              onPolicyChange({
+                ...cleanupDraft,
+                maxAgeDays: Number(event.target.value),
+              })
+            }
+          />
+        </label>
+        <label className="bench-check-row">
+          <input
+            checked={cleanupDraft.removeArtifacts}
+            type="checkbox"
+            onChange={(event) =>
+              onPolicyChange({
+                ...cleanupDraft,
+                removeArtifacts: event.target.checked,
+              })
+            }
+          />
+          <span>Remover artefatos dos runs junto com o histórico</span>
+        </label>
+        <label className="bench-run-select">
+          <span>Run específico</span>
+          <select
+            value={selectedRunId}
+            onChange={(event) => onSelectedRun(event.target.value)}
+          >
+            {runs.map((run) => (
+              <option key={run.runId} value={run.runId}>
+                {relativeDate(run.createdAt)} · {shortCommit(run.git.commit)} ·{" "}
+                {run.profile}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="bench-cleanup-actions">
+        <button type="button" onClick={onSavePolicy}>
+          Salvar política
+        </button>
+        <button type="button" onClick={() => onCleanup("policy")}>
+          Aplicar política agora
+        </button>
+        <button type="button" onClick={() => onCleanup("run")}>
+          Excluir run selecionado
+        </button>
+        <button
+          className="danger-action"
+          type="button"
+          onClick={() => onCleanup("all")}
+        >
+          Limpar tudo
+        </button>
+      </div>
+      {cleanupMessage && (
+        <p className="bench-cleanup-message">{cleanupMessage}</p>
+      )}
+    </section>
+  );
+}
+
+function RunHistory({
+  comparison,
+  runs,
+}: {
+  comparison?: BenchmarkComparison | null;
+  runs: BenchmarkRun[];
+}) {
   if (!runs.length) return <div className="bench-empty">Sem runs.</div>;
+  const deltaByRunId = new Map(
+    comparison
+      ? [[comparison.currentRun.runId, comparison.worstRegressionPercent]]
+      : [],
+  );
   return (
     <div className="bench-run-list">
       {runs.map((run) => (
@@ -770,8 +1448,9 @@ function RunHistory({ runs }: { runs: BenchmarkRun[] }) {
           <summary>
             <strong>{relativeDate(run.createdAt)}</strong>
             <span>{run.profile}</span>
-            <span>{run.audioSource.kind}</span>
+            <span>{shortCommit(run.git.commit)}</span>
             <span>{formatMetric(run.summary.totalMs, "ms")}</span>
+            <span>{formatMetric(run.summary.peakRssMb, "MB")}</span>
             <span className={run.warningCount ? "warn" : ""}>
               {run.warningCount} alertas
             </span>
@@ -781,6 +1460,12 @@ function RunHistory({ runs }: { runs: BenchmarkRun[] }) {
               <code>{run.runId}</code> · {run.git.branch} {run.git.commit}
               {run.git.dirty ? " · dirty" : ""}
             </p>
+            {deltaByRunId.has(run.runId) && (
+              <p>
+                Pior regressão comparada:{" "}
+                {formatPercent(deltaByRunId.get(run.runId) ?? 0)}
+              </p>
+            )}
             {run.warnings.length > 0 && (
               <ul>
                 {run.warnings.slice(0, 6).map((warning) => (
@@ -919,6 +1604,27 @@ function formatMetric(value: unknown, unit: string) {
   if (unit === "MB") return `${number.toFixed(1)} MB`;
   if (unit === "count") return String(Math.round(number));
   return `${Math.round(number)} ms`;
+}
+
+function formatPercent(value: unknown) {
+  const number = numeric(value);
+  return `${number > 0 ? "+" : ""}${number.toFixed(1)}%`;
+}
+
+function shortCommit(value: string) {
+  return value ? value.slice(0, 8) : "sem commit";
+}
+
+function statusLabel(status: BenchmarkReleaseGate["status"]) {
+  if (status === "pass") return "PASS";
+  if (status === "blocked") return "BLOCKED";
+  return "WARN";
+}
+
+function directionLabel(direction: BenchmarkMetricDelta["direction"]) {
+  if (direction === "improved") return "melhorou";
+  if (direction === "regressed") return "regressão";
+  return "estável";
 }
 
 function relativeDate(value: string) {
