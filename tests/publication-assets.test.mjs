@@ -11,10 +11,21 @@ import {
 } from "../shared/publication-assets.mjs";
 
 test("publication presets cover social images and short clips", () => {
-  assert.equal(publicationAssetPresets.length, 8);
+  assert.equal(publicationAssetPresets.length, 13);
   assert.equal(publicationAssetPresetById("youtube-thumbnail").width, 1280);
   assert.equal(publicationAssetPresetById("soundcloud-banner").height, 520);
   assert.equal(publicationAssetPresetById("clip-vertical").kind, "clip");
+  assert.equal(
+    publicationAssetPresetById("instagram-feed").platform,
+    "Instagram",
+  );
+  assert.equal(publicationAssetPresetById("instagram-story").kind, "image");
+  assert.equal(publicationAssetPresetById("instagram-reel").kind, "clip");
+  assert.equal(
+    publicationAssetPresetById("whatsapp-status").platform,
+    "WhatsApp",
+  );
+  assert.equal(publicationAssetPresetById("whatsapp-status-clip").kind, "clip");
 });
 
 test("publication clip duration is clamped to 1-30 seconds", () => {
