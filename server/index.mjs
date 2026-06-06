@@ -777,7 +777,7 @@ app.post("/api/storage/cleanup", async (req, res) => {
   res.json({ scope, deleted, usage: await storageUsage() });
 });
 
-app.post("/api/jobs/pause", (_req, res) => {
+app.post("/api/jobs/pause", async (_req, res) => {
   queuePaused = true;
   for (const job of jobs.values()) {
     if (job.status === "queued") {
@@ -787,10 +787,11 @@ app.post("/api/jobs/pause", (_req, res) => {
       });
     }
   }
+  await persistJobSnapshot();
   res.json({ queuePaused });
 });
 
-app.post("/api/jobs/resume", (_req, res) => {
+app.post("/api/jobs/resume", async (_req, res) => {
   queuePaused = false;
   for (const job of jobs.values()) {
     if (job.status === "paused") {
@@ -802,20 +803,23 @@ app.post("/api/jobs/resume", (_req, res) => {
   }
   for (const resume of queueWaiters) resume();
   queueWaiters.clear();
+  await persistJobSnapshot();
   res.json({ queuePaused });
 });
 
-app.post("/api/jobs/cancel-all", (_req, res) => {
+app.post("/api/jobs/cancel-all", async (_req, res) => {
   for (const job of jobs.values()) requestJobCancel(job.id);
+  await persistJobSnapshot();
   res.json({ jobs: recentJobs() });
 });
 
-app.post("/api/jobs/:id/cancel", (req, res) => {
+app.post("/api/jobs/:id/cancel", async (req, res) => {
   const job = requestJobCancel(req.params.id);
   if (!job) {
     res.status(404).json({ error: "Job não encontrado." });
     return;
   }
+  await persistJobSnapshot();
   res.json(job);
 });
 
