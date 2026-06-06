@@ -7,7 +7,9 @@ export async function loadJobHistory(filePath) {
   try {
     const payload = JSON.parse(await fs.readFile(filePath, "utf8"));
     if (!Array.isArray(payload)) return [];
-    return restoreInterruptedJobs(payload);
+    return restoreInterruptedJobs(payload, new Date(), {
+      existingPayloadRefs: await existingPayloadRefs(payload),
+    });
   } catch (error) {
     if (error?.code === "ENOENT") return [];
     throw error;
@@ -23,7 +25,7 @@ export async function saveJobHistory(filePath, jobs, limit = 50) {
   await fs.rename(tempPath, filePath);
 }
 
-export function restoreInterruptedJobs(jobs, now = new Date()) {
+export function restoreInterruptedJobs(jobs, now = new Date(), options = {}) {
   const restoredAt = new Date(now);
   return jobs.map((job) => {
     if (!activeStatuses.has(job.status)) return job;
@@ -38,19 +40,61 @@ export function restoreInterruptedJobs(jobs, now = new Date()) {
         updatedAt: restoredAt.toISOString(),
       };
     }
+    const canRetry = canRetryInterruptedJob(job, options.existingPayloadRefs);
+    if (canRetry) {
+      return {
+        ...job,
+        ...stagePatch,
+        recovered: true,
+        status: "queued",
+        message:
+          "Job recuperado após reinicialização; aguardando nova tentativa",
+        nextAttemptAt: null,
+        updatedAt: restoredAt.toISOString(),
+      };
+    }
     return {
       ...job,
       ...stagePatch,
       status: "error",
-      errorCode: job.errorCode ?? "server-restart",
+      errorCode: job.payloadRef ? "JOB_PAYLOAD_MISSING" : "server-restart",
       errorDetail:
         job.errorDetail ??
-        "O servidor local foi encerrado antes de concluir este job.",
-      message:
-        "Processamento interrompido pela reinicializacao do servidor local",
+        (job.payloadRef
+          ? "O payload persistente do job não foi encontrado para retomar a execução."
+          : "O servidor local foi encerrado antes de concluir este job."),
+      message: job.payloadRef
+        ? "Processamento interrompido e payload de retomada ausente"
+        : "Processamento interrompido pela reinicializacao do servidor local",
       updatedAt: restoredAt.toISOString(),
     };
   });
+}
+
+async function existingPayloadRefs(jobs) {
+  const refs = jobs
+    .filter((job) => activeStatuses.has(job.status) && job.payloadRef)
+    .map((job) => job.payloadRef);
+  const found = new Set();
+  await Promise.all(
+    refs.map(async (payloadRef) => {
+      try {
+        const stat = await fs.stat(payloadRef);
+        if (stat.isFile()) found.add(payloadRef);
+      } catch {
+        // Missing payload is handled during restore.
+      }
+    }),
+  );
+  return found;
+}
+
+function canRetryInterruptedJob(job, existingRefs) {
+  if (!job.payloadRef) return false;
+  if (existingRefs && !existingRefs.has(job.payloadRef)) return false;
+  const attempt = Math.max(0, Number(job.attempt ?? 0));
+  const maxAttempts = Math.max(1, Number(job.maxAttempts ?? 1));
+  return attempt < maxAttempts;
 }
 
 function closeInterruptedStage(job, restoredAt) {

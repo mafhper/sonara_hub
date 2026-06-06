@@ -272,6 +272,19 @@ export type RenderJob = {
     stage: string;
     startedAt: string;
   }>;
+  attempt?: number;
+  maxAttempts?: number;
+  nextAttemptAt?: string | null;
+  payloadRef?: string;
+  recovered?: boolean;
+  retryHistory?: Array<{
+    attempt: number;
+    errorCode: string;
+    failedAt: string;
+    message: string;
+    retryAt: string;
+    stage?: string | null;
+  }>;
   errorCode?: string;
   errorDetail?: string;
   outputUrl: string | null;

@@ -38,7 +38,13 @@ import {
   createJobRunner,
   createJobStageTracker,
   isCanceledJobError,
+  runJobWithRetry,
 } from "./job-service.mjs";
+import {
+  defaultRenderMaxAttempts,
+  loadRenderJobPayload,
+  persistRenderJobPayload,
+} from "./job-payload.mjs";
 import { createTempFileRegistry } from "./temp-files.mjs";
 import { runRenderWorkerJob } from "./job-worker.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
@@ -477,21 +483,7 @@ app.post(
     const jobId = crypto.randomUUID();
     const outputName = buildOutputFileName(metadata, null, fileNamePattern);
     const outputPath = path.join(outputDir, outputName);
-
-    setJob(jobId, {
-      id: jobId,
-      kind: "video-render",
-      status: "queued",
-      progress: 0,
-      message: "Na fila de renderizacao",
-      outputUrl: null,
-      sidecarUrl: null,
-      thumbnailUrl: null,
-      metadata,
-      createdAt: new Date().toISOString(),
-    });
-
-    enqueueRender({
+    const jobOptions = await persistRenderOptions("video-render", {
       jobId,
       audioPath,
       backgroundFile,
@@ -504,6 +496,24 @@ app.post(
       outputName,
       uploadedFiles: files,
     });
+
+    setJob(jobId, {
+      id: jobId,
+      kind: "video-render",
+      attempt: 0,
+      maxAttempts: jobOptions.maxAttempts,
+      status: "queued",
+      progress: 0,
+      message: "Na fila de renderizacao",
+      outputUrl: null,
+      sidecarUrl: null,
+      thumbnailUrl: null,
+      payloadRef: jobOptions.payloadRef,
+      metadata,
+      createdAt: new Date().toISOString(),
+    });
+
+    enqueueRender(jobOptions);
 
     res.json({ jobId });
   }),
@@ -569,23 +579,7 @@ app.post(
     const jobId = crypto.randomUUID();
     const outputName = publicationAssetOutputName(metadata, preset);
     const outputPath = path.join(outputDir, outputName);
-
-    setJob(jobId, {
-      id: jobId,
-      kind: "publication-asset",
-      status: "queued",
-      progress: 0,
-      message: "Na fila de divulgação",
-      outputUrl: null,
-      sidecarUrl: null,
-      thumbnailUrl: null,
-      markdownUrl: null,
-      assetUrls: [],
-      metadata,
-      createdAt: new Date().toISOString(),
-    });
-
-    enqueuePublicationAsset({
+    const jobOptions = await persistRenderOptions("publication-asset", {
       jobId,
       audioPath,
       backgroundFile,
@@ -605,6 +599,26 @@ app.post(
       outputName,
       uploadedFiles: files,
     });
+
+    setJob(jobId, {
+      id: jobId,
+      kind: "publication-asset",
+      attempt: 0,
+      maxAttempts: jobOptions.maxAttempts,
+      status: "queued",
+      progress: 0,
+      message: "Na fila de divulgação",
+      outputUrl: null,
+      sidecarUrl: null,
+      thumbnailUrl: null,
+      markdownUrl: null,
+      assetUrls: [],
+      payloadRef: jobOptions.payloadRef,
+      metadata,
+      createdAt: new Date().toISOString(),
+    });
+
+    enqueuePublicationAsset(jobOptions);
 
     res.json({ jobId });
   }),
@@ -680,22 +694,7 @@ app.post(
         fileNamePattern,
       );
       const outputPath = path.join(outputDir, outputName);
-
-      setJob(jobId, {
-        id: jobId,
-        kind: "video-render",
-        status: "queued",
-        progress: 0,
-        message: `Na fila do lote: ${audioFile.originalname}`,
-        outputUrl: null,
-        sidecarUrl: null,
-        thumbnailUrl: null,
-        metadata,
-        createdAt: new Date().toISOString(),
-      });
-      jobIds.push(jobId);
-
-      enqueueRender({
+      const jobOptions = await persistRenderOptions("video-render", {
         jobId,
         audioPath: audioFile.path,
         backgroundFile,
@@ -713,6 +712,25 @@ app.post(
           mediaLayerFiles,
         ],
       });
+
+      setJob(jobId, {
+        id: jobId,
+        kind: "video-render",
+        attempt: 0,
+        maxAttempts: jobOptions.maxAttempts,
+        status: "queued",
+        progress: 0,
+        message: `Na fila do lote: ${audioFile.originalname}`,
+        outputUrl: null,
+        sidecarUrl: null,
+        thumbnailUrl: null,
+        payloadRef: jobOptions.payloadRef,
+        metadata,
+        createdAt: new Date().toISOString(),
+      });
+      jobIds.push(jobId);
+
+      enqueueRender(jobOptions);
     }
 
     res.json({ jobIds });
@@ -857,6 +875,12 @@ process.on("unhandledRejection", (reason) => {
   console.error("Rejeição não tratada (servidor mantido ativo):", reason);
 });
 
+for (const job of jobs.values()) {
+  if (job.recovered && isActiveJob(job) && job.payloadRef) {
+    enqueueRecoveredRenderJob(job);
+  }
+}
+
 function enqueueRender(options) {
   enqueueJob(options, "VIDEO_RENDER_ERROR", (jobOptions) =>
     runRenderWorker("video-render", jobOptions),
@@ -873,21 +897,79 @@ function enqueueAudioProcess(options) {
   enqueueJob(options, "AUDIO_PROCESS_ERROR", processAudio);
 }
 
-function runRenderWorker(kind, options) {
+async function persistRenderOptions(kind, options) {
   const { uploadedFiles: _uploadedFiles, ...payload } = options;
-  return runRenderWorkerJob({
+  const persisted = await persistRenderJobPayload({
     jobId: options.jobId,
     kind,
-    payload: {
-      ...payload,
-      workDir,
-    },
+    payload,
+    workDir,
+  });
+  return {
+    ...options,
+    ...persisted.payload,
+    attempt: 0,
+    maxAttempts: defaultRenderMaxAttempts,
+    payloadRef: persisted.payloadRef,
+  };
+}
+
+async function enqueueRecoveredRenderJob(job) {
+  try {
+    const restored = await loadRenderJobPayload(job.payloadRef);
+    const options = {
+      ...restored.payload,
+      jobId: job.id,
+      attempt: job.attempt ?? 0,
+      maxAttempts: job.maxAttempts ?? defaultRenderMaxAttempts,
+      payloadRef: job.payloadRef,
+    };
+    if (restored.kind === "publication-asset") {
+      enqueuePublicationAsset(options);
+    } else {
+      enqueueRender(options);
+    }
+  } catch (error) {
+    updateJob(job.id, {
+      status: "error",
+      message: "Payload persistente ausente; não foi possível retomar o job",
+      errorCode: error?.code ? String(error.code) : "JOB_PAYLOAD_MISSING",
+      errorDetail:
+        error?.detail ??
+        (error instanceof Error ? error.stack || error.message : String(error)),
+    });
+  }
+}
+
+function runRenderWorker(kind, options) {
+  const { uploadedFiles: _uploadedFiles, ...payload } = options;
+  return runJobWithRetry({
+    getJob: (jobId) => jobs.get(jobId),
+    jobId: options.jobId,
+    maxAttempts: options.maxAttempts ?? defaultRenderMaxAttempts,
     updateJob,
-    onWorkerStart: (controller) => {
-      activeJobWorkers.set(options.jobId, controller);
-    },
-    onWorkerDone: () => {
-      activeJobWorkers.delete(options.jobId);
+    worker: () => {
+      const current = jobs.get(options.jobId);
+      const { uploadedFiles: _ignoredUploads, ...attemptPayload } = {
+        ...payload,
+        attempt: current?.attempt ?? options.attempt,
+        maxAttempts: current?.maxAttempts ?? options.maxAttempts,
+      };
+      return runRenderWorkerJob({
+        jobId: options.jobId,
+        kind,
+        payload: {
+          ...attemptPayload,
+          workDir,
+        },
+        updateJob,
+        onWorkerStart: (controller) => {
+          activeJobWorkers.set(options.jobId, controller);
+        },
+        onWorkerDone: () => {
+          activeJobWorkers.delete(options.jobId);
+        },
+      });
     },
   });
 }

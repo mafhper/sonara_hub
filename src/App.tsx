@@ -5994,6 +5994,14 @@ function BatchJobBoard({
                       Etapa: {jobStageLabel(job.stage)}
                     </small>
                   )}
+                  {job.maxAttempts && job.maxAttempts > 1 ? (
+                    <small className="job-stage-line">
+                      Tentativa {job.attempt ?? 0}/{job.maxAttempts}
+                      {job.nextAttemptAt
+                        ? ` · próxima ${formatRetryTime(job.nextAttemptAt)}`
+                        : ""}
+                    </small>
+                  ) : null}
                   {job.stageTimings?.length ? (
                     <small className="job-stage-line">
                       Tempos: {formatJobStageTimings(job.stageTimings)}
@@ -12829,6 +12837,16 @@ function formatDurationMs(value: number) {
   return `${(milliseconds / 1000).toFixed(milliseconds < 10000 ? 1 : 0)}s`;
 }
 
+function formatRetryTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "em breve";
+  return date.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 function readableJobMessage(message: string) {
   return message
     .replaceAll("Renderizacao", "Renderização")
@@ -13027,12 +13045,23 @@ function jobErrorReport(job: RenderJob) {
     `Job: ${job.id}`,
     `Tipo: ${job.kind ?? "desconhecido"}`,
     `Status: ${job.status}`,
+    job.maxAttempts && job.maxAttempts > 1
+      ? `Tentativa: ${job.attempt ?? 0}/${job.maxAttempts}`
+      : "",
     job.stage ? `Etapa atual: ${jobStageLabel(job.stage)}` : "",
     job.stageTimings?.length
       ? `Tempos:\n${job.stageTimings
           .map(
             (item) =>
               `- ${jobStageLabel(item.stage)}: ${formatDurationMs(item.durationMs)}${item.interrupted ? " (interrompido)" : ""}`,
+          )
+          .join("\n")}`
+      : "",
+    job.retryHistory?.length
+      ? `Retentativas:\n${job.retryHistory
+          .map(
+            (item) =>
+              `- tentativa ${item.attempt}: ${item.errorCode} em ${item.stage ? jobStageLabel(item.stage) : "job"} (${item.message})`,
           )
           .join("\n")}`
       : "",
