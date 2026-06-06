@@ -8,7 +8,14 @@ import {
   RefreshCcw,
   TriangleAlert,
 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { fetchJson } from "../shared/local-api.mjs";
 
 type BenchmarkMetric = {
@@ -332,75 +339,269 @@ function MetricChart({
   points: Array<{ label: string; value: number; runId: string }>;
   unit: string;
 }) {
+  const [chartRef, measuredWidth] = useElementWidth<HTMLDivElement>();
   if (!points.length) {
     return <div className="bench-empty">Sem dados para esta seleção.</div>;
   }
-  const width = 820;
-  const height = 300;
-  const padding = 42;
+  const width = Math.round(Math.max(360, measuredWidth || 920));
+  const height = width < 560 ? 320 : 360;
+  const compact = width < 560;
+  const padding = {
+    bottom: compact ? 42 : 48,
+    left: compact ? 76 : 72,
+    right: compact ? 22 : 34,
+    top: 34,
+  };
   const values = points.map((point) => point.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = Math.max(1, max - min);
+  const average =
+    values.reduce((total, value) => total + value, 0) /
+    Math.max(1, values.length);
+  const latest = points.at(-1);
+  const previous = points.at(-2);
+  const delta =
+    latest && previous && previous.value > 0
+      ? ((latest.value - previous.value) / previous.value) * 100
+      : null;
   const xStep =
-    points.length > 1 ? (width - padding * 2) / (points.length - 1) : 0;
+    points.length > 1
+      ? (width - padding.left - padding.right) / (points.length - 1)
+      : 0;
+  const chartBottom = height - padding.bottom;
+  const chartHeight = height - padding.top - padding.bottom;
+  const chartY = (value: number) =>
+    chartBottom - ((value - min) / range) * chartHeight;
   const coordinates = points.map((point, index) => ({
     ...point,
-    x: padding + xStep * index,
-    y:
-      height - padding - ((point.value - min) / range) * (height - padding * 2),
+    x: padding.left + xStep * index,
+    y: chartY(point.value),
   }));
-  const line = coordinates.map((point) => `${point.x},${point.y}`).join(" ");
-  const area = `${padding},${height - padding} ${line} ${width - padding},${height - padding}`;
+  const trendCoordinates = movingAverageSeries(points).map((point, index) => ({
+    ...point,
+    x: padding.left + xStep * index,
+    y: chartY(point.value),
+  }));
+  const line = smoothPath(coordinates);
+  const trendLine = smoothPath(trendCoordinates);
+  const area = `${padding.left},${chartBottom} ${coordinates
+    .map((point) => `${point.x},${point.y}`)
+    .join(" ")} ${width - padding.right},${chartBottom}`;
+  const averageY = chartBottom - ((average - min) / range) * chartHeight;
+  const averageLabelX = compact ? padding.left + 6 : width - padding.right - 4;
+  const averageLabelAnchor: "end" | "start" = compact ? "start" : "end";
+  const latestCoordinate = coordinates.at(-1);
+  const latestLabelToLeft =
+    latestCoordinate && latestCoordinate.x > width - padding.right - 118;
+  const latestLabelX = latestCoordinate
+    ? latestCoordinate.x + (latestLabelToLeft ? -12 : 12)
+    : 0;
+  const latestLabelAnchor: "end" | "start" = latestLabelToLeft
+    ? "end"
+    : "start";
+  const ticks = Array.from({ length: 5 }, (_, index) => {
+    const ratio = index / 4;
+    const value = max - range * ratio;
+    return {
+      value,
+      y: padding.top + chartHeight * ratio,
+    };
+  });
+  const averageLabelY = Math.max(padding.top + 14, averageY - 8);
+  const xLabels = labelSamples(coordinates);
 
   return (
-    <div className="bench-chart">
-      <svg
-        aria-label="Série histórica"
-        role="img"
-        viewBox={`0 0 ${width} ${height}`}
-      >
-        <defs>
-          <linearGradient id="benchLineFill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="rgba(167,191,255,0.28)" />
-            <stop offset="100%" stopColor="rgba(167,191,255,0.02)" />
-          </linearGradient>
-        </defs>
-        <line
-          className="bench-axis"
-          x1={padding}
-          x2={width - padding}
-          y1={height - padding}
-          y2={height - padding}
-        />
-        <line
-          className="bench-axis"
-          x1={padding}
-          x2={padding}
-          y1={padding}
-          y2={height - padding}
-        />
-        <polygon className="bench-area" points={area} />
-        <polyline className="bench-line" points={line} />
-        {coordinates.map((point) => (
-          <g key={`${point.runId}-${point.label}`}>
-            <circle className="bench-dot" cx={point.x} cy={point.y} r="4" />
-            <title>
-              {point.label}: {formatMetric(point.value, unit)}
-            </title>
-          </g>
-        ))}
-        <text className="bench-axis-label" x={padding} y={padding - 14}>
-          {formatMetric(max, unit)}
-        </text>
-        <text
-          className="bench-axis-label"
-          x={padding}
-          y={height - padding + 24}
+    <div>
+      <div className="bench-chart-stats">
+        <span>
+          <small>Atual</small>
+          <strong>{formatMetric(latest?.value, unit)}</strong>
+        </span>
+        <span className={delta && delta > 0 ? "is-worse" : "is-better"}>
+          <small>Última variação</small>
+          <strong>
+            {delta == null
+              ? "—"
+              : `${delta > 0 ? "+" : ""}${delta.toFixed(1)}%`}
+          </strong>
+        </span>
+        <span>
+          <small>Mínimo</small>
+          <strong>{formatMetric(min, unit)}</strong>
+        </span>
+        <span>
+          <small>Máximo</small>
+          <strong>{formatMetric(max, unit)}</strong>
+        </span>
+      </div>
+      <div className="bench-chart-legend">
+        <span className="is-primary">Série selecionada</span>
+        <span className="is-trend">Média móvel</span>
+        <span className="is-average">Média geral</span>
+      </div>
+      <div className="bench-chart" ref={chartRef}>
+        <svg
+          aria-label="Série histórica"
+          role="img"
+          viewBox={`0 0 ${width} ${height}`}
         >
-          {formatMetric(min, unit)}
-        </text>
-      </svg>
+          <defs>
+            <linearGradient id="benchLineFill" x1="0" x2="0" y1="0" y2="1">
+              <stop
+                offset="0%"
+                stopColor="var(--accent-cool)"
+                stopOpacity="0.34"
+              />
+              <stop
+                offset="72%"
+                stopColor="var(--accent-cool)"
+                stopOpacity="0.08"
+              />
+              <stop
+                offset="100%"
+                stopColor="var(--accent-cool)"
+                stopOpacity="0"
+              />
+            </linearGradient>
+            <linearGradient id="benchLineStroke" x1="0" x2="1" y1="0" y2="0">
+              <stop offset="0%" stopColor="var(--status-ok)" />
+              <stop offset="55%" stopColor="var(--accent-cool)" />
+              <stop offset="100%" stopColor="var(--accent-warm)" />
+            </linearGradient>
+            <linearGradient id="benchStemFill" x1="0" x2="0" y1="0" y2="1">
+              <stop
+                offset="0%"
+                stopColor="var(--accent-cool)"
+                stopOpacity="0.18"
+              />
+              <stop
+                offset="100%"
+                stopColor="var(--accent-cool)"
+                stopOpacity="0"
+              />
+            </linearGradient>
+          </defs>
+          <rect className="bench-plot-bg" height={height} width={width} />
+          {coordinates
+            .slice(0, -1)
+            .map((point, index) =>
+              index % 2 === 0 ? (
+                <rect
+                  className="bench-chart-band"
+                  height={chartHeight}
+                  key={`${point.runId}-${index}`}
+                  width={coordinates[index + 1].x - point.x}
+                  x={point.x}
+                  y={padding.top}
+                />
+              ) : null,
+            )}
+          {coordinates.map((point) => (
+            <line
+              className="bench-stem-line"
+              key={`${point.runId}-${point.label}-stem`}
+              x1={point.x}
+              x2={point.x}
+              y1={point.y}
+              y2={chartBottom}
+            />
+          ))}
+          {ticks.map((tick) => (
+            <g key={tick.y}>
+              <line
+                className="bench-grid-line"
+                x1={padding.left}
+                x2={width - padding.right}
+                y1={tick.y}
+                y2={tick.y}
+              />
+              <text
+                className="bench-axis-label"
+                textAnchor="end"
+                x={padding.left - 12}
+                y={tick.y + 4}
+              >
+                {formatMetric(tick.value, unit)}
+              </text>
+            </g>
+          ))}
+          <line
+            className="bench-average-line"
+            x1={padding.left}
+            x2={width - padding.right}
+            y1={averageY}
+            y2={averageY}
+          />
+          <text
+            className="bench-average-label"
+            textAnchor={averageLabelAnchor}
+            x={averageLabelX}
+            y={averageLabelY}
+          >
+            {compact ? "média" : `média · ${formatMetric(average, unit)}`}
+          </text>
+          <polygon className="bench-area" points={area} />
+          <path className="bench-trend-line" d={trendLine} />
+          <path className="bench-line" d={line} />
+          {latestCoordinate && (
+            <line
+              className="bench-latest-guide"
+              x1={latestCoordinate.x}
+              x2={latestCoordinate.x}
+              y1={padding.top}
+              y2={chartBottom}
+            />
+          )}
+          {coordinates.map((point, index) => (
+            <g key={`${point.runId}-${point.label}`}>
+              <circle
+                className={
+                  index === coordinates.length - 1
+                    ? "bench-dot is-latest"
+                    : "bench-dot"
+                }
+                cx={point.x}
+                cy={point.y}
+                r={index === coordinates.length - 1 ? 6 : 4}
+              />
+              <title>
+                {point.label}: {formatMetric(point.value, unit)}
+              </title>
+            </g>
+          ))}
+          {latestCoordinate && (
+            <g>
+              <line
+                className="bench-callout-line"
+                x1={latestCoordinate.x}
+                x2={latestLabelX}
+                y1={latestCoordinate.y}
+                y2={latestCoordinate.y - 18}
+              />
+              <text
+                className="bench-callout-text"
+                textAnchor={latestLabelAnchor}
+                x={latestLabelX}
+                y={latestCoordinate.y - 22}
+              >
+                atual · {formatMetric(latestCoordinate.value, unit)}
+              </text>
+            </g>
+          )}
+          {xLabels.map((point) => (
+            <text
+              className="bench-axis-label"
+              key={`${point.runId}-${point.x}`}
+              textAnchor={point.anchor}
+              x={point.x}
+              y={height - 14}
+            >
+              {point.label}
+            </text>
+          ))}
+        </svg>
+      </div>
     </div>
   );
 }
@@ -556,6 +757,79 @@ function metricLabel(key: string) {
     webmStageMs: "WebM",
   };
   return labels[key] ?? key;
+}
+
+function useElementWidth<T extends HTMLElement>() {
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const [width, setWidth] = useState(0);
+
+  const ref = useCallback((element: T | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    if (!element) return;
+    const updateWidth = () => {
+      setWidth(Math.round(element.getBoundingClientRect().width));
+    };
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+    observerRef.current = observer;
+  }, []);
+
+  useEffect(() => {
+    return () => observerRef.current?.disconnect();
+  }, []);
+
+  return [ref, width] as const;
+}
+
+function movingAverageSeries<T extends { value: number }>(points: T[]) {
+  return points.map((point, index) => {
+    const start = Math.max(0, index - 2);
+    const window = points.slice(start, index + 1);
+    const value =
+      window.reduce((total, item) => total + item.value, 0) / window.length;
+    return { ...point, value };
+  });
+}
+
+function smoothPath(points: Array<{ x: number; y: number }>) {
+  if (!points.length) return "";
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  const commands = [`M ${points[0].x} ${points[0].y}`];
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    const next = points[index + 1] ?? current;
+    const beforePrevious = points[index - 2] ?? previous;
+    const smoothing = 0.18;
+    const cp1x = previous.x + (current.x - beforePrevious.x) * smoothing;
+    const cp1y = previous.y + (current.y - beforePrevious.y) * smoothing;
+    const cp2x = current.x - (next.x - previous.x) * smoothing;
+    const cp2y = current.y - (next.y - previous.y) * smoothing;
+    commands.push(
+      `C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${current.x} ${current.y}`,
+    );
+  }
+  return commands.join(" ");
+}
+
+function labelSamples<T extends { x: number; label: string; runId: string }>(
+  points: T[],
+): Array<T & { anchor: "end" | "middle" | "start" }> {
+  type Anchor = "end" | "middle" | "start";
+  if (points.length <= 2) {
+    return points.map((point, index) => ({
+      ...point,
+      anchor: (index === 0 ? "start" : "end") satisfies Anchor,
+    }));
+  }
+  const middle = points[Math.floor(points.length / 2)];
+  return [
+    { ...points[0], anchor: "start" satisfies Anchor },
+    { ...middle, anchor: "middle" satisfies Anchor },
+    { ...points[points.length - 1], anchor: "end" satisfies Anchor },
+  ];
 }
 
 function formatMetric(value: unknown, unit: string) {
