@@ -99,6 +99,7 @@ import {
   groupAudioTracks,
 } from "../shared/audio-batch.mjs";
 import type { BatchApplyMode } from "../shared/audio-batch.mjs";
+import { groupCatalogTracks } from "../shared/catalog-tracks.mjs";
 import {
   resolveDestructiveBatchState,
   writeReplacementsWithRollback,
@@ -12673,43 +12674,6 @@ function clampPanelWidth(
   );
   const max = Math.min(bounds.max, viewportLimitedMax);
   return Math.round(Math.min(Math.max(value, bounds.min), max));
-}
-
-function groupCatalogTracks(tracks: TrackDraft[]) {
-  const albums = new Map<
-    string,
-    {
-      id: string;
-      album: string;
-      artist: string;
-      genre: string;
-      year: string;
-      tracks: TrackDraft[];
-    }
-  >();
-  for (const track of tracks) {
-    const artist = track.metadata.albumArtist || track.metadata.artist;
-    const id = `${artist}\u0000${track.metadata.album}`;
-    const album = albums.get(id) ?? {
-      id,
-      album: track.metadata.album,
-      artist,
-      genre: track.metadata.genre,
-      year: track.metadata.year,
-      tracks: [],
-    };
-    album.tracks.push(track);
-    albums.set(id, album);
-  }
-  return [...albums.values()].map((album) => ({
-    ...album,
-    tracks: album.tracks.sort(
-      (first, second) =>
-        first.metadata.diskNumber - second.metadata.diskNumber ||
-        first.metadata.trackNumber - second.metadata.trackNumber ||
-        first.metadata.title.localeCompare(second.metadata.title, "pt-BR"),
-    ),
-  }));
 }
 
 function thumbnailFingerprint(
