@@ -30,6 +30,9 @@ const coverPath = path.join(assetsDir, "bench-cover.png");
 const modeCases = buildCases(profile);
 const audioMode =
   option("audio") ?? process.env.SONARA_BENCH_AUDIO ?? "synthetic";
+const repeat = parseRepeat(
+  option("repeat") ?? process.env.SONARA_BENCH_REPEAT ?? "1",
+);
 
 await fs.mkdir(outputDir, { recursive: true });
 await fs.mkdir(assetsDir, { recursive: true });
@@ -48,6 +51,7 @@ const run = {
   runId,
   kind: "render-benchmark",
   profile,
+  repeat,
   createdAt: new Date().toISOString(),
   git: gitInfo(),
   environment: environmentInfo(),
@@ -64,25 +68,31 @@ const run = {
     mp4Bytes: 1.2,
   },
   cases: [],
+  medians: [],
   warnings: [],
 };
 
 console.log(`Sonara render benchmark (${profile})`);
 console.log(`Audio: ${audioSource.label}`);
+console.log(`Repeat: ${repeat}`);
 console.log(`Outputs: ${path.relative(root, outputDir)}`);
 
-for (const benchCase of modeCases) {
-  const result = await runCase(benchCase);
-  result.warnings = compareWithHistory(result, history, run.thresholds);
-  run.cases.push(result);
-  run.warnings.push(
-    ...result.warnings.map((warning) => `${result.id}: ${warning}`),
-  );
-  const status = result.warnings.length ? "WARN" : "OK";
-  console.log(
-    `${status} ${result.id}: ${formatMs(result.totalMs)} total, ${formatMs(result.frameRenderMs)} render, ${formatMs(result.canvasCaptureMs)} capture, ${formatMs(result.mediaRecorderMs)} recorder, ${formatMs(result.muxMs)} mux, ${result.peakRssMb.toFixed(1)} MB rss`,
-  );
+for (let repeatIndex = 1; repeatIndex <= repeat; repeatIndex += 1) {
+  for (const benchCase of modeCases) {
+    const result = await runCase(benchCase, repeatIndex);
+    result.warnings = compareWithHistory(result, history, run.thresholds);
+    run.cases.push(result);
+    run.warnings.push(
+      ...result.warnings.map((warning) => `${result.id}: ${warning}`),
+    );
+    const status = result.warnings.length ? "WARN" : "OK";
+    const repeatLabel = repeat > 1 ? ` r${repeatIndex}/${repeat}` : "";
+    console.log(
+      `${status} ${result.id}${repeatLabel}: ${formatMs(result.totalMs)} total, ${formatMs(result.frameRenderMs)} render, ${formatMs(result.canvasCaptureMs)} capture, ${formatMs(result.mediaRecorderMs)} recorder, ${formatMs(result.muxMs)} mux, ${result.peakRssMb.toFixed(1)} MB rss`,
+    );
+  }
 }
+run.medians = repeat > 1 ? repeatedCaseMedians(run.cases) : [];
 
 await fs.writeFile(
   path.join(runDir, "render.json"),
@@ -97,7 +107,7 @@ if (run.warnings.length) {
   for (const warning of run.warnings) console.warn(`- ${warning}`);
 }
 
-async function runCase(benchCase) {
+async function runCase(benchCase, repeatIndex = 1) {
   const timing = renderTiming({
     qualityProfile: benchCase.qualityProfile,
     renderMode: "single",
@@ -112,8 +122,10 @@ async function runCase(benchCase) {
     crf: benchCase.crf ?? 22,
   };
   const internalSize = renderCanvasSize(benchCase.outputSize, settings);
-  const webmPath = path.join(outputDir, `${benchCase.id}.webm`);
-  const mp4Path = path.join(outputDir, `${benchCase.id}.mp4`);
+  const outputId =
+    repeat > 1 ? `${benchCase.id}-r${repeatIndex}` : benchCase.id;
+  const webmPath = path.join(outputDir, `${outputId}.webm`);
+  const mp4Path = path.join(outputDir, `${outputId}.mp4`);
   const progressMessages = [];
   const webglTelemetry = [];
   const monitor = startMemoryMonitor();
@@ -177,6 +189,8 @@ async function runCase(benchCase) {
   };
   return {
     id: benchCase.id,
+    outputId,
+    repeatIndex,
     paramsHash: hash(params),
     sceneId: benchCase.scene.id,
     rendererId,
@@ -802,6 +816,33 @@ function compareWithHistory(result, runs, thresholds) {
   return warnings;
 }
 
+function repeatedCaseMedians(cases) {
+  const grouped = new Map();
+  for (const item of cases) {
+    grouped.set(item.id, [...(grouped.get(item.id) ?? []), item]);
+  }
+  return [...grouped.entries()].map(([id, items]) => {
+    const first = items[0];
+    return {
+      id,
+      rendererId: first.rendererId,
+      outputSize: first.outputSize,
+      duration: first.duration,
+      repeats: items.length,
+      totalMs: round(median(items, "totalMs")),
+      webmStageMs: round(median(items, "webmStageMs")),
+      webglPrepareMs: round(median(items, "webglPrepareMs")),
+      canvasCaptureMs: round(median(items, "canvasCaptureMs")),
+      frameRenderMs: round(median(items, "frameRenderMs")),
+      mediaRecorderMs: round(median(items, "mediaRecorderMs")),
+      muxMs: round(median(items, "muxMs")),
+      peakRssMb: round(median(items, "peakRssMb")),
+      mp4Bytes: Math.round(median(items, "mp4Bytes")),
+      webglRetryCount: Math.round(median(items, "webglRetryCount")),
+    };
+  });
+}
+
 function compareMetric(warnings, label, current, baseline, multiplier, unit) {
   if (
     !Number.isFinite(current) ||
@@ -854,6 +895,36 @@ function renderMarkdown(runData) {
       ].join(" | "),
     )
     .join("\n");
+  const medianRows = (runData.medians ?? [])
+    .map((item) =>
+      [
+        item.id,
+        item.rendererId,
+        `${item.outputSize.width}x${item.outputSize.height}`,
+        item.repeats,
+        formatMs(item.webmStageMs),
+        formatMs(item.webglPrepareMs),
+        formatMs(item.canvasCaptureMs),
+        formatMs(item.frameRenderMs),
+        formatMs(item.mediaRecorderMs),
+        formatMs(item.muxMs),
+        formatMs(item.totalMs),
+        `${item.peakRssMb.toFixed(1)} MB`,
+        `${(item.mp4Bytes / 1024 / 1024).toFixed(2)} MB`,
+        item.webglRetryCount,
+      ].join(" | "),
+    )
+    .join("\n");
+  const medianSection =
+    runData.repeat > 1
+      ? `
+## Repeat Medians
+
+Case | Renderer | Output | Repeats | WebM stage | Prepare | Capture | Frame render | Recorder | Mux | Total | Peak RSS | MP4 | WebGL retries
+--- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---:
+${medianRows}
+`
+      : "";
   const warnings = runData.warnings.length
     ? runData.warnings.map((item) => `- ${item}`).join("\n")
     : "- Nenhum alerta alem de baseline insuficiente.";
@@ -865,6 +936,7 @@ Commit: \`${runData.git.commit}\`
 Branch: \`${runData.git.branch}\`
 Environment: ${runData.environment.platform} ${runData.environment.release}, Node ${runData.environment.node}
 Audio: ${runData.audioSource.label}
+Repeat: ${runData.repeat}
 
 ## Results
 
@@ -872,6 +944,7 @@ Case | Renderer | Output | Duration | WebM stage | Prepare | Capture | Frame ren
 --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---
 ${rows}
 
+${medianSection}
 ## Warnings
 
 ${warnings}
@@ -880,6 +953,7 @@ ${warnings}
 
 - WebM stage is now broken down into Chromium/runtime prepare, deterministic canvas capture, per-frame render/wait, MediaRecorder/WebM stop+flush, chunk bytes, and WebM validation inside \`renderWebglBackgroundVideo\`.
 - FFmpeg mux, MP4 validation, peak RSS and WebGL retry count remain tracked per case; compact browser phase events are persisted in each run JSON.
+- \`--repeat=N\` runs each case multiple times and reports per-case medians in this Markdown report and in \`render.json\`.
 - Regression warnings are warn-only and now compare the main phase timings when matching history exists. Functional failures still fail the benchmark process.
 - Baseline uses previous local runs with the same case and parameter hash from \`.dev/bench/render-history.jsonl\`.
 `;
@@ -919,6 +993,12 @@ function option(name) {
   return process.argv
     .find((arg) => arg.startsWith(prefix))
     ?.slice(prefix.length);
+}
+
+function parseRepeat(value) {
+  const parsed = Number.parseInt(String(value ?? "1"), 10);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.min(10, Math.max(1, parsed));
 }
 
 function hash(value) {
