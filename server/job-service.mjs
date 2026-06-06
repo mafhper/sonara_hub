@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const canceledErrorCode = "JOB_CANCELED";
+const canceledWorkerErrorCode = "JOB_WORKER_CANCELED";
 
 export function createCanceledJobError(message = "Job cancelado") {
   const error = new Error(message);
@@ -10,7 +11,9 @@ export function createCanceledJobError(message = "Job cancelado") {
 }
 
 export function isCanceledJobError(error) {
-  return error?.code === canceledErrorCode;
+  return (
+    error?.code === canceledErrorCode || error?.code === canceledWorkerErrorCode
+  );
 }
 
 export function normalizeJobError(error, fallbackCode) {
