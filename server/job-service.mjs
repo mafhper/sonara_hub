@@ -3,6 +3,13 @@ import path from "node:path";
 
 const canceledErrorCode = "JOB_CANCELED";
 const canceledWorkerErrorCode = "JOB_WORKER_CANCELED";
+const retryableErrorCodes = new Set([
+  "FFMPEG_OUTPUT_INVALID",
+  "FFMPEG_PROCESS_FAILED",
+  "JOB_WORKER_EXIT",
+  "JOB_WORKER_TIMEOUT",
+  "WEBGL_CONTEXT_LOST",
+]);
 
 export function createCanceledJobError(message = "Job cancelado") {
   const error = new Error(message);
@@ -25,6 +32,81 @@ export function normalizeJobError(error, fallbackCode) {
       error?.detail ??
       (error instanceof Error ? error.stack || error.message : String(error)),
   };
+}
+
+export function isRetryableJobError(error) {
+  if (!error || isCanceledJobError(error)) return false;
+  const code = error?.code ? String(error.code) : "";
+  if (retryableErrorCodes.has(code)) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /WebM (truncado|vazio|incompleto|invalido)|cabecalho WebM|não pode ser decodificada|nao pode ser decodificada/i.test(
+    message,
+  );
+}
+
+export async function runJobWithRetry({
+  delay = (milliseconds) =>
+    new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  getJob,
+  jobId,
+  maxAttempts = 2,
+  retryDelayMs = 750,
+  shouldRetry = isRetryableJobError,
+  updateJob,
+  worker,
+}) {
+  let attempt = Math.max(0, Number(getJob?.(jobId)?.attempt ?? 0));
+  const limit = Math.max(1, Number(maxAttempts) || 1);
+
+  while (attempt < limit) {
+    attempt += 1;
+    updateJob(jobId, {
+      attempt,
+      maxAttempts: limit,
+      nextAttemptAt: null,
+    });
+
+    try {
+      const result = await worker({ attempt, maxAttempts: limit });
+      updateJob(jobId, {
+        errorCode: undefined,
+        errorDetail: undefined,
+        nextAttemptAt: null,
+      });
+      return result;
+    } catch (error) {
+      if (
+        isCanceledJobError(error) ||
+        attempt >= limit ||
+        !shouldRetry(error)
+      ) {
+        throw error;
+      }
+      const current = getJob?.(jobId) ?? {};
+      const retryAt = new Date(Date.now() + retryDelayMs).toISOString();
+      const normalized = normalizeJobError(error, "JOB_RETRYABLE_ERROR");
+      updateJob(jobId, {
+        status: "queued",
+        progress: Math.min(98, Math.max(0, Number(current.progress ?? 0))),
+        message: `Falha recuperável em ${stageLabel(current.stage)}; nova tentativa ${attempt + 1}/${limit}`,
+        errorCode: normalized.errorCode,
+        errorDetail: normalized.errorDetail,
+        nextAttemptAt: retryAt,
+        retryHistory: [
+          ...(Array.isArray(current.retryHistory) ? current.retryHistory : []),
+          {
+            attempt,
+            errorCode: normalized.errorCode,
+            failedAt: new Date().toISOString(),
+            message: normalized.message,
+            retryAt,
+            stage: current.stage ?? null,
+          },
+        ],
+      });
+      await delay(retryDelayMs);
+    }
+  }
 }
 
 export function createJobRunner({
@@ -116,4 +198,8 @@ export async function cleanupJobWorkDir(workDir, jobId, warn = console.warn) {
       `Não foi possível limpar o diretório de trabalho ${jobId}: ${error?.code ?? error}`,
     );
   }
+}
+
+function stageLabel(stage) {
+  return stage ? String(stage) : "job";
 }

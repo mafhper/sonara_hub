@@ -9,6 +9,7 @@ import {
   createJobRunner,
   createJobStageTracker,
   isCanceledJobError,
+  runJobWithRetry,
   normalizeJobError,
 } from "../server/job-service.mjs";
 
@@ -132,4 +133,67 @@ test("job work dir cleanup removes files and warns instead of throwing", async (
   );
 
   await fs.rm(root, { recursive: true, force: true });
+});
+
+test("job retry repeats recoverable worker errors and records history", async () => {
+  let job = {
+    id: "retry-job",
+    attempt: 0,
+    maxAttempts: 2,
+    progress: 44,
+    stage: "webgl-render",
+    status: "running",
+  };
+  let calls = 0;
+
+  const result = await runJobWithRetry({
+    delay: async () => {},
+    getJob: () => job,
+    jobId: job.id,
+    updateJob: (_jobId, patch) => {
+      job = { ...job, ...patch };
+    },
+    worker: async () => {
+      calls += 1;
+      if (calls === 1) {
+        const error = new Error("worker encerrou");
+        error.code = "JOB_WORKER_EXIT";
+        throw error;
+      }
+      return "ok";
+    },
+  });
+
+  assert.equal(result, "ok");
+  assert.equal(calls, 2);
+  assert.equal(job.attempt, 2);
+  assert.equal(job.maxAttempts, 2);
+  assert.equal(job.retryHistory.length, 1);
+  assert.equal(job.retryHistory[0].errorCode, "JOB_WORKER_EXIT");
+  assert.equal(job.retryHistory[0].stage, "webgl-render");
+});
+
+test("job retry does not repeat non-recoverable errors", async () => {
+  let job = { id: "no-retry", attempt: 0, maxAttempts: 2 };
+  let calls = 0;
+
+  await assert.rejects(
+    runJobWithRetry({
+      delay: async () => {},
+      getJob: () => job,
+      jobId: job.id,
+      updateJob: (_jobId, patch) => {
+        job = { ...job, ...patch };
+      },
+      worker: async () => {
+        calls += 1;
+        const error = new Error("ffmpeg ausente");
+        error.code = "FFMPEG_MISSING";
+        throw error;
+      },
+    }),
+    { code: "FFMPEG_MISSING" },
+  );
+  assert.equal(calls, 1);
+  assert.equal(job.retryHistory, undefined);
 });
