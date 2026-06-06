@@ -5989,6 +5989,16 @@ function BatchJobBoard({
                     {jobStatusLabel(job.status)} ·{" "}
                     {readableJobMessage(job.message)}
                   </small>
+                  {job.stage && job.stage !== "complete" && (
+                    <small className="job-stage-line">
+                      Etapa: {jobStageLabel(job.stage)}
+                    </small>
+                  )}
+                  {job.stageTimings?.length ? (
+                    <small className="job-stage-line">
+                      Tempos: {formatJobStageTimings(job.stageTimings)}
+                    </small>
+                  ) : null}
                 </div>
                 <progress max={100} value={job.progress} />
                 <span>{job.progress}%</span>
@@ -12784,6 +12794,41 @@ function jobStatusLabel(status: RenderJob["status"]) {
   }[status];
 }
 
+function jobStageLabel(stage: string) {
+  return (
+    {
+      "asset-prepare": "preparo do asset",
+      "audio-analysis": "análise de áudio",
+      "audio-assets": "capas e sidecars",
+      "audio-prepare": "preparo do MP3",
+      "audio-tags": "metadados limpos",
+      "ffmpeg-mux": "mux FFmpeg",
+      manifest: "manifesto",
+      "output-validation": "validação final",
+      "poster-render": "poster",
+      "webgl-render": "render WebGL",
+    }[stage] ?? stage
+  );
+}
+
+function formatJobStageTimings(
+  timings: NonNullable<RenderJob["stageTimings"]>,
+) {
+  return timings
+    .slice(-4)
+    .map(
+      (item) =>
+        `${jobStageLabel(item.stage)} ${formatDurationMs(item.durationMs)}${item.interrupted ? " interrompido" : ""}`,
+    )
+    .join(" · ");
+}
+
+function formatDurationMs(value: number) {
+  const milliseconds = Math.max(0, Number(value) || 0);
+  if (milliseconds < 1000) return `${Math.round(milliseconds)}ms`;
+  return `${(milliseconds / 1000).toFixed(milliseconds < 10000 ? 1 : 0)}s`;
+}
+
 function readableJobMessage(message: string) {
   return message
     .replaceAll("Renderizacao", "Renderização")
@@ -12982,6 +13027,15 @@ function jobErrorReport(job: RenderJob) {
     `Job: ${job.id}`,
     `Tipo: ${job.kind ?? "desconhecido"}`,
     `Status: ${job.status}`,
+    job.stage ? `Etapa atual: ${jobStageLabel(job.stage)}` : "",
+    job.stageTimings?.length
+      ? `Tempos:\n${job.stageTimings
+          .map(
+            (item) =>
+              `- ${jobStageLabel(item.stage)}: ${formatDurationMs(item.durationMs)}${item.interrupted ? " (interrompido)" : ""}`,
+          )
+          .join("\n")}`
+      : "",
     job.errorCode ? `Código: ${job.errorCode}` : "",
     `Mensagem: ${job.message}`,
     job.errorDetail ? `Detalhe:\n${job.errorDetail}` : "",
