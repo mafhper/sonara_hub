@@ -60,6 +60,7 @@ import {
   sanitizePublicationFilePart,
 } from "../shared/publication-assets.mjs";
 import {
+  createFfmpegProcessError,
   normalizeFfmpegSpawnError,
   resolveFfmpegPath,
 } from "./ffmpeg-tool.mjs";
@@ -2538,9 +2539,7 @@ function runFfmpeg(args, duration, onProgress) {
         resolve();
         return;
       }
-      reject(
-        new Error(`ffmpeg terminou com codigo ${code}: ${stderr.slice(-2000)}`),
-      );
+      reject(createFfmpegProcessError({ code, stderr }));
     });
   });
 }
@@ -2585,7 +2584,11 @@ function assertPlayableOutput(outputPath) {
         return;
       }
       reject(
-        new Error(`MP4 final invalido ou sem streams: ${stderr.slice(-2000)}`),
+        createFfmpegProcessError({
+          code,
+          kind: "output-validation",
+          stderr,
+        }),
       );
     });
   });
