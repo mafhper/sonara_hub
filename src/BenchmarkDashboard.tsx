@@ -251,8 +251,8 @@ export default function BenchmarkDashboard() {
         </label>
       </section>
 
-      <section className="bench-main-grid">
-        <section className="bench-panel bench-chart-panel">
+      <section className="bench-panel bench-main-grid">
+        <div className="bench-chart-column">
           <div className="bench-panel-title">
             <BarChart3 />
             <div>
@@ -264,9 +264,9 @@ export default function BenchmarkDashboard() {
             </div>
           </div>
           <MetricChart points={series} unit={selectedMetric.unit} />
-        </section>
+        </div>
 
-        <section className="bench-panel">
+        <aside className="bench-sample-column">
           <div className="bench-panel-title">
             <Gauge />
             <div>
@@ -275,7 +275,7 @@ export default function BenchmarkDashboard() {
             </div>
           </div>
           <PhaseBreakdown caseData={latestCase} />
-        </section>
+        </aside>
       </section>
 
       <section className="bench-panel">
@@ -344,7 +344,7 @@ function MetricChart({
     return <div className="bench-empty">Sem dados para esta seleção.</div>;
   }
   const width = Math.round(Math.max(360, measuredWidth || 920));
-  const height = width < 560 ? 320 : 360;
+  const height = width < 560 ? 320 : width > 780 ? 420 : 360;
   const compact = width < 560;
   const padding = {
     bottom: compact ? 42 : 48,
