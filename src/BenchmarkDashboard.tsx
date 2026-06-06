@@ -154,6 +154,10 @@ export default function BenchmarkDashboard() {
   );
   const latestRun = visibleRuns.at(-1) ?? report?.latestRun ?? null;
   const latestCase = findLatestCase(visibleRuns, selectedCaseId);
+  const runTotals = visibleRuns.map((run) => run.summary.totalMs);
+  const runMedians = visibleRuns.map((run) => run.summary.medianTotalMs);
+  const runRss = visibleRuns.map((run) => run.summary.peakRssMb);
+  const runWarnings = visibleRuns.map((run) => run.summary.warningCount);
 
   return (
     <main className="bench-dashboard">
@@ -187,24 +191,32 @@ export default function BenchmarkDashboard() {
           label="Último run"
           value={latestRun ? relativeDate(latestRun.createdAt) : "Sem dados"}
           detail={latestRun ? latestRun.profile : "Rode bench:render"}
+          tone="warm"
+          trend={runTotals}
         />
         <MetricCard
           icon={<Database />}
           label="Histórico"
           value={`${report?.returnedRunCount ?? 0}/${report?.runCount ?? 0}`}
           detail="runs carregados"
+          tone="cool"
+          trend={runMedians}
         />
         <MetricCard
           icon={<Gauge />}
           label="Total do último"
           value={formatMetric(latestRun?.summary.totalMs, "ms")}
           detail={`${latestRun?.summary.caseCount ?? 0} casos`}
+          tone="mixed"
+          trend={runTotals}
         />
         <MetricCard
           icon={<Activity />}
           label="Pico RSS"
           value={formatMetric(latestRun?.summary.peakRssMb, "MB")}
           detail={`${latestRun?.summary.retryCount ?? 0} retries WebGL`}
+          tone="ok"
+          trend={runRss.length ? runRss : runWarnings}
         />
       </section>
 
@@ -313,22 +325,64 @@ function MetricCard({
   detail,
   icon,
   label,
+  tone = "cool",
+  trend,
   value,
 }: {
   detail: string;
   icon: ReactNode;
   label: string;
+  tone?: "cool" | "mixed" | "ok" | "warm";
+  trend?: number[];
   value: string;
 }) {
   return (
-    <div className="bench-card">
-      <span>{icon}</span>
+    <div className={`bench-card is-${tone}`}>
+      <span className="bench-card-icon">{icon}</span>
       <div>
         <small>{label}</small>
         <strong>{value}</strong>
         <em>{detail}</em>
       </div>
+      <Sparkline values={trend ?? []} />
     </div>
+  );
+}
+
+function Sparkline({ values }: { values: number[] }) {
+  const cleanValues = values.filter((value) => Number.isFinite(value));
+  if (cleanValues.length < 2) {
+    return <span className="bench-card-sparkline" aria-hidden="true" />;
+  }
+  const width = 104;
+  const height = 42;
+  const padding = 5;
+  const min = Math.min(...cleanValues);
+  const max = Math.max(...cleanValues);
+  const range = Math.max(1, max - min);
+  const xStep =
+    cleanValues.length > 1
+      ? (width - padding * 2) / (cleanValues.length - 1)
+      : 0;
+  const points = cleanValues.map((value, index) => ({
+    x: padding + xStep * index,
+    y: height - padding - ((value - min) / range) * (height - padding * 2),
+  }));
+  const line = smoothPath(points);
+  const area = `${padding},${height - padding} ${points
+    .map((point) => `${point.x},${point.y}`)
+    .join(" ")} ${width - padding},${height - padding}`;
+  const latest = points.at(-1);
+  return (
+    <svg
+      aria-hidden="true"
+      className="bench-card-sparkline"
+      viewBox={`0 0 ${width} ${height}`}
+    >
+      <polygon points={area} />
+      <path d={line} />
+      {latest && <circle cx={latest.x} cy={latest.y} r="3" />}
+    </svg>
   );
 }
 
@@ -615,23 +669,49 @@ function PhaseBreakdown({ caseData }: { caseData?: BenchmarkCase | null }) {
   }));
   const max = Math.max(1, ...rows.map((row) => row.value));
   return (
-    <div className="bench-bars">
-      {rows.map((row) => (
-        <div className="bench-bar-row" key={row.key}>
-          <span>{row.label}</span>
-          <div>
-            <i style={{ width: `${Math.max(4, (row.value / max) * 100)}%` }} />
+    <div className="bench-sample-stack">
+      <div className="bench-sample-kpis">
+        <span>
+          <small>Total</small>
+          <strong>{formatMetric(caseData.totalMs, "ms")}</strong>
+        </span>
+        <span>
+          <small>Arquivo</small>
+          <strong>{formatMetric(caseData.mp4Bytes, "bytes")}</strong>
+        </span>
+        <span>
+          <small>RSS</small>
+          <strong>{formatMetric(caseData.peakRssMb, "MB")}</strong>
+        </span>
+      </div>
+      <div className="bench-bars">
+        {rows.map((row) => (
+          <div className="bench-bar-row" key={row.key}>
+            <span>{row.label}</span>
+            <div>
+              <i
+                style={{
+                  width: `${Math.max(4, (row.value / max) * 100)}%`,
+                }}
+              />
+            </div>
+            <strong>{formatMetric(row.value, "ms")}</strong>
           </div>
-          <strong>{formatMetric(row.value, "ms")}</strong>
-        </div>
-      ))}
+        ))}
+      </div>
       <div className="bench-case-meta">
         <span>
           {caseData.outputSize.width}x{caseData.outputSize.height}
         </span>
         <span>{caseData.qualityProfile}</span>
-        <span>{formatMetric(caseData.peakRssMb, "MB")} RSS</span>
+        <span>{caseData.retryWebgl ? "retry WebGL" : "sem retry WebGL"}</span>
       </div>
+      {caseData.warnings.length > 0 && (
+        <div className="bench-sample-warning">
+          <TriangleAlert />
+          <span>{caseData.warnings[0]}</span>
+        </div>
+      )}
     </div>
   );
 }
