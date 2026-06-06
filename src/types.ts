@@ -1,4 +1,5 @@
 import type { ScenePresetV3 } from "../shared/visual-effects.mjs";
+import type { PublicationAssetOverrideMap } from "../shared/publication-assets.mjs";
 
 export type AudioInfo = {
   fileName: string;
@@ -311,6 +312,7 @@ export type ProjectSnapshot = {
   publicationClipDuration?: number;
   publicationIncludeLyrics?: boolean;
   publicationAssetMode?: "single" | "group" | "all";
+  publicationAssetOverrides?: PublicationAssetOverrideMap;
   assetManifest?: ProjectAssetManifest;
   coverAssetId?: string;
   coverSeriesSettings?: CoverSeriesSettings;

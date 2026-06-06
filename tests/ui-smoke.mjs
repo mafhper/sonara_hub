@@ -504,8 +504,40 @@ try {
   await page.getByText("Grade de publicação").waitFor();
   await page.getByRole("button", { name: "Divulgação" }).click();
   await page.getByText("Assets de publicação").waitFor();
-  await page.getByText("Opções de asset").waitFor();
-  await page.getByRole("button", { name: /SoundCloud banner/ }).waitFor();
+  await page.getByLabel("Asset em foco").selectOption("clip-vertical");
+  await page.getByText("Prévia do asset selecionado").waitFor();
+  await page
+    .locator(".publication-preview-panel > div:first-child strong")
+    .getByText("Clip vertical", { exact: true })
+    .waitFor();
+  await page.getByText("Ajustes deste asset").waitFor();
+  await page.getByRole("spinbutton", { name: "Início deste asset" }).fill("10");
+  await page.getByRole("spinbutton", { name: "Duração deste asset" }).fill("2");
+  await page
+    .locator(".publication-overview strong")
+    .getByText("10s · 2s", { exact: true })
+    .waitFor();
+  await page.getByLabel("Letra deste asset").selectOption("excerpt");
+  await page
+    .getByLabel("Trecho editável da letra")
+    .fill("[Verso]\nQuando o relógio cansa\n[Refrão]\nA estrada ainda canta");
+  await page.getByLabel("Ocultar tags entre [ ]").check();
+  await page
+    .getByRole("spinbutton", { name: "Espaçamento da letra valor" })
+    .fill("160");
+  await page
+    .locator(".publication-preview-settings")
+    .getByText("trecho de letra")
+    .waitFor();
+  const lyricsPreview = page.locator(".publication-lyrics-preview");
+  await lyricsPreview.getByText("A estrada ainda canta").waitFor();
+  assert.equal((await lyricsPreview.textContent()).includes("[Refrão]"), false);
+  assert.equal(
+    await page
+      .getByRole("spinbutton", { name: "Espaçamento da letra valor" })
+      .inputValue(),
+    "160",
+  );
   await page.getByLabel("Disparar").selectOption("group");
   await page
     .locator(".publication-overview strong")
