@@ -40,6 +40,7 @@ import {
   isCanceledJobError,
 } from "./job-service.mjs";
 import { createTempFileRegistry } from "./temp-files.mjs";
+import { runRenderWorkerJob } from "./job-worker.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
@@ -109,6 +110,7 @@ let queuePaused = false;
 const queueWaiters = new Set();
 const presetStore = createPresetStore(customPresetPath);
 let renderQueue = Promise.resolve();
+const activeJobWorkers = new Map();
 
 app.use(express.json({ limit: "5mb" }));
 app.use("/outputs", express.static(outputDir));
@@ -856,15 +858,38 @@ process.on("unhandledRejection", (reason) => {
 });
 
 function enqueueRender(options) {
-  enqueueJob(options, "VIDEO_RENDER_ERROR", renderVideo);
+  enqueueJob(options, "VIDEO_RENDER_ERROR", (jobOptions) =>
+    runRenderWorker("video-render", jobOptions),
+  );
 }
 
 function enqueuePublicationAsset(options) {
-  enqueueJob(options, "PUBLICATION_ASSET_ERROR", renderPublicationAsset);
+  enqueueJob(options, "PUBLICATION_ASSET_ERROR", (jobOptions) =>
+    runRenderWorker("publication-asset", jobOptions),
+  );
 }
 
 function enqueueAudioProcess(options) {
   enqueueJob(options, "AUDIO_PROCESS_ERROR", processAudio);
+}
+
+function runRenderWorker(kind, options) {
+  const { uploadedFiles: _uploadedFiles, ...payload } = options;
+  return runRenderWorkerJob({
+    jobId: options.jobId,
+    kind,
+    payload: {
+      ...payload,
+      workDir,
+    },
+    updateJob,
+    onWorkerStart: (controller) => {
+      activeJobWorkers.set(options.jobId, controller);
+    },
+    onWorkerDone: () => {
+      activeJobWorkers.delete(options.jobId);
+    },
+  });
 }
 
 function enqueueJob(options, fallbackErrorCode, worker) {
@@ -925,6 +950,7 @@ function requestJobCancel(jobId) {
           message: "Cancelado",
         };
   setJob(jobId, { ...next, updatedAt: new Date().toISOString() });
+  activeJobWorkers.get(jobId)?.cancel();
   for (const resume of queueWaiters) resume();
   queueWaiters.clear();
   return jobs.get(jobId);
