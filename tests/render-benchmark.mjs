@@ -53,8 +53,13 @@ const run = {
   environment: environmentInfo(),
   audioSource,
   thresholds: {
+    canvasCaptureMs: 1.25,
+    frameRenderMs: 1.35,
+    mediaRecorderMs: 1.25,
+    muxMs: 1.25,
     totalMs: 1.25,
     peakRssMb: 1.3,
+    webmStageMs: 1.25,
     webmBytes: 1.2,
     mp4Bytes: 1.2,
   },
@@ -75,7 +80,7 @@ for (const benchCase of modeCases) {
   );
   const status = result.warnings.length ? "WARN" : "OK";
   console.log(
-    `${status} ${result.id}: ${formatMs(result.totalMs)} total, ${formatMs(result.canvasCaptureMs)} capture, ${formatMs(result.mediaRecorderMs)} recorder, ${formatMs(result.muxMs)} mux, ${result.peakRssMb.toFixed(1)} MB rss`,
+    `${status} ${result.id}: ${formatMs(result.totalMs)} total, ${formatMs(result.frameRenderMs)} render, ${formatMs(result.canvasCaptureMs)} capture, ${formatMs(result.mediaRecorderMs)} recorder, ${formatMs(result.muxMs)} mux, ${result.peakRssMb.toFixed(1)} MB rss`,
   );
 }
 
@@ -186,6 +191,9 @@ async function runCase(benchCase) {
     webmStageMs: round(webmStageMs),
     webglPrepareMs: webglPhases.webglPrepareMs,
     canvasCaptureMs: webglPhases.canvasCaptureMs,
+    frameRenderMs: webglPhases.frameRenderMs,
+    frameRequestMs: webglPhases.frameRequestMs,
+    frameDelayMs: webglPhases.frameDelayMs,
     mediaRecorderMs: webglPhases.mediaRecorderMs,
     webmFlushMs: webglPhases.webmFlushMs,
     webmValidationMs: webglPhases.webmValidationMs,
@@ -193,6 +201,8 @@ async function runCase(benchCase) {
     muxMs: round(muxMs),
     validationMs: round(validationMs),
     webmBytes: webmStat.size,
+    webmChunkBytes: webglPhases.webmChunkBytes,
+    webmChunkCount: webglPhases.webmChunkCount,
     mp4Bytes: mp4Stat.size,
     peakRssMb: round(memory.peakRssMb),
     startRssMb: round(memory.startRssMb),
@@ -598,6 +608,8 @@ function summarizeWebglTelemetry(events, fallbackWebmStageMs) {
   ].reduce((total, phase) => total + sumPhaseDuration(events, phase), 0);
   const sceneRecordMs =
     sumPhaseDuration(events, "scene-record") || fallbackWebmStageMs;
+  const frameLoop = phaseEvent(events, "browser:canvas-frame-loop-complete");
+  const chunksFlush = phaseEvent(events, "browser:chunks-flush-complete");
   return {
     webglPrepareMs: round(prepareMs),
     canvasCaptureMs: round(
@@ -607,6 +619,9 @@ function summarizeWebglTelemetry(events, fallbackWebmStageMs) {
         "browser:canvas-capture-complete",
       ),
     ),
+    frameRenderMs: round(finiteNumber(frameLoop?.renderMs)),
+    frameRequestMs: round(finiteNumber(frameLoop?.requestFrameMs)),
+    frameDelayMs: round(finiteNumber(frameLoop?.delayMs)),
     mediaRecorderMs: round(
       durationBetween(
         events,
@@ -623,6 +638,8 @@ function summarizeWebglTelemetry(events, fallbackWebmStageMs) {
     ),
     webmValidationMs: round(sumPhaseDuration(events, "webm-validation")),
     sceneRecordMs: round(sceneRecordMs),
+    webmChunkBytes: Math.round(finiteNumber(chunksFlush?.chunkBytes)),
+    webmChunkCount: Math.round(finiteNumber(chunksFlush?.chunks)),
     webglRetryCount: events.filter((event) => event.phase === "webgl-retry")
       .length,
   };
@@ -637,11 +654,16 @@ function compactWebglTelemetry(events) {
     };
     for (const key of [
       "durationMs",
+      "chunkBytes",
       "chunks",
+      "delayMs",
       "fps",
+      "frameLoopMs",
       "height",
       "mimeType",
       "reason",
+      "renderMs",
+      "requestFrameMs",
       "totalFrames",
       "width",
     ]) {
@@ -662,6 +684,13 @@ function durationBetween(events, startPhase, endPhase) {
   const end = events.find((event) => event.phase === endPhase);
   if (!start || !end) return 0;
   return Math.max(0, finiteNumber(end.atMs) - finiteNumber(start.atMs));
+}
+
+function phaseEvent(events, phase) {
+  return (
+    events.findLast?.((event) => event.phase === phase) ??
+    [...events].reverse().find((event) => event.phase === phase)
+  );
 }
 
 function finiteNumber(value) {
@@ -701,6 +730,46 @@ function compareWithHistory(result, runs, thresholds) {
     result.totalMs,
     median(previous, "totalMs"),
     thresholds.totalMs,
+    "ms",
+  );
+  compareMetric(
+    warnings,
+    "WebM stage",
+    result.webmStageMs,
+    median(previous, "webmStageMs"),
+    thresholds.webmStageMs,
+    "ms",
+  );
+  compareMetric(
+    warnings,
+    "captura canvas",
+    result.canvasCaptureMs,
+    median(previous, "canvasCaptureMs"),
+    thresholds.canvasCaptureMs,
+    "ms",
+  );
+  compareMetric(
+    warnings,
+    "render dos frames",
+    result.frameRenderMs,
+    median(previous, "frameRenderMs"),
+    thresholds.frameRenderMs,
+    "ms",
+  );
+  compareMetric(
+    warnings,
+    "MediaRecorder/WebM",
+    result.mediaRecorderMs,
+    median(previous, "mediaRecorderMs"),
+    thresholds.mediaRecorderMs,
+    "ms",
+  );
+  compareMetric(
+    warnings,
+    "mux FFmpeg",
+    result.muxMs,
+    median(previous, "muxMs"),
+    thresholds.muxMs,
     "ms",
   );
   compareMetric(
@@ -771,7 +840,10 @@ function renderMarkdown(runData) {
         formatMs(item.webmStageMs),
         formatMs(item.webglPrepareMs),
         formatMs(item.canvasCaptureMs),
+        formatMs(item.frameRenderMs),
+        formatMs(item.frameDelayMs),
         formatMs(item.mediaRecorderMs),
+        `${item.webmChunkCount} / ${(item.webmChunkBytes / 1024 / 1024).toFixed(2)} MB`,
         formatMs(item.webmValidationMs),
         formatMs(item.muxMs),
         formatMs(item.validationMs),
@@ -796,8 +868,8 @@ Audio: ${runData.audioSource.label}
 
 ## Results
 
-Case | Renderer | Output | Duration | WebM stage | Prepare | Capture | Recorder | WebM validate | Mux | MP4 validate | Total | Peak RSS | MP4 | Status
---- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---
+Case | Renderer | Output | Duration | WebM stage | Prepare | Capture | Frame render | Frame wait | Recorder | WebM chunks | WebM validate | Mux | MP4 validate | Total | Peak RSS | MP4 | Status
+--- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---
 ${rows}
 
 ## Warnings
@@ -806,9 +878,9 @@ ${warnings}
 
 ## Notes
 
-- WebM stage is now broken down into Chromium/runtime prepare, deterministic canvas capture, MediaRecorder/WebM stop+flush, and WebM validation inside \`renderWebglBackgroundVideo\`.
+- WebM stage is now broken down into Chromium/runtime prepare, deterministic canvas capture, per-frame render/wait, MediaRecorder/WebM stop+flush, chunk bytes, and WebM validation inside \`renderWebglBackgroundVideo\`.
 - FFmpeg mux, MP4 validation, peak RSS and WebGL retry count remain tracked per case; compact browser phase events are persisted in each run JSON.
-- Regression warnings are warn-only. Functional failures still fail the benchmark process.
+- Regression warnings are warn-only and now compare the main phase timings when matching history exists. Functional failures still fail the benchmark process.
 - Baseline uses previous local runs with the same case and parameter hash from \`.dev/bench/render-history.jsonl\`.
 `;
 }

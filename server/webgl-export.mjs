@@ -504,6 +504,12 @@ export function buildRendererHtml({
       }
       const frameDuration = 1000 / fps;
       const totalFrames = Math.max(2, Math.ceil(durationSeconds * fps));
+      const roundMs = (value) => Math.round(value * 100) / 100;
+      const captureMetrics = {
+        renderMs: 0,
+        requestFrameMs: 0,
+        delayMs: 0,
+      };
       const recorder = new MediaRecorder(stream, {
         mimeType,
         // ~25 Mbps at 1080p (was ~3): keeps the intermediate near-lossless so the
@@ -511,8 +517,10 @@ export function buildRendererHtml({
         videoBitsPerSecond: Math.max(24000000, Math.round(canvas.width * canvas.height * 12)),
       });
       const chunks = [];
+      let chunkBytes = 0;
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
+          chunkBytes += event.data.size;
           chunks.push(event.data.arrayBuffer().then((buffer) => window.saveSceneChunk(arrayBufferToBase64(buffer))));
         }
       };
@@ -528,12 +536,25 @@ export function buildRendererHtml({
       for (let index = 0; index < totalFrames; index += 1) {
         if (contextLost) throw new Error("Falha ao renderizar: contexto perdido: true (WEBGL_CONTEXT_LOST)");
         const time = Math.max(0, startTime) + Math.min(durationSeconds, index / fps);
+        const renderStarted = performance.now();
         runtime.setAudio(audioAt(time));
         runtime.render(time);
+        captureMetrics.renderMs += performance.now() - renderStarted;
+        const requestFrameStarted = performance.now();
         track.requestFrame();
+        captureMetrics.requestFrameMs += performance.now() - requestFrameStarted;
         window.reportSceneProgress(((index + 1) / totalFrames) * 88 + 4);
+        const delayStarted = performance.now();
         await delay(frameDuration);
+        captureMetrics.delayMs += performance.now() - delayStarted;
       }
+      await reportPhase("canvas-frame-loop-complete", {
+        delayMs: roundMs(captureMetrics.delayMs),
+        frameLoopMs: roundMs(captureMetrics.renderMs + captureMetrics.requestFrameMs + captureMetrics.delayMs),
+        renderMs: roundMs(captureMetrics.renderMs),
+        requestFrameMs: roundMs(captureMetrics.requestFrameMs),
+        totalFrames,
+      });
       await reportPhase("canvas-capture-complete", { totalFrames });
       await reportPhase("media-recorder-stop-start", { chunks: chunks.length });
       await new Promise((resolve) => {
@@ -546,7 +567,7 @@ export function buildRendererHtml({
       });
       await reportPhase("media-recorder-stop-complete", { chunks: chunks.length });
       await Promise.all(chunks);
-      await reportPhase("chunks-flush-complete", { chunks: chunks.length });
+      await reportPhase("chunks-flush-complete", { chunkBytes, chunks: chunks.length });
     };
 
     function arrayBufferToBase64(buffer) {
