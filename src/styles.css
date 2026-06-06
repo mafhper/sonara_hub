@@ -3113,6 +3113,16 @@ button:disabled {
   font-weight: 650;
 }
 
+.job-error-code {
+  border: 1px solid var(--status-danger-border);
+  border-radius: 999px;
+  background: var(--error-bg);
+  color: var(--error-text);
+  padding: 5px 9px;
+  font-size: var(--font-xs);
+  font-weight: 650;
+}
+
 .job-terminal-actions {
   display: flex;
   align-items: center;

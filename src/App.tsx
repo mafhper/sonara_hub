@@ -6025,6 +6025,11 @@ function BatchJobBoard({
                     <span className="job-terminal-state">
                       {jobStatusLabel(job.status)}
                     </span>
+                    {job.status === "error" && job.errorCode && (
+                      <span className="job-error-code">
+                        Código: {job.errorCode}
+                      </span>
+                    )}
                     {job.status === "error" && onCopyJobError && (
                       <button type="button" onClick={() => onCopyJobError(job)}>
                         <Copy /> Copiar erro

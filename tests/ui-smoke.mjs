@@ -1347,7 +1347,7 @@ async function assertStatusIndicators(page) {
     const host = document.createElement("div");
     host.innerHTML = `
       <div class="batch-job-row done"><span></span></div>
-      <div class="batch-job-row error"><span></span></div>
+      <div class="batch-job-row error"><span class="job-error-code">Código: TEST</span></div>
       <div class="batch-job-row canceled"><span></span></div>
       <span class="quality-badge safe">Seguro</span>
       <span class="quality-badge reduced-headroom">Margem reduzida</span>
@@ -1361,9 +1361,20 @@ async function assertStatusIndicators(page) {
     const badges = [...host.querySelectorAll(".quality-badge")].map(
       (element) => getComputedStyle(element, "::before").content,
     );
+    const errorCode = getComputedStyle(host.querySelector(".job-error-code"));
     host.remove();
-    return { rows, badges };
+    return {
+      rows,
+      badges,
+      errorCode: {
+        backgroundColor: errorCode.backgroundColor,
+        borderColor: errorCode.borderColor,
+        color: errorCode.color,
+      },
+    };
   });
   assert.ok(indicators.rows.every((shadow) => shadow !== "none"));
   assert.deepEqual(indicators.badges, ['"✓"', '"!"', '"×"']);
+  assert.notEqual(indicators.errorCode.backgroundColor, "rgba(0, 0, 0, 0)");
+  assert.notEqual(indicators.errorCode.borderColor, indicators.errorCode.color);
 }
