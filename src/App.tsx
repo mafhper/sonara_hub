@@ -721,11 +721,17 @@ const coverLayerPresetLabels: Record<CoverLayerPreset, string> = {
 };
 const defaultCoverFadeOut: CoverFadeOutSettings = {
   enabled: false,
+  mode: "tail",
   endPercent: 35,
+  startPercent: 10,
+  durationSeconds: 2,
 };
 const defaultTextFadeOut: TextFadeOutSettings = {
   enabled: false,
+  mode: "tail",
   endPercent: 70,
+  startPercent: 10,
+  durationSeconds: 2,
 };
 const visualColorLabels: Record<keyof ScenePresetV3["colors"], string> = {
   base: "Base",
@@ -2105,17 +2111,9 @@ function App() {
     setLayersUndo(null);
   }
 
-  function addCoverLayerPreset(
-    preset: CoverLayerPreset,
-    coverFadeOut: CoverFadeOutSettings,
-  ) {
+  function addCoverLayerPreset(preset: CoverLayerPreset) {
     if (!selectedTrack) return;
-    const nextLayers = layersWithCoverPreset(
-      selectedTrack,
-      preset,
-      undefined,
-      coverFadeOut,
-    );
+    const nextLayers = layersWithCoverPreset(selectedTrack, preset, undefined);
     if (!nextLayers) {
       setError("Escolha uma capa planejada ou oferecida pela pasta antes.");
       return;
@@ -2124,22 +2122,14 @@ function App() {
     updateSelectedTrack({ layers: nextLayers });
   }
 
-  function applyCoverLayerPresetToBatch(
-    preset: CoverLayerPreset,
-    coverFadeOut: CoverFadeOutSettings,
-  ) {
+  function applyCoverLayerPresetToBatch(preset: CoverLayerPreset) {
     if (!selectedTrack) return;
     const template = selectedTrack.layers.find(isCoverLayer);
     let applied = 0;
     setTracks((current) =>
       current.map((track) => {
         if (!track.selectedForBatch) return track;
-        const nextLayers = layersWithCoverPreset(
-          track,
-          preset,
-          template,
-          coverFadeOut,
-        );
+        const nextLayers = layersWithCoverPreset(track, preset, template);
         if (!nextLayers) return track;
         applied += 1;
         return { ...track, layers: nextLayers };
@@ -4043,6 +4033,7 @@ function App() {
             <div className="preview-frame">
               <ScenePreview
                 audioBandsRef={audioBandsRef}
+                audioRef={audioRef}
                 coverSrc={previewComposition.cover?.src}
                 durationSeconds={selectedTrack?.audioInfo?.durationSeconds}
                 layers={previewComposition.layers}
@@ -6533,6 +6524,7 @@ function AudioLibraryInspector({
 
 function ScenePreview({
   audioBandsRef,
+  audioRef,
   coverSrc,
   durationSeconds,
   layers,
@@ -6542,6 +6534,7 @@ function ScenePreview({
   textSettings,
 }: {
   audioBandsRef: React.MutableRefObject<AudioBands>;
+  audioRef: React.RefObject<HTMLAudioElement | null>;
   coverSrc?: string;
   durationSeconds?: number | null;
   layers: MediaLayerV2[];
@@ -6594,9 +6587,14 @@ function ScenePreview({
     const started = performance.now();
     const draw = () => {
       const scale = Math.min(1.5, window.devicePixelRatio || 1);
+      const audioTime = audioRef.current?.currentTime;
+      const renderTime =
+        Number.isFinite(audioTime) && (audioRef.current?.duration ?? 0) > 0
+          ? Number(audioTime)
+          : (performance.now() - started) / 1000;
       runtime.resize(canvas.clientWidth * scale, canvas.clientHeight * scale);
       runtime.setAudio(audioBandsRef.current);
-      runtime.render((performance.now() - started) / 1000);
+      runtime.render(renderTime);
       frame = window.requestAnimationFrame(draw);
     };
     draw();
@@ -6604,7 +6602,7 @@ function ScenePreview({
       window.cancelAnimationFrame(frame);
       runtime.destroy();
     };
-  }, [audioBandsRef]);
+  }, [audioBandsRef, audioRef]);
 
   return <canvas className="scene-canvas" ref={canvasRef} />;
 }
@@ -8443,14 +8441,8 @@ function VisualInspector(props: {
   onAddLayer: () => void;
   onAdvanced: (key: string, value: number) => void;
   onApplyBatch?: () => void;
-  onApplyCoverLayer: (
-    preset: CoverLayerPreset,
-    coverFadeOut: CoverFadeOutSettings,
-  ) => void;
-  onApplyCoverLayerBatch?: (
-    preset: CoverLayerPreset,
-    coverFadeOut: CoverFadeOutSettings,
-  ) => void;
+  onApplyCoverLayer: (preset: CoverLayerPreset) => void;
+  onApplyCoverLayerBatch?: (preset: CoverLayerPreset) => void;
   onCloudLight: (patch: Partial<CloudLightSettings>) => void;
   onColors: (key: "base" | "effect" | "light", value: string) => void;
   onCommon: (key: string, value: number) => void;
@@ -9019,14 +9011,8 @@ function LayerEditor(props: {
   layers: MediaLayerV2[];
   layerUndoLabel: string | null;
   onAddLayer: () => void;
-  onApplyCoverLayer: (
-    preset: CoverLayerPreset,
-    coverFadeOut: CoverFadeOutSettings,
-  ) => void;
-  onApplyCoverLayerBatch?: (
-    preset: CoverLayerPreset,
-    coverFadeOut: CoverFadeOutSettings,
-  ) => void;
+  onApplyCoverLayer: (preset: CoverLayerPreset) => void;
+  onApplyCoverLayerBatch?: (preset: CoverLayerPreset) => void;
   onMoveLayer: (id: string, direction: -1 | 1) => void;
   onRemoveLayer: (id: string) => void;
   onUndoLayer: () => void;
@@ -9034,13 +9020,6 @@ function LayerEditor(props: {
 }) {
   const [coverPreset, setCoverPreset] =
     useState<CoverLayerPreset>("background");
-  const [coverFadeOut, setCoverFadeOut] =
-    useState<CoverFadeOutSettings>(defaultCoverFadeOut);
-  const updateCoverFadeOut = (patch: Partial<CoverFadeOutSettings>) => {
-    setCoverFadeOut((current) =>
-      normalizeLayerCoverFadeOut({ ...current, ...patch }),
-    );
-  };
   return (
     <div className="layer-editor">
       <div className="inspector-subsection">
@@ -9080,22 +9059,16 @@ function LayerEditor(props: {
           <button
             className="upload-action"
             type="button"
-            onClick={() => props.onApplyCoverLayer(coverPreset, coverFadeOut)}
+            onClick={() => props.onApplyCoverLayer(coverPreset)}
           >
             <Image /> Aplicar capa
           </button>
         </div>
-        <CoverFadeOutFields
-          settings={coverFadeOut}
-          onChange={updateCoverFadeOut}
-        />
         {props.onApplyCoverLayerBatch && (
           <button
             className="quiet-action"
             type="button"
-            onClick={() =>
-              props.onApplyCoverLayerBatch?.(coverPreset, coverFadeOut)
-            }
+            onClick={() => props.onApplyCoverLayerBatch?.(coverPreset)}
           >
             <Layers3 /> Aplicar capa ao lote
           </button>
@@ -9294,18 +9267,55 @@ function CoverFadeOutFields({
       />
       {settings.enabled && (
         <>
-          <RangeField
-            label="Capa some até"
-            max={95}
-            min={5}
-            step={5}
-            unit="% do vídeo"
-            value={settings.endPercent}
-            onChange={(endPercent) => onChange({ endPercent })}
-          />
+          <SelectField
+            label="Tipo de fade"
+            value={settings.mode ?? "tail"}
+            onChange={(mode) =>
+              onChange({ mode: mode === "timed" ? "timed" : "tail" })
+            }
+          >
+            <option value="tail">Final do vídeo</option>
+            <option value="timed">Ponto + duração</option>
+          </SelectField>
+          {(settings.mode ?? "tail") === "timed" ? (
+            <>
+              <RangeField
+                label="Começa em"
+                max={95}
+                min={0}
+                step={5}
+                unit="% do vídeo"
+                value={settings.startPercent ?? 10}
+                onChange={(startPercent) => onChange({ startPercent })}
+              />
+              <RangeField
+                label="Duração"
+                max={20}
+                min={0.25}
+                step={0.25}
+                unit="s"
+                value={settings.durationSeconds ?? 2}
+                onChange={(durationSeconds) => onChange({ durationSeconds })}
+              />
+            </>
+          ) : (
+            <RangeField
+              label="Duração do fade"
+              max={95}
+              min={5}
+              step={5}
+              unit="% finais"
+              value={settings.endPercent}
+              onChange={(endPercent) => onChange({ endPercent })}
+            />
+          )}
           <p className="helper-copy">
-            O fade afeta só a capa; cada texto tem seu próprio fade na seção de
-            campos do texto.
+            {(settings.mode ?? "tail") === "timed"
+              ? "A capa começa a sumir no ponto escolhido e zera após a duração definida."
+              : "A capa fica visível e faz fade-out apenas no trecho final do vídeo."}
+          </p>
+          <p className="helper-copy">
+            Cada texto tem seu próprio fade na seção de campos do texto.
           </p>
         </>
       )}
@@ -9330,15 +9340,50 @@ function TextFadeOutFields({
         onChange={(enabled) => onChange({ enabled })}
       />
       {settings.enabled && (
-        <RangeField
-          label="Texto some até"
-          max={95}
-          min={5}
-          step={5}
-          unit="% do vídeo"
-          value={settings.endPercent}
-          onChange={(endPercent) => onChange({ endPercent })}
-        />
+        <>
+          <SelectField
+            label="Tipo de fade"
+            value={settings.mode ?? "tail"}
+            onChange={(mode) =>
+              onChange({ mode: mode === "timed" ? "timed" : "tail" })
+            }
+          >
+            <option value="tail">Final do vídeo</option>
+            <option value="timed">Ponto + duração</option>
+          </SelectField>
+          {(settings.mode ?? "tail") === "timed" ? (
+            <>
+              <RangeField
+                label="Começa em"
+                max={95}
+                min={0}
+                step={5}
+                unit="% do vídeo"
+                value={settings.startPercent ?? 10}
+                onChange={(startPercent) => onChange({ startPercent })}
+              />
+              <RangeField
+                label="Duração"
+                max={20}
+                min={0.25}
+                step={0.25}
+                unit="s"
+                value={settings.durationSeconds ?? 2}
+                onChange={(durationSeconds) => onChange({ durationSeconds })}
+              />
+            </>
+          ) : (
+            <RangeField
+              label="Duração do fade"
+              max={95}
+              min={5}
+              step={5}
+              unit="% finais"
+              value={settings.endPercent}
+              onChange={(endPercent) => onChange({ endPercent })}
+            />
+          )}
+        </>
       )}
     </div>
   );
@@ -11724,13 +11769,27 @@ function mergeTextFieldStyle(
 function normalizeTextFadeOut(
   value?: Partial<TextFadeOutSettings> | null,
 ): TextFadeOutSettings {
+  const mode = value?.mode === "timed" ? "timed" : "tail";
   return {
     enabled: value?.enabled === true,
+    mode,
     endPercent: clampNumber(
       Number(value?.endPercent ?? defaultTextFadeOut.endPercent),
       5,
       95,
       defaultTextFadeOut.endPercent,
+    ),
+    startPercent: clampNumber(
+      Number(value?.startPercent ?? defaultTextFadeOut.startPercent),
+      0,
+      95,
+      defaultTextFadeOut.startPercent,
+    ),
+    durationSeconds: clampNumber(
+      Number(value?.durationSeconds ?? defaultTextFadeOut.durationSeconds),
+      0.25,
+      60,
+      defaultTextFadeOut.durationSeconds,
     ),
   };
 }
@@ -12007,13 +12066,27 @@ function coverLayerFromArtwork(
 function normalizeLayerCoverFadeOut(
   value?: Partial<CoverFadeOutSettings> | null,
 ): CoverFadeOutSettings {
+  const mode = value?.mode === "timed" ? "timed" : "tail";
   return {
     enabled: value?.enabled === true,
+    mode,
     endPercent: clampNumber(
       Number(value?.endPercent ?? defaultCoverFadeOut.endPercent),
       5,
       95,
       defaultCoverFadeOut.endPercent,
+    ),
+    startPercent: clampNumber(
+      Number(value?.startPercent ?? defaultCoverFadeOut.startPercent),
+      0,
+      95,
+      defaultCoverFadeOut.startPercent,
+    ),
+    durationSeconds: clampNumber(
+      Number(value?.durationSeconds ?? defaultCoverFadeOut.durationSeconds),
+      0.25,
+      60,
+      defaultCoverFadeOut.durationSeconds,
     ),
   };
 }

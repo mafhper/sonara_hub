@@ -4080,9 +4080,11 @@ button:disabled {
 }
 
 .catalog-artwork-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   width: min(1180px, 96vw);
   max-height: min(820px, 94vh);
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid rgb(255 255 255 / 12%);
   border-radius: var(--radius-panel);
   background: var(--surface-raised-grad);
@@ -4107,8 +4109,10 @@ button:disabled {
 
 .catalog-artwork-dialog-layout {
   display: grid;
+  min-height: 0;
   grid-template-columns: minmax(340px, 1fr) minmax(320px, 0.78fr);
   gap: var(--space-4);
+  overflow: hidden;
   padding: var(--space-4);
 }
 
@@ -4743,6 +4747,12 @@ button:disabled {
 @media (max-width: 740px) {
   .catalog-artwork-dialog-layout {
     grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .catalog-artwork-preview-panel,
+  .catalog-artwork-dialog aside {
+    overflow: visible;
   }
 
   .catalog-artwork-expanded {
@@ -5145,6 +5155,15 @@ button:disabled {
 .cover-fade-controls .helper-copy,
 .text-fade-controls .helper-copy {
   margin-top: 0;
+}
+
+.cover-fade-controls .field,
+.cover-fade-controls .range-field,
+.cover-fade-controls .check-field,
+.text-fade-controls .field,
+.text-fade-controls .range-field,
+.text-fade-controls .check-field {
+  margin: 0;
 }
 
 .stage-view-switch {
@@ -6227,13 +6246,14 @@ button:disabled {
 .catalog-artwork-preview-panel {
   display: grid;
   align-content: start;
+  min-height: 0;
   gap: var(--space-3);
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .catalog-artwork-dialog aside {
-  position: sticky;
-  top: var(--space-4);
-  max-height: calc(min(820px, 94vh) - 108px);
+  min-height: 0;
   overflow: auto;
   padding-right: 4px;
 }

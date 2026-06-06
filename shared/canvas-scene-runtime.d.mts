@@ -16,7 +16,10 @@ export type RuntimeMediaLayer = {
   shadow: { opacity: number; blur: number; x: number; y: number };
   coverFadeOut?: {
     enabled: boolean;
+    mode?: "tail" | "timed";
     endPercent: number;
+    startPercent?: number;
+    durationSeconds?: number;
   };
   fit: "cover" | "contain";
   blendMode: "normal" | "screen" | "multiply" | "overlay";
@@ -51,7 +54,13 @@ export function effectiveLayerOpacity(
 export function effectiveTextOpacity(
   style: {
     opacity?: number;
-    fadeOut?: { enabled?: boolean; endPercent?: number };
+    fadeOut?: {
+      enabled?: boolean;
+      mode?: "tail" | "timed";
+      endPercent?: number;
+      startPercent?: number;
+      durationSeconds?: number;
+    };
   },
   time?: number,
   durationSeconds?: number | null,

@@ -1748,9 +1748,13 @@ function normalizeCompositionSettings(body) {
 }
 
 function normalizeCoverFadeOut(value = {}) {
+  const mode = value?.mode === "timed" ? "timed" : "tail";
   return {
     enabled: value?.enabled === true,
+    mode,
     endPercent: clampNumber(Number(value?.endPercent ?? 35), 5, 95),
+    startPercent: clampNumber(Number(value?.startPercent ?? 10), 0, 95),
+    durationSeconds: clampNumber(Number(value?.durationSeconds ?? 2), 0.25, 60),
   };
 }
 

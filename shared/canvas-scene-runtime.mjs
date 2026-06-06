@@ -993,10 +993,23 @@ function effectiveTimedOpacity(
   if (!fadeOut?.enabled) return baseOpacity;
   const duration = Number(durationSeconds);
   if (!(duration > 0)) return baseOpacity;
+  if (fadeOut.mode === "timed") {
+    const startPercent = clampNumber(Number(fadeOut.startPercent ?? 10), 0, 95);
+    const fadeDuration = clampNumber(
+      Number(fadeOut.durationSeconds ?? 2),
+      0.25,
+      60,
+    );
+    const fadeStart = duration * (startPercent / 100);
+    const progress = (Math.max(0, time) - fadeStart) / fadeDuration;
+    return baseOpacity * clampNumber(1 - progress, 0, 1);
+  }
   const endPercent = clampNumber(Number(fadeOut.endPercent ?? 35), 1, 100);
-  const endTime = duration * (endPercent / 100);
-  if (!(endTime > 0)) return 0;
-  return baseOpacity * clampNumber(1 - Math.max(0, time) / endTime, 0, 1);
+  const fadeDuration = duration * (endPercent / 100);
+  if (!(fadeDuration > 0)) return baseOpacity;
+  const fadeStart = Math.max(0, duration - fadeDuration);
+  const progress = (Math.max(0, time) - fadeStart) / fadeDuration;
+  return baseOpacity * clampNumber(1 - progress, 0, 1);
 }
 
 function drawMediaLayer(
@@ -1524,7 +1537,10 @@ function syntheticSpectrum(audio, time) {
 
 const defaultTextFadeOut = {
   enabled: false,
+  mode: "tail",
   endPercent: 70,
+  startPercent: 10,
+  durationSeconds: 2,
 };
 
 const defaultTextSettings = {
@@ -1746,13 +1762,27 @@ function mergeMetadataFieldStyle(field, style = {}) {
 }
 
 function normalizeTextFadeOut(value = {}) {
+  const mode = value?.mode === "timed" ? "timed" : "tail";
   return {
     enabled: value?.enabled === true,
+    mode,
     endPercent: clampValue(
       value?.endPercent,
       defaultTextFadeOut.endPercent,
       5,
       95,
+    ),
+    startPercent: clampValue(
+      value?.startPercent,
+      defaultTextFadeOut.startPercent,
+      0,
+      95,
+    ),
+    durationSeconds: clampValue(
+      value?.durationSeconds,
+      defaultTextFadeOut.durationSeconds,
+      0.25,
+      60,
     ),
   };
 }
