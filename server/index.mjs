@@ -32,6 +32,12 @@ import {
   cleanupOwnedStorage,
   summarizeOwnedStorage,
 } from "./storage-cleanup.mjs";
+import {
+  cleanupJobWorkDir,
+  createCanceledJobError,
+  createJobRunner,
+  isCanceledJobError,
+} from "./job-service.mjs";
 import { createTempFileRegistry } from "./temp-files.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
@@ -844,111 +850,28 @@ process.on("unhandledRejection", (reason) => {
 });
 
 function enqueueRender(options) {
-  const releaseTempFiles = tempFiles.retain(options.uploadedFiles);
-  renderQueue = renderQueue
-    .then(() => runQueuedJob(options.jobId, () => renderVideo(options)))
-    .catch((error) => {
-      if (isCanceledError(error)) return;
-      updateJob(options.jobId, {
-        status: "error",
-        message: error instanceof Error ? error.message : String(error),
-        errorCode: error?.code ? String(error.code) : "VIDEO_RENDER_ERROR",
-        errorDetail:
-          error?.detail ??
-          (error instanceof Error
-            ? error.stack || error.message
-            : String(error)),
-      });
-    })
-    .finally(async () => {
-      await releaseTempFiles();
-      try {
-        await fs.rm(path.join(workDir, options.jobId), {
-          recursive: true,
-          force: true,
-          maxRetries: 8,
-          retryDelay: 120,
-        });
-      } catch (error) {
-        // A locked work dir (Windows EBUSY) must not crash the queue; leftover
-        // files are swept by the storage cleanup endpoint.
-        console.warn(
-          `Não foi possível limpar o diretório de trabalho ${options.jobId}: ${error?.code ?? error}`,
-        );
-      }
-    });
+  enqueueJob(options, "VIDEO_RENDER_ERROR", renderVideo);
 }
 
 function enqueuePublicationAsset(options) {
-  const releaseTempFiles = tempFiles.retain(options.uploadedFiles);
-  renderQueue = renderQueue
-    .then(() =>
-      runQueuedJob(options.jobId, () => renderPublicationAsset(options)),
-    )
-    .catch((error) => {
-      if (isCanceledError(error)) return;
-      updateJob(options.jobId, {
-        status: "error",
-        message: error instanceof Error ? error.message : String(error),
-        errorCode: error?.code ? String(error.code) : "PUBLICATION_ASSET_ERROR",
-        errorDetail:
-          error?.detail ??
-          (error instanceof Error
-            ? error.stack || error.message
-            : String(error)),
-      });
-    })
-    .finally(async () => {
-      await releaseTempFiles();
-      try {
-        await fs.rm(path.join(workDir, options.jobId), {
-          recursive: true,
-          force: true,
-          maxRetries: 8,
-          retryDelay: 120,
-        });
-      } catch (error) {
-        console.warn(
-          `Não foi possível limpar o diretório de trabalho ${options.jobId}: ${error?.code ?? error}`,
-        );
-      }
-    });
+  enqueueJob(options, "PUBLICATION_ASSET_ERROR", renderPublicationAsset);
 }
 
 function enqueueAudioProcess(options) {
+  enqueueJob(options, "AUDIO_PROCESS_ERROR", processAudio);
+}
+
+function enqueueJob(options, fallbackErrorCode, worker) {
   const releaseTempFiles = tempFiles.retain(options.uploadedFiles);
-  renderQueue = renderQueue
-    .then(() => runQueuedJob(options.jobId, () => processAudio(options)))
-    .catch((error) => {
-      if (isCanceledError(error)) return;
-      updateJob(options.jobId, {
-        status: "error",
-        message: error instanceof Error ? error.message : String(error),
-        errorCode: error?.code ? String(error.code) : "AUDIO_PROCESS_ERROR",
-        errorDetail:
-          error?.detail ??
-          (error instanceof Error
-            ? error.stack || error.message
-            : String(error)),
-      });
-    })
-    .finally(async () => {
-      await releaseTempFiles();
-      try {
-        await fs.rm(path.join(workDir, options.jobId), {
-          recursive: true,
-          force: true,
-          maxRetries: 8,
-          retryDelay: 120,
-        });
-      } catch (error) {
-        // A locked work dir (Windows EBUSY) must not crash the queue; leftover
-        // files are swept by the storage cleanup endpoint.
-        console.warn(
-          `Não foi possível limpar o diretório de trabalho ${options.jobId}: ${error?.code ?? error}`,
-        );
-      }
-    });
+  const runJob = createJobRunner({
+    cleanupWorkDir: (jobId) => cleanupJobWorkDir(workDir, jobId),
+    fallbackErrorCode,
+    isCanceled: isCanceledJobError,
+    releaseTempFiles,
+    runQueuedJob,
+    updateJob,
+  });
+  renderQueue = renderQueue.then(() => runJob(options, worker));
 }
 
 async function runQueuedJob(jobId, worker) {
@@ -1016,13 +939,7 @@ function assertJobNotCanceled(jobId) {
 }
 
 function canceledError() {
-  const error = new Error("Job cancelado");
-  error.code = "JOB_CANCELED";
-  return error;
-}
-
-function isCanceledError(error) {
-  return error?.code === "JOB_CANCELED";
+  return createCanceledJobError();
 }
 
 async function processAudio({
