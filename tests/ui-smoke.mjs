@@ -242,13 +242,25 @@ try {
   await page.getByRole("button", { name: "Desfazer" }).click();
   await page.getByText("Camadas · 3/3").waitFor();
   await page.locator(".cover-layer-apply select").selectOption("right");
-  await page.getByLabel("Fade-out da capa").check();
-  await page.getByText("Capa some até").waitFor();
   await page
     .locator(".cover-layer-apply")
     .getByRole("button", { name: "Aplicar capa" })
     .click();
   await page.getByText("Capa - Direita", { exact: true }).waitFor();
+  const coverLayer = page
+    .locator(".layer-row", { hasText: "Capa - Direita" })
+    .first();
+  await coverLayer.locator("summary").click();
+  assert.equal(
+    await page.getByLabel("Fade-out da capa").count(),
+    1,
+    "cover fade-out should be configured only on the cover layer",
+  );
+  await coverLayer.getByLabel("Fade-out da capa").check();
+  await coverLayer.getByText("Duração do fade").waitFor();
+  await coverLayer.getByLabel("Tipo de fade").selectOption("timed");
+  await coverLayer.getByText("Começa em").waitFor();
+  await coverLayer.getByLabel("Duração", { exact: true }).waitFor();
   assert.equal(
     await page.locator(".layer-row").count(),
     3,
@@ -257,7 +269,13 @@ try {
   await page.getByRole("button", { exact: true, name: "Texto" }).click();
   await page.getByText("Campos do texto · ordem, exibição e estilo").waitFor();
   await page.getByLabel("Fade-out de Música").check();
-  await page.getByText("Texto some até").waitFor();
+  const musicTextFade = page.locator(".text-fade-controls", {
+    hasText: "Fade-out de Música",
+  });
+  await musicTextFade.getByText("Duração do fade").waitFor();
+  await musicTextFade.getByLabel("Tipo de fade").selectOption("timed");
+  await musicTextFade.getByText("Começa em").waitFor();
+  await musicTextFade.getByLabel("Duração", { exact: true }).waitFor();
   await page.getByRole("button", { exact: true, name: "Visual" }).click();
   await page.getByText("Waveform", { exact: true }).click();
   await page.getByText("Mostrar waveform").click();

@@ -97,7 +97,10 @@ export type MediaLayerV2 = {
   shadow: { opacity: number; blur: number; x: number; y: number };
   coverFadeOut?: {
     enabled: boolean;
+    mode?: "tail" | "timed";
     endPercent: number;
+    startPercent?: number;
+    durationSeconds?: number;
   };
   fit: "cover" | "contain";
   blendMode: "normal" | "screen" | "multiply" | "overlay";
@@ -150,7 +153,10 @@ export type TextFieldStyle = {
   opacity: number;
   fadeOut?: {
     enabled: boolean;
+    mode?: "tail" | "timed";
     endPercent: number;
+    startPercent?: number;
+    durationSeconds?: number;
   };
   align: "left" | "center" | "right";
 };
