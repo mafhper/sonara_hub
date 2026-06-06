@@ -15,9 +15,17 @@ const apiUrl = "http://127.0.0.1:4175";
 const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-hub-flow-"));
 const screenshotDir = path.join(root, ".dev", "flow-smoke");
 const coverPath = path.join(workDir, "album-cover.png");
+const layerPath = path.join(workDir, "overlay-layer.png");
 await fs.mkdir(screenshotDir, { recursive: true });
 await fs.writeFile(
   coverPath,
+  Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAD0lEQVR42mNk+M+ABzDhkQAP/wL+zKxQfAAAAABJRU5ErkJggg==",
+    "base64",
+  ),
+);
+await fs.writeFile(
+  layerPath,
   Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAD0lEQVR42mNk+M+ABzDhkQAP/wL+zKxQfAAAAABJRU5ErkJggg==",
     "base64",
@@ -178,6 +186,26 @@ try {
   await page
     .locator('select:has(option[value="spectrum-bars"])')
     .selectOption("spectrum-bars");
+  await page
+    .locator('input[type="file"][accept="image/*,video/*,.svg"]')
+    .setInputFiles(layerPath);
+  await page.waitForFunction(
+    () => document.querySelectorAll(".layer-row").length >= 1,
+    undefined,
+    { timeout: 10_000 },
+  );
+  await page.locator(".cover-layer-apply select").selectOption("right");
+  await page
+    .locator(".cover-layer-apply")
+    .getByRole("button", { name: "Aplicar capa" })
+    .click();
+  const coverLayer = page
+    .locator(".layer-row", { hasText: "Capa - Direita" })
+    .first();
+  await coverLayer.waitFor({ timeout: 10_000 });
+  await coverLayer.locator("summary").click();
+  await coverLayer.getByLabel("Fade-out da capa").check();
+  await coverLayer.getByLabel("Tipo de fade").selectOption("timed");
   await page.getByRole("button", { name: "Aplicar visual ao lote" }).click();
   await page
     .getByRole("status")
@@ -186,6 +214,11 @@ try {
   await page.locator(".steps button").filter({ hasText: "Texto" }).click();
   const showYear = page.getByRole("button", { name: "Mostrar Ano" });
   if ((await showYear.count()) > 0) await showYear.click();
+  await page.getByLabel("Fade-out de Música").check();
+  await page
+    .locator(".text-fade-controls", { hasText: "Fade-out de Música" })
+    .getByLabel("Tipo de fade")
+    .selectOption("timed");
   await page.getByRole("button", { name: "Aplicar a todos" }).click();
   await page
     .getByRole("status")
@@ -253,6 +286,12 @@ try {
   const mp4Path = path.join(workDir, "render-output.mp4");
   await downloadOutput(renderJobs[0].outputUrl, mp4Path);
   openWithFfmpeg(mp4Path);
+  const finalFramePath = path.join(screenshotDir, "full-flow-final-frame.png");
+  decodeFinalFrame(mp4Path, finalFramePath);
+  assert.ok(
+    (await fs.stat(finalFramePath)).size > 100,
+    "decoded final frame should be non-empty",
+  );
   for (const renderJob of renderJobs) {
     const sidecar = await downloadJsonOutput(renderJob.sidecarUrl);
     assert.equal(sidecar.export.visualSettings.rendererId, "audio-dark");
@@ -263,6 +302,26 @@ try {
       true,
     );
     assert.equal(sidecar.export.metadata.year, "2026");
+    const mediaLayers = sidecar.export.compositionSettings.mediaLayers ?? [];
+    assert.equal(
+      mediaLayers.length,
+      2,
+      "render sidecar should preserve manual layer plus cover layer",
+    );
+    assert.ok(
+      mediaLayers.some((layer) => layer.kind === "image"),
+      "render sidecar should preserve a manual image layer",
+    );
+    const fadedCover = mediaLayers.find((layer) => layer.coverFadeOut?.enabled);
+    assert.equal(fadedCover?.coverFadeOut?.mode, "timed");
+    assert.equal(fadedCover?.coverFadeOut?.startPercent, 10);
+    assert.equal(fadedCover?.coverFadeOut?.durationSeconds, 2);
+    const titleFade =
+      sidecar.export.compositionSettings.textSettings.fieldStyles.title.fadeOut;
+    assert.equal(titleFade.enabled, true);
+    assert.equal(titleFade.mode, "timed");
+    assert.equal(titleFade.startPercent, 10);
+    assert.equal(titleFade.durationSeconds, 2);
   }
 
   assert.deepEqual(errors, []);
@@ -359,6 +418,26 @@ function openWithFfmpeg(filePath) {
   const result = spawnSync(
     ffmpegPath,
     ["-v", "error", "-i", filePath, "-f", "null", "-"],
+    { windowsHide: true },
+  );
+  if (result.status !== 0) throw new Error(result.stderr.toString());
+}
+
+function decodeFinalFrame(inputPath, outputPath) {
+  const result = spawnSync(
+    ffmpegPath,
+    [
+      "-y",
+      "-v",
+      "error",
+      "-sseof",
+      "-0.2",
+      "-i",
+      inputPath,
+      "-frames:v",
+      "1",
+      outputPath,
+    ],
     { windowsHide: true },
   );
   if (result.status !== 0) throw new Error(result.stderr.toString());

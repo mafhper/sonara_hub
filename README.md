@@ -66,9 +66,15 @@ performance e degradação ao longo do desenvolvimento:
   armazenamento e validações do pipeline.
 - `npm run test:ui` cobre fluxos principais da interface, incluindo Pasta de
   Entrada, projetos, catálogo, vídeo e divulgação.
+- `npm run test:flow` executa um fluxo completo curto com áudio, capa, camada,
+  texto, fade, sidecar e validação do vídeo final.
 - `npm run test:render` valida presets representativos no renderer WebGL.
+- `npm run test:scale` valida o comportamento de catálogo, presets, histórico e
+  lifecycle de Object URLs em um projeto sintético com 120 faixas.
 - `npm run bench:render` serve como referência local para comparar tempo,
   tamanho de saída e comportamento do render/export entre rodadas.
+- `npm run bench:render:full` amplia a matriz de casos, e
+  `npm run bench:render:audio` usa áudio da pasta `input/` quando disponível.
 
 Sem baseline suficiente, o benchmark é tratado como referência inicial, não como
 prova de regressão. A ideia é acumular dados para saber quando o projeto está
