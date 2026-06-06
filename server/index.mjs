@@ -727,7 +727,7 @@ app.get("/api/jobs", (_req, res) => {
 
 app.delete("/api/jobs", async (req, res) => {
   const scope = String(req.query.scope ?? "terminal");
-  if (!["terminal", "video-render"].includes(scope)) {
+  if (!["terminal", "video-render", "publication-asset"].includes(scope)) {
     res.status(400).json({ error: "Escopo de histórico inválido." });
     return;
   }
