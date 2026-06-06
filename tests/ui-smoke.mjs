@@ -659,11 +659,35 @@ try {
     path: path.join(screenshotDir, "sonara-hub-narrow.png"),
     fullPage: true,
   });
+  await assertBenchmarkCenterNavigation(page);
   assert.deepEqual(errors, []);
   assert.deepEqual(failedRequests, []);
 } finally {
   await cleanupSmokePresets();
   await browser.close();
+}
+
+async function assertBenchmarkCenterNavigation(page) {
+  await page.setViewportSize({ width: 1440, height: 950 });
+  await page.goto(clientUrl, { waitUntil: "domcontentloaded" });
+  await page.locator(".studio-shell").waitFor();
+  await page.getByRole("button", { name: "Benchmarks" }).click();
+  await page.waitForURL("**/benchmarks");
+  await page.getByRole("heading", { name: "Benchmark Center" }).waitFor();
+  await page.getByText("Executar benchmarks").waitFor();
+  await page.getByRole("button", { name: "Iniciar" }).waitFor();
+  await page.getByRole("button", { name: "Render" }).waitFor();
+  await page.getByRole("button", { name: "Release Gate" }).click();
+  await page.getByText("Sonara Performance Score").waitFor();
+  await page.getByRole("button", { name: "Histórico" }).click();
+  await page.getByText("Retenção e limpeza").waitFor();
+  await page.getByText("Resident Set Size").waitFor();
+  assert.ok(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+    "benchmark center should not create document-level horizontal overflow",
+  );
 }
 
 function makeWave(frequency = 220) {
