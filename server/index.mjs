@@ -49,6 +49,7 @@ import { createTempFileRegistry } from "./temp-files.mjs";
 import { runRenderWorkerJob } from "./job-worker.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
+import { loadRenderBenchmarkReport } from "./benchmark-report.mjs";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
 import { normalizeTextSettings } from "../shared/text-settings.mjs";
 import {
@@ -81,6 +82,12 @@ const workDir = path.join(rootDir, ".dev", "work");
 const artworkPreviewDir = path.join(rootDir, ".dev", "artwork-previews");
 const outputDir = path.join(rootDir, "outputs");
 const treatedOutputDir = path.join(outputDir, "audio");
+const benchmarkHistoryPath = path.join(
+  rootDir,
+  ".dev",
+  "bench",
+  "render-history.jsonl",
+);
 const customPresetPath = path.join(
   rootDir,
   "data",
@@ -120,6 +127,15 @@ const activeJobWorkers = new Map();
 
 app.use(express.json({ limit: "5mb" }));
 app.use("/outputs", express.static(outputDir));
+
+app.get("/api/dev/benchmarks", async (req, res, next) => {
+  try {
+    const limit = clampNumber(Number(req.query.limit ?? 250), 1, 1000);
+    res.json(await loadRenderBenchmarkReport(benchmarkHistoryPath, { limit }));
+  } catch (error) {
+    next(error);
+  }
+});
 
 app.get("/api/visual-presets", async (_req, res) => {
   res.json({ presets: await presetStore.listAll() });
