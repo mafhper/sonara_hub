@@ -123,6 +123,7 @@ import {
   listLyricsOptionsForTrack,
 } from "../shared/lyrics-convention.mjs";
 import type { LyricsPathSuggestion } from "../shared/lyrics-convention.mjs";
+import { collectActiveObjectUrls } from "../shared/object-url-lifecycle.mjs";
 import {
   clampPublicationClipDuration,
   clampPublicationClipStart,
@@ -674,42 +675,6 @@ function coverSeriesAlignedMetaStyles(
       },
     ]),
   ) as CoverSeriesSettings["metaStyles"];
-}
-
-function collectActiveObjectUrls(
-  tracks: TrackDraft[],
-  cover: { src: string } | null,
-  layersUndo: { layers: MediaLayerV2[] } | null,
-) {
-  const urls = new Set<string>();
-  addObjectUrl(urls, cover?.src);
-  for (const track of tracks) {
-    addObjectUrl(urls, track.sourceUrl);
-    addArtworkObjectUrl(urls, track.suggestedCover);
-    addArtworkObjectUrl(urls, track.coverOverride);
-    addArtworkObjectUrl(urls, track.albumCoverSuggestion);
-    for (const option of track.artworkOptions ?? []) {
-      addArtworkObjectUrl(urls, option);
-    }
-    for (const layer of track.layers) {
-      addObjectUrl(urls, layer.src);
-    }
-  }
-  for (const layer of layersUndo?.layers ?? []) {
-    addObjectUrl(urls, layer.src);
-  }
-  return urls;
-}
-
-function addArtworkObjectUrl(
-  urls: Set<string>,
-  artwork: ArtworkSuggestion | null | undefined,
-) {
-  addObjectUrl(urls, artwork?.src);
-}
-
-function addObjectUrl(urls: Set<string>, url: string | null | undefined) {
-  if (url?.startsWith("blob:")) urls.add(url);
 }
 
 function revokeObjectUrl(url: string) {
