@@ -10,16 +10,18 @@ npm run bench:render
 npm run bench:render -- --audio=input
 ```
 
-Ele registra historico local em `.dev/bench/` e mede tempo total, etapa
-WebM/Chromium, mux FFmpeg, validacao, tamanhos de saida e pico de RSS.
+Ele registra historico local em `.dev/bench/` e mede tempo total, preparo
+Chromium/runtime, captura Canvas, MediaRecorder/WebM, validacao WebM, mux
+FFmpeg, validacao MP4, tamanhos de saida, pico de RSS e retries WebGL.
 
 O debito restante e criar uma matriz longa dedicada antes de qualquer tentativa
 de aceleracao da captura deterministica do canvas.
 
-O benchmark deve medir:
+O benchmark longo deve ampliar:
 
 - tempo total por resolucao, duracao, preset, waveform e quantidade de camadas;
-- custo separado de captura Canvas/WebM, mux ffmpeg e validacao de audio;
+- calibracao por fase para captura Canvas, MediaRecorder/WebM, mux ffmpeg,
+  validacao e memoria;
 - diferenca entre perfis `Rapido`, `Automatico` e `Final`;
 - impacto em lote, principalmente em 1080p, 2K e 4K.
 

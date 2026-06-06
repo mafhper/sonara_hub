@@ -75,7 +75,7 @@ for (const benchCase of modeCases) {
   );
   const status = result.warnings.length ? "WARN" : "OK";
   console.log(
-    `${status} ${result.id}: ${formatMs(result.totalMs)} total, ${formatMs(result.webmStageMs)} webm, ${formatMs(result.muxMs)} mux, ${result.peakRssMb.toFixed(1)} MB rss`,
+    `${status} ${result.id}: ${formatMs(result.totalMs)} total, ${formatMs(result.canvasCaptureMs)} capture, ${formatMs(result.mediaRecorderMs)} recorder, ${formatMs(result.muxMs)} mux, ${result.peakRssMb.toFixed(1)} MB rss`,
   );
 }
 
@@ -110,6 +110,7 @@ async function runCase(benchCase) {
   const webmPath = path.join(outputDir, `${benchCase.id}.webm`);
   const mp4Path = path.join(outputDir, `${benchCase.id}.mp4`);
   const progressMessages = [];
+  const webglTelemetry = [];
   const monitor = startMemoryMonitor();
   const started = performance.now();
 
@@ -124,8 +125,12 @@ async function runCase(benchCase) {
     onProgress: (_progress, message) => {
       if (message) progressMessages.push(message);
     },
+    onTelemetry: (event) => {
+      webglTelemetry.push(event);
+    },
   });
   const webmStageMs = performance.now() - webmStarted;
+  const webglPhases = summarizeWebglTelemetry(webglTelemetry, webmStageMs);
 
   const muxStarted = performance.now();
   await runFfmpeg(
@@ -179,6 +184,12 @@ async function runCase(benchCase) {
     qualityProfile: settings.qualityProfile,
     totalMs: round(totalMs),
     webmStageMs: round(webmStageMs),
+    webglPrepareMs: webglPhases.webglPrepareMs,
+    canvasCaptureMs: webglPhases.canvasCaptureMs,
+    mediaRecorderMs: webglPhases.mediaRecorderMs,
+    webmFlushMs: webglPhases.webmFlushMs,
+    webmValidationMs: webglPhases.webmValidationMs,
+    sceneRecordMs: webglPhases.sceneRecordMs,
     muxMs: round(muxMs),
     validationMs: round(validationMs),
     webmBytes: webmStat.size,
@@ -187,9 +198,13 @@ async function runCase(benchCase) {
     startRssMb: round(memory.startRssMb),
     endRssMb: round(memory.endRssMb),
     memoryDeltaMb: round(memory.endRssMb - memory.startRssMb),
-    retryWebgl: progressMessages.some((message) =>
-      /Recuperando contexto WebGL/i.test(message),
-    ),
+    webglRetryCount: webglPhases.webglRetryCount,
+    retryWebgl:
+      webglPhases.webglRetryCount > 0 ||
+      progressMessages.some((message) =>
+        /Recuperando contexto WebGL/i.test(message),
+      ),
+    webglPhaseEvents: compactWebglTelemetry(webglTelemetry),
     outputWebm: path.relative(root, webmPath),
     outputMp4: path.relative(root, mp4Path),
   };
@@ -573,6 +588,87 @@ function startMemoryMonitor() {
   };
 }
 
+function summarizeWebglTelemetry(events, fallbackWebmStageMs) {
+  const prepareMs = [
+    "runtime-load",
+    "renderer-html-write",
+    "browser-launch",
+    "page-open",
+    "page-load",
+  ].reduce((total, phase) => total + sumPhaseDuration(events, phase), 0);
+  const sceneRecordMs =
+    sumPhaseDuration(events, "scene-record") || fallbackWebmStageMs;
+  return {
+    webglPrepareMs: round(prepareMs),
+    canvasCaptureMs: round(
+      durationBetween(
+        events,
+        "browser:canvas-capture-start",
+        "browser:canvas-capture-complete",
+      ),
+    ),
+    mediaRecorderMs: round(
+      durationBetween(
+        events,
+        "browser:media-recorder-start",
+        "browser:media-recorder-stop-complete",
+      ),
+    ),
+    webmFlushMs: round(
+      durationBetween(
+        events,
+        "browser:media-recorder-stop-complete",
+        "browser:chunks-flush-complete",
+      ),
+    ),
+    webmValidationMs: round(sumPhaseDuration(events, "webm-validation")),
+    sceneRecordMs: round(sceneRecordMs),
+    webglRetryCount: events.filter((event) => event.phase === "webgl-retry")
+      .length,
+  };
+}
+
+function compactWebglTelemetry(events) {
+  return events.map((event) => {
+    const compact = {
+      phase: event.phase,
+      attempt: event.attempt,
+      atMs: event.atMs,
+    };
+    for (const key of [
+      "durationMs",
+      "chunks",
+      "fps",
+      "height",
+      "mimeType",
+      "reason",
+      "totalFrames",
+      "width",
+    ]) {
+      if (event[key] !== undefined) compact[key] = event[key];
+    }
+    return compact;
+  });
+}
+
+function sumPhaseDuration(events, phase) {
+  return events
+    .filter((event) => event.phase === phase)
+    .reduce((total, event) => total + finiteNumber(event.durationMs), 0);
+}
+
+function durationBetween(events, startPhase, endPhase) {
+  const start = events.find((event) => event.phase === startPhase);
+  const end = events.find((event) => event.phase === endPhase);
+  if (!start || !end) return 0;
+  return Math.max(0, finiteNumber(end.atMs) - finiteNumber(start.atMs));
+}
+
+function finiteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
 async function readHistory(filePath) {
   try {
     const text = await fs.readFile(filePath, "utf8");
@@ -673,6 +769,10 @@ function renderMarkdown(runData) {
         `${item.outputSize.width}x${item.outputSize.height}`,
         `${item.duration}s`,
         formatMs(item.webmStageMs),
+        formatMs(item.webglPrepareMs),
+        formatMs(item.canvasCaptureMs),
+        formatMs(item.mediaRecorderMs),
+        formatMs(item.webmValidationMs),
         formatMs(item.muxMs),
         formatMs(item.validationMs),
         formatMs(item.totalMs),
@@ -696,8 +796,8 @@ Audio: ${runData.audioSource.label}
 
 ## Results
 
-Case | Renderer | Output | Duration | WebM stage | Mux | Validate | Total | Peak RSS | MP4 | Status
---- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---
+Case | Renderer | Output | Duration | WebM stage | Prepare | Capture | Recorder | WebM validate | Mux | MP4 validate | Total | Peak RSS | MP4 | Status
+--- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---
 ${rows}
 
 ## Warnings
@@ -706,7 +806,8 @@ ${warnings}
 
 ## Notes
 
-- WebM stage includes browser render, deterministic canvas capture and WebM validation inside \`renderWebglBackgroundVideo\`.
+- WebM stage is now broken down into Chromium/runtime prepare, deterministic canvas capture, MediaRecorder/WebM stop+flush, and WebM validation inside \`renderWebglBackgroundVideo\`.
+- FFmpeg mux, MP4 validation, peak RSS and WebGL retry count remain tracked per case; compact browser phase events are persisted in each run JSON.
 - Regression warnings are warn-only. Functional failures still fail the benchmark process.
 - Baseline uses previous local runs with the same case and parameter hash from \`.dev/bench/render-history.jsonl\`.
 `;

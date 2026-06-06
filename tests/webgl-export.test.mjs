@@ -19,6 +19,11 @@ test("canvas exporter requests deterministic frames instead of relying on headle
   assert.match(html, /track\.requestFrame\(\)/);
   assert.match(html, /runtime\.render\(time\)/);
   assert.match(html, /await delay\(frameDuration\)/);
+  assert.match(html, /reportScenePhase/);
+  assert.match(html, /media-recorder-start/);
+  assert.match(html, /canvas-capture-start/);
+  assert.match(html, /canvas-capture-complete/);
+  assert.match(html, /chunks-flush-complete/);
   assert.doesNotMatch(html, /requestAnimationFrame/);
 });
 

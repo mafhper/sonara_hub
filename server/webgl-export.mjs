@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
@@ -14,17 +15,24 @@ const runtimePath = fileURLToPath(
 );
 
 export async function renderWebglBackgroundVideo(options) {
-  const { size, onProgress } = options;
+  const { size, onProgress, onTelemetry } = options;
   try {
-    await runWebglRenderAttempt(options, size);
+    await runWebglRenderAttempt(options, size, 1);
   } catch (error) {
     const retryable =
       error?.code === "WEBGL_CONTEXT_LOST" ||
       error?.code === "WEBGL_SHADER_ERROR";
     const reduced = reduceRenderSize(size);
     if (retryable && reduced) {
+      onTelemetry?.({
+        phase: "webgl-retry",
+        attempt: 2,
+        reason: error.code,
+        fromSize: size,
+        size: reduced,
+      });
       onProgress?.(4, "Recuperando contexto WebGL em resolução reduzida");
-      await runWebglRenderAttempt(options, reduced);
+      await runWebglRenderAttempt(options, reduced, 2);
       return;
     }
     throw error;
@@ -61,13 +69,59 @@ function reduceRenderSize(size) {
   return { width: even(size.width), height: even(size.height) };
 }
 
+function createWebglTelemetry(onTelemetry, attempt, size) {
+  const started = performance.now();
+  return (phase, data = {}) => {
+    onTelemetry?.({
+      phase,
+      attempt,
+      size,
+      atMs: roundTelemetryMs(performance.now() - started),
+      ...data,
+    });
+  };
+}
+
+async function timedTelemetryPhase(emitTelemetry, phase, action) {
+  const started = performance.now();
+  try {
+    return await action();
+  } finally {
+    emitTelemetry(phase, {
+      durationMs: roundTelemetryMs(performance.now() - started),
+    });
+  }
+}
+
+function sanitizeBrowserTelemetryEvent(event) {
+  if (!event || typeof event !== "object") {
+    return { phase: "unknown", data: {} };
+  }
+  const phase = String(event.phase ?? "unknown");
+  const data = {};
+  for (const [key, value] of Object.entries(event)) {
+    if (key === "phase") continue;
+    if (
+      value === null ||
+      ["boolean", "number", "string"].includes(typeof value)
+    ) {
+      data[key] = value;
+    }
+  }
+  return { phase, data };
+}
+
+function roundTelemetryMs(value) {
+  return Math.round(value * 100) / 100;
+}
+
 function canceledRenderError() {
   const error = new Error("Job cancelado");
   error.code = "JOB_CANCELED";
   return error;
 }
 
-async function runWebglRenderAttempt(options, size) {
+async function runWebglRenderAttempt(options, size, attempt) {
   const {
     outputPath,
     duration,
@@ -75,52 +129,68 @@ async function runWebglRenderAttempt(options, size) {
     audioEnvelope,
     composition = {},
     onProgress,
+    onTelemetry,
     shouldCancel,
   } = options;
+  const emitTelemetry = createWebglTelemetry(onTelemetry, attempt, size);
+  emitTelemetry("attempt-start");
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   const rendererPath = path.join(
     path.dirname(outputPath),
     "scene-renderer.html",
   );
-  const runtimeSource = await fs.readFile(runtimePath, "utf8");
+  const runtimeSource = await timedTelemetryPhase(
+    emitTelemetry,
+    "runtime-load",
+    () => fs.readFile(runtimePath, "utf8"),
+  );
   const runtimeUrl = `data:text/javascript;base64,${Buffer.from(runtimeSource).toString("base64")}`;
-  await fs.writeFile(
-    rendererPath,
-    buildRendererHtml({
-      runtimeUrl,
-      size,
-      scene: normalizeVisualSettings(settings.visualSettings ?? settings),
-      audioEnvelope,
-      composition,
-    }),
-    "utf8",
+  await timedTelemetryPhase(emitTelemetry, "renderer-html-write", () =>
+    fs.writeFile(
+      rendererPath,
+      buildRendererHtml({
+        runtimeUrl,
+        size,
+        scene: normalizeVisualSettings(settings.visualSettings ?? settings),
+        audioEnvelope,
+        composition,
+      }),
+      "utf8",
+    ),
   );
 
   const file = await fs.open(outputPath, "w");
   let bytesWritten = 0;
   let writeQueue = Promise.resolve();
   let canceled = false;
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      "--allow-file-access-from-files",
-      "--autoplay-policy=no-user-gesture-required",
-      // Keep the software (SwiftShader) path usable and ignore the GPU blocklist
-      // so headless Chromium does not refuse to start a WebGL context. Forcing a
-      // real GPU is opt-in (SONARA_FORCE_GPU=1) since it can fail to launch in a
-      // non-interactive/service context on Windows.
-      "--enable-unsafe-swiftshader",
-      "--ignore-gpu-blocklist",
-      ...(process.env.SONARA_FORCE_GPU === "1"
-        ? ["--use-angle=gl", "--enable-gpu"]
-        : []),
-    ],
+  let browser;
+  let context;
+  let page;
+  browser = await timedTelemetryPhase(emitTelemetry, "browser-launch", () =>
+    chromium.launch({
+      headless: true,
+      args: [
+        "--allow-file-access-from-files",
+        "--autoplay-policy=no-user-gesture-required",
+        // Keep the software (SwiftShader) path usable and ignore the GPU blocklist
+        // so headless Chromium does not refuse to start a WebGL context. Forcing a
+        // real GPU is opt-in (SONARA_FORCE_GPU=1) since it can fail to launch in a
+        // non-interactive/service context on Windows.
+        "--enable-unsafe-swiftshader",
+        "--ignore-gpu-blocklist",
+        ...(process.env.SONARA_FORCE_GPU === "1"
+          ? ["--use-angle=gl", "--enable-gpu"]
+          : []),
+      ],
+    }),
+  );
+  await timedTelemetryPhase(emitTelemetry, "page-open", async () => {
+    context = await browser.newContext({
+      deviceScaleFactor: 1,
+      viewport: { width: size.width, height: size.height },
+    });
+    page = await context.newPage();
   });
-  const context = await browser.newContext({
-    deviceScaleFactor: 1,
-    viewport: { width: size.width, height: size.height },
-  });
-  const page = await context.newPage();
   const diagnostics = [];
   page.on("console", (message) => {
     if (["error", "warning"].includes(message.type())) {
@@ -139,10 +209,14 @@ async function runWebglRenderAttempt(options, size) {
       await page.close().catch(() => {});
       return;
     }
-    onProgress(
+    onProgress?.(
       Math.max(4, Math.min(92, Math.round(progress))),
       "Renderizando cena",
     );
+  });
+  await page.exposeFunction("reportScenePhase", async (event) => {
+    const telemetry = sanitizeBrowserTelemetryEvent(event);
+    emitTelemetry(`browser:${telemetry.phase}`, telemetry.data);
   });
   await page.exposeFunction("saveSceneChunk", async (chunkBase64) => {
     const buffer = Buffer.from(chunkBase64, "base64");
@@ -171,17 +245,23 @@ async function runWebglRenderAttempt(options, size) {
   }
 
   try {
-    await page.goto(pathToFileURL(rendererPath).href, { waitUntil: "load" });
-    await page.waitForFunction(() => typeof window.recordScene === "function");
+    await timedTelemetryPhase(emitTelemetry, "page-load", async () => {
+      await page.goto(pathToFileURL(rendererPath).href, { waitUntil: "load" });
+      await page.waitForFunction(
+        () => typeof window.recordScene === "function",
+      );
+    });
     try {
-      await page.evaluate(
-        ({ durationSeconds, fps, startTime }) =>
-          window.recordScene(durationSeconds, fps, startTime),
-        {
-          durationSeconds: duration,
-          fps: settings.webglFps,
-          startTime: Number(options.startTime ?? 0),
-        },
+      await timedTelemetryPhase(emitTelemetry, "scene-record", () =>
+        page.evaluate(
+          ({ durationSeconds, fps, startTime }) =>
+            window.recordScene(durationSeconds, fps, startTime),
+          {
+            durationSeconds: duration,
+            fps: settings.webglFps,
+            startTime: Number(options.startTime ?? 0),
+          },
+        ),
       );
     } catch (error) {
       if (canceled || (typeof shouldCancel === "function" && shouldCancel())) {
@@ -203,7 +283,10 @@ async function runWebglRenderAttempt(options, size) {
   }
 
   if (canceled) throw canceledRenderError();
-  await assertValidWebm(outputPath, bytesWritten);
+  await timedTelemetryPhase(emitTelemetry, "webm-validation", () =>
+    assertValidWebm(outputPath, bytesWritten),
+  );
+  emitTelemetry("attempt-complete", { bytesWritten });
 }
 
 async function runWebglPosterAttempt(options, size) {
@@ -386,6 +469,11 @@ export function buildRendererHtml({
     }
 
     const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+    const reportPhase = async (phase, data = {}) => {
+      if (typeof window.reportScenePhase === "function") {
+        await window.reportScenePhase({ phase, ...data });
+      }
+    };
 
     window.renderScenePoster = (time = 0) => {
       runtime.setAudio(audioAt(time));
@@ -414,6 +502,8 @@ export function buildRendererHtml({
       if (typeof track?.requestFrame !== "function") {
         throw new Error("Captura determinística do canvas indisponível no Chromium");
       }
+      const frameDuration = 1000 / fps;
+      const totalFrames = Math.max(2, Math.ceil(durationSeconds * fps));
       const recorder = new MediaRecorder(stream, {
         mimeType,
         // ~25 Mbps at 1080p (was ~3): keeps the intermediate near-lossless so the
@@ -426,9 +516,15 @@ export function buildRendererHtml({
           chunks.push(event.data.arrayBuffer().then((buffer) => window.saveSceneChunk(arrayBufferToBase64(buffer))));
         }
       };
+      await reportPhase("media-recorder-start", {
+        fps,
+        height: canvas.height,
+        mimeType,
+        totalFrames,
+        width: canvas.width,
+      });
       recorder.start(250);
-      const frameDuration = 1000 / fps;
-      const totalFrames = Math.max(2, Math.ceil(durationSeconds * fps));
+      await reportPhase("canvas-capture-start", { totalFrames });
       for (let index = 0; index < totalFrames; index += 1) {
         if (contextLost) throw new Error("Falha ao renderizar: contexto perdido: true (WEBGL_CONTEXT_LOST)");
         const time = Math.max(0, startTime) + Math.min(durationSeconds, index / fps);
@@ -438,6 +534,8 @@ export function buildRendererHtml({
         window.reportSceneProgress(((index + 1) / totalFrames) * 88 + 4);
         await delay(frameDuration);
       }
+      await reportPhase("canvas-capture-complete", { totalFrames });
+      await reportPhase("media-recorder-stop-start", { chunks: chunks.length });
       await new Promise((resolve) => {
         recorder.onstop = resolve;
         if (recorder.state === "recording") recorder.requestData();
@@ -446,7 +544,9 @@ export function buildRendererHtml({
           else recorder.stop();
         }, 250);
       });
+      await reportPhase("media-recorder-stop-complete", { chunks: chunks.length });
       await Promise.all(chunks);
+      await reportPhase("chunks-flush-complete", { chunks: chunks.length });
     };
 
     function arrayBufferToBase64(buffer) {

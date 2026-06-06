@@ -57,8 +57,9 @@ A matriz exploratória fica em
 
 `npm run bench:render` mede uma matriz curta de renderização/exportação sem
 depender do servidor dev. O comando gera WebM e MP4 curtos, valida as saídas com
-FFmpeg e registra tempo total, etapa WebM/Chromium, mux, validação, tamanho dos
-arquivos e pico de RSS.
+FFmpeg e registra tempo total, preparo Chromium/runtime, captura determinística
+do canvas, MediaRecorder/WebM, validação WebM, mux FFmpeg, validação MP4,
+tamanho dos arquivos, pico de RSS e retries WebGL.
 
 Os resultados ficam em `.dev/bench/`, fora do Git:
 
