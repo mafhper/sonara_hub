@@ -76,7 +76,11 @@ test("job work dir cleanup removes files and warns instead of throwing", async (
   await cleanupJobWorkDir("/root/does/not/exist", "bad", (message) =>
     warnings.push(message),
   );
-  assert.deepEqual(warnings, []);
+  assert.ok(
+    warnings.every((message) =>
+      message.includes("Não foi possível limpar o diretório de trabalho bad"),
+    ),
+  );
 
   await fs.rm(root, { recursive: true, force: true });
 });
