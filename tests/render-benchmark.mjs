@@ -53,8 +53,13 @@ const run = {
   environment: environmentInfo(),
   audioSource,
   thresholds: {
+    canvasCaptureMs: 1.25,
+    frameRenderMs: 1.35,
+    mediaRecorderMs: 1.25,
+    muxMs: 1.25,
     totalMs: 1.25,
     peakRssMb: 1.3,
+    webmStageMs: 1.25,
     webmBytes: 1.2,
     mp4Bytes: 1.2,
   },
@@ -729,6 +734,46 @@ function compareWithHistory(result, runs, thresholds) {
   );
   compareMetric(
     warnings,
+    "WebM stage",
+    result.webmStageMs,
+    median(previous, "webmStageMs"),
+    thresholds.webmStageMs,
+    "ms",
+  );
+  compareMetric(
+    warnings,
+    "captura canvas",
+    result.canvasCaptureMs,
+    median(previous, "canvasCaptureMs"),
+    thresholds.canvasCaptureMs,
+    "ms",
+  );
+  compareMetric(
+    warnings,
+    "render dos frames",
+    result.frameRenderMs,
+    median(previous, "frameRenderMs"),
+    thresholds.frameRenderMs,
+    "ms",
+  );
+  compareMetric(
+    warnings,
+    "MediaRecorder/WebM",
+    result.mediaRecorderMs,
+    median(previous, "mediaRecorderMs"),
+    thresholds.mediaRecorderMs,
+    "ms",
+  );
+  compareMetric(
+    warnings,
+    "mux FFmpeg",
+    result.muxMs,
+    median(previous, "muxMs"),
+    thresholds.muxMs,
+    "ms",
+  );
+  compareMetric(
+    warnings,
     "RSS pico",
     result.peakRssMb,
     median(previous, "peakRssMb"),
@@ -835,7 +880,7 @@ ${warnings}
 
 - WebM stage is now broken down into Chromium/runtime prepare, deterministic canvas capture, per-frame render/wait, MediaRecorder/WebM stop+flush, chunk bytes, and WebM validation inside \`renderWebglBackgroundVideo\`.
 - FFmpeg mux, MP4 validation, peak RSS and WebGL retry count remain tracked per case; compact browser phase events are persisted in each run JSON.
-- Regression warnings are warn-only. Functional failures still fail the benchmark process.
+- Regression warnings are warn-only and now compare the main phase timings when matching history exists. Functional failures still fail the benchmark process.
 - Baseline uses previous local runs with the same case and parameter hash from \`.dev/bench/render-history.jsonl\`.
 `;
 }
