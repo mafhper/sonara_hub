@@ -391,6 +391,8 @@ export default function BenchmarkDashboard() {
   const runMedians = visibleRuns.map((run) => run.summary.medianTotalMs);
   const runRss = visibleRuns.map((run) => run.summary.peakRssMb);
   const runWarnings = visibleRuns.map((run) => run.summary.warningCount);
+  const availableBaselines =
+    report?.baselines.filter((baseline) => baseline.found) ?? [];
 
   return (
     <main className="bench-dashboard">
@@ -407,23 +409,27 @@ export default function BenchmarkDashboard() {
           </p>
         </div>
         <div className="bench-hero-actions">
-          <label>
-            <span>Baseline</span>
-            <select
-              value={baselineSlot}
-              onChange={(event) => setBaselineSlot(event.target.value)}
-            >
-              {(report?.baselines ?? []).map((baseline) => (
-                <option key={baseline.slot} value={baseline.slot}>
-                  {baseline.label}
-                  {baseline.found ? "" : " (vazia)"}
-                </option>
-              ))}
-              {!report?.baselines?.length && (
-                <option value="stable">Baseline Stable</option>
-              )}
-            </select>
-          </label>
+          {availableBaselines.length > 0 ? (
+            <label>
+              <span>Baseline</span>
+              <select
+                value={baselineSlot}
+                onChange={(event) => setBaselineSlot(event.target.value)}
+              >
+                {availableBaselines.map((baseline) => (
+                  <option key={baseline.slot} value={baseline.slot}>
+                    {baseline.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <div className="bench-baseline-state">
+              <span>Baseline</span>
+              <strong>Sem baseline fixa</strong>
+              <small>Comparando com run anterior compatível</small>
+            </div>
+          )}
           <button type="button" onClick={() => void loadReport()}>
             <RefreshCcw /> Atualizar
           </button>

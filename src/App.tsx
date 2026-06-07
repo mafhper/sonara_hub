@@ -3855,42 +3855,6 @@ function App() {
 
       <aside className="library-panel">
         <div className="library-header">
-          <div className="library-paths">
-            <div>
-              <span>Entrada</span>
-              <strong>{inputFolderName}</strong>
-              <button type="button" onClick={() => void chooseInputDirectory()}>
-                Alterar
-              </button>
-            </div>
-            <div>
-              <span>Saída</span>
-              <strong>{outputFolderName}</strong>
-              <button
-                type="button"
-                onClick={() => void chooseOutputDirectory()}
-              >
-                Alterar
-              </button>
-            </div>
-          </div>
-          {inputProjects.length > 0 && (
-            <label className="library-project-picker">
-              <span>Projeto</span>
-              <select
-                value={selectedInputProjectId}
-                onChange={(event) =>
-                  void selectInputProject(event.target.value)
-                }
-              >
-                {inputProjects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {projectOptionLabel(project)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
           <div className="library-open-actions">
             <button type="button" onClick={() => void chooseInputDirectory()}>
               <FolderOpen /> Abrir pasta
@@ -3901,18 +3865,6 @@ function App() {
             >
               <Plus /> Abrir arquivo
             </button>
-          </div>
-          <div className="library-mode-row">
-            {projectStateStatus && (
-              <small className="library-project-status">
-                {projectStateStatus}
-              </small>
-            )}
-            <small
-              className={`library-mode-badge ${workspaceWriteEnabled ? "write" : ""}`}
-            >
-              {workspaceWriteEnabled ? "Substituição ativa" : "Não destrutivo"}
-            </small>
           </div>
         </div>
         <div className="library-caption">
@@ -4006,6 +3958,61 @@ function App() {
           })()}
         </div>
         <div className="library-actions">
+          <div className="library-context">
+            <div className="library-paths">
+              <div>
+                <span>Entrada</span>
+                <strong>{inputFolderName}</strong>
+                <button
+                  type="button"
+                  onClick={() => void chooseInputDirectory()}
+                >
+                  Alterar
+                </button>
+              </div>
+              <div>
+                <span>Saída</span>
+                <strong>{outputFolderName}</strong>
+                <button
+                  type="button"
+                  onClick={() => void chooseOutputDirectory()}
+                >
+                  Alterar
+                </button>
+              </div>
+            </div>
+            {inputProjects.length > 0 && (
+              <label className="library-project-picker">
+                <span>Projeto</span>
+                <select
+                  value={selectedInputProjectId}
+                  onChange={(event) =>
+                    void selectInputProject(event.target.value)
+                  }
+                >
+                  {inputProjects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {projectOptionLabel(project)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <div className="library-mode-row">
+              {projectStateStatus && (
+                <small className="library-project-status">
+                  {projectStateStatus}
+                </small>
+              )}
+              <small
+                className={`library-mode-badge ${workspaceWriteEnabled ? "write" : ""}`}
+              >
+                {workspaceWriteEnabled
+                  ? "Substituição ativa"
+                  : "Não destrutivo"}
+              </small>
+            </div>
+          </div>
           <label className="check-field library-write-toggle">
             <input
               checked={workspaceWriteEnabled}
