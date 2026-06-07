@@ -1169,6 +1169,11 @@ svg {
   margin-top: 0;
 }
 
+.batch-toolbar-grid .tag-select-field {
+  grid-column: span 2;
+  margin-top: 0;
+}
+
 .batch-toolbar-grid .field:last-child {
   grid-column: span 2;
 }
@@ -3841,7 +3846,8 @@ button:disabled {
     width: 100%;
   }
 
-  .batch-toolbar-grid .field:last-child {
+  .batch-toolbar-grid .field:last-child,
+  .batch-toolbar-grid .tag-select-field {
     grid-column: auto;
   }
 }
