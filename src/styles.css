@@ -141,6 +141,11 @@ textarea {
   font: inherit;
 }
 
+select option {
+  background: var(--field-bg);
+  color: var(--text-primary);
+}
+
 button {
   border: 0;
   cursor: pointer;
@@ -481,6 +486,36 @@ svg {
   margin-top: var(--space-3);
 }
 
+.library-paths {
+  display: grid !important;
+  gap: 6px !important;
+  margin-top: 0 !important;
+}
+
+.library-paths > div {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--stage-surface-low);
+  padding: 6px 7px;
+}
+
+.library-paths span {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-weight: 760;
+}
+
+.library-paths button {
+  color: var(--accent-cool-strong);
+  font-size: var(--font-xs);
+  font-weight: 700;
+}
+
 .library-directory-row {
   min-width: 0;
 }
@@ -578,6 +613,7 @@ svg {
 .track-row {
   display: grid;
   width: 100%;
+  position: relative;
   grid-template-columns: 31px minmax(0, 1fr) 7px;
   align-items: center;
   gap: 8px;
@@ -670,6 +706,39 @@ svg {
   height: 5px;
   border-radius: 50%;
   background: var(--success);
+}
+
+.track-remove {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  position: absolute;
+  right: 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-dim);
+  opacity: 0;
+}
+
+.track-row:hover .track-remove,
+.track-row:focus-within .track-remove,
+.track-remove:focus-visible {
+  opacity: 1;
+}
+
+.track-remove:hover,
+.track-remove:focus-visible {
+  border-color: var(--status-danger-border);
+  background: var(--error-bg);
+  color: var(--status-danger);
+  opacity: 1;
+}
+
+.track-remove svg {
+  width: 13px;
+  height: 13px;
 }
 
 .library-actions {
@@ -862,6 +931,14 @@ svg {
   background: #272d36;
 }
 
+.batch-main-row.is-dragging {
+  opacity: 0.55;
+}
+
+.batch-main-row.is-drag-over {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
 .batch-table-group + .batch-table-group .batch-group-row td {
   padding-top: 14px;
 }
@@ -920,6 +997,35 @@ svg {
   border-color: #657da9;
   outline: none;
   box-shadow: 0 0 0 2px rgb(126 160 224 / 13%);
+}
+
+.batch-row-drag {
+  display: grid;
+  width: 28px;
+  min-height: 28px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: grab;
+}
+
+.batch-row-drag:active {
+  cursor: grabbing;
+}
+
+.batch-row-drag:hover,
+.batch-row-drag:focus-visible {
+  border-color: var(--control-border);
+  background: var(--stage-surface-low);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.batch-row-drag svg {
+  width: 15px;
+  height: 15px;
 }
 
 .filename-preview {
@@ -3730,6 +3836,10 @@ button:disabled {
   table-layout: fixed;
 }
 
+.batch-table .batch-col-drag {
+  width: 34px;
+}
+
 .batch-table .batch-col-select {
   width: 34px;
 }
@@ -3907,6 +4017,7 @@ button:disabled {
   }
 
   .batch-table .batch-col-select,
+  .batch-table .batch-col-drag,
   .batch-table .batch-col-expand {
     width: 34px;
   }
@@ -4221,8 +4332,10 @@ button:disabled {
 
 .catalog-artwork-expanded {
   display: grid;
+  flex: 0 0 auto;
   justify-self: center;
-  width: 100%;
+  width: min(100%, 440px, 50vh);
+  height: min(440px, 50vh);
   max-width: 440px;
   aspect-ratio: 1;
   overflow: hidden;
@@ -6347,8 +6460,8 @@ button:disabled {
 }
 
 .catalog-artwork-preview-panel {
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   gap: var(--space-3);
   overflow: auto;

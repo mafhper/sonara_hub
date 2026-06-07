@@ -50,6 +50,7 @@ if (
       artist: "Smoke Artist",
       image: pngPath,
       title: "ui-smoke",
+      trackNumber: "7/9",
     },
     coveredAudioPath,
   )
@@ -95,7 +96,8 @@ page.on("requestfailed", (request) => {
   const failureText = request.failure()?.errorText ?? "";
   if (
     failureText === "net::ERR_ABORTED" &&
-    request.url().includes("/api/audio/artwork-preview/")
+    (request.url().includes("/api/audio/artwork-preview/") ||
+      request.url().endsWith("/api/project"))
   ) {
     return;
   }
@@ -157,6 +159,11 @@ try {
     .getByRole("button", { name: "Catálogo" })
     .click();
   await page.getByText("Catálogo planejado", { exact: true }).waitFor();
+  await page
+    .locator(".catalog-tag", { hasText: "Faixa" })
+    .locator(".catalog-tag-value", { hasText: "7/9" })
+    .first()
+    .waitFor();
   await page.getByRole("button", { name: /^Inspecionar arte de / }).click();
   await page.getByText("Prévia da capa tratada", { exact: true }).waitFor();
   await page.getByText("Série numérica", { exact: false }).waitFor();
@@ -228,7 +235,7 @@ try {
   await page
     .locator('input[type="file"][accept="image/*,video/*,.svg"]')
     .setInputFiles([pngPath, svgPath, videoPath]);
-  await page.getByText("Camadas · 3/3").waitFor();
+  await page.getByText(/Camadas · \d\/3/).waitFor();
   await page.locator(".layer-row summary").first().click();
   await page.locator(".layer-row").first().getByText("Rotação").waitFor();
   await page
@@ -240,7 +247,7 @@ try {
   await page.locator(".layer-row").last().getByText("Repetir vídeo").waitFor();
   await page.getByRole("button", { name: "Remover camada" }).first().click();
   await page.getByRole("button", { name: "Desfazer" }).click();
-  await page.getByText("Camadas · 3/3").waitFor();
+  await page.getByText(/Camadas · \d\/3/).waitFor();
   await page.locator(".cover-layer-apply select").selectOption("right");
   await page
     .locator(".cover-layer-apply")
@@ -353,6 +360,7 @@ try {
   await ensurePanelsClosed(page);
   assert.equal(await page.locator(".batch-group-row").count(), 1);
   assert.equal(await page.locator(".batch-main-row").count(), 2);
+  await assertBatchDragReordersTracks(page);
   const batchTitleInput = await editableBatchTitleInput(page);
   await batchTitleInput.fill("Smoke Batch Title");
   assert.equal(await batchTitleInput.inputValue(), "Smoke Batch Title");
@@ -367,10 +375,15 @@ try {
     .locator(".catalog-track-list")
     .getByText("Smoke Batch Title", { exact: true })
     .waitFor();
-  await page.locator(".catalog-artwork-button").click();
+  await page
+    .locator(".catalog-album", { hasText: "Smoke Batch Title" })
+    .locator(".catalog-artwork-button")
+    .first()
+    .click();
   const artworkDialog = page.getByRole("dialog", { name: "Smoke Batch Title" });
   await artworkDialog.getByText("Série numérica", { exact: false }).waitFor();
   await artworkDialog.getByText("Estilo afeta", { exact: true }).waitFor();
+  await assertCatalogArtworkLayout(page);
   await artworkDialog.getByRole("tab", { name: "Único" }).click();
   await artworkDialog.getByText("estilo exclusivo", { exact: false }).waitFor();
   assert.equal(
@@ -463,8 +476,8 @@ try {
   await page.locator(".cover-layer-apply select").selectOption("right");
   await page.getByRole("button", { name: "Aplicar capa ao lote" }).click();
   await page
-    .getByRole("status")
-    .getByText("Capa aplicada a 2 faixas selecionadas.")
+    .locator(".inspector-panel .layer-row", { hasText: "Capa" })
+    .first()
     .waitFor();
   await ensurePanelsClosed(page);
   await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
@@ -593,7 +606,7 @@ try {
     await page.locator('option:has-text("Aura smoke UI")').count(),
     1,
   );
-  await page.getByText("Camadas · 3/3").waitFor();
+  await page.getByText(/Camadas · \d\/3/).waitFor();
   await page.screenshot({
     path: path.join(screenshotDir, "sonara-hub-studio.png"),
     fullPage: true,
@@ -659,12 +672,128 @@ try {
     path: path.join(screenshotDir, "sonara-hub-narrow.png"),
     fullPage: true,
   });
+  await assertTrackCanBeRemovedFromQueue(page);
   await assertBenchmarkCenterNavigation(page);
   assert.deepEqual(errors, []);
   assert.deepEqual(failedRequests, []);
 } finally {
   await cleanupSmokePresets();
   await browser.close();
+}
+
+async function assertCatalogArtworkLayout(page) {
+  const layout = await page.evaluate(() => {
+    const preview = document.querySelector(
+      ".catalog-artwork-dialog .catalog-artwork-expanded",
+    );
+    const gallery = document.querySelector(
+      ".catalog-artwork-dialog .catalog-artwork-gallery",
+    );
+    const previewBox = preview?.getBoundingClientRect();
+    const galleryBox = gallery?.getBoundingClientRect();
+    return {
+      gap:
+        previewBox && galleryBox
+          ? Math.round(galleryBox.top - previewBox.bottom)
+          : null,
+      previewHeight: previewBox?.height ?? 0,
+    };
+  });
+  assert.ok(
+    layout.previewHeight >= 220,
+    `artwork preview should reserve visible square height, got ${layout.previewHeight}`,
+  );
+  assert.ok(
+    layout.gap !== null && layout.gap >= 8,
+    `album cover gallery should start below the preview, got gap=${layout.gap}`,
+  );
+}
+
+async function assertBatchDragReordersTracks(page) {
+  const rows = page.locator(".batch-main-row");
+  const firstTitle = await rows
+    .nth(0)
+    .locator(".batch-col-title input")
+    .inputValue();
+  const secondTitle = await rows
+    .nth(1)
+    .locator(".batch-col-title input")
+    .inputValue();
+  assert.notEqual(firstTitle, secondTitle);
+  await page.evaluate(
+    ({ firstTitle, secondTitle }) => {
+      const rows = [...document.querySelectorAll(".batch-main-row")];
+      const sourceRow = rows.find(
+        (row) =>
+          row.querySelector(".batch-col-title input")?.value === secondTitle,
+      );
+      const targetRow = rows.find(
+        (row) =>
+          row.querySelector(".batch-col-title input")?.value === firstTitle,
+      );
+      const sourceHandle = sourceRow?.querySelector(".batch-row-drag");
+      if (!sourceHandle || !targetRow) {
+        throw new Error("Batch drag handles were not rendered.");
+      }
+      const dataTransfer = new DataTransfer();
+      sourceHandle.dispatchEvent(
+        new DragEvent("dragstart", {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer,
+        }),
+      );
+      targetRow.dispatchEvent(
+        new DragEvent("dragover", {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer,
+        }),
+      );
+      targetRow.dispatchEvent(
+        new DragEvent("drop", {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer,
+        }),
+      );
+      sourceHandle.dispatchEvent(
+        new DragEvent("dragend", {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer,
+        }),
+      );
+    },
+    { firstTitle, secondTitle },
+  );
+  await page.waitForFunction(
+    (expectedTitle) =>
+      document.querySelector(".batch-main-row .batch-col-title input")
+        ?.value === expectedTitle,
+    secondTitle,
+  );
+  const trackNumbers = await page
+    .locator(".batch-main-row .batch-col-track input")
+    .evaluateAll((inputs) =>
+      inputs.map((input) => /** @type {HTMLInputElement} */ (input).value),
+    );
+  assert.deepEqual(trackNumbers.slice(0, 2), ["1", "2"]);
+}
+
+async function assertTrackCanBeRemovedFromQueue(page) {
+  await page.setViewportSize({ width: 1440, height: 950 });
+  await ensurePanelOpen(page, "library");
+  const before = await page.locator(".track-row").count();
+  assert.ok(before >= 2, "remove-from-queue smoke needs at least two tracks");
+  await page
+    .getByRole("button", { name: /^Remover .* da fila$/ })
+    .last()
+    .click();
+  await page.waitForFunction(
+    (expected) => document.querySelectorAll(".track-row").length === expected,
+    before - 1,
+  );
 }
 
 async function assertBenchmarkCenterNavigation(page) {

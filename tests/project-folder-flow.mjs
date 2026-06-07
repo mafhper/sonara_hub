@@ -172,7 +172,10 @@ try {
   await page.locator(".studio-shell").waitFor();
   assert.equal(await page.title(), "Sonara Hub");
 
-  await page.getByRole("button", { name: "Definir entrada" }).click();
+  await page
+    .locator(".library-paths > div", { hasText: "Entrada" })
+    .getByRole("button", { name: "Alterar" })
+    .click();
   const projectSelect = page.locator(".library-project-picker select");
   await projectSelect.waitFor();
   assert.equal(await projectSelect.locator("option").count(), 2);
@@ -182,7 +185,7 @@ try {
   ]);
   assert.equal(await projectSelect.inputValue(), "Projeto Alpha");
   await page
-    .locator(".library-directory-row", { hasText: "Mock Entrada" })
+    .locator(".library-paths > div", { hasText: "Mock Entrada" })
     .waitFor();
   await page.locator(".track-row", { hasText: "alpha" }).waitFor();
   await page.waitForFunction(
@@ -197,9 +200,12 @@ try {
   );
   await page.getByRole("tab", { name: "Dados" }).click();
 
-  await page.getByRole("button", { name: "Definir saída" }).click();
   await page
-    .locator(".library-directory-row", { hasText: "Mock Saida" })
+    .locator(".library-paths > div", { hasText: "Saída" })
+    .getByRole("button", { name: "Alterar" })
+    .click();
+  await page
+    .locator(".library-paths > div", { hasText: "Mock Saida" })
     .waitFor();
   await page
     .locator('input[type="file"][accept="image/*,.svg"]')
