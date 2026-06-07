@@ -15,6 +15,9 @@ export type AudioInfo = {
   composer?: string | null;
   year?: string | number | null;
   track?: number | null;
+  trackTotal?: number | null;
+  disk?: number | null;
+  diskTotal?: number | null;
   hasEmbeddedCover?: boolean;
   sampleRate?: number | null;
   channels?: number | null;

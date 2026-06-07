@@ -24,6 +24,7 @@ import {
   FileText,
   FolderOpen,
   Gauge,
+  GripVertical,
   Image,
   Info,
   Italic,
@@ -54,6 +55,7 @@ import {
   Fragment,
   type CSSProperties,
   type ChangeEvent,
+  type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -2313,6 +2315,45 @@ function App() {
     setBatchFeedback("Alteracao salva na linha.");
   }
 
+  function reorderTrackInBatch(sourceId: string, targetId: string) {
+    if (!sourceId || !targetId || sourceId === targetId) return;
+    setTracks((current) => {
+      const source = current.find((track) => track.id === sourceId);
+      const target = current.find((track) => track.id === targetId);
+      if (!source || !target) return current;
+      const groupKey = trackBatchGroupKey(source);
+      if (groupKey !== trackBatchGroupKey(target)) return current;
+      const groupTracks = current.filter(
+        (track) => trackBatchGroupKey(track) === groupKey,
+      );
+      const sourceIndex = groupTracks.findIndex(
+        (track) => track.id === sourceId,
+      );
+      const targetIndex = groupTracks.findIndex(
+        (track) => track.id === targetId,
+      );
+      if (sourceIndex < 0 || targetIndex < 0) return current;
+
+      const reordered = [...groupTracks];
+      const [moved] = reordered.splice(sourceIndex, 1);
+      reordered.splice(targetIndex, 0, moved);
+      const total = reordered.length;
+      const renumbered = reordered.map((track, index) => ({
+        ...track,
+        metadata: {
+          ...track.metadata,
+          trackNumber: index + 1,
+          trackTotal: total,
+        },
+      }));
+      let cursor = 0;
+      return current.map((track) =>
+        trackBatchGroupKey(track) === groupKey ? renumbered[cursor++] : track,
+      );
+    });
+    setBatchFeedback("Ordem do lote atualizada.");
+  }
+
   async function applyLyricsSuggestion(suggestion: LyricsSuggestion) {
     const trackId = selectedTrackId;
     if (!suggestion.file) {
@@ -2377,6 +2418,28 @@ function App() {
         track.id === trackId ? { ...track, selectedForBatch: selected } : track,
       ),
     );
+  }
+
+  function removeTrackFromQueue(trackId: string) {
+    setTracks((current) => {
+      const removed = current.find((track) => track.id === trackId);
+      if (removed?.sourceUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(removed.sourceUrl);
+      }
+      const next = current.filter((track) => track.id !== trackId);
+      if (selectedTrackId === trackId) {
+        setSelectedTrackId(next[0]?.id ?? "");
+      }
+      return next;
+    });
+    setEmbeddedArtworkByTrackId((current) => {
+      if (!Object.prototype.hasOwnProperty.call(current, trackId)) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[trackId];
+      return next;
+    });
   }
 
   function updateScene(scene: ScenePresetV3) {
@@ -3792,19 +3855,24 @@ function App() {
 
       <aside className="library-panel">
         <div className="library-header">
-          <span className="overline">Pasta de Entrada</span>
-          <div className="library-directory-row">
-            <strong>{inputFolderName}</strong>
-            <button type="button" onClick={() => void chooseInputDirectory()}>
-              Definir entrada
-            </button>
-          </div>
-          <span className="overline library-output-label">Pasta de Saída</span>
-          <div className="library-directory-row">
-            <strong>{outputFolderName}</strong>
-            <button type="button" onClick={() => void chooseOutputDirectory()}>
-              Definir saída
-            </button>
+          <div className="library-paths">
+            <div>
+              <span>Entrada</span>
+              <strong>{inputFolderName}</strong>
+              <button type="button" onClick={() => void chooseInputDirectory()}>
+                Alterar
+              </button>
+            </div>
+            <div>
+              <span>Saída</span>
+              <strong>{outputFolderName}</strong>
+              <button
+                type="button"
+                onClick={() => void chooseOutputDirectory()}
+              >
+                Alterar
+              </button>
+            </div>
           </div>
           {inputProjects.length > 0 && (
             <label className="library-project-picker">
@@ -3835,18 +3903,16 @@ function App() {
             </button>
           </div>
           <div className="library-mode-row">
-            <small
-              className={`library-mode-badge ${workspaceWriteEnabled ? "write" : ""}`}
-            >
-              {workspaceWriteEnabled
-                ? "Substitui originais ao finalizar"
-                : "Não destrutivo"}
-            </small>
             {projectStateStatus && (
               <small className="library-project-status">
                 {projectStateStatus}
               </small>
             )}
+            <small
+              className={`library-mode-badge ${workspaceWriteEnabled ? "write" : ""}`}
+            >
+              {workspaceWriteEnabled ? "Substituição ativa" : "Não destrutivo"}
+            </small>
           </div>
         </div>
         <div className="library-caption">
@@ -3871,11 +3937,18 @@ function App() {
                 .map((track) => track.variantOf),
             );
             return tracks.map((track) => (
-              <button
+              <div
                 className={`track-row batch ${track.id === selectedTrack?.id ? "selected" : ""} ${treatedOrigins.has(track.id) ? "has-treated" : ""}`}
                 key={track.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => setSelectedTrackId(track.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelectedTrackId(track.id);
+                  }
+                }}
               >
                 <input
                   aria-label={`Selecionar ${track.metadata.title} para o lote`}
@@ -3916,8 +3989,19 @@ function App() {
                     )}
                   </small>
                 </span>
+                <button
+                  aria-label={`Remover ${track.metadata.title} da fila`}
+                  className="track-remove"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    removeTrackFromQueue(track.id);
+                  }}
+                >
+                  <Trash2 />
+                </button>
                 <span className="track-status" />
-              </button>
+              </div>
             ));
           })()}
         </div>
@@ -4000,6 +4084,7 @@ function App() {
             onClearTerminalJobs={() => void clearCompletedJobs("terminal")}
             onPauseQueue={() => void pauseQueue()}
             onResumeQueue={() => void resumeQueue()}
+            onReorderTrack={reorderTrackInBatch}
             onSelectTrack={setSelectedTrackId}
             onToggleTrack={toggleTrackBatchSelection}
             onToggleTracks={(ids, selected) =>
@@ -4877,6 +4962,7 @@ function AudioLibraryWorkspace({
   onClearTerminalJobs,
   onPauseQueue,
   onResumeQueue,
+  onReorderTrack,
   onSelectTrack,
   onToggleTrack,
   onToggleTracks,
@@ -4903,6 +4989,7 @@ function AudioLibraryWorkspace({
   onClearTerminalJobs: () => void;
   onPauseQueue: () => void;
   onResumeQueue: () => void;
+  onReorderTrack: (sourceId: string, targetId: string) => void;
   onSelectTrack: (id: string) => void;
   onToggleTrack: (id: string, selected: boolean) => void;
   onToggleTracks: (ids: string[], selected: boolean) => void;
@@ -4915,6 +5002,8 @@ function AudioLibraryWorkspace({
 }) {
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
+  const [draggedTrackId, setDraggedTrackId] = useState("");
+  const [dragOverTrackId, setDragOverTrackId] = useState("");
   if (workflowMode === "batch") {
     const selectedCount = tracks.filter(
       (track) => track.selectedForBatch,
@@ -4932,6 +5021,32 @@ function AudioLibraryWorkspace({
           ? current.filter((trackId) => trackId !== id)
           : [...current, id],
       );
+    const startTrackDrag = (
+      event: ReactDragEvent<HTMLButtonElement>,
+      trackId: string,
+    ) => {
+      event.stopPropagation();
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", trackId);
+      setDraggedTrackId(trackId);
+      setDragOverTrackId("");
+    };
+    const dropTrackOn = (
+      event: ReactDragEvent<HTMLTableRowElement>,
+      targetId: string,
+    ) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const sourceId =
+        event.dataTransfer.getData("text/plain") || draggedTrackId;
+      setDraggedTrackId("");
+      setDragOverTrackId("");
+      onReorderTrack(sourceId, targetId);
+    };
+    const finishTrackDrag = () => {
+      setDraggedTrackId("");
+      setDragOverTrackId("");
+    };
     return (
       <div className="audio-library batch-library">
         <header className="audio-library-heading">
@@ -5110,6 +5225,7 @@ function AudioLibraryWorkspace({
           <table className="batch-table">
             <thead>
               <tr>
+                <th className="batch-col-drag" aria-label="Ordem"></th>
                 <th className="batch-col-select"></th>
                 <th className="batch-col-expand"></th>
                 <th className="batch-col-track">Faixa</th>
@@ -5128,7 +5244,7 @@ function AudioLibraryWorkspace({
               return (
                 <tbody className="batch-table-group" key={group.id}>
                   <tr className="batch-group-row">
-                    <td colSpan={11}>
+                    <td colSpan={12}>
                       <button
                         type="button"
                         onClick={() => toggleGroup(group.id)}
@@ -5147,9 +5263,40 @@ function AudioLibraryWorkspace({
                       return (
                         <Fragment key={track.id}>
                           <tr
-                            className={`batch-main-row ${track.id === selectedTrackId ? "selected" : ""} ${expanded ? "is-expanded" : ""}`}
+                            className={`batch-main-row ${track.id === selectedTrackId ? "selected" : ""} ${expanded ? "is-expanded" : ""} ${draggedTrackId === track.id ? "is-dragging" : ""} ${dragOverTrackId === track.id ? "is-drag-over" : ""}`}
+                            onDragLeave={() => {
+                              if (dragOverTrackId === track.id) {
+                                setDragOverTrackId("");
+                              }
+                            }}
+                            onDragOver={(event) => {
+                              if (
+                                draggedTrackId &&
+                                draggedTrackId !== track.id
+                              ) {
+                                event.preventDefault();
+                                event.dataTransfer.dropEffect = "move";
+                                setDragOverTrackId(track.id);
+                              }
+                            }}
+                            onDrop={(event) => dropTrackOn(event, track.id)}
                             onClick={() => onSelectTrack(track.id)}
                           >
+                            <td className="batch-col-drag">
+                              <button
+                                aria-label={`Arrastar ${track.metadata.title} para reordenar`}
+                                className="batch-row-drag"
+                                draggable
+                                type="button"
+                                onClick={(event) => event.stopPropagation()}
+                                onDragEnd={finishTrackDrag}
+                                onDragStart={(event) =>
+                                  startTrackDrag(event, track.id)
+                                }
+                              >
+                                <GripVertical />
+                              </button>
+                            </td>
                             <td className="batch-col-select">
                               <input
                                 aria-label={`Selecionar ${track.metadata.title}`}
@@ -5287,7 +5434,7 @@ function AudioLibraryWorkspace({
                           <tr
                             className={`batch-detail-row ${expanded ? "is-expanded" : ""} ${track.id === selectedTrackId ? "is-focused" : ""}`}
                           >
-                            <td colSpan={11}>
+                            <td colSpan={12}>
                               <div className="batch-row-details">
                                 <label className="batch-detail-edit batch-detail-track">
                                   <span>Faixa</span>
@@ -11211,10 +11358,37 @@ function metadataFromAudio(
     comment: info?.comment || suggestions?.comment || fallback.comment,
     composer: suggestions?.composer || fallback.composer,
     year: suggestions?.year || fallback.year,
-    trackNumber: suggestions?.trackNumber || fallback.trackNumber,
-    diskNumber: suggestions?.diskNumber || fallback.diskNumber,
+    trackNumber:
+      Number(info?.track) || suggestions?.trackNumber || fallback.trackNumber,
+    trackTotal:
+      Number(info?.trackTotal) ||
+      suggestions?.trackTotal ||
+      fallback.trackTotal,
+    diskNumber:
+      Number(info?.disk) || suggestions?.diskNumber || fallback.diskNumber,
+    diskTotal:
+      Number(info?.diskTotal) || suggestions?.diskTotal || fallback.diskTotal,
     useEmbeddedCover: Boolean(info?.hasEmbeddedCover),
   };
+}
+
+function trackBatchGroupKey(track: TrackDraft) {
+  const metadata = track.metadata;
+  return [
+    metadata.artist || "Artista desconhecido",
+    metadata.album || "Álbum sem nome",
+    Math.max(1, Number(metadata.diskNumber) || 1),
+  ]
+    .map(normalizeBatchGroupKey)
+    .join("\u0000");
+}
+
+function normalizeBatchGroupKey(value: string | number) {
+  return String(value)
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 function finalizeImportedTracks(tracks: TrackDraft[]) {
@@ -11227,41 +11401,67 @@ function finalizeImportedTracks(tracks: TrackDraft[]) {
     ].join("\u0000");
     groups.set(key, [...(groups.get(key) ?? []), track]);
   }
-  const finalized = new Map<string, TrackDraft>();
+  const finalized: TrackDraft[] = [];
   for (const group of groups.values()) {
-    const ordered = [...group].sort((first, second) =>
+    const byFileName = [...group].sort((first, second) =>
       first.sourceKey.localeCompare(second.sourceKey, "pt-BR", {
         numeric: true,
         sensitivity: "base",
       }),
     );
-    const explicitNumbers = new Set(
-      ordered
-        .map((track) => Number(track.audioInfo?.suggestions?.trackNumber ?? 0))
-        .filter((value) => value > 0),
+    const explicitTrackNumbers = byFileName
+      .map((track) => Number(track.metadata.trackNumber || 0))
+      .filter((value) => value > 0);
+    const uniqueExplicitTrackNumbers = new Set(explicitTrackNumbers);
+    const hasCompleteExplicitTrackNumbers =
+      explicitTrackNumbers.length === byFileName.length &&
+      uniqueExplicitTrackNumbers.size === byFileName.length;
+    const taggedTrackTotal = Math.max(
+      0,
+      ...byFileName.map((track) => Number(track.metadata.trackTotal || 0)),
     );
-    const duplicateExplicit = explicitNumbers.size !== ordered.length;
+    const ordered = hasCompleteExplicitTrackNumbers
+      ? [...byFileName].sort((first, second) => {
+          const firstDisk = Number(first.metadata.diskNumber || 1);
+          const secondDisk = Number(second.metadata.diskNumber || 1);
+          if (firstDisk !== secondDisk) return firstDisk - secondDisk;
+          const firstTrack = Number(first.metadata.trackNumber || 0);
+          const secondTrack = Number(second.metadata.trackNumber || 0);
+          if (firstTrack !== secondTrack) return firstTrack - secondTrack;
+          return first.sourceKey.localeCompare(second.sourceKey, "pt-BR", {
+            numeric: true,
+            sensitivity: "base",
+          });
+        })
+      : byFileName;
     const diskNumbers = new Set(
       ordered
         .map((track) => Number(track.metadata.diskNumber || 1))
         .filter((value) => value > 0),
     );
+    const trackTotal = Math.max(taggedTrackTotal, ordered.length);
     for (const [index, track] of ordered.entries()) {
-      const explicit = Number(track.audioInfo?.suggestions?.trackNumber ?? 0);
-      finalized.set(track.id, {
+      const explicit = Number(track.metadata.trackNumber || 0);
+      finalized.push({
         ...track,
         metadata: {
           ...track.metadata,
           trackNumber:
-            explicit > 0 && !duplicateExplicit ? explicit : index + 1,
-          trackTotal: ordered.length,
+            explicit > 0 && hasCompleteExplicitTrackNumbers
+              ? explicit
+              : index + 1,
+          trackTotal,
           diskNumber: track.metadata.diskNumber || 1,
-          diskTotal: Math.max(1, diskNumbers.size),
+          diskTotal:
+            Math.max(
+              0,
+              ...ordered.map((item) => item.metadata.diskTotal || 0),
+            ) || Math.max(1, diskNumbers.size),
         },
       });
     }
   }
-  return tracks.map((track) => finalized.get(track.id) ?? track);
+  return finalized;
 }
 
 type DirectoryAssetEntry = { file: File; relativePath: string };
