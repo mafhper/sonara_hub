@@ -488,20 +488,29 @@ svg {
 
 .library-paths {
   display: grid !important;
-  gap: 6px !important;
+  gap: 0 !important;
   margin-top: 0 !important;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: rgb(255 255 255 / 2%);
 }
 
 .library-paths > div {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) auto;
+  min-height: 30px;
+  grid-template-columns: 44px minmax(0, 1fr) 48px;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   margin: 0;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: var(--stage-surface-low);
-  padding: 6px 7px;
+  border: 0;
+  border-bottom: 1px solid var(--border-soft);
+  background: transparent;
+  padding: 0 7px;
+}
+
+.library-paths > div:last-child {
+  border-bottom: 0;
 }
 
 .library-paths span {
@@ -510,10 +519,21 @@ svg {
   font-weight: 760;
 }
 
+.library-paths strong {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 660;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .library-paths button {
   color: var(--accent-cool-strong);
   font-size: var(--font-xs);
   font-weight: 700;
+  text-align: right;
 }
 
 .library-directory-row {
@@ -523,7 +543,7 @@ svg {
 .library-project-picker {
   display: grid;
   gap: var(--space-1);
-  margin-top: var(--space-3);
+  margin-top: 0;
 }
 
 .library-project-picker span {
@@ -536,6 +556,7 @@ svg {
 
 .library-project-picker select {
   width: 100%;
+  min-height: 30px;
   min-width: 0;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
@@ -549,7 +570,7 @@ svg {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-2);
-  margin-top: var(--space-3);
+  margin-top: 0;
 }
 
 .library-header .library-open-actions button {
@@ -743,17 +764,23 @@ svg {
 
 .library-actions {
   display: grid;
-  gap: 6px;
+  gap: 7px;
   border-top: 1px solid var(--line-soft);
-  padding: 10px;
+  background: linear-gradient(180deg, rgb(12 14 18 / 72%), rgb(6 7 9 / 94%));
+  padding: 8px;
+}
+
+.library-context {
+  display: grid;
+  gap: 7px;
 }
 
 .library-write-toggle {
   margin-top: 0;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
-  background: var(--stage-surface-low);
-  padding: 8px;
+  background: var(--field-bg);
+  padding: 7px 8px;
 }
 
 .dashed-action,
@@ -2794,7 +2821,7 @@ button:disabled {
 }
 
 .library-header {
-  padding: 15px 14px 12px;
+  padding: 12px 12px 10px;
 }
 
 .overline,
@@ -2831,15 +2858,17 @@ button:disabled {
 }
 
 .library-mode-badge {
-  display: block;
+  display: inline-flex;
   width: fit-content;
+  min-height: 24px;
+  align-items: center;
   border: 1px solid var(--status-ok-border);
   border-radius: 999px;
   background: rgb(128 202 165 / 8%);
   color: var(--status-ok);
   font-size: var(--font-sm);
   line-height: 1.4;
-  padding: 3px 7px;
+  padding: 2px 8px;
 }
 
 .library-mode-badge.write {
@@ -2850,11 +2879,14 @@ button:disabled {
 
 .library-project-status {
   display: block;
+  overflow: hidden;
   border-left: 2px solid var(--status-ok-border);
   color: var(--text-dim);
   font-size: var(--font-xs);
   line-height: 1.35;
   padding-left: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .library-mode-note {
@@ -2862,9 +2894,11 @@ button:disabled {
 }
 
 .library-mode-row {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
-  margin-top: 10px;
+  margin-top: 0;
 }
 
 .library-mode-cancel {
@@ -2977,7 +3011,7 @@ button:disabled {
 
 .library-actions {
   gap: 8px;
-  padding: 12px;
+  padding: 8px;
 }
 
 .preview-workspace {
@@ -6057,12 +6091,12 @@ button:disabled {
 
 .tag-select-field {
   display: grid;
-  gap: 6px;
-  margin-top: 9px;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
 }
 
 .tag-select-label {
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-size: var(--font-sm);
 }
 
@@ -6076,11 +6110,14 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 4px 2px 9px;
-  border: 1px solid var(--border-soft);
+  min-height: 24px;
+  padding: 2px 5px 2px 9px;
+  border: 1px solid var(--control-border);
   border-radius: 999px;
-  background: var(--stage-surface-low);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
   font-size: var(--font-xs);
+  font-weight: 650;
 }
 
 .tag-chip > button {
@@ -6109,17 +6146,20 @@ button:disabled {
 
 .tag-select-input input {
   width: 100%;
-  min-height: 30px;
-  padding: 0 9px;
-  border: 1px solid var(--border);
+  min-height: var(--control-height);
+  padding: 7px 9px;
+  border: 1px solid var(--control-border);
   border-radius: var(--radius);
-  background: transparent;
+  background: var(--field-bg);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 28%);
   color: var(--text-primary);
+  font-size: var(--font-sm);
   outline: none;
 }
 
 .tag-select-input input:focus {
   border-color: var(--focus);
+  box-shadow: 0 0 0 2px rgb(126 160 224 / 13%);
 }
 
 .tag-select-menu {
@@ -6133,9 +6173,9 @@ button:disabled {
   padding: 4px;
   overflow-y: auto;
   list-style: none;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius);
-  background: #161922;
+  background: var(--surface-raised);
   box-shadow: 0 10px 28px rgb(0 0 0 / 45%);
 }
 
@@ -6153,7 +6193,7 @@ button:disabled {
   min-width: 0;
   padding: 6px 8px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--text-secondary);
   font-size: var(--font-sm);
@@ -6180,7 +6220,7 @@ button:disabled {
   width: 26px;
   min-height: 26px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
@@ -6603,6 +6643,33 @@ button:disabled {
   font-size: var(--font-xs);
   font-weight: 760;
   text-transform: uppercase;
+}
+
+.bench-baseline-state {
+  display: grid;
+  min-width: 238px;
+  gap: 3px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--field-grad);
+  padding: 8px 10px;
+}
+
+.bench-baseline-state span {
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.bench-baseline-state strong {
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+}
+
+.bench-baseline-state small {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
 }
 
 .bench-hero-actions select {
