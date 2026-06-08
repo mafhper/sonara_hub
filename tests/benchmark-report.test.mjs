@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   cleanupRenderBenchmarkData,
   loadRenderBenchmarkReport,
+  saveBenchmarkBaseline,
   saveBenchmarkCleanupPolicy,
 } from "../server/benchmark-report.mjs";
 
@@ -111,6 +112,53 @@ test("render benchmark report tolerates baseline pointing to a missing run", asy
   assert.equal(report.baselines[0].found, false);
   assert.equal(report.baselineComparison, null);
   assert.equal(report.latestComparison.referenceRun.runId, "run-a");
+});
+
+test("benchmark baseline helper persists a selected run slot", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-bench-"));
+  const historyPath = path.join(directory, "render-history.jsonl");
+  const baselinePath = path.join(directory, "baselines.json");
+  await writeHistory(historyPath, [
+    run("run-stable", "quick", 1000, 10, 110),
+    run("run-current", "quick", 900, 10, 100),
+  ]);
+
+  const result = await saveBenchmarkBaseline(baselinePath, {
+    historyPath,
+    runId: "run-stable",
+    slot: "beta",
+  });
+  const config = JSON.parse(await fs.readFile(baselinePath, "utf8"));
+  const report = await loadRenderBenchmarkReport(historyPath, {
+    activeBaseline: "beta",
+    baselinePath,
+  });
+
+  assert.equal(config.beta.runId, "run-stable");
+  assert.equal(result.baseline.slot, "beta");
+  assert.equal(result.baseline.found, true);
+  assert.equal(report.activeBaseline, "beta");
+  assert.equal(report.baselineComparison.referenceRun.runId, "run-stable");
+});
+
+test("benchmark baseline helper rejects missing runs", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-bench-"));
+  const historyPath = path.join(directory, "render-history.jsonl");
+  const baselinePath = path.join(directory, "baselines.json");
+  await writeHistory(historyPath, [run("run-a", "quick", 1000, 10, 110)]);
+
+  await assert.rejects(
+    () =>
+      saveBenchmarkBaseline(baselinePath, {
+        historyPath,
+        runId: "missing-run",
+        slot: "stable",
+      }),
+    {
+      code: "BENCHMARK_BASELINE_RUN_NOT_FOUND",
+      name: "BenchmarkBaselineError",
+    },
+  );
 });
 
 test("render benchmark score composes latest clean required tests for current commit", async () => {

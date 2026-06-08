@@ -50,9 +50,11 @@ import { runRenderWorkerJob } from "./job-worker.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import {
+  BenchmarkBaselineError,
   cleanupRenderBenchmarkData,
   loadBenchmarkCleanupPolicy,
   loadRenderBenchmarkReport,
+  saveBenchmarkBaseline,
   saveBenchmarkCleanupPolicy,
 } from "./benchmark-report.mjs";
 import {
@@ -188,6 +190,27 @@ app.put("/api/dev/benchmarks/cleanup-policy", async (req, res, next) => {
       ),
     });
   } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/dev/benchmarks/baseline", async (req, res, next) => {
+  try {
+    res.json(
+      await saveBenchmarkBaseline(benchmarkBaselinePath, {
+        historyPath: benchmarkHistoryPath,
+        runId: req.body?.runId,
+        slot: req.body?.slot,
+      }),
+    );
+  } catch (error) {
+    if (error instanceof BenchmarkBaselineError) {
+      res.status(error.statusCode).json({
+        code: error.code,
+        error: error.message,
+      });
+      return;
+    }
     next(error);
   }
 });

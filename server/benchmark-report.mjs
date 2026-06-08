@@ -69,6 +69,15 @@ const benchmarkScoreTestKeys = new Set(
   benchmarkScoreTests.map((item) => item.key),
 );
 
+export class BenchmarkBaselineError extends Error {
+  constructor(message, code, statusCode = 400) {
+    super(message);
+    this.name = "BenchmarkBaselineError";
+    this.code = code;
+    this.statusCode = statusCode;
+  }
+}
+
 export async function loadRenderBenchmarkReport(
   historyPath,
   {
@@ -189,6 +198,57 @@ export async function saveBenchmarkCleanupPolicy(policyPath, policy) {
   return normalized;
 }
 
+export async function saveBenchmarkBaseline(
+  baselinePath,
+  { historyPath = "", runId = "", slot = "stable" } = {},
+) {
+  const normalizedSlot = normalizeBaselineSlot(slot);
+  const normalizedRunId = String(runId ?? "").trim();
+  if (!normalizedSlot) {
+    throw new BenchmarkBaselineError(
+      "Slot de baseline invalido.",
+      "BENCHMARK_BASELINE_SLOT_INVALID",
+      400,
+    );
+  }
+  if (!normalizedRunId) {
+    throw new BenchmarkBaselineError(
+      "Informe o run que sera usado como baseline.",
+      "BENCHMARK_BASELINE_RUN_REQUIRED",
+      400,
+    );
+  }
+
+  const runs = await readCompactRuns(historyPath);
+  const selectedRun = runs.find((run) => run.runId === normalizedRunId);
+  if (!selectedRun) {
+    throw new BenchmarkBaselineError(
+      "Run de benchmark nao encontrado no historico local.",
+      "BENCHMARK_BASELINE_RUN_NOT_FOUND",
+      404,
+    );
+  }
+
+  const currentConfig = await readJsonFile(baselinePath, {});
+  const nextConfig = {
+    ...(typeof currentConfig === "object" && currentConfig
+      ? currentConfig
+      : {}),
+    [normalizedSlot]: {
+      runId: normalizedRunId,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  await fs.mkdir(path.dirname(baselinePath), { recursive: true });
+  await fs.writeFile(baselinePath, `${JSON.stringify(nextConfig, null, 2)}\n`);
+
+  const baselines = summarizeBaselines(nextConfig, runs).map(publicBaseline);
+  return {
+    baseline: baselines.find((item) => item.slot === normalizedSlot),
+    baselines,
+  };
+}
+
 export async function cleanupRenderBenchmarkData({
   historyPath,
   mode,
@@ -269,6 +329,19 @@ async function readHistoryLines(historyPath) {
     if (error?.code === "ENOENT") return { missing: true, lines: [] };
     throw error;
   }
+}
+
+async function readCompactRuns(historyPath) {
+  const { lines } = await readHistoryLines(historyPath);
+  const runs = [];
+  for (const line of lines) {
+    try {
+      runs.push(compactRun(JSON.parse(line)));
+    } catch {
+      // Baseline writes should stay possible when an unrelated old line is bad.
+    }
+  }
+  return runs;
 }
 
 async function readJsonFile(filePath, fallback) {
@@ -613,6 +686,17 @@ function summarizeBaselines(config, runs) {
       fullRun,
     };
   });
+}
+
+function publicBaseline({ fullRun: _fullRun, ...baseline }) {
+  return baseline;
+}
+
+function normalizeBaselineSlot(slot) {
+  const normalized = String(slot ?? "")
+    .trim()
+    .toLowerCase();
+  return baselineSlots.includes(normalized) ? normalized : "";
 }
 
 function compareRuns(currentRun, referenceRun, mode) {

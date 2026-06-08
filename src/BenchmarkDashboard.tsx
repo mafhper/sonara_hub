@@ -349,6 +349,8 @@ export default function BenchmarkDashboard() {
   const [cleanupDraft, setCleanupDraft] =
     useState<BenchmarkCleanupPolicy>(defaultCleanupPolicy);
   const [cleanupMessage, setCleanupMessage] = useState("");
+  const [baselineMessage, setBaselineMessage] = useState("");
+  const [baselineSaving, setBaselineSaving] = useState(false);
   const [selectedCleanupRunId, setSelectedCleanupRunId] = useState("");
   const [executionKind, setExecutionKind] =
     useState<BenchmarkExecution["kind"]>("all");
@@ -470,6 +472,35 @@ export default function BenchmarkDashboard() {
     }
   }
 
+  async function saveLatestRunAsBaseline() {
+    if (!report?.latestRun) return;
+    setBaselineMessage("");
+    setBaselineSaving(true);
+    try {
+      const response = await fetchJson<{
+        baseline: BenchmarkBaseline;
+        baselines: BenchmarkBaseline[];
+      }>("/api/dev/benchmarks/baseline", {
+        body: JSON.stringify({
+          runId: report.latestRun.runId,
+          slot: baselineSlot,
+        }),
+        headers: { "content-type": "application/json" },
+        method: "PUT",
+      });
+      setBaselineMessage(
+        `${response.baseline.label} agora usa ${shortId(report.latestRun.runId)}.`,
+      );
+      await loadReport();
+    } catch (reason) {
+      setBaselineMessage(
+        reason instanceof Error ? reason.message : String(reason),
+      );
+    } finally {
+      setBaselineSaving(false);
+    }
+  }
+
   async function runCleanup(mode: "all" | "policy" | "run") {
     const label =
       mode === "all"
@@ -585,8 +616,11 @@ export default function BenchmarkDashboard() {
   const runMedians = visibleRuns.map((run) => run.summary.medianTotalMs);
   const runRss = visibleRuns.map((run) => run.summary.peakRssMb);
   const runWarnings = visibleRuns.map((run) => run.summary.warningCount);
-  const availableBaselines =
-    report?.baselines.filter((baseline) => baseline.found) ?? [];
+  const baselineOptions = report?.baselines ?? [];
+  const selectedBaseline =
+    baselineOptions.find((baseline) => baseline.slot === baselineSlot) ??
+    baselineOptions[0] ??
+    null;
 
   return (
     <main className="bench-dashboard">
@@ -603,27 +637,58 @@ export default function BenchmarkDashboard() {
           </p>
         </div>
         <div className="bench-hero-actions">
-          {availableBaselines.length > 0 ? (
+          <div className="bench-baseline-control">
             <label>
               <span>Baseline</span>
               <select
                 value={baselineSlot}
-                onChange={(event) => setBaselineSlot(event.target.value)}
+                onChange={(event) => {
+                  setBaselineSlot(event.target.value);
+                  setBaselineMessage("");
+                }}
               >
-                {availableBaselines.map((baseline) => (
-                  <option key={baseline.slot} value={baseline.slot}>
-                    {baseline.label}
-                  </option>
-                ))}
+                {baselineOptions.length ? (
+                  baselineOptions.map((baseline) => (
+                    <option key={baseline.slot} value={baseline.slot}>
+                      {baseline.label} ·{" "}
+                      {baseline.found ? shortId(baseline.runId) : "slot vazio"}
+                    </option>
+                  ))
+                ) : (
+                  <option value={baselineSlot}>Carregando baselines</option>
+                )}
               </select>
             </label>
-          ) : (
-            <div className="bench-baseline-state">
-              <span>Baseline</span>
-              <strong>Sem baseline fixa</strong>
-              <small>Comparando com run anterior compatível</small>
+            <div className="bench-baseline-caption">
+              {selectedBaseline?.found ? (
+                <>
+                  <strong>{shortId(selectedBaseline.runId)}</strong>
+                  <span>
+                    {relativeDate(selectedBaseline.run?.createdAt ?? "")}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <strong>Sem baseline fixa</strong>
+                  <span>Usando run anterior compatível</span>
+                </>
+              )}
             </div>
-          )}
+            <button
+              className="bench-baseline-action"
+              disabled={!report?.latestRun || baselineSaving}
+              type="button"
+              onClick={() => void saveLatestRunAsBaseline()}
+            >
+              <Database />
+              {baselineSaving ? "Salvando..." : "Usar último run"}
+            </button>
+            {baselineMessage && (
+              <small className="bench-baseline-message">
+                {baselineMessage}
+              </small>
+            )}
+          </div>
           <label className="bench-workflow-toggle">
             <input
               aria-label="Workflow real"
@@ -2477,6 +2542,13 @@ function formatPercent(value: unknown) {
 
 function shortCommit(value: string) {
   return value ? value.slice(0, 8) : "sem commit";
+}
+
+function shortId(value: string) {
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}/u.test(value)) {
+    return value.slice(0, 16).replace("T", " ");
+  }
+  return value ? value.slice(0, 12) : "sem run";
 }
 
 function statusLabel(status: BenchmarkReleaseGate["status"]) {

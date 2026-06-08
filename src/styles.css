@@ -6861,6 +6861,48 @@ button:disabled {
   accent-color: var(--accent-cool);
 }
 
+.bench-baseline-control {
+  display: grid;
+  min-width: 260px;
+  max-width: 320px;
+  gap: 7px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--field-grad);
+  padding: 9px;
+}
+
+.bench-baseline-control label {
+  gap: 5px;
+}
+
+.bench-baseline-caption {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  text-transform: none;
+}
+
+.bench-baseline-caption strong {
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+}
+
+.bench-baseline-action {
+  justify-content: center;
+  width: 100%;
+}
+
+.bench-baseline-message {
+  color: var(--accent-cool-strong);
+  font-size: var(--font-xs);
+  text-transform: none;
+}
+
 .bench-baseline-state {
   display: grid;
   min-width: 238px;
@@ -8313,6 +8355,7 @@ button:disabled {
   }
 
   .bench-tabs button,
+  .bench-baseline-control,
   .bench-hero-actions button,
   .bench-hero-actions label,
   .bench-hero-actions select,
