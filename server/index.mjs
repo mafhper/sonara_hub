@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import fssync from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import express from "express";
 import { parseFile } from "music-metadata";
@@ -55,12 +55,18 @@ import {
   loadRenderBenchmarkReport,
   saveBenchmarkCleanupPolicy,
 } from "./benchmark-report.mjs";
+import {
+  emptyWorkflowBenchmark,
+  summarizeWorkflowBenchmark,
+} from "./workflow-benchmark.mjs";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
 import { normalizeTextSettings } from "../shared/text-settings.mjs";
 import {
+  isArtworkName,
   treatedAlbumArtworkFileName,
   treatedTrackArtworkPath,
 } from "../shared/artwork-convention.mjs";
+import { isLyricsTextPath } from "../shared/lyrics-convention.mjs";
 import { buildNameFromPattern } from "../shared/file-naming.mjs";
 import {
   clampPublicationClipDuration,
@@ -87,6 +93,7 @@ const workDir = path.join(rootDir, ".dev", "work");
 const artworkPreviewDir = path.join(rootDir, ".dev", "artwork-previews");
 const outputDir = path.join(rootDir, "outputs");
 const treatedOutputDir = path.join(outputDir, "audio");
+const audioFilePattern = /\.(mp3|wav|m4a|flac|aac)$/i;
 const benchmarkHistoryPath = path.join(
   rootDir,
   ".dev",
@@ -151,14 +158,22 @@ app.get("/api/dev/benchmarks", async (req, res, next) => {
   try {
     const limit = clampNumber(Number(req.query.limit ?? 250), 1, 1000);
     const activeBaseline = String(req.query.baseline ?? "stable");
-    res.json(
-      await loadRenderBenchmarkReport(benchmarkHistoryPath, {
-        activeBaseline,
-        baselinePath: benchmarkBaselinePath,
-        cleanupPolicyPath: benchmarkCleanupPolicyPath,
-        limit,
-      }),
+    const includeWorkflow = parseBoolean(
+      req.query.workflow ?? req.query.includeWorkflow,
     );
+    const report = await loadRenderBenchmarkReport(benchmarkHistoryPath, {
+      activeBaseline,
+      baselinePath: benchmarkBaselinePath,
+      cleanupPolicyPath: benchmarkCleanupPolicyPath,
+      currentGit: currentBenchmarkGit(),
+      limit,
+    });
+    res.json({
+      ...report,
+      workflow: includeWorkflow
+        ? summarizeWorkflowBenchmark(Array.from(jobs.values()))
+        : emptyWorkflowBenchmark(),
+    });
   } catch (error) {
     next(error);
   }
@@ -262,6 +277,23 @@ app.get("/api/audio/:fileName", async (req, res) => {
   res.sendFile(audioPath);
 });
 
+app.get("/api/input-asset/:fileName", async (req, res) => {
+  const filePath = await resolveInputAsset(req.params.fileName);
+  if (!filePath) {
+    res.status(404).json({ error: "Asset de entrada não encontrado." });
+    return;
+  }
+  try {
+    if (filePath.toLowerCase().endsWith(".svg")) {
+      res.type("image/svg+xml").send(await safeSvgBuffer(filePath));
+      return;
+    }
+    res.sendFile(filePath);
+  } catch {
+    res.status(404).json({ error: "Asset de entrada inválido." });
+  }
+});
+
 app.post(
   "/api/audio/artwork-preview",
   upload.single("audio"),
@@ -319,8 +351,13 @@ if (fssync.existsSync(path.join(rootDir, "dist"))) {
   app.use(express.static(path.join(rootDir, "dist")));
 }
 
-app.get("/api/project", async (_req, res) => {
-  const audioPath = await findDefaultAudio();
+app.get("/api/project", async (req, res) => {
+  const inputProjects = await listInputProjects();
+  const inputScope = await inputProjectScope(req.query.project);
+  const inputAudios = await listInputAudios(inputScope);
+  const audioPath = inputAudios[0]
+    ? inputPathFromRelative(inputAudios[0].name)
+    : await findDefaultAudio();
   const lyricsPath = path.join(rootDir, "lyrics.txt");
   const lyricsText = await readTextIfExists(lyricsPath);
   const parsedLyrics = parseLyrics(lyricsText);
@@ -328,8 +365,18 @@ app.get("/api/project", async (_req, res) => {
 
   res.json({
     projectRoot: rootDir,
-    defaultAudio: audioPath ? path.basename(audioPath) : null,
-    inputAudios: await listInputAudios(),
+    inputDirectory: "input",
+    outputDirectory: "outputs",
+    defaultAudio: audioPath ? inputRelativeAudioName(audioPath) : null,
+    inputProject: inputScope.projectId,
+    inputProjects,
+    inputAudios,
+    inputArtwork: await listInputAssets(inputScope, (relativePath) =>
+      isArtworkName(relativePath),
+    ),
+    inputLyrics: await listInputAssets(inputScope, (relativePath) =>
+      isLyricsTextPath(relativePath),
+    ),
     audio,
     lyrics: parsedLyrics,
     hasLicense: fssync.existsSync(path.join(rootDir, "Commercial_license.pdf")),
@@ -1620,33 +1667,119 @@ async function renderPublicationAsset({
 }
 
 async function findDefaultAudio() {
-  const roots = [rootDir, path.join(rootDir, "input")];
-  for (const currentRoot of roots) {
-    try {
-      const entries = await fs.readdir(currentRoot);
-      const audio = entries
-        .filter((entry) => /\.(mp3|wav|m4a|flac|aac)$/i.test(entry))
-        .sort((a, b) => a.localeCompare(b, "pt-BR"))[0];
-      if (audio) {
-        return path.join(currentRoot, audio);
-      }
-    } catch {
-      // Optional input folder.
+  try {
+    const entries = await fs.readdir(rootDir);
+    const audio = entries
+      .filter((entry) => audioFilePattern.test(entry))
+      .sort((a, b) => a.localeCompare(b, "pt-BR"))[0];
+    if (audio) return path.join(rootDir, audio);
+  } catch {
+    // Optional root audio.
+  }
+  try {
+    const inputAudio = (await collectInputAudioFiles(inputDir))[0];
+    if (inputAudio) {
+      return path.join(inputDir, ...inputAudio.split("/"));
     }
+  } catch {
+    // Optional input folder.
   }
   return null;
 }
 
-async function listInputAudios() {
+function inputRelativeAudioName(filePath) {
+  const relative = path.relative(inputDir, filePath);
+  if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
+    return relative.split(path.sep).join("/");
+  }
+  return path.basename(filePath);
+}
+
+function inputPathFromRelative(relativePath) {
+  return path.join(inputDir, ...String(relativePath).split("/"));
+}
+
+async function inputProjectScope(projectId) {
+  await fs.mkdir(inputDir, { recursive: true });
+  const requested = Array.isArray(projectId) ? projectId[0] : projectId;
+  const raw = String(requested ?? "").trim();
+  if (!raw || raw === ".") {
+    return { directory: inputDir, prefix: "", projectId: "." };
+  }
+  const segments = safeInputSegments(raw);
+  if (!segments) return { directory: inputDir, prefix: "", projectId: "." };
+  const directory = path.resolve(inputDir, ...segments);
+  const relative = path.relative(inputDir, directory);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return { directory: inputDir, prefix: "", projectId: "." };
+  }
+  try {
+    const stat = await fs.stat(directory);
+    if (!stat.isDirectory()) {
+      return { directory: inputDir, prefix: "", projectId: "." };
+    }
+    const prefix = segments.join("/");
+    return { directory, prefix, projectId: prefix };
+  } catch {
+    return { directory: inputDir, prefix: "", projectId: "." };
+  }
+}
+
+async function listInputProjects() {
   try {
     await fs.mkdir(inputDir, { recursive: true });
-    const entries = await fs.readdir(inputDir);
+    const projects = [];
+    const directTrackCount = await countDirectInputAudioFiles(inputDir);
+    if (directTrackCount > 0) {
+      projects.push({
+        id: ".",
+        name: "input",
+        path: ".",
+        trackCount: directTrackCount,
+      });
+    }
+    for (const entry of await fs.readdir(inputDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+      const fullPath = path.join(inputDir, entry.name);
+      const trackCount = (await collectInputAudioFiles(fullPath, entry.name))
+        .length;
+      if (trackCount === 0) continue;
+      projects.push({
+        id: entry.name,
+        name: entry.name,
+        path: entry.name,
+        trackCount,
+      });
+    }
+    return projects.sort((first, second) =>
+      first.name.localeCompare(second.name, "pt-BR", {
+        numeric: true,
+        sensitivity: "base",
+      }),
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function countDirectInputAudioFiles(directory) {
+  let count = 0;
+  for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+    if (entry.isFile() && audioFilePattern.test(entry.name)) count += 1;
+  }
+  return count;
+}
+
+async function listInputAudios(scope = { directory: inputDir, prefix: "" }) {
+  try {
+    await fs.mkdir(inputDir, { recursive: true });
     const audios = [];
 
-    for (const entry of entries
-      .filter((fileName) => /\.(mp3|wav|m4a|flac|aac)$/i.test(fileName))
-      .sort((a, b) => a.localeCompare(b, "pt-BR"))) {
-      const filePath = path.join(inputDir, entry);
+    for (const entry of await collectInputAudioFiles(
+      scope.directory,
+      scope.prefix,
+    )) {
+      const filePath = path.join(inputDir, ...entry.split("/"));
       const stat = await fs.stat(filePath);
       const metadata = await readAudioMetadataSummary(filePath);
       audios.push({
@@ -1662,21 +1795,68 @@ async function listInputAudios() {
   }
 }
 
+async function listInputAssets(scope, predicate) {
+  try {
+    return (
+      await collectInputFiles(scope.directory, scope.prefix, predicate)
+    ).map((name) => ({ name }));
+  } catch {
+    return [];
+  }
+}
+
+async function collectInputAudioFiles(directory, prefix = "") {
+  return collectInputFiles(directory, prefix, (relativePath) =>
+    audioFilePattern.test(relativePath),
+  );
+}
+
+async function collectInputFiles(directory, prefix = "", predicate) {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  const matches = [];
+  for (const entry of entries.sort((a, b) =>
+    a.name.localeCompare(b.name, "pt-BR", {
+      numeric: true,
+      sensitivity: "base",
+    }),
+  )) {
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (relativePath.split("/").some((segment) => segment.startsWith("."))) {
+      continue;
+    }
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      matches.push(
+        ...(await collectInputFiles(fullPath, relativePath, predicate)),
+      );
+      continue;
+    }
+    if (entry.isFile() && predicate(relativePath)) {
+      matches.push(relativePath);
+    }
+  }
+  return matches;
+}
+
 async function resolveInputAudio(fileName) {
   const requested = Array.isArray(fileName) ? fileName[0] : fileName;
   if (!requested) {
     return null;
   }
 
-  const safeName = path.basename(String(requested));
-  const filePath = path.resolve(inputDir, safeName);
-  if (!filePath.startsWith(inputDir)) {
+  const safeSegments = safeInputSegments(requested);
+  if (!safeSegments) {
     return null;
   }
 
+  const filePath = path.resolve(inputDir, ...safeSegments);
+  const relative = path.relative(inputDir, filePath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return null;
+  }
   try {
     const stat = await fs.stat(filePath);
-    if (stat.isFile() && /\.(mp3|wav|m4a|flac|aac)$/i.test(filePath)) {
+    if (stat.isFile() && audioFilePattern.test(filePath)) {
       return filePath;
     }
   } catch {
@@ -1684,6 +1864,52 @@ async function resolveInputAudio(fileName) {
   }
 
   return null;
+}
+
+async function resolveInputAsset(fileName) {
+  const filePath = await resolveInputFile(fileName);
+  if (!filePath) return null;
+  const relative = inputRelativeAudioName(filePath);
+  return isArtworkName(relative) || isLyricsTextPath(relative)
+    ? filePath
+    : null;
+}
+
+async function resolveInputFile(fileName) {
+  const requested = Array.isArray(fileName) ? fileName[0] : fileName;
+  if (!requested) {
+    return null;
+  }
+
+  const safeSegments = safeInputSegments(requested);
+  if (!safeSegments) {
+    return null;
+  }
+
+  const filePath = path.resolve(inputDir, ...safeSegments);
+  const relative = path.relative(inputDir, filePath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return null;
+  }
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.isFile() ? filePath : null;
+  } catch {
+    return null;
+  }
+}
+
+function safeInputSegments(value) {
+  const raw = String(value).replace(/\\/g, "/").trim();
+  if (!raw || path.isAbsolute(raw)) return null;
+  const segments = raw.split("/").filter(Boolean);
+  if (
+    !segments.length ||
+    segments.some((segment) => segment === "." || segment === "..")
+  ) {
+    return null;
+  }
+  return segments;
 }
 
 async function resolveInputAudioBatch(body) {
@@ -2255,7 +2481,9 @@ function titleFromFile(fileName, album, index) {
 }
 
 function normalizeBenchmarkRunKind(value) {
-  return ["all", "audio", "full", "quick"].includes(value) ? value : "quick";
+  return ["all", "audio", "full", "quick", "workflow-e2e"].includes(value)
+    ? value
+    : "quick";
 }
 
 function createBenchmarkExecution(kind) {
@@ -2304,7 +2532,17 @@ function runBenchmarkStep(execution, kind) {
   return new Promise((resolve, reject) => {
     const child = spawn(`npm run ${benchmarkScriptName(kind)}`, {
       cwd: rootDir,
-      env: process.env,
+      env: {
+        ...process.env,
+        SONARA_BENCH_STEP: kind,
+        SONARA_BENCH_SUITE_ID: execution.id,
+        SONARA_BENCH_SUITE_KIND: benchmarkSuiteKind(execution.kind),
+        SONARA_BENCH_TEST_KEY: benchmarkTestKey(kind),
+        SONARA_CLIENT_URL:
+          process.env.SONARA_CLIENT_URL ?? `http://127.0.0.1:${port}`,
+        SONARA_API_URL:
+          process.env.SONARA_API_URL ?? `http://127.0.0.1:${port}`,
+      },
       shell: true,
       windowsHide: true,
     });
@@ -2334,6 +2572,7 @@ function benchmarkScriptName(kind) {
     audio: "bench:render:audio",
     full: "bench:render:full",
     quick: "bench:render",
+    "workflow-e2e": "bench:workflow:e2e",
   }[kind];
 }
 
@@ -2343,7 +2582,18 @@ function benchmarkExecutionLabel(kind) {
     audio: "render com audio da pasta input",
     full: "render full",
     quick: "render quick",
+    "workflow-e2e": "workflow E2E completo",
   }[kind];
+}
+
+function benchmarkSuiteKind(kind) {
+  if (kind === "all") return "canonical";
+  if (kind === "workflow-e2e") return "separate";
+  return "partial";
+}
+
+function benchmarkTestKey(kind) {
+  return kind === "workflow-e2e" ? "workflow.e2e" : `render.${kind}`;
 }
 
 function appendBenchmarkLog(execution, text) {
@@ -2368,6 +2618,27 @@ function publicBenchmarkExecution(execution) {
     currentStep: execution.currentStep,
     logs: execution.logs,
   };
+}
+
+function currentBenchmarkGit() {
+  return {
+    branch: gitCommand(["branch", "--show-current"]),
+    commit: gitCommand(["rev-parse", "HEAD"]),
+    dirty: Boolean(gitCommand(["status", "--short"])),
+  };
+}
+
+function gitCommand(args) {
+  const result = spawnSync("git", args, {
+    cwd: rootDir,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return result.status === 0 ? result.stdout.trim() : "";
+}
+
+function parseBoolean(value) {
+  return ["1", "true", "yes", "on"].includes(String(value ?? "").toLowerCase());
 }
 
 function clampNumber(value, min, max) {

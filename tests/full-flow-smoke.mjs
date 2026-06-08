@@ -1,12 +1,21 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import ffmpegPath from "ffmpeg-static";
 import { chromium } from "playwright";
 import { fetchJsonWithRetry } from "../shared/local-api.mjs";
+import {
+  createMp3,
+  decodeFinalFrame,
+  downloadJsonOutput,
+  downloadOutput,
+  openWithFfmpeg,
+  removeOutputUrl,
+  waitForAudioJobs,
+  waitForCondition,
+  waitForJob,
+} from "./workflow-flow-helpers.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const runId = String(Date.now()).slice(-6);
@@ -121,14 +130,17 @@ try {
     .getByText(/Processamento iniciado para 2 arquivos/)
     .waitFor({ timeout: 10_000 });
 
-  const audioJobs = await waitForJobs(tracks.map((track) => track.title));
+  const audioJobs = await waitForAudioJobs(
+    apiUrl,
+    tracks.map((track) => track.title),
+  );
   for (const job of audioJobs) {
     assert.equal(job.status, "done", JSON.stringify(job, null, 2));
     if (job.outputUrl) cleanupUrls.push(job.outputUrl);
     if (job.sidecarUrl) {
       cleanupUrls.push(job.sidecarUrl);
       assert.match(job.sidecarUrl, /\.mp3\.soundcloud\.json$/);
-      const sidecar = await downloadJsonOutput(job.sidecarUrl);
+      const sidecar = await downloadJsonOutput(apiUrl, job.sidecarUrl);
       assert.equal(
         sidecar.upload.endpoint,
         "POST https://api.soundcloud.com/tracks",
@@ -257,7 +269,7 @@ try {
   for (const response of renderResponses) {
     assert.ok(response.ok(), `render response status ${response.status()}`);
     const { jobId } = await response.json();
-    renderJobs.push(await waitForJob(jobId, 180_000));
+    renderJobs.push(await waitForJob(apiUrl, jobId, 180_000));
   }
   for (const renderJob of renderJobs) {
     assert.equal(renderJob.status, "done", JSON.stringify(renderJob, null, 2));
@@ -284,7 +296,7 @@ try {
   });
 
   const mp4Path = path.join(workDir, "render-output.mp4");
-  await downloadOutput(renderJobs[0].outputUrl, mp4Path);
+  await downloadOutput(apiUrl, renderJobs[0].outputUrl, mp4Path);
   openWithFfmpeg(mp4Path);
   const finalFramePath = path.join(screenshotDir, "full-flow-final-frame.png");
   decodeFinalFrame(mp4Path, finalFramePath);
@@ -293,7 +305,7 @@ try {
     "decoded final frame should be non-empty",
   );
   for (const renderJob of renderJobs) {
-    const sidecar = await downloadJsonOutput(renderJob.sidecarUrl);
+    const sidecar = await downloadJsonOutput(apiUrl, renderJob.sidecarUrl);
     assert.equal(sidecar.export.visualSettings.rendererId, "audio-dark");
     assert.equal(sidecar.export.visualSettings.waveform.visible, true);
     assert.equal(sidecar.export.visualSettings.waveform.type, "spectrum-bars");
@@ -339,140 +351,10 @@ try {
   );
 } finally {
   await browser.close();
-  await Promise.allSettled(cleanupUrls.filter(Boolean).map(removeOutputUrl));
+  await Promise.allSettled(
+    cleanupUrls
+      .filter(Boolean)
+      .map((outputUrl) => removeOutputUrl(root, outputUrl)),
+  );
   await fs.rm(workDir, { recursive: true, force: true });
-}
-
-function createMp3(filePath, frequency) {
-  const result = spawnSync(
-    ffmpegPath,
-    [
-      "-y",
-      "-f",
-      "lavfi",
-      "-i",
-      `sine=frequency=${frequency}:duration=2`,
-      "-ac",
-      "2",
-      "-ar",
-      "44100",
-      "-c:a",
-      "libmp3lame",
-      "-b:a",
-      "192k",
-      filePath,
-    ],
-    { windowsHide: true },
-  );
-  if (result.status !== 0) throw new Error(result.stderr.toString());
-}
-
-async function waitForJobs(titles, timeoutMs = 120_000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    const { jobs } = await fetchJsonWithRetry(`${apiUrl}/api/jobs`);
-    const matching = titles
-      .map((title) =>
-        jobs.find(
-          (job) =>
-            job.kind === "audio-process" && job.metadata?.title === title,
-        ),
-      )
-      .filter(Boolean);
-    if (
-      matching.length === titles.length &&
-      matching.every((job) =>
-        ["done", "error", "canceled"].includes(job.status),
-      )
-    ) {
-      return matching;
-    }
-    await delay(750);
-  }
-  throw new Error(`Timed out waiting for audio jobs: ${titles.join(", ")}`);
-}
-
-async function waitForJob(id, timeoutMs) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    const job = await fetchJsonWithRetry(`${apiUrl}/api/jobs/${id}`);
-    if (["done", "error", "canceled"].includes(job.status)) return job;
-    await delay(1000);
-  }
-  throw new Error(`Timed out waiting for job ${id}`);
-}
-
-async function downloadOutput(outputUrl, filePath) {
-  const response = await fetch(new URL(outputUrl, apiUrl));
-  if (!response.ok) throw new Error(`download failed ${response.status}`);
-  await fs.writeFile(filePath, Buffer.from(await response.arrayBuffer()));
-}
-
-async function downloadJsonOutput(outputUrl) {
-  const response = await fetch(new URL(outputUrl, apiUrl));
-  if (!response.ok) throw new Error(`json download failed ${response.status}`);
-  return response.json();
-}
-
-function openWithFfmpeg(filePath) {
-  const result = spawnSync(
-    ffmpegPath,
-    ["-v", "error", "-i", filePath, "-f", "null", "-"],
-    { windowsHide: true },
-  );
-  if (result.status !== 0) throw new Error(result.stderr.toString());
-}
-
-function decodeFinalFrame(inputPath, outputPath) {
-  const result = spawnSync(
-    ffmpegPath,
-    [
-      "-y",
-      "-v",
-      "error",
-      "-sseof",
-      "-0.2",
-      "-i",
-      inputPath,
-      "-frames:v",
-      "1",
-      outputPath,
-    ],
-    { windowsHide: true },
-  );
-  if (result.status !== 0) throw new Error(result.stderr.toString());
-}
-
-async function removeOutputUrl(outputUrl) {
-  if (!outputUrl?.startsWith("/outputs/")) return;
-  const relativePath = decodeURIComponent(outputUrl.slice("/outputs/".length));
-  const targetPath = path.resolve(root, "outputs", relativePath);
-  const outputsRoot = path.resolve(root, "outputs");
-  if (!targetPath.startsWith(outputsRoot + path.sep)) return;
-  await fs.rm(targetPath, { force: true });
-  let currentDirectory = path.dirname(targetPath);
-  while (
-    currentDirectory !== outputsRoot &&
-    currentDirectory.startsWith(outputsRoot + path.sep)
-  ) {
-    try {
-      await fs.rmdir(currentDirectory);
-      currentDirectory = path.dirname(currentDirectory);
-    } catch {
-      break;
-    }
-  }
-}
-
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForCondition(check, label, timeoutMs) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    if (check()) return;
-    await delay(250);
-  }
-  throw new Error(`Timed out waiting for ${label}`);
 }

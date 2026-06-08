@@ -3,6 +3,9 @@ import path from "node:path";
 
 export const renderBenchmarkMetrics = [
   { key: "totalMs", label: "Tempo total", unit: "ms" },
+  { key: "audioProcessMs", label: "Processamento de audio", unit: "ms" },
+  { key: "videoRenderMs", label: "Render de video", unit: "ms" },
+  { key: "publicationAssetMs", label: "Asset de publicacao", unit: "ms" },
   { key: "webmStageMs", label: "WebM/Chromium", unit: "ms" },
   { key: "webglPrepareMs", label: "Prepare", unit: "ms" },
   { key: "canvasCaptureMs", label: "Captura", unit: "ms" },
@@ -12,6 +15,8 @@ export const renderBenchmarkMetrics = [
   { key: "validationMs", label: "Validacao MP4", unit: "ms" },
   { key: "peakRssMb", label: "Pico de memoria (RSS)", unit: "MB" },
   { key: "mp4Bytes", label: "MP4", unit: "bytes" },
+  { key: "jobCount", label: "Jobs", unit: "count" },
+  { key: "artifactBytes", label: "Artefatos", unit: "bytes" },
   { key: "webglRetryCount", label: "Retries WebGL", unit: "count" },
 ];
 
@@ -25,16 +30,44 @@ export const defaultBenchmarkCleanupPolicy = {
 const metricKeys = new Set(renderBenchmarkMetrics.map((item) => item.key));
 const comparisonMetricKeys = [
   "totalMs",
+  "audioProcessMs",
+  "videoRenderMs",
+  "publicationAssetMs",
   "webmStageMs",
   "frameRenderMs",
   "mediaRecorderMs",
   "muxMs",
   "validationMs",
   "peakRssMb",
+  "jobCount",
+  "artifactBytes",
   "webglRetryCount",
 ];
 const baselineSlots = ["stable", "beta", "experimental"];
 const stableDeltaPercent = 3;
+export const benchmarkScoreTests = [
+  {
+    key: "render.quick",
+    label: "Render quick",
+    domain: "video",
+    pipeline: "render-export",
+  },
+  {
+    key: "render.full",
+    label: "Render full",
+    domain: "video",
+    pipeline: "render-export",
+  },
+  {
+    key: "render.audio",
+    label: "Render com audio real",
+    domain: "audio",
+    pipeline: "render-export",
+  },
+];
+const benchmarkScoreTestKeys = new Set(
+  benchmarkScoreTests.map((item) => item.key),
+);
 
 export async function loadRenderBenchmarkReport(
   historyPath,
@@ -42,6 +75,7 @@ export async function loadRenderBenchmarkReport(
     activeBaseline = "stable",
     baselinePath = "",
     cleanupPolicyPath = "",
+    currentGit = null,
     limit = 250,
   } = {},
 ) {
@@ -84,9 +118,32 @@ export async function loadRenderBenchmarkReport(
     selectedBaseline?.fullRun ?? null,
     "baseline",
   );
-  const scoreComparison = baselineComparison ?? latestComparison;
-  const score = calculatePerformanceScore(latestRun, scoreComparison);
-  const releaseGate = calculateReleaseGate(latestRun, score, scoreComparison);
+  const normalizedCurrentGit = normalizeCurrentGit(currentGit);
+  const scoreComposition = buildScoreComposition(runs, normalizedCurrentGit);
+  const currentScoreRun = scoreComposition.complete
+    ? scoreComposition.fullRun
+    : null;
+  const previousScoreComposition = currentScoreRun
+    ? findPreviousScoreComposition(runs, scoreComposition.commit)
+    : null;
+  const scoreComparison = currentScoreRun
+    ? compareRuns(
+        currentScoreRun,
+        previousScoreComposition?.fullRun,
+        "previous",
+      )
+    : (baselineComparison ?? latestComparison);
+  const usesCommitScore = Boolean(normalizedCurrentGit.commit);
+  const score = usesCommitScore
+    ? calculatePerformanceScore(currentScoreRun, scoreComparison, {
+        composition: scoreComposition,
+      })
+    : calculatePerformanceScore(latestRun, scoreComparison);
+  const releaseGate = usesCommitScore
+    ? calculateReleaseGate(currentScoreRun, score, scoreComparison, {
+        composition: scoreComposition,
+      })
+    : calculateReleaseGate(latestRun, score, scoreComparison);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -99,6 +156,7 @@ export async function loadRenderBenchmarkReport(
     metrics: renderBenchmarkMetrics,
     runCount: runs.length,
     returnedRunCount: returnedRuns.length,
+    currentGit: normalizedCurrentGit,
     latestRun,
     profiles: [...new Set(returnedRuns.map((run) => run.profile))].filter(
       Boolean,
@@ -111,6 +169,8 @@ export async function loadRenderBenchmarkReport(
     activeBaseline: selectedBaseline?.slot ?? "stable",
     latestComparison,
     baselineComparison,
+    scoreComparison: usesCommitScore ? scoreComparison : null,
+    scoreComposition: publicScoreComposition(scoreComposition),
     score,
     releaseGate,
     cleanupPolicy,
@@ -232,15 +292,25 @@ async function writeHistoryEntries(historyPath, entries) {
 async function removeRunArtifacts(runsDir, runIds) {
   if (!runsDir || !runIds.length) return 0;
   let removed = 0;
+  const root = path.resolve(runsDir);
   for (const runId of runIds) {
-    const target = path.resolve(runsDir, `${runId}-render`);
-    const root = path.resolve(runsDir);
-    if (!target.startsWith(`${root}${path.sep}`)) continue;
+    let entries = [];
     try {
-      await fs.rm(target, { force: true, recursive: true });
-      removed += 1;
+      entries = await fs.readdir(root, { withFileTypes: true });
     } catch (error) {
-      if (error?.code !== "ENOENT") throw error;
+      if (error?.code === "ENOENT") return removed;
+      throw error;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith(`${runId}-`)) continue;
+      const target = path.resolve(root, entry.name);
+      if (!target.startsWith(`${root}${path.sep}`)) continue;
+      try {
+        await fs.rm(target, { force: true, recursive: true });
+        removed += 1;
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
     }
   }
   return removed;
@@ -248,16 +318,24 @@ async function removeRunArtifacts(runsDir, runIds) {
 
 function compactRun(run) {
   const cases = Array.isArray(run.cases) ? run.cases.map(compactCase) : [];
+  const testKey = normalizeBenchmarkTestKey(run);
+  const definition = benchmarkScoreTests.find((item) => item.key === testKey);
   return {
     runId: String(run.runId ?? run.createdAt ?? ""),
     kind: String(run.kind ?? "render-benchmark"),
     profile: String(run.profile ?? "unknown"),
+    testKey,
+    testLabel: String(run.testLabel ?? definition?.label ?? testKey),
+    domain: String(run.domain ?? definition?.domain ?? "video"),
+    pipeline: String(run.pipeline ?? definition?.pipeline ?? "render-export"),
+    suiteId: String(run.suiteId ?? ""),
+    suiteKind: String(run.suiteKind ?? "individual"),
     repeat: finiteNumber(run.repeat, 1),
     createdAt: String(run.createdAt ?? ""),
     git: {
       branch: String(run.git?.branch ?? ""),
       commit: String(run.git?.commit ?? "").slice(0, 12),
-      dirty: Boolean(String(run.git?.status ?? "").trim()),
+      dirty: Boolean(run.git?.dirty ?? String(run.git?.status ?? "").trim()),
     },
     environment: {
       platform: String(run.environment?.platform ?? ""),
@@ -284,6 +362,8 @@ function compactCase(item) {
     repeatIndex: finiteNumber(item.repeatIndex, 1),
     rendererId: String(item.rendererId ?? ""),
     category: String(item.category ?? ""),
+    domain: String(item.domain ?? inferCaseDomain(item.category)),
+    pipeline: String(item.pipeline ?? "render-export"),
     qualityProfile: String(item.qualityProfile ?? ""),
     duration: finiteNumber(item.duration),
     outputSize: {
@@ -296,6 +376,183 @@ function compactCase(item) {
   };
   for (const key of metricKeys) compact[key] = round(finiteNumber(item[key]));
   return compact;
+}
+
+function normalizeBenchmarkTestKey(run) {
+  const explicit = String(run.testKey ?? "").trim();
+  if (explicit) return explicit;
+  const profile = String(run.profile ?? "").toLowerCase();
+  const audioKind = String(run.audioSource?.kind ?? "").toLowerCase();
+  if (audioKind === "input") return "render.audio";
+  if (profile === "full") return "render.full";
+  return "render.quick";
+}
+
+function inferCaseDomain(category) {
+  const value = String(category ?? "").toLowerCase();
+  if (/workflow|e2e/u.test(value)) return "workflow";
+  if (/audio|waveform/u.test(value)) return "audio";
+  if (/asset|cover|layer/u.test(value)) return "asset";
+  return "video";
+}
+
+function normalizeCurrentGit(git) {
+  return {
+    branch: String(git?.branch ?? ""),
+    commit: String(git?.commit ?? "").slice(0, 12),
+    dirty: Boolean(git?.dirty),
+  };
+}
+
+function buildScoreComposition(runs, currentGit) {
+  const commit = currentGit.commit || latestCleanCommit(runs);
+  const latestByTest = latestCleanRunsByTest(runs, commit);
+  const components = benchmarkScoreTests.map((definition) => {
+    const run = latestByTest.get(definition.key) ?? null;
+    return {
+      ...definition,
+      status: run ? "available" : "missing",
+      run: run ? compactRunReference(run) : null,
+      summary: run?.summary ?? null,
+    };
+  });
+  const missingTests = components
+    .filter((item) => !item.run)
+    .map(({ key, label, domain, pipeline }) => ({
+      key,
+      label,
+      domain,
+      pipeline,
+    }));
+  const complete = Boolean(commit) && missingTests.length === 0;
+  const provisionalRuns = runs
+    .filter((run) => run.git.commit === commit && run.git.dirty)
+    .slice(-12)
+    .map(compactRunReference);
+  const fullRun = complete ? composeScoreRun(commit, latestByTest) : null;
+
+  return {
+    commit,
+    dirty: currentGit.dirty,
+    complete,
+    requiredTests: benchmarkScoreTests,
+    missingTests,
+    components,
+    provisionalRuns,
+    fullRun,
+  };
+}
+
+function publicScoreComposition(composition) {
+  const { fullRun, ...publicComposition } = composition;
+  return {
+    ...publicComposition,
+    run: fullRun ? compactRunReference(fullRun) : null,
+  };
+}
+
+function latestCleanCommit(runs) {
+  for (const run of [...runs].reverse()) {
+    if (run.git.commit && !run.git.dirty) return run.git.commit;
+  }
+  return "";
+}
+
+function latestCleanRunsByTest(runs, commit) {
+  const latestByTest = new Map();
+  if (!commit) return latestByTest;
+  for (const run of runs) {
+    if (
+      run.git.commit !== commit ||
+      run.git.dirty ||
+      !benchmarkScoreTestKeys.has(run.testKey)
+    ) {
+      continue;
+    }
+    latestByTest.set(run.testKey, run);
+  }
+  return latestByTest;
+}
+
+function composeScoreRun(commit, latestByTest) {
+  const selectedRuns = benchmarkScoreTests
+    .map((definition) => latestByTest.get(definition.key))
+    .filter(Boolean);
+  const latestCreatedAt =
+    selectedRuns
+      .map((run) => run.createdAt)
+      .filter(Boolean)
+      .sort()
+      .at(-1) ?? "";
+  const firstRun = selectedRuns[0] ?? null;
+  const cases = selectedRuns.flatMap((run) =>
+    run.cases.map((item) => ({
+      ...item,
+      id: `${run.testKey}:${item.id}`,
+      outputId: `${run.testKey}:${item.outputId}`,
+      sourceCaseId: item.id,
+      testKey: run.testKey,
+      testLabel: run.testLabel,
+      domain: item.domain || run.domain,
+      pipeline: run.pipeline,
+    })),
+  );
+  const warnings = selectedRuns.flatMap((run) =>
+    run.warnings.map((warning) => `${run.testKey}: ${warning}`),
+  );
+  return {
+    runId: `score:${commit}:${selectedRuns.map((run) => run.runId).join("+")}`,
+    kind: "benchmark-score-suite",
+    profile: "score-suite",
+    testKey: "score.canonical",
+    testLabel: "Score canonico",
+    domain: "system",
+    pipeline: "benchmark-score",
+    suiteId: "",
+    suiteKind: "canonical",
+    repeat: 1,
+    createdAt: latestCreatedAt,
+    git: {
+      branch: firstRun?.git.branch ?? "",
+      commit,
+      dirty: false,
+    },
+    environment: firstRun?.environment ?? {},
+    audioSource: {
+      kind: "mixed",
+      label: "Suite canonica quick + full + audio",
+    },
+    warningCount: warnings.length,
+    warnings,
+    medians: [],
+    cases,
+    summary: summarizeRunCases(cases),
+    componentRuns: selectedRuns.map(compactRunReference),
+  };
+}
+
+function findPreviousScoreComposition(runs, currentCommit) {
+  if (!currentCommit) return null;
+  const seen = new Set();
+  for (const run of [...runs].reverse()) {
+    const commit = run.git.commit;
+    if (
+      !commit ||
+      run.git.dirty ||
+      commit === currentCommit ||
+      seen.has(commit)
+    ) {
+      continue;
+    }
+    seen.add(commit);
+    const composition = buildScoreComposition(runs, {
+      branch: run.git.branch,
+      commit,
+      dirty: false,
+    });
+    if (composition.complete) return composition;
+  }
+  return null;
 }
 
 function summarizeRunCases(cases) {
@@ -436,11 +693,25 @@ function aggregateCases(cases, key) {
   return { value: round(value) };
 }
 
-function calculatePerformanceScore(latestRun, comparison) {
+function calculatePerformanceScore(latestRun, comparison, options = {}) {
+  const composition = options.composition ?? null;
+  if (composition && !composition.complete) {
+    return {
+      value: 0,
+      reference: "none",
+      complete: false,
+      commit: composition.commit,
+      missingTests: composition.missingTests,
+      categories: scoreCategories(0, 0, 0, 0),
+    };
+  }
   if (!latestRun) {
     return {
       value: 0,
       reference: "none",
+      complete: false,
+      commit: composition?.commit ?? "",
+      missingTests: composition?.missingTests ?? [],
       categories: scoreCategories(0, 0, 0, 0),
     };
   }
@@ -458,11 +729,41 @@ function calculatePerformanceScore(latestRun, comparison) {
   return {
     value,
     reference: comparison?.mode ?? "none",
+    complete: true,
+    commit: composition?.commit ?? latestRun.git?.commit ?? "",
+    missingTests: [],
     categories: scoreCategories(performance, memory, exportScore, stability),
   };
 }
 
-function calculateReleaseGate(latestRun, score, comparison) {
+function calculateReleaseGate(latestRun, score, comparison, options = {}) {
+  const composition = options.composition ?? null;
+  if (composition && !composition.complete) {
+    const reasons = [];
+    if (composition.commit) {
+      reasons.push(
+        `Score final indefinido para ${composition.commit}; rode a serie completa.`,
+      );
+    } else {
+      reasons.push("Commit atual nao identificado; score final indefinido.");
+    }
+    if (composition.missingTests.length) {
+      reasons.push(
+        `Faltam: ${composition.missingTests
+          .map((item) => item.label)
+          .join(", ")}.`,
+      );
+    }
+    if (composition.provisionalRuns.length) {
+      reasons.push(
+        "Runs com worktree dirty foram mantidos como parciais e nao entram na nota final.",
+      );
+    }
+    return {
+      status: "warn",
+      reasons,
+    };
+  }
   if (!latestRun) {
     return {
       status: "warn",
@@ -561,6 +862,11 @@ function compactRunReference(run) {
   return {
     runId: run.runId,
     profile: run.profile,
+    testKey: run.testKey,
+    testLabel: run.testLabel,
+    domain: run.domain,
+    pipeline: run.pipeline,
+    suiteKind: run.suiteKind,
     createdAt: run.createdAt,
     git: run.git,
     summary: run.summary,

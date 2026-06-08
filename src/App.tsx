@@ -209,6 +209,7 @@ declare global {
 
 type ActiveStep = "music" | "visual" | "text" | "export";
 type WorkspaceMode = "audio" | "visual";
+type WorkspaceFolderKind = "internal" | "external";
 type AudioStageView = "edit" | "catalog" | "videos";
 type VisualStageView = "editor" | "videos" | "promotion" | "queue";
 type PublicationAssetMode = "single" | "group" | "all";
@@ -231,8 +232,22 @@ type InputProjectOption = {
   id: string;
   name: string;
   path: string;
-  handle: FileSystemDirectoryHandle;
+  handle?: FileSystemDirectoryHandle;
+  source: "browser" | "internal";
   trackCount: number;
+};
+type BrowserInputProjectOption = InputProjectOption & {
+  handle: FileSystemDirectoryHandle;
+  source: "browser";
+};
+type InternalInputProject = {
+  id: string;
+  name: string;
+  path: string;
+  trackCount: number;
+};
+type InternalInputAsset = {
+  name: string;
 };
 type ProjectCleanupScope = "current" | "selected" | "all";
 type BatchCommonDraft = {
@@ -916,14 +931,18 @@ function App() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [interactionDialog, setInteractionDialog] =
     useState<InteractionDialogState | null>(null);
-  const [inputFolderName, setInputFolderName] = useState("Pasta de Entrada");
-  const [folderName, setFolderName] = useState("Projeto não selecionado");
+  const [inputFolderName, setInputFolderName] = useState("input");
+  const [inputFolderKind, setInputFolderKind] =
+    useState<WorkspaceFolderKind>("internal");
+  const [folderName, setFolderName] = useState("input");
   const [inputProjects, setInputProjects] = useState<InputProjectOption[]>([]);
   const [selectedInputProjectId, setSelectedInputProjectId] = useState("");
   const [cleanupProjectIds, setCleanupProjectIds] = useState<string[]>([]);
   const [projectStateStatus, setProjectStateStatus] = useState("");
   const [workspaceWriteEnabled, setWorkspaceWriteEnabled] = useState(false);
-  const [outputFolderName, setOutputFolderName] = useState("Pasta de Saída");
+  const [outputFolderName, setOutputFolderName] = useState("outputs");
+  const [outputFolderKind, setOutputFolderKind] =
+    useState<WorkspaceFolderKind>("internal");
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [panelsSwapped, setPanelsSwapped] = useState(false);
@@ -1426,18 +1445,130 @@ function App() {
       }
       const restored = await restoreMusicDirectory(snapshot);
       if (restored) return;
-      const project = await fetchJsonWithRetry<{
-        inputAudios?: Array<{ name: string; metadata: AudioInfo }>;
-        defaultMetadata?: TrackMetadata;
-      }>("/api/project");
-      const inputTracks = (project.inputAudios ?? []).map(
-        (audio: { name: string; metadata: AudioInfo }) =>
-          trackFromInput(audio.name, audio.metadata, project.defaultMetadata),
-      );
-      setWorkspaceTracks(inputTracks, snapshot);
+      await loadInternalInputWorkspace(snapshot);
     } catch (reason) {
       setError(messageOf(reason));
     }
+  }
+
+  async function loadInternalInputWorkspace(
+    snapshot?: ProjectSnapshot,
+    notify = false,
+    requestedProjectId = "",
+  ) {
+    type InternalProjectPayload = {
+      inputDirectory?: string;
+      outputDirectory?: string;
+      inputProject?: string;
+      inputProjects?: InternalInputProject[];
+      inputAudios?: Array<{ name: string; metadata: AudioInfo }>;
+      inputArtwork?: InternalInputAsset[];
+      inputLyrics?: InternalInputAsset[];
+      defaultMetadata?: ProjectMetadataDefaults;
+    };
+    const readProject = (projectId = "") =>
+      fetchJsonWithRetry<InternalProjectPayload>(
+        projectId
+          ? `/api/project?project=${encodeURIComponent(projectId)}`
+          : "/api/project",
+      );
+    let project = await readProject(requestedProjectId);
+    const projects = (project.inputProjects ?? []).map(
+      (item): InputProjectOption => ({
+        ...item,
+        source: "internal",
+      }),
+    );
+    const savedProjectId = window.localStorage.getItem(
+      INPUT_PROJECT_STORAGE_KEY,
+    );
+    const selectedProjectId =
+      requestedProjectId ||
+      projects.find((item) => item.id === savedProjectId)?.id ||
+      projects[0]?.id ||
+      "";
+    if (!requestedProjectId && selectedProjectId) {
+      project = await readProject(selectedProjectId);
+    }
+    const inputName = project.inputDirectory ?? "input";
+    const outputName = project.outputDirectory ?? "outputs";
+    const selectedProject = projects.find(
+      (item) => item.id === selectedProjectId,
+    );
+    const baseTracks = (project.inputAudios ?? []).map(
+      (audio: { name: string; metadata: AudioInfo }) =>
+        trackFromInput(audio.name, audio.metadata, project.defaultMetadata),
+    );
+    const artworkEntries = await loadInternalAssetEntries(
+      project.inputArtwork ?? [],
+    );
+    const lyricEntries = await loadInternalAssetEntries(
+      project.inputLyrics ?? [],
+    );
+    const inputTracks = await attachSuggestedLyrics(
+      attachSuggestedArtwork(
+        finalizeImportedTracks(baseTracks),
+        artworkEntries,
+      ),
+      lyricEntries,
+    );
+    inputDirectoryRef.current = null;
+    musicDirectoryRef.current = null;
+    setInputFolderName(inputName);
+    setInputFolderKind("internal");
+    setFolderName(selectedProject?.name ?? inputName);
+    setInputProjects(projects);
+    setSelectedInputProjectId(selectedProjectId);
+    setCleanupProjectIds([]);
+    setWorkspaceWriteEnabled(false);
+    if (!outputDirectoryRef.current) {
+      setOutputFolderName(outputName);
+      setOutputFolderKind("internal");
+    }
+    setWorkspaceTracks(inputTracks, snapshot);
+    setProjectStateStatus(
+      inputTracks.length
+        ? selectedProject
+          ? `Usando ${selectedProject.name} em ${inputName}/ interno da raiz do projeto.`
+          : `Usando ${inputName}/ interno da raiz do projeto.`
+        : selectedProject
+          ? `${selectedProject.name} não tem áudios carregáveis.`
+          : `${inputName}/ interno não tem áudios carregáveis.`,
+    );
+    if (notify) {
+      setBatchFeedback(
+        inputTracks.length
+          ? `${inputTracks.length} áudio${inputTracks.length === 1 ? "" : "s"} carregado${inputTracks.length === 1 ? "" : "s"} de ${selectedProject?.name ?? `${inputName}/ interno`}.`
+          : `${selectedProject?.name ?? `${inputName}/ interno`} não tem áudios. Use Importar arquivos ou adicione arquivos nessa pasta.`,
+        inputTracks.length ? "info" : "warning",
+      );
+    }
+  }
+
+  async function loadInternalAssetEntries(
+    assets: InternalInputAsset[],
+  ): Promise<DirectoryAssetEntry[]> {
+    const loaded = await Promise.all(
+      assets.map(async (asset) => {
+        try {
+          const response = await fetch(
+            `/api/input-asset/${encodeURIComponent(asset.name)}`,
+          );
+          if (!response.ok) return null;
+          const blob = await response.blob();
+          const fileName = asset.name.split(/[\\/]+/).at(-1) ?? "asset";
+          return {
+            file: new File([blob], fileName, { type: blob.type }),
+            relativePath: asset.name,
+          } satisfies DirectoryAssetEntry;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return loaded.filter((entry): entry is DirectoryAssetEntry =>
+      Boolean(entry),
+    );
   }
 
   async function restoreMusicDirectory(snapshot?: ProjectSnapshot) {
@@ -1446,6 +1577,7 @@ function App() {
     const permission = await handle.queryPermission?.({ mode: "read" });
     if (permission !== "granted") return false;
     musicDirectoryRef.current = handle;
+    setInputFolderKind("external");
     setWorkspaceWriteEnabled(false);
     setFolderName(handle.name);
     await readMusicDirectory(handle, snapshot);
@@ -1459,6 +1591,7 @@ function App() {
     if (permission !== "granted") return [];
     inputDirectoryRef.current = handle;
     setInputFolderName(handle.name);
+    setInputFolderKind("external");
     const projects = await discoverInputProjects(handle);
     setInputProjects(projects);
     return projects;
@@ -1466,9 +1599,14 @@ function App() {
 
   async function restoreOutputDirectory() {
     const handle = await loadDirectoryHandle("output-directory");
-    if (!handle) return;
+    if (!handle) {
+      setOutputFolderName("outputs");
+      setOutputFolderKind("internal");
+      return;
+    }
     outputDirectoryRef.current = handle;
     setOutputFolderName(handle.name);
+    setOutputFolderKind("external");
   }
 
   async function restoreJobHistory() {
@@ -1580,18 +1718,22 @@ function App() {
     const targets =
       scope === "current"
         ? inputProjects.filter(
-            (project) => project.id === selectedInputProjectId,
+            (project): project is BrowserInputProjectOption =>
+              project.id === selectedInputProjectId &&
+              isBrowserInputProject(project),
           )
         : scope === "selected"
-          ? inputProjects.filter((project) =>
-              selectedProjectIds.has(project.id),
+          ? inputProjects.filter(
+              (project): project is BrowserInputProjectOption =>
+                selectedProjectIds.has(project.id) &&
+                isBrowserInputProject(project),
             )
-          : inputProjects;
+          : inputProjects.filter(isBrowserInputProject);
     if (!targets.length) {
       setBatchFeedback(
         scope === "selected"
           ? "Selecione ao menos um projeto para limpar."
-          : "Nenhum projeto da Pasta de Entrada foi detectado.",
+          : "Nenhum projeto externo com .sonara foi detectado. Projetos internos usam o estado local do app.",
         "info",
       );
       return;
@@ -1655,8 +1797,9 @@ function App() {
   }
 
   async function chooseInputDirectory() {
+    const currentSnapshot = tracks.length ? createSnapshot() : undefined;
     if (!window.showDirectoryPicker) {
-      fallbackFolderInputRef.current?.click();
+      await loadInternalInputWorkspace(currentSnapshot, true);
       return;
     }
     try {
@@ -1668,6 +1811,7 @@ function App() {
       await saveDirectoryHandle("input-directory", handle);
       inputDirectoryRef.current = handle;
       setInputFolderName(handle.name);
+      setInputFolderKind("external");
       const projects = await discoverInputProjects(handle);
       setInputProjects(projects);
       setWorkspaceWriteEnabled(false);
@@ -1679,8 +1823,9 @@ function App() {
         setSelectedTrackId("");
       }
     } catch (reason) {
-      if ((reason as DOMException)?.name !== "AbortError")
-        setError(messageOf(reason));
+      if ((reason as DOMException)?.name !== "AbortError") {
+        await loadInternalInputWorkspace(currentSnapshot, true);
+      }
     }
   }
 
@@ -1696,9 +1841,18 @@ function App() {
     if (!project) return;
     setSelectedInputProjectId(project.id);
     window.localStorage.setItem(INPUT_PROJECT_STORAGE_KEY, project.id);
+    if (project.source === "internal") {
+      setProjectStateStatus(
+        `Carregando ${project.name} em input/ interno da raiz do projeto...`,
+      );
+      await loadInternalInputWorkspace(undefined, false, project.id);
+      return;
+    }
+    if (!project.handle) return;
     setFolderName(project.name);
     setWorkspaceWriteEnabled(false);
     musicDirectoryRef.current = project.handle;
+    setInputFolderKind("external");
     await saveDirectoryHandle("music-directory", project.handle);
     const projectSnapshot = await loadProjectSnapshot(project.handle);
     applySnapshotSettings(projectSnapshot);
@@ -1723,6 +1877,11 @@ function App() {
     const handle = musicDirectoryRef.current;
     if (!handle) {
       await chooseMusicDirectory();
+      if (!musicDirectoryRef.current) {
+        setError(
+          "Substituir ao finalizar exige uma pasta escolhida com permissão de escrita. O input/ interno permanece em modo não destrutivo.",
+        );
+      }
       return;
     }
     let permission = await handle.queryPermission?.({ mode: "readwrite" });
@@ -1756,9 +1915,7 @@ function App() {
 
   async function chooseOutputDirectory() {
     if (!window.showDirectoryPicker) {
-      setError(
-        "O navegador atual não oferece escolha persistente de pasta de saída.",
-      );
+      useInternalOutputDirectory(true);
       return;
     }
     try {
@@ -1770,9 +1927,23 @@ function App() {
       await saveDirectoryHandle("output-directory", handle);
       outputDirectoryRef.current = handle;
       setOutputFolderName(handle.name);
+      setOutputFolderKind("external");
     } catch (reason) {
-      if ((reason as DOMException)?.name !== "AbortError")
-        setError(messageOf(reason));
+      if ((reason as DOMException)?.name !== "AbortError") {
+        useInternalOutputDirectory(true);
+      }
+    }
+  }
+
+  function useInternalOutputDirectory(notify = false) {
+    outputDirectoryRef.current = null;
+    setOutputFolderName("outputs");
+    setOutputFolderKind("internal");
+    if (notify) {
+      setBatchFeedback(
+        "Usando outputs/ interno da raiz do projeto. Para escolher outra pasta, abra em um navegador com suporte a seleção persistente.",
+        "info",
+      );
     }
   }
 
@@ -3857,7 +4028,10 @@ function App() {
         <div className="library-header">
           <div className="library-open-actions">
             <button type="button" onClick={() => void chooseInputDirectory()}>
-              <FolderOpen /> Abrir pasta
+              <FolderOpen />{" "}
+              {inputFolderKind === "internal"
+                ? "Escolher pasta externa"
+                : "Trocar pasta"}
             </button>
             <button
               type="button"
@@ -3962,22 +4136,36 @@ function App() {
             <div className="library-paths">
               <div>
                 <span>Entrada</span>
-                <strong>{inputFolderName}</strong>
+                <div className="library-path-name">
+                  <strong>{inputFolderName}</strong>
+                  <small>
+                    {inputFolderKind === "internal"
+                      ? "Interno da raiz"
+                      : "Pasta autorizada"}
+                  </small>
+                </div>
                 <button
                   type="button"
                   onClick={() => void chooseInputDirectory()}
                 >
-                  Alterar
+                  {inputFolderKind === "internal" ? "Externa" : "Trocar"}
                 </button>
               </div>
               <div>
                 <span>Saída</span>
-                <strong>{outputFolderName}</strong>
+                <div className="library-path-name">
+                  <strong>{outputFolderName}</strong>
+                  <small>
+                    {outputFolderKind === "internal"
+                      ? "Interno da raiz"
+                      : "Pasta autorizada"}
+                  </small>
+                </div>
                 <button
                   type="button"
                   onClick={() => void chooseOutputDirectory()}
                 >
-                  Alterar
+                  {outputFolderKind === "internal" ? "Externa" : "Trocar"}
                 </button>
               </div>
             </div>
@@ -4591,7 +4779,11 @@ function App() {
                     Saída para vídeos e sidecars exportados.
                   </p>
                   <small>
-                    Entrada: {inputFolderName} · Saída: {outputFolderName}
+                    Entrada: {inputFolderName} (
+                    {inputFolderKind === "internal" ? "interno" : "autorizado"})
+                    · Saída: {outputFolderName} (
+                    {outputFolderKind === "internal" ? "interno" : "autorizado"}
+                    )
                   </small>
                 </div>
                 <div className="settings-action-stack">
@@ -4600,14 +4792,14 @@ function App() {
                     type="button"
                     onClick={() => void chooseInputDirectory()}
                   >
-                    <FolderOpen /> Pasta de Entrada
+                    <FolderOpen /> Escolher entrada externa
                   </button>
                   <button
                     className="quiet-action settings-action"
                     type="button"
                     onClick={() => void chooseOutputDirectory()}
                   >
-                    <FolderOpen /> Pasta de Saída
+                    <FolderOpen /> Escolher saída externa
                   </button>
                 </div>
               </section>
@@ -8013,6 +8205,7 @@ function Transport({
   onToggle: () => void;
 }) {
   const [playing, setPlaying] = useState(false);
+  const [seeking, setSeeking] = useState(false);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
@@ -8103,19 +8296,33 @@ function Transport({
         </small>
       </div>
       <strong className="transport-time">{formatDuration(time)}</strong>
-      <input
-        aria-label="Posição da prévia"
-        max={duration || 0}
-        min="0"
-        step="0.1"
-        type="range"
-        value={time}
-        onChange={(event) => {
-          const next = Number(event.target.value);
-          if (audioRef.current) audioRef.current.currentTime = next;
-          setTime(next);
-        }}
-      />
+      <span
+        className={`sonara-slider transport-slider ${seeking ? "is-dragging" : ""}`}
+        style={sliderStyle(time, 0, duration || 0)}
+      >
+        <input
+          aria-label="Posição da prévia"
+          aria-valuetext={`${formatDuration(time)} de ${formatDuration(duration)}`}
+          className="sonara-slider-control"
+          max={duration || 0}
+          min="0"
+          step="0.1"
+          type="range"
+          value={time}
+          onBlur={() => setSeeking(false)}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            if (audioRef.current) audioRef.current.currentTime = next;
+            setTime(next);
+          }}
+          onPointerCancel={() => setSeeking(false)}
+          onPointerDown={() => setSeeking(true)}
+          onPointerUp={() => setSeeking(false)}
+        />
+        <span className="sonara-slider-value-badge" aria-hidden="true">
+          {formatDuration(time)}
+        </span>
+      </span>
       <span className="transport-time">{formatDuration(duration)}</span>
     </div>
   );
@@ -10683,14 +10890,19 @@ function RangeField({
   step?: number;
   unit?: string;
 }) {
+  const [dragging, setDragging] = useState(false);
   const commitValue = (next: number) =>
     onChange(clampNumber(next, min, max, value));
   const fineValue = Number.isFinite(value)
     ? Math.round(value * 100) / 100
     : min;
+  const displayValue = unit ? `${fineValue}${unit}` : String(fineValue);
   return (
-    <label className="range-field">
-      <span>
+    <label
+      className={`range-field sonara-slider ${dragging ? "is-dragging" : ""}`}
+      style={sliderStyle(value, min, max)}
+    >
+      <span className="range-field-header">
         {label}
         <span className="range-value-edit">
           <input
@@ -10706,15 +10918,26 @@ function RangeField({
           {unit && <i>{unit}</i>}
         </span>
       </span>
-      <input
-        aria-label={label}
-        min={min}
-        max={max}
-        step={step}
-        type="range"
-        value={value}
-        onChange={(event) => commitValue(Number(event.target.value))}
-      />
+      <span className="sonara-slider-trackwrap">
+        <input
+          aria-label={label}
+          aria-valuetext={displayValue}
+          className="sonara-slider-control"
+          min={min}
+          max={max}
+          step={step}
+          type="range"
+          value={value}
+          onBlur={() => setDragging(false)}
+          onChange={(event) => commitValue(Number(event.target.value))}
+          onPointerCancel={() => setDragging(false)}
+          onPointerDown={() => setDragging(true)}
+          onPointerUp={() => setDragging(false)}
+        />
+        <span className="sonara-slider-value-badge" aria-hidden="true">
+          {displayValue}
+        </span>
+      </span>
     </label>
   );
 }
@@ -11134,21 +11357,36 @@ function ColorSlider({
   trackBackground: string;
   value: number;
 }) {
+  const [dragging, setDragging] = useState(false);
   // The value is editable directly (type the HSL number) as well as draggable;
   // clamp on change so an out-of-range entry can't push the channel past its max.
   const clamp = (next: number) =>
     Number.isFinite(next) ? Math.min(max, Math.max(0, Math.round(next))) : 0;
   return (
-    <label className="color-slider">
+    <label
+      className={`color-slider sonara-slider color-sonara-slider ${dragging ? "is-dragging" : ""}`}
+      style={sliderStyle(value, 0, max, trackBackground)}
+    >
       <span className="color-slider-label">{label}</span>
-      <input
-        max={max}
-        min={0}
-        style={{ background: trackBackground }}
-        type="range"
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
+      <span className="sonara-slider-trackwrap">
+        <input
+          aria-label={`${label} slider`}
+          aria-valuetext={String(value)}
+          className="sonara-slider-control"
+          max={max}
+          min={0}
+          type="range"
+          value={value}
+          onBlur={() => setDragging(false)}
+          onChange={(event) => onChange(Number(event.target.value))}
+          onPointerCancel={() => setDragging(false)}
+          onPointerDown={() => setDragging(true)}
+          onPointerUp={() => setDragging(false)}
+        />
+        <span className="sonara-slider-value-badge" aria-hidden="true">
+          {value}
+        </span>
+      </span>
       <input
         aria-label={label}
         className="color-slider-value"
@@ -11160,6 +11398,28 @@ function ColorSlider({
       />
     </label>
   );
+}
+
+type SliderStyle = CSSProperties & {
+  "--slider-progress": string;
+  "--slider-value-x": string;
+  "--slider-track"?: string;
+};
+
+function sliderStyle(
+  value: number,
+  min: number,
+  max: number,
+  trackBackground?: string,
+): SliderStyle {
+  const span = max - min;
+  const rawPercent = span > 0 ? ((value - min) / span) * 100 : 0;
+  const percent = clampNumber(rawPercent, 0, 100, 0);
+  return {
+    "--slider-progress": `${percent}%`,
+    "--slider-value-x": `${percent}%`,
+    ...(trackBackground ? { "--slider-track": trackBackground } : {}),
+  };
 }
 
 function PanelResizeHandle({
@@ -11223,11 +11483,12 @@ function IconButton({
 function trackFromInput(
   name: string,
   info?: AudioInfo,
-  defaults?: TrackMetadata,
+  defaults?: ProjectMetadataDefaults,
 ): TrackDraft {
+  const projectDefaults = normalizeProjectMetadataDefaults(defaults);
   const metadata = metadataFromAudio(
     info,
-    { ...defaultMetadata, ...defaults },
+    { ...defaultMetadata, ...projectDefaults },
     true,
   );
   return {
@@ -11244,6 +11505,24 @@ function trackFromInput(
     packageStatus: "original",
     thumbnailPreviewMode: "composition",
     textSettings: cloneTextSettings(),
+  };
+}
+
+type ProjectMetadataDefaults = Partial<Omit<TrackMetadata, "tags" | "year">> & {
+  tags?: string | string[];
+  year?: string | number;
+};
+
+function normalizeProjectMetadataDefaults(
+  defaults?: ProjectMetadataDefaults,
+): Partial<TrackMetadata> {
+  if (!defaults) return {};
+  return {
+    ...defaults,
+    tags: Array.isArray(defaults.tags)
+      ? defaults.tags.join(", ")
+      : (defaults.tags ?? ""),
+    year: defaults.year == null ? "" : String(defaults.year),
   };
 }
 
@@ -11521,6 +11800,7 @@ async function discoverInputProjects(
       name: handle.name,
       path: ".",
       handle,
+      source: "browser",
       trackCount: directTrackCount,
     });
   }
@@ -11534,6 +11814,7 @@ async function discoverInputProjects(
       name,
       path: name,
       handle: entry,
+      source: "browser",
       trackCount,
     });
   }
@@ -12119,6 +12400,12 @@ function selectedTrackFrom(tracks: TrackDraft[], selectedTrackId: string) {
 
 function projectOptionLabel(project: InputProjectOption) {
   return `${project.name} (${project.trackCount} música${project.trackCount === 1 ? "" : "s"})`;
+}
+
+function isBrowserInputProject(
+  project: InputProjectOption,
+): project is BrowserInputProjectOption {
+  return project.source === "browser" && Boolean(project.handle);
 }
 
 function applyVisualTemplateToTracks(

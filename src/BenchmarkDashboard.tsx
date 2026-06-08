@@ -27,9 +27,12 @@ type BenchmarkMetric = {
 type BenchmarkCase = {
   id: string;
   outputId: string;
+  sourceCaseId?: string;
   repeatIndex: number;
   rendererId: string;
   category: string;
+  domain: string;
+  pipeline: string;
   qualityProfile: string;
   duration: number;
   outputSize: { width: number; height: number };
@@ -37,6 +40,9 @@ type BenchmarkCase = {
   retryWebgl: boolean;
   outputMp4: string;
   totalMs: number;
+  audioProcessMs: number;
+  videoRenderMs: number;
+  publicationAssetMs: number;
   webmStageMs: number;
   webglPrepareMs: number;
   canvasCaptureMs: number;
@@ -47,12 +53,19 @@ type BenchmarkCase = {
   validationMs: number;
   peakRssMb: number;
   mp4Bytes: number;
+  jobCount: number;
+  artifactBytes: number;
   webglRetryCount: number;
 };
 
 type BenchmarkRun = {
   runId: string;
   profile: string;
+  testKey: string;
+  testLabel: string;
+  domain: string;
+  pipeline: string;
+  suiteKind: string;
   repeat: number;
   createdAt: string;
   git: { branch: string; commit: string; dirty: boolean };
@@ -80,7 +93,16 @@ type BenchmarkBaseline = {
 
 type BenchmarkRunReference = Pick<
   BenchmarkRun,
-  "createdAt" | "git" | "profile" | "runId" | "summary"
+  | "createdAt"
+  | "domain"
+  | "git"
+  | "pipeline"
+  | "profile"
+  | "runId"
+  | "suiteKind"
+  | "summary"
+  | "testKey"
+  | "testLabel"
 >;
 
 type BenchmarkMetricDelta = {
@@ -111,6 +133,9 @@ type BenchmarkComparison = {
 type BenchmarkScore = {
   value: number;
   reference: "baseline" | "previous" | "none";
+  complete?: boolean;
+  commit?: string;
+  missingTests?: BenchmarkRequiredTest[];
   categories: Record<string, { label: string; value: number }>;
 };
 
@@ -136,7 +161,7 @@ type BenchmarkCleanupResult = {
 
 type BenchmarkExecution = {
   id: string;
-  kind: "all" | "audio" | "full" | "quick";
+  kind: "all" | "audio" | "full" | "quick" | "workflow-e2e";
   label: string;
   status: "completed" | "failed" | "queued" | "running";
   startedAt: string;
@@ -146,11 +171,84 @@ type BenchmarkExecution = {
   logs: string[];
 };
 
+type BenchmarkRequiredTest = {
+  key: string;
+  label: string;
+  domain: string;
+  pipeline: string;
+};
+
+type BenchmarkScoreComponent = BenchmarkRequiredTest & {
+  status: "available" | "missing";
+  run: BenchmarkRunReference | null;
+  summary: BenchmarkRun["summary"] | null;
+};
+
+type BenchmarkScoreComposition = {
+  commit: string;
+  dirty: boolean;
+  complete: boolean;
+  requiredTests: BenchmarkRequiredTest[];
+  missingTests: BenchmarkRequiredTest[];
+  components: BenchmarkScoreComponent[];
+  provisionalRuns: BenchmarkRunReference[];
+  run: BenchmarkRunReference | null;
+};
+
+type WorkflowBenchmarkStage = {
+  durationMs: number;
+  domain: string;
+  endedAt: string;
+  interrupted: boolean;
+  label: string;
+  pipeline: string;
+  stage: string;
+  startedAt: string;
+};
+
+type WorkflowBenchmarkSample = {
+  jobId: string;
+  kind: string;
+  domain: string;
+  pipeline: string;
+  status: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  durationMs: number;
+  attempt: number;
+  retryCount: number;
+  stageTimings: WorkflowBenchmarkStage[];
+};
+
+type WorkflowBenchmarkGroup = {
+  domain: string;
+  label: string;
+  pipeline: string;
+  stage?: string;
+  sampleCount: number;
+  totalMs: number;
+  averageMs: number;
+  medianMs: number;
+  p95Ms: number;
+  statusCounts: Record<string, number>;
+};
+
+type WorkflowBenchmarkReport = {
+  enabled: boolean;
+  generatedAt: string;
+  sampleCount: number;
+  samples: WorkflowBenchmarkSample[];
+  pipelines: WorkflowBenchmarkGroup[];
+  stages: WorkflowBenchmarkGroup[];
+};
+
 type BenchmarkReport = {
   generatedAt: string;
   metrics: BenchmarkMetric[];
   runCount: number;
   returnedRunCount: number;
+  currentGit: { branch: string; commit: string; dirty: boolean };
   latestRun: BenchmarkRun | null;
   profiles: string[];
   audioKinds: string[];
@@ -158,9 +256,12 @@ type BenchmarkReport = {
   activeBaseline: string;
   latestComparison: BenchmarkComparison | null;
   baselineComparison: BenchmarkComparison | null;
+  scoreComparison: BenchmarkComparison | null;
+  scoreComposition: BenchmarkScoreComposition;
   score: BenchmarkScore;
   releaseGate: BenchmarkReleaseGate;
   cleanupPolicy: BenchmarkCleanupPolicy;
+  workflow: WorkflowBenchmarkReport;
   runs: BenchmarkRun[];
   source: {
     missing: boolean;
@@ -170,6 +271,36 @@ type BenchmarkReport = {
 };
 
 const defaultMetric = "totalMs";
+const workflowPreferenceStorageKey = "sonara-benchmark-workflow-enabled";
+function loadWorkflowPreference() {
+  const query = new URLSearchParams(window.location.search).get("workflow");
+  if (query === "1" || query === "true") return true;
+  if (query === "0" || query === "false") return false;
+  try {
+    return window.localStorage.getItem(workflowPreferenceStorageKey) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveWorkflowPreference(enabled: boolean) {
+  try {
+    window.localStorage.setItem(workflowPreferenceStorageKey, String(enabled));
+  } catch {
+    // Local benchmark opt-in remains usable even when browser storage is blocked.
+  }
+}
+
+function syncWorkflowPreferenceUrl(enabled: boolean) {
+  const url = new URL(window.location.href);
+  if (enabled) {
+    url.searchParams.set("workflow", "1");
+  } else {
+    url.searchParams.delete("workflow");
+  }
+  window.history.replaceState(null, "", url);
+}
+
 const phaseMetrics = [
   "webmStageMs",
   "canvasCaptureMs",
@@ -180,9 +311,22 @@ const phaseMetrics = [
 ];
 const benchmarkTabs = [
   { id: "render", label: "Render" },
+  { id: "metrics", label: "Métricas" },
   { id: "gate", label: "Release Gate" },
+  { id: "workflow", label: "Workflow" },
+  { id: "retention", label: "Retenção" },
   { id: "history", label: "Histórico" },
 ] as const;
+const benchmarkExecutionOptions: Array<{
+  kind: BenchmarkExecution["kind"];
+  label: string;
+}> = [
+  { kind: "all", label: "Score - série completa quick + full + áudio" },
+  { kind: "quick", label: "Vídeo - render quick" },
+  { kind: "full", label: "Vídeo - render full" },
+  { kind: "audio", label: "Áudio - render com input real" },
+  { kind: "workflow-e2e", label: "Workflow E2E - comparável separado" },
+];
 const defaultCleanupPolicy: BenchmarkCleanupPolicy = {
   enabled: false,
   maxAgeDays: 30,
@@ -196,6 +340,8 @@ export default function BenchmarkDashboard() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [metricKey, setMetricKey] = useState(defaultMetric);
+  const [domainFilter, setDomainFilter] = useState("all");
+  const [testKeyFilter, setTestKeyFilter] = useState("all");
   const [profile, setProfile] = useState("all");
   const [caseId, setCaseId] = useState("");
   const [activeTab, setActiveTab] = useState<BenchmarkTab>("render");
@@ -205,9 +351,12 @@ export default function BenchmarkDashboard() {
   const [cleanupMessage, setCleanupMessage] = useState("");
   const [selectedCleanupRunId, setSelectedCleanupRunId] = useState("");
   const [executionKind, setExecutionKind] =
-    useState<BenchmarkExecution["kind"]>("quick");
+    useState<BenchmarkExecution["kind"]>("all");
   const [execution, setExecution] = useState<BenchmarkExecution | null>(null);
   const [executionCollapsed, setExecutionCollapsed] = useState(false);
+  const [includeWorkflow, setIncludeWorkflow] = useState(
+    loadWorkflowPreference,
+  );
 
   async function loadReport() {
     setLoading(true);
@@ -215,7 +364,7 @@ export default function BenchmarkDashboard() {
     try {
       setReport(
         await fetchJson<BenchmarkReport>(
-          `/api/dev/benchmarks?baseline=${encodeURIComponent(baselineSlot)}`,
+          `/api/dev/benchmarks?baseline=${encodeURIComponent(baselineSlot)}${includeWorkflow ? "&workflow=1" : ""}`,
         ),
       );
     } catch (reason) {
@@ -227,7 +376,12 @@ export default function BenchmarkDashboard() {
 
   useEffect(() => {
     void loadReport();
-  }, [baselineSlot]);
+  }, [baselineSlot, includeWorkflow]);
+
+  useEffect(() => {
+    saveWorkflowPreference(includeWorkflow);
+    syncWorkflowPreferenceUrl(includeWorkflow);
+  }, [includeWorkflow]);
 
   useEffect(() => {
     setCleanupDraft(report?.cleanupPolicy ?? defaultCleanupPolicy);
@@ -355,20 +509,60 @@ export default function BenchmarkDashboard() {
 
   const visibleRuns = useMemo(() => {
     const runs = report?.runs ?? [];
-    return profile === "all"
-      ? runs
-      : runs.filter((run) => run.profile === profile);
-  }, [profile, report]);
+    return runs.filter((run) => {
+      const matchesProfile = profile === "all" || run.profile === profile;
+      const matchesTest =
+        testKeyFilter === "all" || run.testKey === testKeyFilter;
+      const matchesDomain =
+        domainFilter === "all" ||
+        run.domain === domainFilter ||
+        run.cases.some((item) => item.domain === domainFilter);
+      return matchesProfile && matchesTest && matchesDomain;
+    });
+  }, [domainFilter, profile, report, testKeyFilter]);
+
+  const domainOptions = useMemo(() => {
+    const domains = new Set<string>();
+    for (const run of report?.runs ?? []) {
+      if (run.domain) domains.add(run.domain);
+      for (const item of run.cases) {
+        if (item.domain) domains.add(item.domain);
+      }
+    }
+    return sortDomains([...domains]);
+  }, [report]);
+
+  const testOptions = useMemo(() => {
+    const byKey = new Map<string, BenchmarkRequiredTest>();
+    for (const run of report?.runs ?? []) {
+      if (!run.testKey) continue;
+      byKey.set(run.testKey, {
+        domain: run.domain,
+        key: run.testKey,
+        label: run.testLabel || run.testKey,
+        pipeline: run.pipeline,
+      });
+    }
+    return [...byKey.values()].sort((first, second) =>
+      `${first.domain}:${first.label}`.localeCompare(
+        `${second.domain}:${second.label}`,
+        "pt-BR",
+      ),
+    );
+  }, [report]);
 
   const caseOptions = useMemo(() => {
     const latestByCase = new Map<string, BenchmarkCase>();
     for (const run of visibleRuns) {
-      for (const item of run.cases) latestByCase.set(item.id, item);
+      for (const item of run.cases) {
+        if (domainFilter !== "all" && item.domain !== domainFilter) continue;
+        latestByCase.set(item.id, item);
+      }
     }
     return [...latestByCase.values()].sort(
       (first, second) => second.totalMs - first.totalMs,
     );
-  }, [visibleRuns]);
+  }, [domainFilter, visibleRuns]);
 
   const selectedCaseId = caseOptions.some((item) => item.id === caseId)
     ? caseId
@@ -430,6 +624,15 @@ export default function BenchmarkDashboard() {
               <small>Comparando com run anterior compatível</small>
             </div>
           )}
+          <label className="bench-workflow-toggle">
+            <input
+              aria-label="Workflow real"
+              checked={includeWorkflow}
+              type="checkbox"
+              onChange={(event) => setIncludeWorkflow(event.target.checked)}
+            />
+            <span>Workflow real</span>
+          </label>
           <button type="button" onClick={() => void loadReport()}>
             <RefreshCcw /> Atualizar
           </button>
@@ -471,7 +674,11 @@ export default function BenchmarkDashboard() {
           icon={<Clock />}
           label="Último run"
           value={latestRun ? relativeDate(latestRun.createdAt) : "Sem dados"}
-          detail={latestRun ? latestRun.profile : "Rode bench:render"}
+          detail={
+            latestRun
+              ? latestRun.testLabel || latestRun.profile
+              : "Rode bench:render"
+          }
           tone="warm"
           trend={runTotals}
         />
@@ -513,6 +720,34 @@ export default function BenchmarkDashboard() {
                 {(report?.metrics ?? []).map((metric) => (
                   <option key={metric.key} value={metric.key}>
                     {metric.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Domínio</span>
+              <select
+                value={domainFilter}
+                onChange={(event) => setDomainFilter(event.target.value)}
+              >
+                <option value="all">Todos</option>
+                {domainOptions.map((domain) => (
+                  <option key={domain} value={domain}>
+                    {domainLabel(domain)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Teste</span>
+              <select
+                value={testKeyFilter}
+                onChange={(event) => setTestKeyFilter(event.target.value)}
+              >
+                <option value="all">Todos</option>
+                {sortTestOptions(testOptions).map((item) => (
+                  <option key={item.key} value={item.key}>
+                    {domainLabel(item.domain)} - {item.label}
                   </option>
                 ))}
               </select>
@@ -580,15 +815,95 @@ export default function BenchmarkDashboard() {
                 <strong>Casos do último run</strong>
                 <span>
                   {latestRun
-                    ? `${latestRun.profile} · ${latestRun.audioSource.label || latestRun.audioSource.kind}`
+                    ? `${latestRun.testLabel || latestRun.profile} · ${domainLabel(latestRun.domain)} · ${latestRun.audioSource.label || latestRun.audioSource.kind}`
                     : loading
                       ? "Carregando"
                       : "Sem histórico"}
                 </span>
               </div>
             </div>
-            <LatestCasesTable run={latestRun} />
+            <LatestCasesTable domainFilter={domainFilter} run={latestRun} />
           </section>
+        </>
+      )}
+
+      {activeTab === "metrics" && (
+        <>
+          <section className="bench-panel bench-controls bench-metric-controls">
+            <label>
+              <span>Métrica</span>
+              <select
+                value={selectedMetric.key}
+                onChange={(event) => setMetricKey(event.target.value)}
+              >
+                {(report?.metrics ?? []).map((metric) => (
+                  <option key={metric.key} value={metric.key}>
+                    {metric.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Domínio</span>
+              <select
+                value={domainFilter}
+                onChange={(event) => setDomainFilter(event.target.value)}
+              >
+                <option value="all">Todos</option>
+                {domainOptions.map((domain) => (
+                  <option key={domain} value={domain}>
+                    {domainLabel(domain)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Teste</span>
+              <select
+                value={testKeyFilter}
+                onChange={(event) => setTestKeyFilter(event.target.value)}
+              >
+                <option value="all">Todos</option>
+                {sortTestOptions(testOptions).map((item) => (
+                  <option key={item.key} value={item.key}>
+                    {domainLabel(item.domain)} - {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Perfil</span>
+              <select
+                value={profile}
+                onChange={(event) => setProfile(event.target.value)}
+              >
+                <option value="all">Todos</option>
+                {(report?.profiles ?? []).map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Caso em foco</span>
+              <select
+                value={selectedCaseId}
+                onChange={(event) => setCaseId(event.target.value)}
+              >
+                {caseOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </section>
+          <GlobalMetricPanel
+            metric={selectedMetric}
+            runs={visibleRuns}
+            selectedCaseId={selectedCaseId}
+          />
         </>
       )}
 
@@ -598,37 +913,42 @@ export default function BenchmarkDashboard() {
           latestComparison={report?.latestComparison ?? null}
           releaseGate={report?.releaseGate ?? null}
           score={report?.score ?? null}
+          scoreComparison={report?.scoreComparison ?? null}
+          scoreComposition={report?.scoreComposition ?? null}
+        />
+      )}
+
+      {activeTab === "workflow" && (
+        <WorkflowBenchmarkPanel workflow={report?.workflow ?? null} />
+      )}
+
+      {activeTab === "retention" && (
+        <CleanupPanel
+          cleanupDraft={cleanupDraft}
+          cleanupMessage={cleanupMessage}
+          onCleanup={(mode) => void runCleanup(mode)}
+          onPolicyChange={setCleanupDraft}
+          onSavePolicy={() => void saveCleanupPolicy()}
+          onSelectedRun={setSelectedCleanupRunId}
+          runs={[...visibleRuns].reverse()}
+          selectedRunId={selectedCleanupRunId}
         />
       )}
 
       {activeTab === "history" && (
-        <>
-          <section className="bench-panel">
-            <div className="bench-panel-title">
-              <Clock />
-              <div>
-                <strong>Histórico completo</strong>
-                <span>Runs mais recentes primeiro</span>
-              </div>
+        <section className="bench-panel">
+          <div className="bench-panel-title">
+            <Clock />
+            <div>
+              <strong>Histórico completo</strong>
+              <span>Runs mais recentes primeiro</span>
             </div>
-            <RunHistory
-              comparison={
-                report?.baselineComparison ?? report?.latestComparison
-              }
-              runs={[...visibleRuns].reverse()}
-            />
-          </section>
-          <CleanupPanel
-            cleanupDraft={cleanupDraft}
-            cleanupMessage={cleanupMessage}
-            onCleanup={(mode) => void runCleanup(mode)}
-            onPolicyChange={setCleanupDraft}
-            onSavePolicy={() => void saveCleanupPolicy()}
-            onSelectedRun={setSelectedCleanupRunId}
+          </div>
+          <RunHistory
+            comparison={report?.baselineComparison ?? report?.latestComparison}
             runs={[...visibleRuns].reverse()}
-            selectedRunId={selectedCleanupRunId}
           />
-        </>
+        </section>
       )}
 
       <footer className="bench-footer">
@@ -692,16 +1012,24 @@ function BenchmarkRunner({
               onExecutionKind(event.target.value as BenchmarkExecution["kind"])
             }
           >
-            <option value="quick">Render quick</option>
-            <option value="full">Render full</option>
-            <option value="audio">Render com áudio da pasta input</option>
-            <option value="all">Todos os benchmarks de render</option>
+            {benchmarkExecutionOptions.map((option) => (
+              <option key={option.kind} value={option.kind}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </label>
         <button disabled={running} type="button" onClick={onStart}>
           <BarChart3 /> {running ? "Executando" : "Iniciar"}
         </button>
       </div>
+      {executionKind === "workflow-e2e" && (
+        <p className="bench-diagnostic-note">
+          Workflow E2E é uma métrica comparável separada. Ela aparece em
+          filtros, histórico e drilldown, mas não compõe a nota canônica de
+          release.
+        </p>
+      )}
       {execution && (
         <div
           className={`bench-terminal ${executionCollapsed ? "collapsed" : ""}`}
@@ -1080,13 +1408,137 @@ function MetricChart({
   );
 }
 
+function GlobalMetricPanel({
+  metric,
+  runs,
+  selectedCaseId,
+}: {
+  metric: BenchmarkMetric;
+  runs: BenchmarkRun[];
+  selectedCaseId: string;
+}) {
+  const groups = globalMetricGroups(runs, metric.key);
+  const hasNonZeroValue = groups.some((group) =>
+    group.points.some((point) => point.value > 0),
+  );
+  return (
+    <section className="bench-panel bench-global-metric">
+      <div className="bench-panel-title">
+        <BarChart3 />
+        <div>
+          <strong>{metric.label} por caso</strong>
+          <span>
+            {groups.length} caso{groups.length === 1 ? "" : "s"} · {runs.length}{" "}
+            run{runs.length === 1 ? "" : "s"} filtrado
+            {runs.length === 1 ? "" : "s"}
+          </span>
+        </div>
+      </div>
+      {metric.key === "webglRetryCount" && !hasNonZeroValue && (
+        <p className="bench-diagnostic-note">
+          Nenhuma amostra filtrada registrou retry WebGL. A métrica existe para
+          capturar fallback/retry quando Chromium/WebGL falha ou precisa reabrir
+          o renderer; zero em todos os casos significa que esse caminho não foi
+          acionado nesta janela de dados.
+        </p>
+      )}
+      {groups.length ? (
+        <div className="bench-metric-grid">
+          {groups.map((group) => {
+            const latest = group.points.at(-1);
+            return (
+              <article
+                className={`bench-metric-card ${group.caseId === selectedCaseId ? "is-focused" : ""}`}
+                key={group.caseId}
+              >
+                <header>
+                  <div>
+                    <strong>{group.caseId}</strong>
+                    <span>
+                      {domainLabel(group.domain)} · {group.rendererId}
+                    </span>
+                  </div>
+                  <em>{formatMetric(latest?.value, metric.unit)}</em>
+                </header>
+                <MetricMiniChart points={group.points} unit={metric.unit} />
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="bench-empty">Sem dados para esta métrica.</div>
+      )}
+    </section>
+  );
+}
+
+function MetricMiniChart({
+  points,
+  unit,
+}: {
+  points: Array<{ label: string; value: number; runId: string }>;
+  unit: string;
+}) {
+  if (!points.length) return <div className="bench-empty">Sem série.</div>;
+  const width = 360;
+  const height = 116;
+  const padding = { bottom: 20, left: 16, right: 16, top: 16 };
+  const values = points.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = Math.max(1, max - min);
+  const xStep =
+    points.length > 1
+      ? (width - padding.left - padding.right) / (points.length - 1)
+      : 0;
+  const chartBottom = height - padding.bottom;
+  const chartHeight = height - padding.top - padding.bottom;
+  const coordinates = points.map((point, index) => ({
+    ...point,
+    x: padding.left + xStep * index,
+    y: chartBottom - ((point.value - min) / range) * chartHeight,
+  }));
+  const line = smoothPath(coordinates);
+  const latest = points.at(-1);
+  return (
+    <div>
+      <svg
+        aria-label={`Série ${latest?.label ?? ""}: ${formatMetric(latest?.value, unit)}`}
+        className="bench-mini-chart"
+        role="img"
+        viewBox={`0 0 ${width} ${height}`}
+      >
+        <rect height={height} width={width} />
+        <path d={line} />
+        {coordinates.map((point) => (
+          <circle
+            cx={point.x}
+            cy={point.y}
+            key={`${point.runId}-${point.label}`}
+            r="3"
+          />
+        ))}
+      </svg>
+      <small>
+        {points.length} ponto{points.length === 1 ? "" : "s"} · mín{" "}
+        {formatMetric(min, unit)} · máx {formatMetric(max, unit)}
+      </small>
+    </div>
+  );
+}
+
 function PhaseBreakdown({ caseData }: { caseData?: BenchmarkCase | null }) {
   if (!caseData) return <div className="bench-empty">Sem amostra.</div>;
-  const rows = phaseMetrics.map((key) => ({
+  const phaseKeys =
+    caseData.pipeline === "full-workflow"
+      ? ["audioProcessMs", "videoRenderMs", "publicationAssetMs"]
+      : phaseMetrics;
+  const rows = phaseKeys.map((key) => ({
     key,
     label: metricLabel(key),
     value: numeric(caseData[key as keyof BenchmarkCase]),
   }));
+  const fileMetric = caseData.artifactBytes || caseData.mp4Bytes;
   const max = Math.max(1, ...rows.map((row) => row.value));
   return (
     <div className="bench-sample-stack">
@@ -1096,12 +1548,20 @@ function PhaseBreakdown({ caseData }: { caseData?: BenchmarkCase | null }) {
           <strong>{formatMetric(caseData.totalMs, "ms")}</strong>
         </span>
         <span>
-          <small>Arquivo</small>
-          <strong>{formatMetric(caseData.mp4Bytes, "bytes")}</strong>
+          <small>
+            {caseData.pipeline === "full-workflow" ? "Artefatos" : "Arquivo"}
+          </small>
+          <strong>{formatMetric(fileMetric, "bytes")}</strong>
         </span>
         <span>
-          <small>Memória</small>
-          <strong>{formatMetric(caseData.peakRssMb, "MB")}</strong>
+          <small>
+            {caseData.pipeline === "full-workflow" ? "Jobs" : "Memória"}
+          </small>
+          <strong>
+            {caseData.pipeline === "full-workflow"
+              ? formatMetric(caseData.jobCount, "count")
+              : formatMetric(caseData.peakRssMb, "MB")}
+          </strong>
         </span>
       </div>
       <div className="bench-bars">
@@ -1136,14 +1596,28 @@ function PhaseBreakdown({ caseData }: { caseData?: BenchmarkCase | null }) {
   );
 }
 
-function LatestCasesTable({ run }: { run?: BenchmarkRun | null }) {
+function LatestCasesTable({
+  domainFilter,
+  run,
+}: {
+  domainFilter: string;
+  run?: BenchmarkRun | null;
+}) {
   if (!run) return <div className="bench-empty">Sem histórico coletado.</div>;
+  const cases =
+    domainFilter === "all"
+      ? run.cases
+      : run.cases.filter((item) => item.domain === domainFilter);
+  if (!cases.length) {
+    return <div className="bench-empty">Sem caso neste domínio.</div>;
+  }
   return (
     <div className="bench-table-wrap">
       <table className="bench-table">
         <thead>
           <tr>
             <th>Caso</th>
+            <th>Domínio</th>
             <th>Total</th>
             <th>WebM</th>
             <th>Render</th>
@@ -1153,12 +1627,13 @@ function LatestCasesTable({ run }: { run?: BenchmarkRun | null }) {
           </tr>
         </thead>
         <tbody>
-          {run.cases.map((item) => (
+          {cases.map((item) => (
             <tr key={`${item.outputId}-${item.repeatIndex}`}>
               <td>
                 <strong>{item.id}</strong>
                 <span>{item.rendererId}</span>
               </td>
+              <td>{domainLabel(item.domain)}</td>
               <td>{formatMetric(item.totalMs, "ms")}</td>
               <td>{formatMetric(item.webmStageMs, "ms")}</td>
               <td>{formatMetric(item.frameRenderMs, "ms")}</td>
@@ -1186,14 +1661,20 @@ function ReleaseGatePanel({
   latestComparison,
   releaseGate,
   score,
+  scoreComparison,
+  scoreComposition,
 }: {
   baselineComparison?: BenchmarkComparison | null;
   latestComparison?: BenchmarkComparison | null;
   releaseGate?: BenchmarkReleaseGate | null;
   score?: BenchmarkScore | null;
+  scoreComparison?: BenchmarkComparison | null;
+  scoreComposition?: BenchmarkScoreComposition | null;
 }) {
-  const comparison = baselineComparison ?? latestComparison ?? null;
+  const comparison =
+    scoreComparison ?? baselineComparison ?? latestComparison ?? null;
   const status = releaseGate?.status ?? "warn";
+  const scoreComplete = score != null && score.complete !== false;
   return (
     <section className="bench-gate-grid">
       <div className={`bench-panel bench-score-card is-${status}`}>
@@ -1203,16 +1684,18 @@ function ReleaseGatePanel({
             <strong>Sonara Performance Score</strong>
             <span>
               Referência:{" "}
-              {score?.reference === "baseline"
-                ? "baseline"
-                : score?.reference === "previous"
-                  ? "run anterior"
-                  : "sem comparação"}
+              {!scoreComplete
+                ? "score indefinido"
+                : score?.reference === "baseline"
+                  ? "baseline"
+                  : score?.reference === "previous"
+                    ? "run anterior"
+                    : "sem comparação"}
             </span>
           </div>
         </div>
         <div className="bench-score-value">
-          <strong>{Math.round(score?.value ?? 0)}</strong>
+          <strong>{scoreComplete ? Math.round(score?.value ?? 0) : "—"}</strong>
           <span>/ 100</span>
         </div>
         <div className="bench-gate-status">{statusLabel(status)}</div>
@@ -1238,6 +1721,8 @@ function ReleaseGatePanel({
         ))}
       </div>
 
+      <ScoreCompositionPanel composition={scoreComposition} />
+
       <section className="bench-panel bench-gate-comparison">
         <div className="bench-panel-title">
           <BarChart3 />
@@ -1254,6 +1739,118 @@ function ReleaseGatePanel({
       </section>
     </section>
   );
+}
+
+function ScoreCompositionPanel({
+  composition,
+}: {
+  composition?: BenchmarkScoreComposition | null;
+}) {
+  if (!composition) {
+    return (
+      <div className="bench-panel bench-score-composition">
+        <div className="bench-empty bench-score-composition-empty">
+          <strong>Composição ainda não disponível neste carregamento.</strong>
+          <span>
+            A API monta esta seção a partir da série `quick/full/audio` do
+            commit atual. Atualize o relatório; se continuar vazio, reinicie a
+            API local para garantir que o backend novo está servindo
+            `scoreComposition`.
+          </span>
+        </div>
+      </div>
+    );
+  }
+  const provisionalByTest = latestRunsByRequiredTest(
+    composition.provisionalRuns,
+    composition.requiredTests,
+  );
+  const displayComponents = composition.components.map((component) => {
+    const provisionalRun = provisionalByTest.get(component.key) ?? null;
+    return {
+      ...component,
+      displayRun: component.run ?? provisionalRun,
+      displayStatus: component.run
+        ? "available"
+        : provisionalRun
+          ? "provisional"
+          : "missing",
+    };
+  });
+  const provisionalComplete =
+    !composition.complete &&
+    composition.requiredTests.every((test) => provisionalByTest.has(test.key));
+  return (
+    <div className="bench-panel bench-score-composition">
+      <div className="bench-panel-title">
+        <Database />
+        <div>
+          <strong>Série do commit</strong>
+          <span>
+            {shortCommit(composition.commit) || "sem commit"} ·{" "}
+            {composition.complete
+              ? "completa"
+              : provisionalComplete
+                ? "provisória completa"
+                : "incompleta"}
+            {composition.dirty ? " · dirty" : ""}
+          </span>
+        </div>
+      </div>
+      <div className="bench-score-components">
+        {displayComponents.map((component) => (
+          <div
+            className={`bench-score-component is-${component.displayStatus}`}
+            key={component.key}
+          >
+            <span>{domainLabel(component.domain)}</span>
+            <strong>{component.label}</strong>
+            <small>
+              {component.displayRun
+                ? `${relativeDate(component.displayRun.createdAt)} · ${formatMetric(component.displayRun.summary.totalMs, "ms")}${component.displayStatus === "provisional" ? " · provisório" : ""}`
+                : "pendente"}
+            </small>
+          </div>
+        ))}
+      </div>
+      {provisionalComplete && (
+        <p className="bench-diagnostic-note">
+          A suíte completa existe para este commit, mas foi rodada com worktree
+          dirty. Ela fica visível como composição provisória; a nota final só
+          será definida depois de commit limpo e nova série completa.
+        </p>
+      )}
+      {!composition.complete && !provisionalComplete && (
+        <p className="bench-diagnostic-note">
+          Para gerar nota final comparável, rode a execução{" "}
+          <strong>Score - série completa quick + full + áudio</strong>. Faltam:{" "}
+          {composition.missingTests.map((test) => test.label).join(", ")}.
+        </p>
+      )}
+      {composition.provisionalRuns.length > 0 && (
+        <div className="bench-provisional-list">
+          <strong>Parciais dirty</strong>
+          <span>
+            {composition.provisionalRuns
+              .map((run) => `${run.testLabel} ${relativeDate(run.createdAt)}`)
+              .join(" · ")}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function latestRunsByRequiredTest(
+  runs: BenchmarkRunReference[],
+  requiredTests: BenchmarkRequiredTest[],
+) {
+  const requiredKeys = new Set(requiredTests.map((test) => test.key));
+  const byTest = new Map<string, BenchmarkRunReference>();
+  for (const run of runs) {
+    if (requiredKeys.has(run.testKey)) byTest.set(run.testKey, run);
+  }
+  return byTest;
 }
 
 function ScoreRow({ label, value }: { label: string; value: number }) {
@@ -1311,6 +1908,136 @@ function ComparisonTable({
   );
 }
 
+function WorkflowBenchmarkPanel({
+  workflow,
+}: {
+  workflow?: WorkflowBenchmarkReport | null;
+}) {
+  if (!workflow?.enabled) {
+    return (
+      <section className="bench-panel bench-workflow-empty">
+        <div className="bench-panel-title">
+          <Activity />
+          <div>
+            <strong>Workflow real</strong>
+            <span>Opt-in desativado</span>
+          </div>
+        </div>
+        <div className="bench-empty">Ative o toggle Workflow real.</div>
+      </section>
+    );
+  }
+  if (!workflow.sampleCount) {
+    return (
+      <section className="bench-panel bench-workflow-empty">
+        <div className="bench-panel-title">
+          <Activity />
+          <div>
+            <strong>Workflow real</strong>
+            <span>Sem amostras</span>
+          </div>
+        </div>
+        <div className="bench-empty">Sem jobs concluídos com tempos.</div>
+      </section>
+    );
+  }
+  return (
+    <section className="bench-workflow-grid">
+      <div className="bench-panel">
+        <div className="bench-panel-title">
+          <BarChart3 />
+          <div>
+            <strong>Pipelines</strong>
+            <span>{workflow.sampleCount} amostra(s)</span>
+          </div>
+        </div>
+        <WorkflowGroupTable groups={workflow.pipelines} />
+      </div>
+      <div className="bench-panel">
+        <div className="bench-panel-title">
+          <Gauge />
+          <div>
+            <strong>Etapas</strong>
+            <span>Ordenadas por tempo total</span>
+          </div>
+        </div>
+        <WorkflowGroupTable groups={workflow.stages.slice(0, 12)} />
+      </div>
+      <div className="bench-panel bench-workflow-samples">
+        <div className="bench-panel-title">
+          <Clock />
+          <div>
+            <strong>Amostras recentes</strong>
+            <span>{relativeDate(workflow.generatedAt)}</span>
+          </div>
+        </div>
+        <div className="bench-run-list">
+          {workflow.samples.map((sample) => (
+            <details key={sample.jobId}>
+              <summary>
+                <strong>{sample.title || sample.jobId}</strong>
+                <span>{domainLabel(sample.domain)}</span>
+                <span>{workflowPipelineLabel(sample.pipeline)}</span>
+                <span>{formatMetric(sample.durationMs, "ms")}</span>
+                <span>{sample.status}</span>
+              </summary>
+              <div>
+                <p>
+                  <code>{sample.jobId}</code> · {relativeDate(sample.updatedAt)}
+                </p>
+                <div className="bench-stage-chip-list">
+                  {sample.stageTimings.map((stage) => (
+                    <span key={`${sample.jobId}-${stage.stage}`}>
+                      {stage.label}: {formatMetric(stage.durationMs, "ms")}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function WorkflowGroupTable({ groups }: { groups: WorkflowBenchmarkGroup[] }) {
+  if (!groups.length) {
+    return <div className="bench-empty">Sem grupos.</div>;
+  }
+  return (
+    <div className="bench-table-wrap">
+      <table className="bench-table">
+        <thead>
+          <tr>
+            <th>Grupo</th>
+            <th>Domínio</th>
+            <th>Amostras</th>
+            <th>Total</th>
+            <th>Mediana</th>
+            <th>P95</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((group) => (
+            <tr key={`${group.pipeline}-${group.stage ?? "pipeline"}`}>
+              <td>
+                <strong>{group.label}</strong>
+                <span>{group.stage ?? group.pipeline}</span>
+              </td>
+              <td>{domainLabel(group.domain)}</td>
+              <td>{group.sampleCount}</td>
+              <td>{formatMetric(group.totalMs, "ms")}</td>
+              <td>{formatMetric(group.medianMs, "ms")}</td>
+              <td>{formatMetric(group.p95Ms, "ms")}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function CleanupPanel({
   cleanupDraft,
   cleanupMessage,
@@ -1335,12 +2062,21 @@ function CleanupPanel({
       <div className="bench-panel-title">
         <Database />
         <div>
-          <strong>Retenção e limpeza</strong>
-          <span>Remove apenas dados locais de benchmark em .dev/bench.</span>
+          <strong>Retenção de dados</strong>
+          <span>
+            Controla somente histórico e artefatos locais em .dev/bench.
+          </span>
         </div>
       </div>
+      <div className="bench-retention-note">
+        <strong>Limpeza segura</strong>
+        <span>
+          A política automática define quais runs são candidatos à remoção. Ela
+          só é aplicada quando você salva e executa a limpeza por política.
+        </span>
+      </div>
       <div className="bench-cleanup-grid">
-        <label className="bench-check-row">
+        <label className="bench-check-row bench-cleanup-wide">
           <input
             checked={cleanupDraft.enabled}
             type="checkbox"
@@ -1351,10 +2087,18 @@ function CleanupPanel({
               })
             }
           />
-          <span>Usar política automática como critério padrão</span>
+          <span>
+            <strong>Ativar política automática</strong>
+            <small>
+              Usa os limites abaixo ao clicar em Aplicar política agora.
+            </small>
+          </span>
         </label>
-        <label>
-          <span>Manter últimos runs</span>
+        <label className="bench-cleanup-field">
+          <span>Quantidade máxima de runs</span>
+          <small>
+            Mantém sempre os runs mais recentes, mesmo que sejam antigos.
+          </small>
           <input
             min="5"
             type="number"
@@ -1367,21 +2111,25 @@ function CleanupPanel({
             }
           />
         </label>
-        <label>
-          <span>Remover após</span>
-          <input
-            min="1"
-            type="number"
-            value={cleanupDraft.maxAgeDays}
-            onChange={(event) =>
-              onPolicyChange({
-                ...cleanupDraft,
-                maxAgeDays: Number(event.target.value),
-              })
-            }
-          />
+        <label className="bench-cleanup-field">
+          <span>Idade máxima do histórico</span>
+          <small>Remove runs mais antigos que este limite de dias.</small>
+          <div className="bench-number-unit">
+            <input
+              min="1"
+              type="number"
+              value={cleanupDraft.maxAgeDays}
+              onChange={(event) =>
+                onPolicyChange({
+                  ...cleanupDraft,
+                  maxAgeDays: Number(event.target.value),
+                })
+              }
+            />
+            <span>dias</span>
+          </div>
         </label>
-        <label className="bench-check-row">
+        <label className="bench-check-row bench-cleanup-wide">
           <input
             checked={cleanupDraft.removeArtifacts}
             type="checkbox"
@@ -1392,10 +2140,16 @@ function CleanupPanel({
               })
             }
           />
-          <span>Remover artefatos dos runs junto com o histórico</span>
+          <span>
+            <strong>Remover artefatos junto com o histórico</strong>
+            <small>
+              Apaga pastas de render relacionadas aos runs removidos.
+            </small>
+          </span>
         </label>
-        <label className="bench-run-select">
+        <label className="bench-run-select bench-cleanup-field">
           <span>Run específico</span>
+          <small>Use para apagar um run isolado sem aplicar a política.</small>
           <select
             value={selectedRunId}
             onChange={(event) => onSelectedRun(event.target.value)}
@@ -1403,14 +2157,18 @@ function CleanupPanel({
             {runs.map((run) => (
               <option key={run.runId} value={run.runId}>
                 {relativeDate(run.createdAt)} · {shortCommit(run.git.commit)} ·{" "}
-                {run.profile}
+                {run.testLabel || run.profile}
               </option>
             ))}
           </select>
         </label>
       </div>
       <div className="bench-cleanup-actions">
-        <button type="button" onClick={onSavePolicy}>
+        <button
+          className="bench-primary-action"
+          type="button"
+          onClick={onSavePolicy}
+        >
           Salvar política
         </button>
         <button type="button" onClick={() => onCleanup("policy")}>
@@ -1453,7 +2211,7 @@ function RunHistory({
         <details key={run.runId}>
           <summary>
             <strong>{relativeDate(run.createdAt)}</strong>
-            <span>{run.profile}</span>
+            <span>{run.testLabel || run.profile}</span>
             <span>{shortCommit(run.git.commit)}</span>
             <span>{formatMetric(run.summary.totalMs, "ms")}</span>
             <span>{formatMetric(run.summary.peakRssMb, "MB")}</span>
@@ -1518,13 +2276,113 @@ function findLatestCase(runs: BenchmarkRun[], selectedCaseId: string) {
   return null;
 }
 
+function globalMetricGroups(runs: BenchmarkRun[], metricKey: string) {
+  const byCase = new Map<
+    string,
+    {
+      caseId: string;
+      domain: string;
+      rendererId: string;
+      points: Array<{ label: string; value: number; runId: string }>;
+    }
+  >();
+  for (const run of runs) {
+    for (const item of run.cases) {
+      if (!Object.prototype.hasOwnProperty.call(item, metricKey)) continue;
+      const current = byCase.get(item.id) ?? {
+        caseId: item.id,
+        domain: item.domain,
+        rendererId: item.rendererId,
+        points: [],
+      };
+      current.domain = item.domain || current.domain;
+      current.rendererId = item.rendererId || current.rendererId;
+      current.points.push({
+        label: relativeDate(run.createdAt),
+        runId: run.runId,
+        value: numeric(item[metricKey as keyof BenchmarkCase]),
+      });
+      byCase.set(item.id, current);
+    }
+  }
+  return [...byCase.values()].sort((first, second) => {
+    const domainOrder = sortDomains([first.domain, second.domain]);
+    if (domainOrder[0] !== domainOrder[1]) {
+      return domainOrder[0] === first.domain ? -1 : 1;
+    }
+    return first.caseId.localeCompare(second.caseId, "pt-BR", {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
+}
+
+function sortDomains(domains: string[]) {
+  const priority = ["video", "audio", "asset", "workflow", "system"];
+  return domains.sort((first, second) => {
+    const firstIndex = priority.indexOf(first);
+    const secondIndex = priority.indexOf(second);
+    if (firstIndex !== secondIndex) {
+      return (
+        (firstIndex === -1 ? priority.length : firstIndex) -
+        (secondIndex === -1 ? priority.length : secondIndex)
+      );
+    }
+    return domainLabel(first).localeCompare(domainLabel(second), "pt-BR");
+  });
+}
+
+function sortTestOptions<T extends { domain: string; label: string }>(
+  options: T[],
+) {
+  return [...options].sort((first, second) => {
+    const domainOrder = sortDomains([first.domain, second.domain]);
+    if (domainOrder[0] !== domainOrder[1]) {
+      return domainOrder[0] === first.domain ? -1 : 1;
+    }
+    return first.label.localeCompare(second.label, "pt-BR", {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
+}
+
+function domainLabel(domain: string) {
+  return (
+    {
+      asset: "Assets",
+      audio: "Áudio",
+      system: "Sistema",
+      video: "Vídeo",
+      workflow: "Workflow",
+    }[domain] ?? domain
+  );
+}
+
+function workflowPipelineLabel(pipeline: string) {
+  return (
+    {
+      "audio-processing": "Processamento de áudio",
+      "full-workflow": "Workflow completo",
+      "publication-assets": "Assets de publicação",
+      "render-export": "Exportação de vídeo",
+      workflow: "Workflow",
+    }[pipeline] ?? pipeline
+  );
+}
+
 function metricLabel(key: string) {
   const labels: Record<string, string> = {
     canvasCaptureMs: "Captura",
+    artifactBytes: "Artefatos",
+    audioProcessMs: "Áudio",
     frameRenderMs: "Render",
+    jobCount: "Jobs",
     mediaRecorderMs: "Recorder",
     muxMs: "Mux",
+    publicationAssetMs: "Asset publicação",
     validationMs: "Validação",
+    videoRenderMs: "Vídeo",
     webmStageMs: "WebM",
   };
   return labels[key] ?? key;
