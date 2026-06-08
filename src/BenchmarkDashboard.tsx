@@ -313,6 +313,7 @@ const benchmarkTabs = [
   { id: "render", label: "Render" },
   { id: "metrics", label: "Métricas" },
   { id: "gate", label: "Release Gate" },
+  { id: "baseline", label: "Baseline" },
   { id: "workflow", label: "Workflow" },
   { id: "retention", label: "Retenção" },
   { id: "history", label: "Histórico" },
@@ -617,10 +618,6 @@ export default function BenchmarkDashboard() {
   const runRss = visibleRuns.map((run) => run.summary.peakRssMb);
   const runWarnings = visibleRuns.map((run) => run.summary.warningCount);
   const baselineOptions = report?.baselines ?? [];
-  const selectedBaseline =
-    baselineOptions.find((baseline) => baseline.slot === baselineSlot) ??
-    baselineOptions[0] ??
-    null;
 
   return (
     <main className="bench-dashboard">
@@ -637,67 +634,6 @@ export default function BenchmarkDashboard() {
           </p>
         </div>
         <div className="bench-hero-actions">
-          <div className="bench-baseline-control">
-            <label>
-              <span>Baseline</span>
-              <select
-                value={baselineSlot}
-                onChange={(event) => {
-                  setBaselineSlot(event.target.value);
-                  setBaselineMessage("");
-                }}
-              >
-                {baselineOptions.length ? (
-                  baselineOptions.map((baseline) => (
-                    <option key={baseline.slot} value={baseline.slot}>
-                      {baseline.label} ·{" "}
-                      {baseline.found ? shortId(baseline.runId) : "slot vazio"}
-                    </option>
-                  ))
-                ) : (
-                  <option value={baselineSlot}>Carregando baselines</option>
-                )}
-              </select>
-            </label>
-            <div className="bench-baseline-caption">
-              {selectedBaseline?.found ? (
-                <>
-                  <strong>{shortId(selectedBaseline.runId)}</strong>
-                  <span>
-                    {relativeDate(selectedBaseline.run?.createdAt ?? "")}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <strong>Sem baseline fixa</strong>
-                  <span>Usando run anterior compatível</span>
-                </>
-              )}
-            </div>
-            <button
-              className="bench-baseline-action"
-              disabled={!report?.latestRun || baselineSaving}
-              type="button"
-              onClick={() => void saveLatestRunAsBaseline()}
-            >
-              <Database />
-              {baselineSaving ? "Salvando..." : "Usar último run"}
-            </button>
-            {baselineMessage && (
-              <small className="bench-baseline-message">
-                {baselineMessage}
-              </small>
-            )}
-          </div>
-          <label className="bench-workflow-toggle">
-            <input
-              aria-label="Workflow real"
-              checked={includeWorkflow}
-              type="checkbox"
-              onChange={(event) => setIncludeWorkflow(event.target.checked)}
-            />
-            <span>Workflow real</span>
-          </label>
           <button type="button" onClick={() => void loadReport()}>
             <RefreshCcw /> Atualizar
           </button>
@@ -983,8 +919,31 @@ export default function BenchmarkDashboard() {
         />
       )}
 
+      {activeTab === "baseline" && (
+        <BaselinePanel
+          activeBaseline={report?.activeBaseline ?? baselineSlot}
+          baselineComparison={report?.baselineComparison ?? null}
+          baselineMessage={baselineMessage}
+          baselineOptions={baselineOptions}
+          baselineSaving={baselineSaving}
+          baselineSlot={baselineSlot}
+          latestComparison={report?.latestComparison ?? null}
+          latestRun={report?.latestRun ?? null}
+          onBaselineSlot={(slot) => {
+            setBaselineSlot(slot);
+            setBaselineMessage("");
+          }}
+          onRefresh={() => void loadReport()}
+          onSaveLatest={() => void saveLatestRunAsBaseline()}
+        />
+      )}
+
       {activeTab === "workflow" && (
-        <WorkflowBenchmarkPanel workflow={report?.workflow ?? null} />
+        <WorkflowBenchmarkPanel
+          includeWorkflow={includeWorkflow}
+          onIncludeWorkflow={setIncludeWorkflow}
+          workflow={report?.workflow ?? null}
+        />
       )}
 
       {activeTab === "retention" && (
@@ -1721,6 +1680,222 @@ function LatestCasesTable({
   );
 }
 
+function BaselinePanel({
+  activeBaseline,
+  baselineComparison,
+  baselineMessage,
+  baselineOptions,
+  baselineSaving,
+  baselineSlot,
+  latestComparison,
+  latestRun,
+  onBaselineSlot,
+  onRefresh,
+  onSaveLatest,
+}: {
+  activeBaseline: string;
+  baselineComparison?: BenchmarkComparison | null;
+  baselineMessage: string;
+  baselineOptions: BenchmarkBaseline[];
+  baselineSaving: boolean;
+  baselineSlot: string;
+  latestComparison?: BenchmarkComparison | null;
+  latestRun?: BenchmarkRun | null;
+  onBaselineSlot: (slot: string) => void;
+  onRefresh: () => void;
+  onSaveLatest: () => void;
+}) {
+  const selectedBaseline =
+    baselineOptions.find((baseline) => baseline.slot === baselineSlot) ??
+    baselineOptions[0] ??
+    null;
+  const comparison = baselineComparison ?? null;
+  const comparisonReferenceRun = comparison?.referenceRun ?? null;
+  const fallbackComparison = latestComparison ?? null;
+  const canCompare = Boolean(comparisonReferenceRun);
+  const sameAsLatest =
+    Boolean(selectedBaseline?.runId) &&
+    selectedBaseline?.runId === latestRun?.runId;
+
+  return (
+    <section className="bench-panel bench-baseline-panel">
+      <div className="bench-panel-title">
+        <Database />
+        <div>
+          <strong>Baseline fixa</strong>
+          <span>
+            Referência congelada para comparar runs futuros sem depender do run
+            anterior.
+          </span>
+        </div>
+      </div>
+
+      <div className="bench-baseline-layout">
+        <div className="bench-baseline-copy">
+          <h2>O que ela resolve</h2>
+          <p>
+            Baseline é um run salvo em um slot estável. Ela serve para comparar
+            a evolução do mesmo tipo de benchmark ao longo do tempo, separada do
+            score canônico por commit.
+          </p>
+          <p>
+            Se o slot está vazio, o dashboard volta a comparar com o run
+            anterior compatível. Quando o slot aponta para um run existente, a
+            comparação de baseline usa esse run como referência.
+          </p>
+        </div>
+
+        <div className="bench-baseline-control">
+          <label>
+            <span>Slot</span>
+            <select
+              value={baselineSlot}
+              onChange={(event) => onBaselineSlot(event.target.value)}
+            >
+              {baselineOptions.length ? (
+                baselineOptions.map((baseline) => (
+                  <option key={baseline.slot} value={baseline.slot}>
+                    {baseline.label} ·{" "}
+                    {baseline.found ? shortId(baseline.runId) : "slot vazio"}
+                  </option>
+                ))
+              ) : (
+                <option value={baselineSlot}>Carregando baselines</option>
+              )}
+            </select>
+          </label>
+          <div className="bench-baseline-caption">
+            {selectedBaseline?.found ? (
+              <>
+                <strong>{shortId(selectedBaseline.runId)}</strong>
+                <span>
+                  {relativeDate(selectedBaseline.run?.createdAt ?? "")}
+                </span>
+              </>
+            ) : (
+              <>
+                <strong>Sem run salvo</strong>
+                <span>Fallback: run anterior compatível</span>
+              </>
+            )}
+          </div>
+          <button
+            className="bench-baseline-action"
+            disabled={!latestRun || baselineSaving}
+            type="button"
+            onClick={onSaveLatest}
+          >
+            <Database />
+            {baselineSaving ? "Salvando..." : "Usar último run"}
+          </button>
+          <button
+            className="bench-secondary-action"
+            type="button"
+            onClick={onRefresh}
+          >
+            <RefreshCcw /> Verificar baseline
+          </button>
+          {baselineMessage && (
+            <small className="bench-baseline-message">{baselineMessage}</small>
+          )}
+        </div>
+      </div>
+
+      <div className="bench-baseline-status-grid">
+        <BaselineStatusCard
+          label="Slot selecionado"
+          value={selectedBaseline?.label ?? "Sem slot"}
+          detail={`Relatório ativo: ${baselineLabel(activeBaseline)}`}
+          tone={activeBaseline === baselineSlot ? "ok" : "warn"}
+        />
+        <BaselineStatusCard
+          label="Run salvo"
+          value={
+            selectedBaseline?.found ? shortId(selectedBaseline.runId) : "Nenhum"
+          }
+          detail={
+            selectedBaseline?.found
+              ? selectedBaseline.run?.testLabel ||
+                selectedBaseline.run?.profile ||
+                "Run salvo"
+              : "Use o último run para preencher este slot"
+          }
+          tone={selectedBaseline?.found ? "ok" : "warn"}
+        />
+        <BaselineStatusCard
+          label="Último run"
+          value={latestRun ? shortId(latestRun.runId) : "Sem dados"}
+          detail={
+            latestRun
+              ? latestRun.testLabel || latestRun.profile
+              : "Rode um benchmark"
+          }
+          tone={latestRun ? "info" : "warn"}
+        />
+        <BaselineStatusCard
+          label="Comparação"
+          value={
+            canCompare
+              ? "Baseline ativa"
+              : sameAsLatest
+                ? "Mesmo run"
+                : fallbackComparison
+                  ? "Run anterior"
+                  : "Indisponível"
+          }
+          detail={
+            canCompare
+              ? `Referência ${shortId(comparisonReferenceRun?.runId ?? "")}`
+              : sameAsLatest
+                ? "Após salvar o último run, rode outro compatível para ver deltas"
+                : fallbackComparison
+                  ? `Fallback ${shortId(fallbackComparison.referenceRun.runId)}`
+                  : "Sem par compatível para comparar"
+          }
+          tone={canCompare ? "ok" : "info"}
+        />
+      </div>
+
+      <div className="bench-baseline-checklist">
+        <strong>Como saber que está funcionando</strong>
+        <ul>
+          <li className={selectedBaseline?.found ? "ok" : "warn"}>
+            O slot escolhido precisa mostrar um run salvo e encontrado no
+            histórico local.
+          </li>
+          <li className={activeBaseline === baselineSlot ? "ok" : "warn"}>
+            O relatório ativo deve bater com o slot selecionado no dropdown.
+          </li>
+          <li className={canCompare || sameAsLatest ? "ok" : "info"}>
+            A comparação por baseline aparece quando o último run é diferente do
+            run salvo; se ambos são o mesmo run, a ausência de delta é esperada.
+          </li>
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function BaselineStatusCard({
+  detail,
+  label,
+  tone,
+  value,
+}: {
+  detail: string;
+  label: string;
+  tone: "info" | "ok" | "warn";
+  value: string;
+}) {
+  return (
+    <div className={`bench-baseline-status-card ${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
 function ReleaseGatePanel({
   baselineComparison,
   latestComparison,
@@ -1974,95 +2149,125 @@ function ComparisonTable({
 }
 
 function WorkflowBenchmarkPanel({
+  includeWorkflow,
+  onIncludeWorkflow,
   workflow,
 }: {
+  includeWorkflow: boolean;
+  onIncludeWorkflow: (enabled: boolean) => void;
   workflow?: WorkflowBenchmarkReport | null;
 }) {
+  const header = (
+    <section className="bench-panel bench-workflow-optin">
+      <div className="bench-panel-title">
+        <Activity />
+        <div>
+          <strong>Workflow real</strong>
+          <span>
+            Amostras opt-in dos jobs reais, separadas do score canônico.
+          </span>
+        </div>
+      </div>
+      <label className="bench-workflow-toggle">
+        <input
+          aria-label="Workflow real"
+          checked={includeWorkflow}
+          type="checkbox"
+          onChange={(event) => onIncludeWorkflow(event.target.checked)}
+        />
+        <span>Considerar workflow real nesta visão</span>
+      </label>
+      <p>
+        Quando ativo, o relatório agrega `stageTimings` dos jobs locais
+        concluídos por domínio, pipeline e etapa. Esses dados ajudam a enxergar
+        gargalos do uso real, mas não compõem Release Gate nem score final.
+      </p>
+    </section>
+  );
+
   if (!workflow?.enabled) {
     return (
-      <section className="bench-panel bench-workflow-empty">
-        <div className="bench-panel-title">
-          <Activity />
-          <div>
-            <strong>Workflow real</strong>
-            <span>Opt-in desativado</span>
+      <>
+        {header}
+        <section className="bench-panel bench-workflow-empty">
+          <div className="bench-empty">
+            Ative o opt-in acima para carregar amostras de workflow real.
           </div>
-        </div>
-        <div className="bench-empty">Ative o toggle Workflow real.</div>
-      </section>
+        </section>
+      </>
     );
   }
   if (!workflow.sampleCount) {
     return (
-      <section className="bench-panel bench-workflow-empty">
-        <div className="bench-panel-title">
-          <Activity />
-          <div>
-            <strong>Workflow real</strong>
-            <span>Sem amostras</span>
-          </div>
-        </div>
-        <div className="bench-empty">Sem jobs concluídos com tempos.</div>
-      </section>
+      <>
+        {header}
+        <section className="bench-panel bench-workflow-empty">
+          <div className="bench-empty">Sem jobs concluídos com tempos.</div>
+        </section>
+      </>
     );
   }
   return (
-    <section className="bench-workflow-grid">
-      <div className="bench-panel">
-        <div className="bench-panel-title">
-          <BarChart3 />
-          <div>
-            <strong>Pipelines</strong>
-            <span>{workflow.sampleCount} amostra(s)</span>
+    <>
+      {header}
+      <section className="bench-workflow-grid">
+        <div className="bench-panel">
+          <div className="bench-panel-title">
+            <BarChart3 />
+            <div>
+              <strong>Pipelines</strong>
+              <span>{workflow.sampleCount} amostra(s)</span>
+            </div>
           </div>
+          <WorkflowGroupTable groups={workflow.pipelines} />
         </div>
-        <WorkflowGroupTable groups={workflow.pipelines} />
-      </div>
-      <div className="bench-panel">
-        <div className="bench-panel-title">
-          <Gauge />
-          <div>
-            <strong>Etapas</strong>
-            <span>Ordenadas por tempo total</span>
+        <div className="bench-panel">
+          <div className="bench-panel-title">
+            <Gauge />
+            <div>
+              <strong>Etapas</strong>
+              <span>Ordenadas por tempo total</span>
+            </div>
           </div>
+          <WorkflowGroupTable groups={workflow.stages.slice(0, 12)} />
         </div>
-        <WorkflowGroupTable groups={workflow.stages.slice(0, 12)} />
-      </div>
-      <div className="bench-panel bench-workflow-samples">
-        <div className="bench-panel-title">
-          <Clock />
-          <div>
-            <strong>Amostras recentes</strong>
-            <span>{relativeDate(workflow.generatedAt)}</span>
+        <div className="bench-panel bench-workflow-samples">
+          <div className="bench-panel-title">
+            <Clock />
+            <div>
+              <strong>Amostras recentes</strong>
+              <span>{relativeDate(workflow.generatedAt)}</span>
+            </div>
           </div>
-        </div>
-        <div className="bench-run-list">
-          {workflow.samples.map((sample) => (
-            <details key={sample.jobId}>
-              <summary>
-                <strong>{sample.title || sample.jobId}</strong>
-                <span>{domainLabel(sample.domain)}</span>
-                <span>{workflowPipelineLabel(sample.pipeline)}</span>
-                <span>{formatMetric(sample.durationMs, "ms")}</span>
-                <span>{sample.status}</span>
-              </summary>
-              <div>
-                <p>
-                  <code>{sample.jobId}</code> · {relativeDate(sample.updatedAt)}
-                </p>
-                <div className="bench-stage-chip-list">
-                  {sample.stageTimings.map((stage) => (
-                    <span key={`${sample.jobId}-${stage.stage}`}>
-                      {stage.label}: {formatMetric(stage.durationMs, "ms")}
-                    </span>
-                  ))}
+          <div className="bench-run-list">
+            {workflow.samples.map((sample) => (
+              <details key={sample.jobId}>
+                <summary>
+                  <strong>{sample.title || sample.jobId}</strong>
+                  <span>{domainLabel(sample.domain)}</span>
+                  <span>{workflowPipelineLabel(sample.pipeline)}</span>
+                  <span>{formatMetric(sample.durationMs, "ms")}</span>
+                  <span>{sample.status}</span>
+                </summary>
+                <div>
+                  <p>
+                    <code>{sample.jobId}</code> ·{" "}
+                    {relativeDate(sample.updatedAt)}
+                  </p>
+                  <div className="bench-stage-chip-list">
+                    {sample.stageTimings.map((stage) => (
+                      <span key={`${sample.jobId}-${stage.stage}`}>
+                        {stage.label}: {formatMetric(stage.durationMs, "ms")}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </details>
-          ))}
+              </details>
+            ))}
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </>
   );
 }
 
@@ -2421,6 +2626,16 @@ function domainLabel(domain: string) {
       video: "Vídeo",
       workflow: "Workflow",
     }[domain] ?? domain
+  );
+}
+
+function baselineLabel(slot: string) {
+  return (
+    {
+      beta: "Baseline Beta",
+      experimental: "Baseline Experimental",
+      stable: "Baseline Stable",
+    }[slot] ?? slot
   );
 }
 
