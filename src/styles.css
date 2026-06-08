@@ -172,6 +172,7 @@ svg {
   grid-template:
     "top top top" 42px
     "library preview inspector" minmax(0, 1fr)
+    ". transport ." 48px
     "status status status" 34px / var(--rail-left) minmax(0, 1fr)
     var(--rail-right);
   width: 100%;
@@ -183,6 +184,7 @@ svg {
   grid-template:
     "top top top" 42px
     "inspector preview library" minmax(0, 1fr)
+    ". transport ." 48px
     "status status status" 34px / var(--rail-right) minmax(0, 1fr)
     var(--rail-left);
 }
@@ -403,6 +405,7 @@ svg {
   position: relative;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background: linear-gradient(180deg, #0c0d10, #08080a);
 }
 
@@ -789,7 +792,11 @@ svg {
 
 .library-actions {
   display: grid;
+  flex: 0 1 auto;
+  max-height: min(42vh, 320px);
+  min-height: 0;
   gap: 7px;
+  overflow: auto;
   border-top: 1px solid var(--line-soft);
   background: linear-gradient(180deg, rgb(12 14 18 / 72%), rgb(6 7 9 / 94%));
   padding: 8px;
@@ -797,6 +804,7 @@ svg {
 
 .library-context {
   display: grid;
+  min-height: 0;
   gap: 7px;
 }
 
@@ -826,8 +834,19 @@ svg {
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: minmax(0, 1fr) 48px;
+  grid-template-rows: minmax(0, 1fr);
   background: var(--stage-grad);
+}
+
+.transport-dock {
+  grid-area: transport;
+  min-width: 0;
+  min-height: 0;
+  background: var(--chrome);
+}
+
+.transport-dock .transport {
+  height: 100%;
 }
 
 .canvas-table {
@@ -2576,7 +2595,7 @@ svg {
 .statusbar {
   grid-area: status;
   display: grid;
-  grid-template-columns: 228px minmax(0, 1fr) 300px;
+  grid-template-columns: var(--rail-left) minmax(0, 1fr) var(--rail-right);
   align-items: center;
   border-top: 1px solid var(--line);
   background: var(--chrome);
@@ -2841,6 +2860,7 @@ svg {
   grid-template:
     "top top top" 48px
     "library preview inspector" minmax(0, 1fr)
+    ". transport ." 56px
     "status status status" 38px / var(--rail-left) minmax(0, 1fr)
     var(--rail-right);
 }
@@ -2849,6 +2869,7 @@ svg {
   grid-template:
     "top top top" 48px
     "inspector preview library" minmax(0, 1fr)
+    ". transport ." 56px
     "status status status" 38px / var(--rail-right) minmax(0, 1fr)
     var(--rail-left);
 }
@@ -3187,7 +3208,7 @@ button:disabled {
 }
 
 .preview-workspace {
-  grid-template-rows: minmax(0, 1fr) 56px;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .preview-frame {
@@ -3792,6 +3813,34 @@ button:disabled {
   grid-template-columns: 0 minmax(0, 1fr) 0;
 }
 
+.left-hidden .statusbar {
+  grid-template-columns: 0 minmax(0, 1fr) var(--rail-right);
+}
+
+.right-hidden .statusbar {
+  grid-template-columns: var(--rail-left) minmax(0, 1fr) 0;
+}
+
+.left-hidden.right-hidden .statusbar {
+  grid-template-columns: 0 minmax(0, 1fr) 0;
+}
+
+.studio-shell.panels-swapped .statusbar {
+  grid-template-columns: var(--rail-right) minmax(0, 1fr) var(--rail-left);
+}
+
+.studio-shell.panels-swapped.left-hidden .statusbar {
+  grid-template-columns: var(--rail-right) minmax(0, 1fr) 0;
+}
+
+.studio-shell.panels-swapped.right-hidden .statusbar {
+  grid-template-columns: 0 minmax(0, 1fr) var(--rail-left);
+}
+
+.studio-shell.panels-swapped.left-hidden.right-hidden .statusbar {
+  grid-template-columns: 0 minmax(0, 1fr) 0;
+}
+
 .left-hidden .library-panel,
 .right-hidden .inspector-panel {
   overflow: hidden;
@@ -3807,6 +3856,7 @@ button:disabled {
   grid-template:
     "top" 48px
     "preview" minmax(0, 1fr)
+    "transport" 56px
     "status" 38px / minmax(0, 1fr);
 }
 
@@ -3815,7 +3865,7 @@ button:disabled {
   position: fixed;
   z-index: 6;
   top: 48px;
-  bottom: 38px;
+  bottom: 94px;
   transition:
     transform 180ms ease,
     opacity 180ms ease;
@@ -3865,6 +3915,7 @@ button:disabled {
     grid-template:
       "top" 48px
       "preview" minmax(0, 1fr)
+      "transport" 56px
       "status" 38px / minmax(0, 1fr);
   }
 
@@ -3873,7 +3924,7 @@ button:disabled {
     position: fixed;
     z-index: 5;
     top: 48px;
-    bottom: 38px;
+    bottom: 94px;
     transition:
       transform 180ms ease,
       opacity 180ms ease;
@@ -3926,6 +3977,7 @@ button:disabled {
     grid-template:
       "top" 48px
       "preview" minmax(0, 1fr)
+      "transport" 56px
       "status" 38px / minmax(0, 1fr);
   }
 
@@ -6844,7 +6896,7 @@ button:disabled {
   text-transform: uppercase;
 }
 
-.bench-hero-actions .bench-workflow-toggle {
+.bench-workflow-toggle {
   display: flex;
   min-height: 38px;
   align-items: center;
@@ -6872,6 +6924,18 @@ button:disabled {
   padding: 9px;
 }
 
+.bench-baseline-control select {
+  min-height: 38px;
+  min-width: 0;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--field-grad);
+  color: var(--text-primary);
+  font: inherit;
+  padding: 0 10px;
+  text-transform: none;
+}
+
 .bench-baseline-control label {
   gap: 5px;
 }
@@ -6893,14 +6957,190 @@ button:disabled {
 }
 
 .bench-baseline-action {
+  min-height: 38px;
+  border: 1px solid var(--button-primary-border);
+  border-radius: 6px;
+  background: var(--button-primary-grad);
+  color: var(--button-primary-text);
   justify-content: center;
   width: 100%;
+  font-weight: 760;
+}
+
+.bench-secondary-action {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--field-grad);
+  color: var(--text-primary);
+  font-weight: 760;
+  padding: 0 12px;
 }
 
 .bench-baseline-message {
   color: var(--accent-cool-strong);
   font-size: var(--font-xs);
   text-transform: none;
+}
+
+.bench-baseline-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.bench-baseline-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.bench-baseline-copy {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--stage-surface-low);
+  padding: 16px;
+}
+
+.bench-baseline-copy h2,
+.bench-baseline-copy p {
+  margin: 0;
+}
+
+.bench-baseline-copy h2 {
+  color: var(--text-primary);
+  font-size: var(--font-lg);
+}
+
+.bench-baseline-copy p {
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.bench-baseline-panel .bench-baseline-control {
+  max-width: none;
+}
+
+.bench-baseline-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.bench-baseline-status-card {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--border-soft);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: var(--field-grad);
+  padding: 12px;
+}
+
+.bench-baseline-status-card.info {
+  border-left-color: var(--accent-cool);
+}
+
+.bench-baseline-status-card.ok {
+  border-left-color: var(--status-ok);
+}
+
+.bench-baseline-status-card.warn {
+  border-left-color: var(--status-warn);
+}
+
+.bench-baseline-status-card span {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-weight: 760;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.bench-baseline-status-card strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--font-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bench-baseline-status-card small {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.4;
+}
+
+.bench-baseline-checklist {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--stage-surface-low);
+  padding: 14px 16px;
+}
+
+.bench-baseline-checklist strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.bench-baseline-checklist ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bench-baseline-checklist li {
+  display: flex;
+  gap: 8px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.bench-baseline-checklist li::before {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--accent-cool);
+  content: "";
+}
+
+.bench-baseline-checklist li.ok::before {
+  background: var(--status-ok);
+}
+
+.bench-baseline-checklist li.warn::before {
+  background: var(--status-warn);
+}
+
+.bench-workflow-optin {
+  display: grid;
+  gap: 12px;
+}
+
+.bench-workflow-optin .bench-panel-title {
+  margin-bottom: 0;
+}
+
+.bench-workflow-optin .bench-workflow-toggle {
+  width: fit-content;
+}
+
+.bench-workflow-optin p {
+  max-width: 860px;
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.55;
 }
 
 .bench-baseline-state {
@@ -8342,6 +8582,8 @@ button:disabled {
   .bench-controls,
   .bench-gate-grid,
   .bench-cleanup-grid,
+  .bench-baseline-layout,
+  .bench-baseline-status-grid,
   .bench-workflow-grid,
   .bench-runner,
   .bench-runner-controls {
@@ -8354,6 +8596,7 @@ button:disabled {
     justify-content: stretch;
   }
 
+  .bench-workflow-optin .bench-workflow-toggle,
   .bench-tabs button,
   .bench-baseline-control,
   .bench-hero-actions button,

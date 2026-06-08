@@ -4378,6 +4378,9 @@ function App() {
             </div>
           </div>
         )}
+      </section>
+
+      <div className="transport-dock">
         <Transport
           audioRef={audioRef}
           audioSrc={audioSrc}
@@ -4403,7 +4406,7 @@ function App() {
           onEditVisual={() => openVisualEditor()}
           onToggle={() => void togglePlayback()}
         />
-      </section>
+      </div>
 
       <aside className="inspector-panel">
         <PanelResizeHandle
