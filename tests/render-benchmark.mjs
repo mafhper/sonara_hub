@@ -33,6 +33,16 @@ const audioMode =
 const repeat = parseRepeat(
   option("repeat") ?? process.env.SONARA_BENCH_REPEAT ?? "1",
 );
+const benchmarkStep = normalizeBenchmarkStep(
+  option("step") ?? process.env.SONARA_BENCH_STEP ?? inferBenchmarkStep(),
+);
+const testKey =
+  option("test-key") ??
+  process.env.SONARA_BENCH_TEST_KEY ??
+  `render.${benchmarkStep}`;
+const suiteId = option("suite-id") ?? process.env.SONARA_BENCH_SUITE_ID ?? "";
+const suiteKind =
+  option("suite-kind") ?? process.env.SONARA_BENCH_SUITE_KIND ?? "individual";
 
 await fs.mkdir(outputDir, { recursive: true });
 await fs.mkdir(assetsDir, { recursive: true });
@@ -51,6 +61,12 @@ const run = {
   runId,
   kind: "render-benchmark",
   profile,
+  testKey,
+  testLabel: benchmarkTestLabel(benchmarkStep),
+  domain: benchmarkStep === "audio" ? "audio" : "video",
+  pipeline: "render-export",
+  suiteId,
+  suiteKind,
   repeat,
   createdAt: new Date().toISOString(),
   git: gitInfo(),
@@ -195,6 +211,8 @@ async function runCase(benchCase, repeatIndex = 1) {
     sceneId: benchCase.scene.id,
     rendererId,
     category: benchCase.category,
+    domain: inferCaseDomain(benchCase),
+    pipeline: "render-export",
     outputSize: benchCase.outputSize,
     internalSize,
     duration: benchCase.duration,
@@ -932,6 +950,8 @@ ${medianRows}
 
 Run: \`${runData.runId}\`
 Profile: \`${runData.profile}\`
+Test: \`${runData.testKey}\`
+Suite: \`${runData.suiteKind}${runData.suiteId ? ` / ${runData.suiteId}` : ""}\`
 Commit: \`${runData.git.commit}\`
 Branch: \`${runData.git.branch}\`
 Environment: ${runData.environment.platform} ${runData.environment.release}, Node ${runData.environment.node}
@@ -993,6 +1013,33 @@ function option(name) {
   return process.argv
     .find((arg) => arg.startsWith(prefix))
     ?.slice(prefix.length);
+}
+
+function inferBenchmarkStep() {
+  if (audioMode === "input") return "audio";
+  if (profile === "full") return "full";
+  return "quick";
+}
+
+function normalizeBenchmarkStep(value) {
+  return ["audio", "full", "quick"].includes(value)
+    ? value
+    : inferBenchmarkStep();
+}
+
+function benchmarkTestLabel(step) {
+  return {
+    audio: "Render com audio real",
+    full: "Render full",
+    quick: "Render quick",
+  }[step];
+}
+
+function inferCaseDomain(benchCase) {
+  const value = `${benchCase.category ?? ""} ${benchCase.compositionKey ?? ""}`;
+  if (/waveform|audio/i.test(value)) return "audio";
+  if (/layer|asset|cover/i.test(value)) return "asset";
+  return "video";
 }
 
 function parseRepeat(value) {
