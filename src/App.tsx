@@ -917,6 +917,17 @@ function App() {
     useState<PublicationAssetMode>("single");
   const [publicationAssetOverrides, setPublicationAssetOverrides] =
     useState<PublicationAssetOverrideMap>({});
+  // Explicit opt-in set of asset formats to export. Empty = just the focused
+  // preset, so "Gerar assets" never silently fans out to all 13 formats.
+  const [publicationSelectedPresetIds, setPublicationSelectedPresetIds] =
+    useState<string[]>([]);
+  // Track ids excluded from the in-scope review set for this export.
+  const [publicationExcludedTrackIds, setPublicationExcludedTrackIds] =
+    useState<string[]>([]);
+  // Flipped by "Parar geração"/"Cancelar tudo" so the client-side export loop
+  // stops enqueuing new jobs instead of running to completion.
+  const publicationExportAbortRef = useRef(false);
+  const [publicationExporting, setPublicationExporting] = useState(false);
   const [showMetadata, setShowMetadata] = useState(true);
   const [cover, setCover] = useState<{ file: File; src: string } | null>(null);
   const [pendingCoverTrackId, setPendingCoverTrackId] = useState("");
@@ -1124,6 +1135,14 @@ function App() {
     selectedPublicationPreset,
     publicationAssetMode,
   );
+  // Effective formats to export: the explicit opt-in set when non-empty,
+  // otherwise just the focused preset. Order follows the catalog.
+  const effectivePublicationPresets =
+    publicationSelectedPresetIds.length > 0
+      ? publicationAssetPresets.filter((preset) =>
+          publicationSelectedPresetIds.includes(preset.id),
+        )
+      : [selectedPublicationPreset];
   const audioSrc = selectedTrack
     ? (selectedTrack.sourceUrl ??
       (selectedTrack.source === "input"
@@ -1140,6 +1159,13 @@ function App() {
       : selectedTrack
         ? [selectedTrack]
         : [];
+  // Tracks actually targeted by a divulgação export: the in-scope review set
+  // minus any the user unchecked in the publication stage.
+  const effectivePublicationTracks = reviewTracks.filter(
+    (track) => !publicationExcludedTrackIds.includes(track.id),
+  );
+  const publicationExportCount =
+    effectivePublicationTracks.length * effectivePublicationPresets.length;
   const treatedTrackCount = tracks.filter(
     (track) => track.packageStatus === "treated",
   ).length;
@@ -3105,7 +3131,16 @@ function App() {
   }
 
   async function exportPublicationAssets() {
-    if (!selectedTrack || reviewTracks.length === 0) return;
+    if (!selectedTrack) return;
+    const targets = effectivePublicationTracks;
+    const presets = effectivePublicationPresets;
+    if (targets.length === 0 || presets.length === 0) {
+      setBatchFeedback(
+        "Selecione ao menos uma faixa e um formato antes de gerar os assets.",
+        "info",
+      );
+      return;
+    }
     setError("");
     if (!(await confirmVideoOutputPolicy("assets de divulgação"))) return;
     publicationOutputRunRef.current = {
@@ -3115,20 +3150,84 @@ function App() {
     };
     setWorkspaceMode("visual");
     setVisualStageView("promotion");
-    const targets = workflowMode === "batch" ? reviewTracks : [selectedTrack];
-    for (const track of targets) {
-      for (const preset of publicationPresetSelection) {
-        await submitPublicationAsset(
-          track,
-          preset,
-          publicationAssetSettingsForPreset(
-            preset.id,
-            publicationDefaultSettings,
-            publicationAssetOverrides,
-          ),
-        );
+    // Reset the abort latch for this run; "Parar geração"/"Cancelar tudo" flip
+    // it so the loop stops enqueuing instead of pushing every track × format.
+    publicationExportAbortRef.current = false;
+    setPublicationExporting(true);
+    let queued = 0;
+    try {
+      for (const track of targets) {
+        if (publicationExportAbortRef.current) break;
+        for (const preset of presets) {
+          if (publicationExportAbortRef.current) break;
+          await submitPublicationAsset(
+            track,
+            preset,
+            publicationAssetSettingsForPreset(
+              preset.id,
+              publicationDefaultSettings,
+              publicationAssetOverrides,
+            ),
+          );
+          queued += 1;
+        }
       }
+    } finally {
+      setPublicationExporting(false);
     }
+    if (publicationExportAbortRef.current) {
+      setBatchFeedback(
+        `Geração interrompida após enfileirar ${queued} asset${queued === 1 ? "" : "s"}.`,
+        "info",
+      );
+    }
+  }
+
+  function stopPublicationExport() {
+    publicationExportAbortRef.current = true;
+    setBatchFeedback("Parando a geração de divulgação…", "info");
+  }
+
+  // Toggle a format in the explicit export set. An empty set means "just the
+  // focused preset", so unchecking everything falls back to the focused one.
+  function togglePublicationPreset(id: string) {
+    setPublicationSelectedPresetIds((current) => {
+      const base = current.length ? current : [publicationPresetId];
+      return base.includes(id)
+        ? base.filter((value) => value !== id)
+        : [...base, id];
+    });
+  }
+
+  function setPublicationPresetScope(scope: PublicationAssetMode) {
+    setPublicationAssetMode(scope);
+    if (scope === "all") {
+      setPublicationSelectedPresetIds(
+        publicationAssetPresets.map((preset) => preset.id),
+      );
+    } else if (scope === "group") {
+      setPublicationSelectedPresetIds(
+        publicationAssetPresets
+          .filter((preset) => preset.kind === selectedPublicationPreset.kind)
+          .map((preset) => preset.id),
+      );
+    } else {
+      setPublicationSelectedPresetIds([]);
+    }
+  }
+
+  function togglePublicationTrack(id: string) {
+    setPublicationExcludedTrackIds((current) =>
+      current.includes(id)
+        ? current.filter((value) => value !== id)
+        : [...current, id],
+    );
+  }
+
+  function setAllPublicationTracks(include: boolean) {
+    setPublicationExcludedTrackIds(
+      include ? [] : reviewTracks.map((track) => track.id),
+    );
   }
 
   function updatePublicationAssetOverride(
@@ -3393,6 +3492,9 @@ function App() {
   }
 
   async function cancelAllJobs() {
+    // Stop any in-flight publication export loop so cancel doesn't race against
+    // the client still POSTing new jobs.
+    publicationExportAbortRef.current = true;
     try {
       const payload = await fetchJson<{ jobs: RenderJob[] }>(
         "/api/jobs/cancel-all",
@@ -4325,14 +4427,20 @@ function App() {
         ) : workspaceMode === "visual" && visualStageView === "promotion" ? (
           <PublicationAssetsWorkspace
             assetMode={publicationAssetMode}
+            exportCount={publicationExportCount}
+            exporting={publicationExporting}
+            excludedTrackIds={publicationExcludedTrackIds}
             jobs={jobs}
             preset={selectedPublicationPreset}
-            presetCount={publicationPresetSelection.length}
+            previewCoverSrc={coverForTrack(selectedTrack ?? undefined)?.src}
+            previewTrack={selectedTrack}
             queuePaused={queuePaused}
             lyricsPreviewText={selectedPublicationLyricsPreview}
+            selectedPresetIds={publicationSelectedPresetIds}
             selectedSettings={selectedPublicationSettings}
-            selectedCount={reviewTracks.length}
+            showMetadata={showMetadata}
             tracks={reviewTracks}
+            onAllTracks={setAllPublicationTracks}
             onCancelAllJobs={() => void cancelAllJobs()}
             onCancelJob={(id) => void cancelJob(id)}
             onClearTerminalJobs={() =>
@@ -4342,8 +4450,12 @@ function App() {
             onExport={() => void exportPublicationAssets()}
             onPauseQueue={() => void pauseQueue()}
             onPreset={setPublicationPresetId}
+            onPresetScope={setPublicationPresetScope}
             onResumeQueue={() => void resumeQueue()}
             onReviewVideos={() => setVisualStageView("videos")}
+            onStopExport={() => stopPublicationExport()}
+            onTogglePreset={togglePublicationPreset}
+            onToggleTrack={togglePublicationTrack}
           />
         ) : workspaceMode === "visual" && visualStageView === "queue" ? (
           <VideoExportWorkspace
@@ -5992,14 +6104,20 @@ function VideoExportWorkspace({
 
 function PublicationAssetsWorkspace({
   assetMode,
+  exportCount,
+  exporting,
+  excludedTrackIds,
   jobs,
   lyricsPreviewText,
   preset,
-  presetCount,
+  previewCoverSrc,
+  previewTrack,
   queuePaused,
+  selectedPresetIds,
   selectedSettings,
-  selectedCount,
+  showMetadata,
   tracks,
+  onAllTracks,
   onCancelAllJobs,
   onCancelJob,
   onClearTerminalJobs,
@@ -6007,18 +6125,28 @@ function PublicationAssetsWorkspace({
   onExport,
   onPauseQueue,
   onPreset,
+  onPresetScope,
   onResumeQueue,
   onReviewVideos,
+  onStopExport,
+  onTogglePreset,
+  onToggleTrack,
 }: {
   assetMode: PublicationAssetMode;
+  exportCount: number;
+  exporting: boolean;
+  excludedTrackIds: string[];
   jobs: RenderJob[];
   lyricsPreviewText: string;
   preset: PublicationAssetPreset;
-  presetCount: number;
+  previewCoverSrc?: string;
+  previewTrack: TrackDraft | null;
   queuePaused: boolean;
+  selectedPresetIds: string[];
   selectedSettings: PublicationAssetSettings;
-  selectedCount: number;
+  showMetadata: boolean;
   tracks: TrackDraft[];
+  onAllTracks: (include: boolean) => void;
   onCancelAllJobs: () => void;
   onCancelJob: (id: string) => void;
   onClearTerminalJobs: () => void;
@@ -6026,23 +6154,44 @@ function PublicationAssetsWorkspace({
   onExport: () => void;
   onPauseQueue: () => void;
   onPreset: (presetId: string) => void;
+  onPresetScope: (scope: PublicationAssetMode) => void;
   onResumeQueue: () => void;
   onReviewVideos: () => void;
+  onStopExport: () => void;
+  onTogglePreset: (presetId: string) => void;
+  onToggleTrack: (id: string) => void;
 }) {
   const publicationJobs = jobs.filter(
     (job) => job.kind === "publication-asset",
   );
-  const expectedCount = Math.max(0, selectedCount * presetCount);
-  const selectedPresetIds = new Set(
-    publicationPresetsForMode(preset, assetMode).map((item) => item.id),
+  // Empty selection means "just the focused preset", mirroring the parent's
+  // effectivePublicationPresets, so the checklist and export stay in sync.
+  const checkedPresetIds = new Set(
+    selectedPresetIds.length ? selectedPresetIds : [preset.id],
   );
+  const selectedFormatCount = checkedPresetIds.size;
+  const selectedTracks = tracks.filter(
+    (track) => !excludedTrackIds.includes(track.id),
+  );
+  const selectedTrackCount = selectedTracks.length;
   const selectedTypeLabel = preset.kind === "clip" ? "clip" : "imagem";
-  const previewOrientation =
+  // Size the real preview canvas from the focused asset's aspect ratio,
+  // capping the longest side so vertical/wide formats stay legible.
+  const previewLongest = 360;
+  const previewWidth =
+    preset.width >= preset.height
+      ? previewLongest
+      : Math.max(
+          1,
+          Math.round((preset.width / preset.height) * previewLongest),
+        );
+  const previewHeight =
     preset.height > preset.width
-      ? "portrait"
-      : preset.width / preset.height > 3
-        ? "wide"
-        : "landscape";
+      ? previewLongest
+      : Math.max(
+          1,
+          Math.round((preset.height / preset.width) * previewLongest),
+        );
   return (
     <div className="review-stage publication-stage">
       <header className="review-stage-header">
@@ -6050,31 +6199,41 @@ function PublicationAssetsWorkspace({
           <span className="overline">Divulgação</span>
           <h1>Assets de publicação</h1>
           <p>
-            Gere peças a partir da composição revisada: fundo, capa, textos,
-            waveform e metadados do projeto.
+            Escolha os formatos e as faixas, confira a prévia real e gere
+            exatamente o que precisa.
           </p>
         </div>
         <div className="stage-header-actions">
           <strong>
-            {expectedCount || presetCount} asset
-            {(expectedCount || presetCount) === 1 ? "" : "s"}
+            {exportCount} asset{exportCount === 1 ? "" : "s"}
           </strong>
           <button type="button" onClick={onReviewVideos}>
             <Video /> Conferir vídeos
           </button>
-          <button
-            className="primary-action"
-            disabled={selectedCount === 0}
-            type="button"
-            onClick={onExport}
-          >
-            <Download /> Gerar assets
-          </button>
+          {exporting ? (
+            <button
+              className="danger-action"
+              type="button"
+              onClick={onStopExport}
+            >
+              <X /> Parar geração
+            </button>
+          ) : (
+            <button
+              className="primary-action"
+              disabled={exportCount === 0}
+              type="button"
+              onClick={onExport}
+            >
+              <Download /> Gerar {exportCount || ""} asset
+              {exportCount === 1 ? "" : "s"}
+            </button>
+          )}
         </div>
       </header>
       <section className="stage-surface publication-overview">
         <div>
-          <span className="overline">Preset base</span>
+          <span className="overline">Em foco</span>
           <strong>{preset.label}</strong>
           <small>
             {preset.width}x{preset.height} ·{" "}
@@ -6083,10 +6242,12 @@ function PublicationAssetsWorkspace({
         </div>
         <div>
           <span className="overline">Disparo</span>
-          <strong>{publicationAssetModeLabel(assetMode)}</strong>
+          <strong>
+            {selectedTrackCount} faixa{selectedTrackCount === 1 ? "" : "s"} ×{" "}
+            {selectedFormatCount} formato{selectedFormatCount === 1 ? "" : "s"}
+          </strong>
           <small>
-            {presetCount} preset{presetCount === 1 ? "" : "s"} para{" "}
-            {selectedCount} faixa{selectedCount === 1 ? "" : "s"}
+            {exportCount} arquivo{exportCount === 1 ? "" : "s"} no total
           </small>
         </div>
         <div>
@@ -6100,62 +6261,111 @@ function PublicationAssetsWorkspace({
         </div>
       </section>
       <section className="stage-surface publication-focus">
-        <div className="publication-focus-controls">
-          <div>
-            <span className="overline">Assets disponíveis</span>
-            <strong>
-              {publicationAssetPresets.length} formatos no catálogo
-            </strong>
+        <div className="publication-format-picker">
+          <div className="publication-format-head">
+            <div>
+              <span className="overline">Formatos a exportar</span>
+              <strong>
+                {selectedFormatCount} de {publicationAssetPresets.length}{" "}
+                marcados
+              </strong>
+            </div>
+            <div className="publication-scope-buttons">
+              <button
+                className={assetMode === "single" ? "is-active" : ""}
+                type="button"
+                onClick={() => onPresetScope("single")}
+              >
+                Em foco
+              </button>
+              <button
+                className={assetMode === "group" ? "is-active" : ""}
+                type="button"
+                onClick={() => onPresetScope("group")}
+              >
+                Grupo {selectedTypeLabel}
+              </button>
+              <button
+                className={assetMode === "all" ? "is-active" : ""}
+                type="button"
+                onClick={() => onPresetScope("all")}
+              >
+                Todos
+              </button>
+            </div>
           </div>
-          <SelectField
-            label="Asset em foco"
-            value={preset.id}
-            onChange={onPreset}
-          >
-            {publicationAssetPresets.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label} · {option.width}x{option.height}
-              </option>
-            ))}
-          </SelectField>
-          <dl className="publication-asset-facts">
-            <div>
-              <dt>Tipo</dt>
-              <dd>{selectedTypeLabel}</dd>
-            </div>
-            <div>
-              <dt>Plataforma</dt>
-              <dd>{preset.platform}</dd>
-            </div>
-            <div>
-              <dt>Dimensão</dt>
-              <dd>
-                {preset.width}x{preset.height}
-              </dd>
-            </div>
-            <div>
-              <dt>No disparo</dt>
-              <dd>{selectedPresetIds.has(preset.id) ? "incluído" : "fora"}</dd>
-            </div>
-          </dl>
+          <ul className="publication-format-list">
+            {publicationAssetPresets.map((option) => {
+              const checked = checkedPresetIds.has(option.id);
+              const focused = option.id === preset.id;
+              return (
+                <li
+                  className={`publication-format-row${focused ? " is-focused" : ""}`}
+                  key={option.id}
+                >
+                  <label>
+                    <input
+                      checked={checked}
+                      type="checkbox"
+                      onChange={() => onTogglePreset(option.id)}
+                    />
+                    <span className="publication-format-name">
+                      {option.label}
+                    </span>
+                    <small>
+                      {option.platform} · {option.width}x{option.height}
+                    </small>
+                  </label>
+                  <button
+                    aria-pressed={focused}
+                    className="publication-format-focus"
+                    title="Pré-visualizar este formato"
+                    type="button"
+                    onClick={() => onPreset(option.id)}
+                  >
+                    {focused ? "Na prévia" : "Pré-visualizar"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </div>
         <div className="publication-preview-panel">
           <div>
-            <span className="overline">Prévia do asset selecionado</span>
-            <strong>{preset.label}</strong>
+            <span className="overline">Prévia real · {preset.label}</span>
             <small>
-              {preset.extension.toUpperCase()} · {preset.directory}
+              {preset.extension.toUpperCase()} · {preset.directory} ·{" "}
+              {previewTrack?.metadata.title || "sem faixa em foco"}
             </small>
           </div>
           <div
-            className={`publication-preview-frame ${preset.kind} ${previewOrientation}`}
+            className="publication-preview-stage"
             style={{ aspectRatio: `${preset.width} / ${preset.height}` }}
           >
-            <span>
-              {preset.kind === "clip" ? <Video /> : <Image />}
-              {selectedTypeLabel}
-            </span>
-            <strong>{preset.label}</strong>
+            {previewTrack ? (
+              <CompositionThumbnail
+                className="publication-preview-render"
+                coverSrc={previewCoverSrc}
+                durationSeconds={previewTrack.audioInfo?.durationSeconds}
+                fingerprint={thumbnailFingerprint(
+                  previewTrack,
+                  previewCoverSrc,
+                  showMetadata,
+                )}
+                height={previewHeight}
+                layers={previewTrack.layers}
+                metadata={previewTrack.metadata}
+                scene={previewTrack.scene}
+                showMetadata={showMetadata}
+                textSettings={previewTrack.textSettings}
+                width={previewWidth}
+              />
+            ) : (
+              <span className="publication-preview-empty">
+                {preset.kind === "clip" ? <Video /> : <Image />}
+                Selecione uma faixa para ver a prévia
+              </span>
+            )}
           </div>
           <p className="publication-preview-settings">
             {preset.kind === "clip"
@@ -6178,20 +6388,40 @@ function PublicationAssetsWorkspace({
       <section className="stage-surface publication-track-list">
         <header>
           <div>
-            <span className="overline">Faixas selecionadas</span>
-            <strong>{selectedCount || "Nenhuma"} no escopo atual</strong>
+            <span className="overline">Faixas no escopo</span>
+            <strong>
+              {selectedTrackCount} de {tracks.length} selecionada
+              {selectedTrackCount === 1 ? "" : "s"}
+            </strong>
           </div>
+          {tracks.length > 0 && (
+            <div className="publication-track-actions">
+              <button type="button" onClick={() => onAllTracks(true)}>
+                Selecionar todas
+              </button>
+              <button type="button" onClick={() => onAllTracks(false)}>
+                Limpar
+              </button>
+            </div>
+          )}
         </header>
         {tracks.length ? (
           <div>
             {tracks.map((track) => (
-              <div className="publication-track-row" key={track.id}>
-                <strong>{track.metadata.title || "Faixa sem título"}</strong>
-                <small>
-                  {track.metadata.album || "Sem álbum"} ·{" "}
-                  {track.metadata.lyrics ? "com letra" : "sem letra"}
-                </small>
-              </div>
+              <label className="publication-track-row" key={track.id}>
+                <input
+                  checked={!excludedTrackIds.includes(track.id)}
+                  type="checkbox"
+                  onChange={() => onToggleTrack(track.id)}
+                />
+                <span>
+                  <strong>{track.metadata.title || "Faixa sem título"}</strong>
+                  <small>
+                    {track.metadata.album || "Sem álbum"} ·{" "}
+                    {track.metadata.lyrics ? "com letra" : "sem letra"}
+                  </small>
+                </span>
+              </label>
             ))}
           </div>
         ) : (
@@ -7868,6 +8098,9 @@ function CompositionThumbnail({
   scene,
   showMetadata,
   textSettings,
+  width = 320,
+  height = 180,
+  className = "composition-thumbnail",
 }: {
   coverSrc?: string;
   durationSeconds?: number | null;
@@ -7877,17 +8110,23 @@ function CompositionThumbnail({
   scene: ScenePresetV3;
   showMetadata: boolean;
   textSettings: TextOverlaySettings;
+  width?: number;
+  height?: number;
+  className?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = useState(false);
+  // Cache by composition fingerprint AND canvas size, so a 16:9 preview never
+  // gets reused for a vertical/square asset request and vice versa.
+  const cacheKey = `${fingerprint}@${width}x${height}`;
   const [previewSrc, setPreviewSrc] = useState(
-    () => compositionThumbnailCache.get(fingerprint) ?? "",
+    () => compositionThumbnailCache.get(cacheKey) ?? "",
   );
 
   useEffect(() => {
     let active = true;
     let runtime: ReturnType<typeof createSceneRuntime> | undefined;
-    const cached = compositionThumbnailCache.get(fingerprint);
+    const cached = compositionThumbnailCache.get(cacheKey);
     setFailed(false);
     if (cached) {
       setPreviewSrc(cached);
@@ -7907,10 +8146,10 @@ function CompositionThumbnail({
           const canvas = canvasRef.current;
           if (!active || !canvas) return;
           runtime = createSceneRuntime(canvas, scene, composition);
-          runtime.resize(320, 180);
+          runtime.resize(width, height);
           runtime.render(7.5);
           const nextPreview = canvas.toDataURL("image/jpeg", 0.82);
-          compositionThumbnailCache.set(fingerprint, nextPreview);
+          compositionThumbnailCache.set(cacheKey, nextPreview);
           if (
             compositionThumbnailCache.size > COMPOSITION_THUMBNAIL_CACHE_LIMIT
           ) {
@@ -7932,28 +8171,35 @@ function CompositionThumbnail({
       runtime?.destroy();
     };
   }, [
+    cacheKey,
     coverSrc,
     durationSeconds,
-    fingerprint,
+    height,
     layers,
     metadata,
     scene,
     showMetadata,
     textSettings,
+    width,
   ]);
 
   if (failed) return <ArtworkFrame artworkSrc={coverSrc} />;
   if (previewSrc) {
-    return <img alt="" className="composition-thumbnail" src={previewSrc} />;
+    return <img alt="" className={className} src={previewSrc} />;
   }
   return (
-    <span className="composition-thumbnail composition-thumbnail-loading">
+    <span className={`${className} composition-thumbnail-loading`}>
       {coverSrc ? <img alt="" src={coverSrc} /> : <Video />}
       <span>
         <Loader2 />
         Gerando frame
       </span>
-      <canvas aria-hidden="true" height="180" ref={canvasRef} width="320" />
+      <canvas
+        aria-hidden="true"
+        height={height}
+        ref={canvasRef}
+        width={width}
+      />
     </span>
   );
 }
