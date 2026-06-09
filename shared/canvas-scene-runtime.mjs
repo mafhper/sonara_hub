@@ -330,7 +330,10 @@ export function createSceneRuntime(
       drawDarkSurface(context, width, height, scene, audio, time);
     }
 
-    for (const layer of composition.layers ?? []) {
+    // Draw back-to-front so the FIRST layer (top of the list in the UI) lands
+    // on top. The list shows index 0 first and treats it as the front layer,
+    // so iterate the array in reverse when painting.
+    for (const layer of [...(composition.layers ?? [])].reverse()) {
       if (layer.visible !== false && layer.element) {
         drawMediaLayer(
           context,

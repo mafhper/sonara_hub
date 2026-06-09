@@ -199,6 +199,7 @@ export async function renderPublicationAssetJob({
   lyricsExcerpt,
   lyricsHideTags,
   lyricsLineSpacing,
+  generateDataFiles = true,
   outputPath,
   outputName,
   workDir,
@@ -331,38 +332,46 @@ export async function renderPublicationAssetJob({
     await assertPlayableOutput(outputPath);
   }
 
-  stages.enter("manifest", {
-    progress: 98,
-    message: "Gravando manifesto de divulgação",
-  });
-  const manifestPath = `${outputPath}.manifest.json`;
-  const markdownPath = `${outputPath}.manifest.md`;
-  await writePublicationManifest({
-    manifestPath,
-    markdownPath,
-    outputName,
-    metadata,
-    preset,
-    clipStart,
-    duration,
-    includeFullLyrics,
-    lyricsMode,
-    lyricsExcerpt,
-    lyricsHideTags,
-    lyricsLineSpacing,
-  });
+  // Data files (json/markdown manifest) are optional — sometimes the user only
+  // wants the clip/image itself.
+  let manifestPath = null;
+  let markdownPath = null;
+  if (generateDataFiles !== false) {
+    stages.enter("manifest", {
+      progress: 98,
+      message: "Gravando manifesto de divulgação",
+    });
+    manifestPath = `${outputPath}.manifest.json`;
+    markdownPath = `${outputPath}.manifest.md`;
+    await writePublicationManifest({
+      manifestPath,
+      markdownPath,
+      outputName,
+      metadata,
+      preset,
+      clipStart,
+      duration,
+      includeFullLyrics,
+      lyricsMode,
+      lyricsExcerpt,
+      lyricsHideTags,
+      lyricsLineSpacing,
+    });
+  }
   stages.finish({
     status: "done",
     progress: 100,
     message: "Asset de divulgação concluído",
     outputUrl: `/outputs/${outputName}`,
-    sidecarUrl: `/outputs/${path.basename(manifestPath)}`,
-    markdownUrl: `/outputs/${path.basename(markdownPath)}`,
+    sidecarUrl: manifestPath ? `/outputs/${path.basename(manifestPath)}` : null,
+    markdownUrl: markdownPath
+      ? `/outputs/${path.basename(markdownPath)}`
+      : null,
     thumbnailUrl: preset.kind === "image" ? `/outputs/${outputName}` : null,
     assetUrls: [
       `/outputs/${outputName}`,
-      `/outputs/${path.basename(manifestPath)}`,
-      `/outputs/${path.basename(markdownPath)}`,
+      ...(manifestPath ? [`/outputs/${path.basename(manifestPath)}`] : []),
+      ...(markdownPath ? [`/outputs/${path.basename(markdownPath)}`] : []),
     ],
   });
 }
