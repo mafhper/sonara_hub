@@ -128,6 +128,7 @@ import {
 import type { LyricsPathSuggestion } from "../shared/lyrics-convention.mjs";
 import { collectActiveObjectUrls } from "../shared/object-url-lifecycle.mjs";
 import {
+  applyPublicationTextOverride,
   clampPublicationClipDuration,
   clampPublicationClipStart,
   normalizePublicationAssetOverrides,
@@ -1119,6 +1120,10 @@ function App() {
     lyricsExcerpt: "",
     lyricsHideTags: false,
     lyricsLineSpacing: 130,
+    textScale: 1,
+    textOffsetX: 0,
+    textOffsetY: 0,
+    hideText: false,
   };
   const selectedPublicationSettings = publicationAssetSettingsForPreset(
     publicationPresetId,
@@ -3230,6 +3235,41 @@ function App() {
     );
   }
 
+  // Copy the focused asset's text override (scale/offset/hide) to every format
+  // in the chosen scope, so "adjust one, a group, or all" is one click.
+  function applyPublicationTextToScope(scope: "group" | "all") {
+    const source = publicationAssetSettingsForPreset(
+      publicationPresetId,
+      publicationDefaultSettings,
+      publicationAssetOverrides,
+    );
+    const textPatch = {
+      textScale: source.textScale,
+      textOffsetX: source.textOffsetX,
+      textOffsetY: source.textOffsetY,
+      hideText: source.hideText,
+    };
+    const targets =
+      scope === "all"
+        ? publicationAssetPresets
+        : publicationAssetPresets.filter(
+            (preset) => preset.kind === selectedPublicationPreset.kind,
+          );
+    setPublicationAssetOverrides((current) => {
+      const next: PublicationAssetOverrideMap = { ...current };
+      for (const preset of targets) {
+        next[preset.id] = { ...(next[preset.id] ?? {}), ...textPatch };
+      }
+      return normalizePublicationAssetOverrides(next);
+    });
+    setBatchFeedback(
+      scope === "all"
+        ? "Texto aplicado a todos os formatos."
+        : "Texto aplicado ao grupo do formato.",
+      "info",
+    );
+  }
+
   function updatePublicationAssetOverride(
     presetId: string,
     patch: Partial<PublicationAssetSettings>,
@@ -3354,7 +3394,12 @@ function App() {
       JSON.stringify({
         mediaLayers: composition.layers.map(stripLayerFile),
         durationSeconds: track.audioInfo?.durationSeconds ?? null,
-        textSettings: composition.textSettings,
+        // Bake the per-asset text override into the exported text settings so
+        // the rendered file matches exactly what the preview showed.
+        textSettings: applyPublicationTextOverride(
+          composition.textSettings,
+          assetSettings,
+        ),
       }),
     );
     formData.append("preset", outputPreset);
@@ -4591,6 +4636,7 @@ function App() {
                 )}
                 selectedCount={reviewTracks.length}
                 selectedPreset={selectedPublicationPreset}
+                onApplyTextToScope={applyPublicationTextToScope}
                 onAssetMode={setPublicationAssetMode}
                 onAssetSettings={(patch) =>
                   updatePublicationAssetOverride(publicationPresetId, patch)
@@ -6347,17 +6393,20 @@ function PublicationAssetsWorkspace({
                 className="publication-preview-render"
                 coverSrc={previewCoverSrc}
                 durationSeconds={previewTrack.audioInfo?.durationSeconds}
-                fingerprint={thumbnailFingerprint(
+                fingerprint={`${thumbnailFingerprint(
                   previewTrack,
                   previewCoverSrc,
                   showMetadata,
-                )}
+                )}:txt${selectedSettings.textScale},${selectedSettings.textOffsetX},${selectedSettings.textOffsetY},${selectedSettings.hideText ? 1 : 0}`}
                 height={previewHeight}
                 layers={previewTrack.layers}
                 metadata={previewTrack.metadata}
                 scene={previewTrack.scene}
                 showMetadata={showMetadata}
-                textSettings={previewTrack.textSettings}
+                textSettings={applyPublicationTextOverride(
+                  previewTrack.textSettings,
+                  selectedSettings,
+                )}
                 width={previewWidth}
               />
             ) : (
@@ -10664,6 +10713,7 @@ function PublicationInspector({
   presetOverrideActive,
   selectedCount,
   selectedPreset,
+  onApplyTextToScope,
   onAssetMode,
   onAssetSettings,
   onChooseOutput,
@@ -10687,6 +10737,7 @@ function PublicationInspector({
   presetOverrideActive: boolean;
   selectedCount: number;
   selectedPreset: PublicationAssetPreset;
+  onApplyTextToScope: (scope: "group" | "all") => void;
   onAssetMode: (value: PublicationAssetMode) => void;
   onAssetSettings: (patch: Partial<PublicationAssetSettings>) => void;
   onChooseOutput: () => void;
@@ -10895,9 +10946,53 @@ function PublicationInspector({
               />
             </>
           )}
+          <div className="publication-text-override">
+            <p className="inspector-kicker">Texto deste asset</p>
+            <RangeField
+              label="Tamanho do texto"
+              max={2}
+              min={0.5}
+              step={0.05}
+              unit="x"
+              value={assetSettings.textScale}
+              onChange={(textScale) => onAssetSettings({ textScale })}
+            />
+            <RangeField
+              label="Deslocar horizontal"
+              max={40}
+              min={-40}
+              step={1}
+              unit="%"
+              value={assetSettings.textOffsetX}
+              onChange={(textOffsetX) => onAssetSettings({ textOffsetX })}
+            />
+            <RangeField
+              label="Deslocar vertical"
+              max={40}
+              min={-40}
+              step={1}
+              unit="%"
+              value={assetSettings.textOffsetY}
+              onChange={(textOffsetY) => onAssetSettings({ textOffsetY })}
+            />
+            <CheckField
+              label="Ocultar texto neste asset"
+              checked={assetSettings.hideText}
+              onChange={(hideText) => onAssetSettings({ hideText })}
+            />
+            <div className="publication-apply-scope">
+              <button type="button" onClick={() => onApplyTextToScope("group")}>
+                Aplicar ao grupo
+              </button>
+              <button type="button" onClick={() => onApplyTextToScope("all")}>
+                Aplicar a todos
+              </button>
+            </div>
+          </div>
           <p className="helper-copy">
             Este ajuste fica salvo no projeto para {selectedPreset.label} e não
-            altera os demais assets.
+            altera os demais assets. Use os botões para copiar o texto deste
+            asset ao grupo ou a todos os formatos.
           </p>
         </div>
         <div className="inspector-subsection">

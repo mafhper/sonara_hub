@@ -185,6 +185,18 @@ export function clampPublicationLyricsLineSpacing(value) {
   return Math.min(220, Math.max(100, spacing));
 }
 
+export function clampPublicationTextScale(value) {
+  const scale = Number(value);
+  if (Number.isNaN(scale)) return 1;
+  return Math.min(2, Math.max(0.5, Math.round(scale * 100) / 100));
+}
+
+export function clampPublicationTextOffset(value) {
+  const offset = Number(value);
+  if (Number.isNaN(offset)) return 0;
+  return Math.min(40, Math.max(-40, Math.round(offset)));
+}
+
 export function stripPublicationLyricsTags(value) {
   return sanitizePublicationLyricsExcerpt(value)
     .split("\n")
@@ -258,6 +270,22 @@ export function normalizePublicationAssetOverrides(value = {}) {
         rawOverride.lyricsLineSpacing,
       );
     }
+    if (hasOwn(rawOverride, "textScale")) {
+      override.textScale = clampPublicationTextScale(rawOverride.textScale);
+    }
+    if (hasOwn(rawOverride, "textOffsetX")) {
+      override.textOffsetX = clampPublicationTextOffset(
+        rawOverride.textOffsetX,
+      );
+    }
+    if (hasOwn(rawOverride, "textOffsetY")) {
+      override.textOffsetY = clampPublicationTextOffset(
+        rawOverride.textOffsetY,
+      );
+    }
+    if (hasOwn(rawOverride, "hideText")) {
+      override.hideText = Boolean(rawOverride.hideText);
+    }
     if (Object.keys(override).length) output[presetId] = override;
   }
   return output;
@@ -282,6 +310,10 @@ export function publicationAssetSettingsForPreset(
     lyricsLineSpacing: clampPublicationLyricsLineSpacing(
       defaults.lyricsLineSpacing,
     ),
+    textScale: clampPublicationTextScale(defaults.textScale ?? 1),
+    textOffsetX: clampPublicationTextOffset(defaults.textOffsetX ?? 0),
+    textOffsetY: clampPublicationTextOffset(defaults.textOffsetY ?? 0),
+    hideText: Boolean(defaults.hideText),
   };
   const normalizedOverrides = normalizePublicationAssetOverrides(overrides);
   const merged = {
@@ -301,7 +333,53 @@ export function publicationAssetSettingsForPreset(
     lyricsLineSpacing: clampPublicationLyricsLineSpacing(
       merged.lyricsLineSpacing,
     ),
+    textScale: clampPublicationTextScale(merged.textScale),
+    textOffsetX: clampPublicationTextOffset(merged.textOffsetX),
+    textOffsetY: clampPublicationTextOffset(merged.textOffsetY),
+    hideText: Boolean(merged.hideText),
   };
+}
+
+const clampUnitPosition = (value) => Math.min(100, Math.max(0, value));
+
+// Apply a per-asset text override (scale/offset/hide) on top of the shared
+// text overlay settings. Pure and used by BOTH the preview and the export
+// submission, so what the user previews is exactly what renders.
+export function applyPublicationTextOverride(textSettings, settings = {}) {
+  if (!textSettings || typeof textSettings !== "object") return textSettings;
+  const scale = clampPublicationTextScale(settings.textScale ?? 1);
+  const offsetX = clampPublicationTextOffset(settings.textOffsetX ?? 0);
+  const offsetY = clampPublicationTextOffset(settings.textOffsetY ?? 0);
+  const hide = Boolean(settings.hideText);
+  const sameScale = scale === 1;
+  const sameOffset = offsetX === 0 && offsetY === 0;
+  if (sameScale && sameOffset && !hide) return textSettings;
+  const next = { ...textSettings };
+  if (hide && next.fields && typeof next.fields === "object") {
+    next.fields = Object.fromEntries(
+      Object.keys(next.fields).map((key) => [key, false]),
+    );
+  }
+  if (!sameScale && typeof next.fontSize === "number") {
+    next.fontSize = Math.round(next.fontSize * scale);
+  }
+  if (!sameScale && next.fieldStyles && typeof next.fieldStyles === "object") {
+    next.fieldStyles = Object.fromEntries(
+      Object.entries(next.fieldStyles).map(([key, style]) => [
+        key,
+        style && typeof style.fontSize === "number"
+          ? { ...style, fontSize: Math.round(style.fontSize * scale) }
+          : style,
+      ]),
+    );
+  }
+  if (offsetX !== 0 && typeof next.x === "number") {
+    next.x = clampUnitPosition(next.x + offsetX);
+  }
+  if (offsetY !== 0 && typeof next.y === "number") {
+    next.y = clampUnitPosition(next.y + offsetY);
+  }
+  return next;
 }
 
 export function sanitizePublicationFilePart(value, fallback = "asset") {
