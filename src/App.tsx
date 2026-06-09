@@ -1128,6 +1128,8 @@ function App() {
     textOffsetX: 0,
     textOffsetY: 0,
     hideText: false,
+    lyricsPosition: "bottom",
+    lyricsStyle: "minimal",
   };
   const selectedPublicationSettings = publicationAssetSettingsForPreset(
     publicationPresetId,
@@ -3425,6 +3427,8 @@ function App() {
       String(assetSettings.lyricsLineSpacing),
     );
     formData.append("generateDataFiles", String(publicationGenerateDataFiles));
+    formData.append("lyricsPosition", assetSettings.lyricsPosition);
+    formData.append("lyricsStyle", assetSettings.lyricsStyle);
     if (composition.metadata) {
       for (const [key, value] of Object.entries(composition.metadata)) {
         formData.append(key, String(value));
@@ -4492,13 +4496,12 @@ function App() {
             excludedTrackIds={publicationExcludedTrackIds}
             jobs={jobs}
             preset={selectedPublicationPreset}
-            previewCoverSrc={coverForTrack(selectedTrack ?? undefined)?.src}
+            previewComposition={selectedTrack ? previewComposition : null}
             previewTrack={selectedTrack}
             queuePaused={queuePaused}
             lyricsPreviewText={selectedPublicationLyricsPreview}
             selectedPresetIds={publicationSelectedPresetIds}
             selectedSettings={selectedPublicationSettings}
-            showMetadata={showMetadata}
             tracks={reviewTracks}
             onAllTracks={setAllPublicationTracks}
             onCancelAllJobs={() => void cancelAllJobs()}
@@ -6173,12 +6176,11 @@ function PublicationAssetsWorkspace({
   jobs,
   lyricsPreviewText,
   preset,
-  previewCoverSrc,
+  previewComposition,
   previewTrack,
   queuePaused,
   selectedPresetIds,
   selectedSettings,
-  showMetadata,
   tracks,
   onAllTracks,
   onCancelAllJobs,
@@ -6202,12 +6204,20 @@ function PublicationAssetsWorkspace({
   jobs: RenderJob[];
   lyricsPreviewText: string;
   preset: PublicationAssetPreset;
-  previewCoverSrc?: string;
+  // Effective composition from the same resolver the export uses, so the
+  // preview shows exactly what the visual/text steps configured.
+  previewComposition: {
+    scene: ScenePresetV3 | null;
+    textSettings: TextOverlaySettings | null;
+    layers: MediaLayerV2[];
+    metadata: TrackMetadata | null;
+    cover: { file: File; src: string } | null;
+    showMetadata: boolean;
+  } | null;
   previewTrack: TrackDraft | null;
   queuePaused: boolean;
   selectedPresetIds: string[];
   selectedSettings: PublicationAssetSettings;
-  showMetadata: boolean;
   tracks: TrackDraft[];
   onAllTracks: (include: boolean) => void;
   onCancelAllJobs: () => void;
@@ -6357,41 +6367,47 @@ function PublicationAssetsWorkspace({
               </button>
             </div>
           </div>
-          <ul className="publication-format-list">
-            {publicationAssetPresets.map((option) => {
-              const checked = checkedPresetIds.has(option.id);
-              const focused = option.id === preset.id;
-              return (
-                <li
-                  className={`publication-format-row${focused ? " is-focused" : ""}`}
-                  key={option.id}
-                >
-                  <label>
-                    <input
-                      checked={checked}
-                      type="checkbox"
-                      onChange={() => onTogglePreset(option.id)}
-                    />
-                    <span className="publication-format-name">
-                      {option.label}
-                    </span>
-                    <small>
-                      {option.platform} · {option.width}x{option.height}
-                    </small>
-                  </label>
-                  <button
-                    aria-pressed={focused}
-                    className="publication-format-focus"
-                    title="Pré-visualizar este formato"
-                    type="button"
-                    onClick={() => onPreset(option.id)}
-                  >
-                    {focused ? "Na prévia" : "Pré-visualizar"}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="publication-format-list">
+            {publicationFormatGroups().map((group) => (
+              <div className="publication-format-group" key={group.label}>
+                <span className="publication-format-group-label">
+                  {group.label}
+                </span>
+                <ul>
+                  {group.presets.map((option) => {
+                    const checked = checkedPresetIds.has(option.id);
+                    const focused = option.id === preset.id;
+                    return (
+                      <li
+                        className={`publication-format-row${focused ? " is-focused" : ""}`}
+                        key={option.id}
+                      >
+                        <input
+                          aria-label={`Incluir ${option.label} na exportação`}
+                          checked={checked}
+                          type="checkbox"
+                          onChange={() => onTogglePreset(option.id)}
+                        />
+                        <button
+                          className="publication-format-select"
+                          type="button"
+                          onClick={() => onPreset(option.id)}
+                        >
+                          <span className="publication-format-name">
+                            {option.label}
+                          </span>
+                          <small>
+                            {option.kind === "clip" ? "clip" : "imagem"} ·{" "}
+                            {option.width}x{option.height}
+                          </small>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+          </div>
         </div>
         <div className="publication-preview-panel">
           <div>
@@ -6405,23 +6421,23 @@ function PublicationAssetsWorkspace({
             className="publication-preview-stage"
             style={{ aspectRatio: `${preset.width} / ${preset.height}` }}
           >
-            {previewTrack ? (
+            {previewTrack && previewComposition?.scene ? (
               <CompositionThumbnail
                 className="publication-preview-render"
-                coverSrc={previewCoverSrc}
+                coverSrc={previewComposition.cover?.src}
                 durationSeconds={previewTrack.audioInfo?.durationSeconds}
                 fingerprint={`${thumbnailFingerprint(
                   previewTrack,
-                  previewCoverSrc,
-                  showMetadata,
+                  previewComposition.cover?.src,
+                  previewComposition.showMetadata,
                 )}:txt${selectedSettings.textScale},${selectedSettings.textOffsetX},${selectedSettings.textOffsetY},${selectedSettings.hideText ? 1 : 0}`}
                 height={previewHeight}
-                layers={previewTrack.layers}
-                metadata={previewTrack.metadata}
-                scene={previewTrack.scene}
-                showMetadata={showMetadata}
+                layers={previewComposition.layers}
+                metadata={previewComposition.metadata ?? previewTrack.metadata}
+                scene={previewComposition.scene}
+                showMetadata={previewComposition.showMetadata}
                 textSettings={applyPublicationTextOverride(
-                  previewTrack.textSettings,
+                  previewComposition.textSettings ?? previewTrack.textSettings,
                   selectedSettings,
                 )}
                 width={previewWidth}
@@ -10920,6 +10936,34 @@ function PublicationInspector({
                   onAssetSettings({ lyricsHideTags })
                 }
               />
+              <SelectField
+                label="Posição da letra no clipe"
+                value={assetSettings.lyricsPosition}
+                onChange={(value) =>
+                  onAssetSettings({
+                    lyricsPosition:
+                      value as PublicationAssetSettings["lyricsPosition"],
+                  })
+                }
+              >
+                <option value="bottom">Base</option>
+                <option value="center">Centro</option>
+                <option value="top">Topo</option>
+              </SelectField>
+              <SelectField
+                label="Estilo da letra no clipe"
+                value={assetSettings.lyricsStyle}
+                onChange={(value) =>
+                  onAssetSettings({
+                    lyricsStyle:
+                      value as PublicationAssetSettings["lyricsStyle"],
+                  })
+                }
+              >
+                <option value="minimal">Minimal (contorno fino)</option>
+                <option value="shadow">Sombra forte</option>
+                <option value="boxed">Caixa de fundo</option>
+              </SelectField>
               <RangeField
                 label="Espaçamento da letra"
                 max={220}
@@ -12641,6 +12685,21 @@ function lyricsMatchLabel(suggestion: LyricsSuggestion) {
       "track-number": "número da faixa",
     }[suggestion.matchedBy] ?? "candidato";
   return suggestion.confidence === "high" ? `match por ${base}` : base;
+}
+
+// Group export formats for the divulgação checklist: generic "Social" presets
+// read as "Padrões" and come first; the rest group by platform.
+function publicationFormatGroups() {
+  const groups = new Map<string, PublicationAssetPreset[]>();
+  for (const preset of publicationAssetPresets) {
+    const label = preset.platform === "Social" ? "Padrões" : preset.platform;
+    const bucket = groups.get(label) ?? [];
+    bucket.push(preset);
+    groups.set(label, bucket);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => (a === "Padrões" ? -1 : b === "Padrões" ? 1 : 0))
+    .map(([label, presets]) => ({ label, presets }));
 }
 
 function publicationPresetsForMode(

@@ -199,6 +199,8 @@ export async function renderPublicationAssetJob({
   lyricsExcerpt,
   lyricsHideTags,
   lyricsLineSpacing,
+  lyricsPosition = "bottom",
+  lyricsStyle = "minimal",
   generateDataFiles = true,
   outputPath,
   outputName,
@@ -308,6 +310,30 @@ export async function renderPublicationAssetJob({
     });
     assertNotCanceled(shouldCancel);
     stages.enter("ffmpeg-mux", { progress: 92, message: "Finalizando mux" });
+    // Burn the chosen lyrics onto the clip, honoring the position/style preset.
+    // Before this, lyrics only reached the data manifest and never the video.
+    const clipLyricsText = publicationLyricsTextForSettings(metadata.lyrics, {
+      lyricsMode,
+      lyricsExcerpt,
+      lyricsHideTags,
+      includeLyrics: includeFullLyrics,
+    });
+    const clipLyricLines = clipLyricsText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const subtitlePath =
+      clipLyricLines.length > 0
+        ? await writeAssOverlay({
+            filePath: path.join(jobWorkDir, "lyrics.ass"),
+            lines: clipLyricLines,
+            duration,
+            width: outputSize.width,
+            height: outputSize.height,
+            position: lyricsPosition,
+            style: lyricsStyle,
+          })
+        : null;
     const muxArgs = buildWebglMuxArgs({
       audioPath,
       audioStartSeconds: clipStart,
@@ -316,7 +342,7 @@ export async function renderPublicationAssetJob({
       outputPath,
       outputSize,
       settings,
-      subtitlePath: null,
+      subtitlePath,
       webglVideoPath,
     });
     await runFfmpeg(muxArgs, duration, (progress, message) =>
@@ -712,6 +738,14 @@ async function prepareEmbeddedCover(audioPath, jobWorkDir) {
   }
 }
 
+// Style presets for the burned-in lyrics overlay. BorderStyle 1 = outline,
+// BorderStyle 3 = opaque box behind the text.
+const assStylePresets = {
+  minimal: { borderStyle: 1, outline: 3, shadow: 1 },
+  shadow: { borderStyle: 1, outline: 2, shadow: 4 },
+  boxed: { borderStyle: 3, outline: 6, shadow: 0 },
+};
+
 async function writeAssOverlay({
   filePath,
   lines,
@@ -719,6 +753,7 @@ async function writeAssOverlay({
   width,
   height,
   position,
+  style = "minimal",
 }) {
   const cleanLines = lines.filter((line) => line.length > 0);
   const chunks = [];
@@ -733,6 +768,7 @@ async function writeAssOverlay({
   const fontSize = Math.round(width >= 1900 ? 54 : width >= 1200 ? 42 : 32);
   const alignment = assAlignment(position);
   const marginV = Math.round(height * 0.06);
+  const stylePreset = assStylePresets[style] ?? assStylePresets.minimal;
   const ass = `[Script Info]
 ScriptType: v4.00+
 PlayResX: ${width}
@@ -740,7 +776,7 @@ PlayResY: ${height}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,${fontSize},&H00F7F3E8,&H000000FF,&HBA101513,&H7A101513,0,0,0,0,100,100,0,0,1,3,1,${alignment},80,80,${marginV},1
+Style: Default,Arial,${fontSize},&H00F7F3E8,&H000000FF,&HBA101513,&H7A101513,0,0,0,0,100,100,0,0,${stylePreset.borderStyle},${stylePreset.outline},${stylePreset.shadow},${alignment},80,80,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

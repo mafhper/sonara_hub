@@ -153,6 +153,8 @@ test("publication asset settings merge global defaults with per asset overrides"
       textOffsetX: 0,
       textOffsetY: 0,
       hideText: false,
+      lyricsPosition: "bottom",
+      lyricsStyle: "minimal",
     },
   );
   assert.deepEqual(
@@ -169,6 +171,8 @@ test("publication asset settings merge global defaults with per asset overrides"
       textOffsetX: 0,
       textOffsetY: 0,
       hideText: false,
+      lyricsPosition: "bottom",
+      lyricsStyle: "minimal",
     },
   );
 });
@@ -192,6 +196,8 @@ test("publication asset settings keep legacy full lyrics semantics", () => {
       textOffsetX: 0,
       textOffsetY: 0,
       hideText: false,
+      lyricsPosition: "bottom",
+      lyricsStyle: "minimal",
     },
   );
 });

@@ -35,7 +35,12 @@ export type PublicationAssetSettings = {
   textOffsetX: number;
   textOffsetY: number;
   hideText: boolean;
+  lyricsPosition: PublicationLyricsPosition;
+  lyricsStyle: PublicationLyricsStyle;
 };
+
+export type PublicationLyricsPosition = "top" | "center" | "bottom";
+export type PublicationLyricsStyle = "minimal" | "shadow" | "boxed";
 
 export type PublicationAssetOverride = Partial<PublicationAssetSettings>;
 export type PublicationAssetOverrideMap = Record<
@@ -57,6 +62,14 @@ export function sanitizePublicationLyricsExcerpt(value: unknown): string;
 export function clampPublicationLyricsLineSpacing(value: unknown): number;
 export function clampPublicationTextScale(value: unknown): number;
 export function clampPublicationTextOffset(value: unknown): number;
+export const publicationLyricsPositions: PublicationLyricsPosition[];
+export const publicationLyricsStyles: PublicationLyricsStyle[];
+export function normalizePublicationLyricsPosition(
+  value: unknown,
+): PublicationLyricsPosition;
+export function normalizePublicationLyricsStyle(
+  value: unknown,
+): PublicationLyricsStyle;
 export function applyPublicationTextOverride<T>(
   textSettings: T,
   settings?: Partial<PublicationAssetSettings>,
