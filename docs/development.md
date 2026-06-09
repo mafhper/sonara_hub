@@ -18,7 +18,8 @@ do Git.
 ## Scripts principais
 
 ```powershell
-npm run dev              # app local
+npm run dev              # desenvolvimento (Vite + HMR) em :5173 / API :4175
+npm run app              # modo estável: build + serve o app pela API em :4175
 npm run build            # build do app
 npm run test:ui          # smoke Playwright do app
 npm run test:flow        # jornada local completa
@@ -29,6 +30,23 @@ npm run site:dev         # promo-site
 npm run site:build       # build do promo-site
 npm run site:test        # smoke Playwright do promo-site
 ```
+
+## Modos de execução
+
+- **Desenvolvimento — `npm run dev`**: Vite com HMR em `:5173` e API em `:4175`.
+  Use para desenvolver a UI. O cliente Vite pode cair (`exit 3221226505`,
+  "Servidor local indisponível") sob a carga de uma exportação real, porque o
+  render abre Chromium headless e a pressão de memória/IO derruba o dev client.
+- **Estável — `npm run app`**: faz `build` e serve o app compilado pela própria
+  API em `http://127.0.0.1:4175` (sem Vite, sem HMR, sem watcher). É o modo
+  recomendado para **exportar de verdade** (lotes, vídeos longos), pois não
+  sofre o reload-storm do dev client. Para reservir um build já feito sem
+  recompilar, use `npm start`.
+
+Jobs também ficam mais resilientes a quedas momentâneas do servidor: durante uma
+exportação, uma perda transitória de conexão não marca mais o job como `error` —
+o cliente reexibe "Servidor reconectando…" e segue consultando com backoff,
+pegando o estado real quando o servidor volta.
 
 ## Validação
 

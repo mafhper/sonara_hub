@@ -3458,7 +3458,10 @@ function App() {
     setBatchFeedback("Erro copiado para a área de transferência.");
   }
 
-  function pollJob(id: string) {
+  function pollJob(id: string, failures = 0) {
+    // Backoff: first poll quick; once the connection is flaky, slow down to at
+    // most 5s so a busy/restarting server isn't hammered.
+    const delay = failures > 0 ? Math.min(5000, 900 + failures * 600) : 900;
     window.setTimeout(async () => {
       try {
         const job = await fetchJsonWithRetry<RenderJob>(
@@ -3506,20 +3509,27 @@ function App() {
           pollJob(id);
         }
       } catch (reason) {
+        // Transient connectivity drop (server busy/restarting during a render).
+        // Do NOT fail the job — it may still be running server-side. Keep its
+        // status, show a reconnecting note, and keep polling with backoff.
+        const nextFailures = failures + 1;
         setJobs((current) =>
           current.map((item) =>
-            item.id === id
-              ? {
-                  ...item,
-                  status: "error",
-                  message: "Servidor local indisponível",
-                }
+            item.id === id &&
+            !["done", "error", "canceled"].includes(item.status)
+              ? { ...item, message: `Servidor reconectando… (${nextFailures})` }
               : item,
           ),
         );
-        setError(localApiMessage(reason, "acompanhar a exportação"));
+        if (nextFailures >= 40) {
+          // Prolonged outage: surface it once and stop polling. The job is left
+          // in its last known status so it can be retried, not destroyed.
+          setError(localApiMessage(reason, "acompanhar a exportação"));
+          return;
+        }
+        pollJob(id, nextFailures);
       }
-    }, 900);
+    }, delay);
   }
 
   async function cancelJob(id: string) {
