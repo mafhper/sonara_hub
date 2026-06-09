@@ -2199,19 +2199,35 @@ svg {
   background: rgba(139, 165, 233, 0.12);
 }
 
+/* Give the divulgação stage real vertical rhythm: its sections were stacked
+   with no gap, so everything read as one dense block. */
+.publication-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.publication-stage .review-stage-header {
+  padding-bottom: 20px;
+}
+
+.publication-stage > .batch-job-board {
+  margin-top: 0;
+}
+
 .publication-overview {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
+  gap: var(--space-4);
 }
 
 .publication-overview > div,
 .publication-track-row {
   display: grid;
-  gap: 0.25rem;
-  padding: 0.9rem;
+  gap: var(--space-1);
+  padding: var(--space-4);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: var(--stage-surface-low);
 }
 
@@ -2227,18 +2243,18 @@ svg {
 
 .publication-track-list {
   display: grid;
-  gap: 0.75rem;
+  gap: var(--space-4);
 }
 
 .publication-track-list > div {
   display: grid;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 .publication-focus {
   display: grid;
-  grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1fr);
-  gap: var(--space-4);
+  grid-template-columns: minmax(240px, 0.72fr) minmax(0, 1fr);
+  gap: 26px;
   align-items: start;
 }
 
@@ -2284,7 +2300,7 @@ svg {
 
 .publication-preview-panel {
   min-width: 0;
-  padding: var(--space-3);
+  padding: var(--space-4);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-card);
   background: var(--stage-surface-low);
@@ -2443,7 +2459,7 @@ svg {
 
 .publication-format-list {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -2453,8 +2469,9 @@ svg {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: 10px var(--space-3);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-card);
   background: var(--stage-surface-low);
