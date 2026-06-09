@@ -749,6 +749,9 @@ app.post(
     const lyricsLineSpacing = clampPublicationLyricsLineSpacing(
       req.body.lyricsLineSpacing,
     );
+    // Optional json/markdown data files; sometimes the user only wants the clip.
+    const generateDataFiles =
+      String(req.body.generateDataFiles ?? "true") !== "false";
     const jobId = crypto.randomUUID();
     const outputName = publicationAssetOutputName(metadata, preset);
     const outputPath = path.join(outputDir, outputName);
@@ -768,6 +771,7 @@ app.post(
       lyricsExcerpt,
       lyricsHideTags,
       lyricsLineSpacing,
+      generateDataFiles,
       outputPath,
       outputName,
       uploadedFiles: files,

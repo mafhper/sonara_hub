@@ -929,6 +929,10 @@ function App() {
   // stops enqueuing new jobs instead of running to completion.
   const publicationExportAbortRef = useRef(false);
   const [publicationExporting, setPublicationExporting] = useState(false);
+  // Whether to also write the json/markdown data files alongside each asset.
+  // Off = generate only the clip/image.
+  const [publicationGenerateDataFiles, setPublicationGenerateDataFiles] =
+    useState(true);
   const [showMetadata, setShowMetadata] = useState(true);
   const [cover, setCover] = useState<{ file: File; src: string } | null>(null);
   const [pendingCoverTrackId, setPendingCoverTrackId] = useState("");
@@ -3420,6 +3424,7 @@ function App() {
       "lyricsLineSpacing",
       String(assetSettings.lyricsLineSpacing),
     );
+    formData.append("generateDataFiles", String(publicationGenerateDataFiles));
     if (composition.metadata) {
       for (const [key, value] of Object.entries(composition.metadata)) {
         formData.append(key, String(value));
@@ -4636,6 +4641,7 @@ function App() {
                 assetSettings={selectedPublicationSettings}
                 clipDuration={publicationClipDuration}
                 clipStart={publicationClipStart}
+                generateDataFiles={publicationGenerateDataFiles}
                 includeLyrics={publicationIncludeLyrics}
                 lyricsText={selectedTrack.metadata.lyrics}
                 outputConflictMode={videoOutputConflictMode}
@@ -4661,6 +4667,7 @@ function App() {
                   setPublicationClipStart(clampPublicationClipStart(value))
                 }
                 onExport={() => void exportPublicationAssets()}
+                onGenerateDataFiles={setPublicationGenerateDataFiles}
                 onIncludeLyrics={setPublicationIncludeLyrics}
                 onOutputConflictMode={(value) =>
                   setVideoOutputConflictMode(
@@ -9890,17 +9897,17 @@ function LayerEditor(props: {
               </IconButton>
               <IconButton
                 disabled={index === 0}
-                label="Mover camada para baixo"
+                label="Trazer camada para frente"
                 onClick={() => props.onMoveLayer(layer.id, -1)}
               >
-                <ChevronDown />
+                <ChevronUp />
               </IconButton>
               <IconButton
                 disabled={index === props.layers.length - 1}
-                label="Mover camada para cima"
+                label="Enviar camada para trás"
                 onClick={() => props.onMoveLayer(layer.id, 1)}
               >
-                <ChevronUp />
+                <ChevronDown />
               </IconButton>
               <IconButton
                 label="Remover camada"
@@ -10715,6 +10722,7 @@ function PublicationInspector({
   assetSettings,
   clipDuration,
   clipStart,
+  generateDataFiles,
   includeLyrics,
   lyricsText,
   outputConflictMode,
@@ -10730,6 +10738,7 @@ function PublicationInspector({
   onClipDuration,
   onClipStart,
   onExport,
+  onGenerateDataFiles,
   onIncludeLyrics,
   onOutputConflictMode,
   onPreset,
@@ -10739,6 +10748,7 @@ function PublicationInspector({
   assetSettings: PublicationAssetSettings;
   clipDuration: number;
   clipStart: number;
+  generateDataFiles: boolean;
   includeLyrics: boolean;
   lyricsText: string;
   outputConflictMode: VideoOutputConflictMode;
@@ -10754,6 +10764,7 @@ function PublicationInspector({
   onClipDuration: (value: number) => void;
   onClipStart: (value: number) => void;
   onExport: () => void;
+  onGenerateDataFiles: (value: boolean) => void;
   onIncludeLyrics: (value: boolean) => void;
   onOutputConflictMode: (value: string) => void;
   onPreset: (value: string) => void;
@@ -10820,6 +10831,18 @@ function PublicationInspector({
             checked={includeLyrics}
             onChange={onIncludeLyrics}
           />
+          <p className="helper-copy">
+            A letra escolhida é sobreposta no clipe (vídeo). Em imagens, entra
+            no arquivo de dados.
+          </p>
+          <CheckField
+            label="Gerar arquivos de dados (JSON/Markdown)"
+            checked={generateDataFiles}
+            onChange={onGenerateDataFiles}
+          />
+          <p className="helper-copy">
+            Desligue para exportar só o clipe/imagem, sem o manifesto de dados.
+          </p>
         </div>
         <div className="inspector-subsection publication-asset-override">
           <div className="publication-asset-override-head">
