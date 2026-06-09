@@ -31,6 +31,10 @@ export type PublicationAssetSettings = {
   lyricsExcerpt: string;
   lyricsHideTags: boolean;
   lyricsLineSpacing: number;
+  textScale: number;
+  textOffsetX: number;
+  textOffsetY: number;
+  hideText: boolean;
 };
 
 export type PublicationAssetOverride = Partial<PublicationAssetSettings>;
@@ -51,6 +55,12 @@ export function normalizePublicationLyricsMode(
 ): PublicationLyricsMode;
 export function sanitizePublicationLyricsExcerpt(value: unknown): string;
 export function clampPublicationLyricsLineSpacing(value: unknown): number;
+export function clampPublicationTextScale(value: unknown): number;
+export function clampPublicationTextOffset(value: unknown): number;
+export function applyPublicationTextOverride<T>(
+  textSettings: T,
+  settings?: Partial<PublicationAssetSettings>,
+): T;
 export function stripPublicationLyricsTags(value: unknown): string;
 export function publicationLyricsTextForSettings(
   sourceLyrics: unknown,

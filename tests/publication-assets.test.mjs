@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  applyPublicationTextOverride,
   clampPublicationClipDuration,
+  clampPublicationTextOffset,
+  clampPublicationTextScale,
   publicationLyricsTextForSettings,
   normalizePublicationAssetOverrides,
   publicationAssetSettingsForPreset,
@@ -26,6 +29,57 @@ test("publication presets cover social images and short clips", () => {
     "WhatsApp",
   );
   assert.equal(publicationAssetPresetById("whatsapp-status-clip").kind, "clip");
+});
+
+test("publication text scale and offset are clamped", () => {
+  assert.equal(clampPublicationTextScale(0.1), 0.5);
+  assert.equal(clampPublicationTextScale(5), 2);
+  assert.equal(clampPublicationTextScale(1.25), 1.25);
+  assert.equal(clampPublicationTextScale("x"), 1);
+  assert.equal(clampPublicationTextOffset(-200), -40);
+  assert.equal(clampPublicationTextOffset(200), 40);
+  assert.equal(clampPublicationTextOffset(12.6), 13);
+  assert.equal(clampPublicationTextOffset("x"), 0);
+});
+
+test("publication asset settings expose text override defaults", () => {
+  const settings = publicationAssetSettingsForPreset("youtube-thumbnail");
+  assert.equal(settings.textScale, 1);
+  assert.equal(settings.textOffsetX, 0);
+  assert.equal(settings.textOffsetY, 0);
+  assert.equal(settings.hideText, false);
+});
+
+test("publication text override scales, offsets, and hides text", () => {
+  const base = {
+    fields: { title: true, artist: true, album: false },
+    fontSize: 40,
+    fieldStyles: { title: { fontSize: 60 }, artist: { fontSize: 30 } },
+    x: 50,
+    y: 90,
+  };
+  const scaled = applyPublicationTextOverride(base, {
+    textScale: 1.5,
+    textOffsetX: 10,
+    textOffsetY: 20,
+  });
+  assert.equal(scaled.fontSize, 60);
+  assert.equal(scaled.fieldStyles.title.fontSize, 90);
+  assert.equal(scaled.x, 60);
+  assert.equal(scaled.y, 100); // clamped at 100
+  // original is untouched (pure)
+  assert.equal(base.fontSize, 40);
+  assert.equal(base.x, 50);
+
+  const hidden = applyPublicationTextOverride(base, { hideText: true });
+  assert.deepEqual(hidden.fields, {
+    title: false,
+    artist: false,
+    album: false,
+  });
+
+  // no-op override returns the same reference
+  assert.equal(applyPublicationTextOverride(base, {}), base);
 });
 
 test("publication clip duration is clamped to 1-30 seconds", () => {
@@ -95,6 +149,10 @@ test("publication asset settings merge global defaults with per asset overrides"
       lyricsExcerpt: "Edited hook",
       lyricsHideTags: true,
       lyricsLineSpacing: 155,
+      textScale: 1,
+      textOffsetX: 0,
+      textOffsetY: 0,
+      hideText: false,
     },
   );
   assert.deepEqual(
@@ -107,6 +165,10 @@ test("publication asset settings merge global defaults with per asset overrides"
       lyricsExcerpt: "",
       lyricsHideTags: false,
       lyricsLineSpacing: 130,
+      textScale: 1,
+      textOffsetX: 0,
+      textOffsetY: 0,
+      hideText: false,
     },
   );
 });
@@ -126,6 +188,10 @@ test("publication asset settings keep legacy full lyrics semantics", () => {
       lyricsExcerpt: "",
       lyricsHideTags: false,
       lyricsLineSpacing: 130,
+      textScale: 1,
+      textOffsetX: 0,
+      textOffsetY: 0,
+      hideText: false,
     },
   );
 });
