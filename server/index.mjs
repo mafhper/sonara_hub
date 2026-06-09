@@ -1039,7 +1039,14 @@ app.use((error, req, res, next) => {
 });
 
 app.listen(port, "127.0.0.1", () => {
-  console.log(`Sonara Hub API em http://127.0.0.1:${port}`);
+  const servesApp = fssync.existsSync(path.join(rootDir, "dist", "index.html"));
+  // When a build exists this process serves the full app (stable export mode,
+  // no Vite/HMR). Otherwise it is just the API behind the dev client.
+  console.log(
+    servesApp
+      ? `Sonara Hub (app + API) em http://127.0.0.1:${port}`
+      : `Sonara Hub API em http://127.0.0.1:${port}`,
+  );
 });
 
 // Keep the local dev server alive if a background job hits an unexpected

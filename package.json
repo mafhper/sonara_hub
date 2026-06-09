@@ -26,6 +26,7 @@
     "site:build": "tsc --noEmit -p site/tsconfig.json && vite build --config site/vite.config.ts",
     "site:preview": "vite preview --config site/vite.config.ts --host 127.0.0.1",
     "site:test": "node tests/site-smoke.mjs",
+    "app": "npm run build && npm run start",
     "start": "node server/index.mjs"
   },
   "dependencies": {
