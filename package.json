@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",
-    "concurrently": "^9.2.1",
+    "concurrently": "^10.0.3",
     "express": "^5.1.0",
     "fast-xml-parser": "^5.8.0",
     "ffmpeg-static": "^5.2.0",
