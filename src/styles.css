@@ -2459,7 +2459,25 @@ svg {
 
 .publication-format-list {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-3);
+}
+
+.publication-format-group {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.publication-format-group-label {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.publication-format-group ul {
+  display: grid;
+  gap: var(--space-1);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -2468,10 +2486,9 @@ svg {
 .publication-format-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  min-height: 48px;
-  padding: 10px var(--space-3);
+  gap: var(--space-2);
+  min-height: 42px;
+  padding: 6px var(--space-3);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-card);
   background: var(--stage-surface-low);
@@ -2482,11 +2499,20 @@ svg {
   box-shadow: var(--glow-cool);
 }
 
-.publication-format-row label {
+/* Clicking the row body focuses the format in the preview; the checkbox only
+   toggles inclusion in the export. */
+.publication-format-select {
   display: flex;
+  flex: 1;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
   min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
   cursor: pointer;
 }
 
@@ -2498,24 +2524,8 @@ svg {
 }
 
 .publication-format-row small {
-  color: var(--text-muted);
-}
-
-.publication-format-focus {
   flex-shrink: 0;
-  padding: 0.25rem 0.55rem;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text-secondary);
-  font-size: var(--font-xs);
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.publication-format-focus[aria-pressed="true"] {
-  border-color: var(--accent-cool-strong);
-  color: var(--text-primary);
+  color: var(--text-muted);
 }
 
 .publication-preview-stage {

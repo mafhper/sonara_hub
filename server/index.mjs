@@ -75,6 +75,8 @@ import {
   clampPublicationClipStart,
   clampPublicationLyricsLineSpacing,
   normalizePublicationLyricsMode,
+  normalizePublicationLyricsPosition,
+  normalizePublicationLyricsStyle,
   publicationLyricsTextForSettings,
   publicationAssetPresetById,
   sanitizePublicationLyricsExcerpt,
@@ -752,6 +754,10 @@ app.post(
     // Optional json/markdown data files; sometimes the user only wants the clip.
     const generateDataFiles =
       String(req.body.generateDataFiles ?? "true") !== "false";
+    const lyricsPosition = normalizePublicationLyricsPosition(
+      req.body.lyricsPosition,
+    );
+    const lyricsStyle = normalizePublicationLyricsStyle(req.body.lyricsStyle);
     const jobId = crypto.randomUUID();
     const outputName = publicationAssetOutputName(metadata, preset);
     const outputPath = path.join(outputDir, outputName);
@@ -771,6 +777,8 @@ app.post(
       lyricsExcerpt,
       lyricsHideTags,
       lyricsLineSpacing,
+      lyricsPosition,
+      lyricsStyle,
       generateDataFiles,
       outputPath,
       outputName,

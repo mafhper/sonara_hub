@@ -197,6 +197,19 @@ export function clampPublicationTextOffset(value) {
   return Math.min(40, Math.max(-40, Math.round(offset)));
 }
 
+export const publicationLyricsPositions = ["top", "center", "bottom"];
+export const publicationLyricsStyles = ["minimal", "shadow", "boxed"];
+
+export function normalizePublicationLyricsPosition(value) {
+  const position = String(value ?? "").trim();
+  return publicationLyricsPositions.includes(position) ? position : "bottom";
+}
+
+export function normalizePublicationLyricsStyle(value) {
+  const style = String(value ?? "").trim();
+  return publicationLyricsStyles.includes(style) ? style : "minimal";
+}
+
 export function stripPublicationLyricsTags(value) {
   return sanitizePublicationLyricsExcerpt(value)
     .split("\n")
@@ -286,6 +299,16 @@ export function normalizePublicationAssetOverrides(value = {}) {
     if (hasOwn(rawOverride, "hideText")) {
       override.hideText = Boolean(rawOverride.hideText);
     }
+    if (hasOwn(rawOverride, "lyricsPosition")) {
+      override.lyricsPosition = normalizePublicationLyricsPosition(
+        rawOverride.lyricsPosition,
+      );
+    }
+    if (hasOwn(rawOverride, "lyricsStyle")) {
+      override.lyricsStyle = normalizePublicationLyricsStyle(
+        rawOverride.lyricsStyle,
+      );
+    }
     if (Object.keys(override).length) output[presetId] = override;
   }
   return output;
@@ -314,6 +337,8 @@ export function publicationAssetSettingsForPreset(
     textOffsetX: clampPublicationTextOffset(defaults.textOffsetX ?? 0),
     textOffsetY: clampPublicationTextOffset(defaults.textOffsetY ?? 0),
     hideText: Boolean(defaults.hideText),
+    lyricsPosition: normalizePublicationLyricsPosition(defaults.lyricsPosition),
+    lyricsStyle: normalizePublicationLyricsStyle(defaults.lyricsStyle),
   };
   const normalizedOverrides = normalizePublicationAssetOverrides(overrides);
   const merged = {
@@ -337,6 +362,8 @@ export function publicationAssetSettingsForPreset(
     textOffsetX: clampPublicationTextOffset(merged.textOffsetX),
     textOffsetY: clampPublicationTextOffset(merged.textOffsetY),
     hideText: Boolean(merged.hideText),
+    lyricsPosition: normalizePublicationLyricsPosition(merged.lyricsPosition),
+    lyricsStyle: normalizePublicationLyricsStyle(merged.lyricsStyle),
   };
 }
 
