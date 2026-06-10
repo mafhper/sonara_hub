@@ -53,5 +53,8 @@
     "@types/react-dom": "^19.1.7",
     "prettier": "^3.6.2",
     "typescript": "^5.9.2"
+  },
+  "overrides": {
+    "shell-quote": "^1.8.4"
   }
 }
