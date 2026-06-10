@@ -1919,6 +1919,47 @@ svg {
   margin-top: 9px;
 }
 
+.color-swatches {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.color-swatches-label {
+  flex-shrink: 0;
+  color: #98a1ad;
+  font-size: 8px;
+  font-weight: 760;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.color-swatches-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.color-swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 25%);
+  cursor: pointer;
+}
+
+.color-swatch:hover {
+  transform: scale(1.12);
+}
+
+.color-swatch.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-low);
+}
+
 .field > span,
 .range-field > .range-field-header,
 .color-input > span {
@@ -2860,9 +2901,13 @@ svg {
   grid-area: status;
   display: grid;
   grid-template-columns: var(--rail-left) minmax(0, 1fr) var(--rail-right);
+  grid-template-rows: 100%;
   align-items: center;
   border-top: 1px solid var(--line);
   background: var(--chrome);
+  /* The status row is a fixed 37px. Clip anything that would spill below it so
+     a collapsed-rail column can never push the step menu off-screen. */
+  overflow: hidden;
 }
 
 .audio-flow {
@@ -2873,9 +2918,13 @@ svg {
 
 .save-status,
 .project-state {
+  min-width: 0;
   color: #7f8791;
   padding: 0 11px;
   font-size: 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .save-status {
