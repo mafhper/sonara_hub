@@ -5887,6 +5887,92 @@ function AudioLibraryWorkspace({
                                     }
                                   />
                                 </label>
+                                <div className="batch-detail-tags">
+                                  <label className="batch-detail-tag">
+                                    <span>Artista do álbum</span>
+                                    <input
+                                      aria-label="Artista do álbum"
+                                      value={track.metadata.albumArtist}
+                                      onChange={(event) =>
+                                        onTrackMetadata(track.id, {
+                                          albumArtist: event.target.value,
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                  <label className="batch-detail-tag">
+                                    <span>Compositor</span>
+                                    <input
+                                      aria-label="Compositor"
+                                      value={track.metadata.composer}
+                                      onChange={(event) =>
+                                        onTrackMetadata(track.id, {
+                                          composer: event.target.value,
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                  <label className="batch-detail-tag">
+                                    <span>Gênero</span>
+                                    <input
+                                      aria-label="Gênero"
+                                      value={track.metadata.genre}
+                                      onChange={(event) =>
+                                        onTrackMetadata(track.id, {
+                                          genre: event.target.value,
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                  <label className="batch-detail-tag">
+                                    <span>Ano</span>
+                                    <input
+                                      aria-label="Ano"
+                                      value={track.metadata.year}
+                                      onChange={(event) =>
+                                        onTrackMetadata(track.id, {
+                                          year: event.target.value,
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                  <label className="batch-detail-tag">
+                                    <span>Versão</span>
+                                    <input
+                                      aria-label="Versão"
+                                      value={track.metadata.version}
+                                      onChange={(event) =>
+                                        onTrackMetadata(track.id, {
+                                          version: event.target.value,
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                  <label className="batch-detail-tag">
+                                    <span>Copyright</span>
+                                    <input
+                                      aria-label="Copyright"
+                                      value={track.metadata.copyright}
+                                      onChange={(event) =>
+                                        onTrackMetadata(track.id, {
+                                          copyright: event.target.value,
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                  <label className="batch-detail-tag batch-detail-tag-wide">
+                                    <span>Comentário</span>
+                                    <input
+                                      aria-label="Comentário"
+                                      value={track.metadata.comment}
+                                      onChange={(event) =>
+                                        onTrackMetadata(track.id, {
+                                          comment: event.target.value,
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                </div>
                                 <div className="batch-detail-file">
                                   <span>Arquivo tratado</span>
                                   <strong>

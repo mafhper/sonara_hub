@@ -4591,6 +4591,33 @@ button:disabled {
   display: none;
 }
 
+/* Extended tag editor inside an expanded review row: always visible (these
+   fields aren't in the table columns) and spans the full width of the detail
+   row, wrapping responsively. Lets the user edit every tag without the sidebar. */
+.batch-detail-tags {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.batch-detail-tag {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.batch-detail-tag.batch-detail-tag-wide {
+  grid-column: 1 / -1;
+}
+
+.batch-detail-tag span {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
 .batch-detail-edit span,
 .batch-detail-file span,
 .batch-detail-metric span {
