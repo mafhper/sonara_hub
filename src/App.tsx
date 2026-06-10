@@ -63,6 +63,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import {
   builtinVisualPresets,
@@ -12047,6 +12048,96 @@ function CheckField({
   );
 }
 
+// Shared palette of recently-used colors, persisted in localStorage and synced
+// across every ColorInput so a color picked in one place can be reused in
+// another. Most-recent-first, de-duplicated, capped.
+const RECENT_COLORS_KEY = "sonara.recentColors";
+const RECENT_COLORS_LIMIT = 12;
+
+const recentColorsStore = (() => {
+  let colors: string[] = readRecentColors();
+  const listeners = new Set<() => void>();
+  function readRecentColors(): string[] {
+    try {
+      const raw = JSON.parse(
+        window.localStorage.getItem(RECENT_COLORS_KEY) ?? "[]",
+      );
+      if (!Array.isArray(raw)) return [];
+      return raw
+        .filter((entry): entry is string => typeof entry === "string")
+        .filter((entry) => /^#[0-9a-f]{6}$/i.test(entry))
+        .slice(0, RECENT_COLORS_LIMIT);
+    } catch {
+      return [];
+    }
+  }
+  return {
+    getSnapshot: () => colors,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    add(value: string) {
+      if (!/^#[0-9a-f]{6}$/i.test(value)) return;
+      const next = value.toLowerCase();
+      const updated = [next, ...colors.filter((entry) => entry !== next)].slice(
+        0,
+        RECENT_COLORS_LIMIT,
+      );
+      if (
+        updated.length === colors.length &&
+        updated.every((entry, index) => entry === colors[index])
+      ) {
+        return;
+      }
+      colors = updated;
+      try {
+        window.localStorage.setItem(RECENT_COLORS_KEY, JSON.stringify(colors));
+      } catch {
+        // localStorage may be unavailable; the in-memory list still works.
+      }
+      listeners.forEach((listener) => listener());
+    },
+  };
+})();
+
+function useRecentColors() {
+  return useSyncExternalStore(
+    recentColorsStore.subscribe,
+    recentColorsStore.getSnapshot,
+    recentColorsStore.getSnapshot,
+  );
+}
+
+function ColorSwatches({
+  current,
+  onPick,
+}: {
+  current: string;
+  onPick: (value: string) => void;
+}) {
+  const recents = useRecentColors();
+  if (recents.length === 0) return null;
+  return (
+    <div className="color-swatches">
+      <span className="color-swatches-label">Recentes</span>
+      <div className="color-swatches-row">
+        {recents.map((color) => (
+          <button
+            aria-label={`Usar cor ${color}`}
+            className={`color-swatch${color.toLowerCase() === current.toLowerCase() ? " is-active" : ""}`}
+            key={color}
+            style={{ background: color }}
+            title={color.toUpperCase()}
+            type="button"
+            onClick={() => onPick(color)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ColorInput({
   label,
   value,
@@ -12090,14 +12181,26 @@ function ColorInput({
   const hueStops = "#ff0000,#ffff00,#00ff00,#00ffff,#0000ff,#ff00ff,#ff0000";
 
   return (
-    <div className="color-input">
+    <div
+      className="color-input"
+      // Record the chosen color in the shared palette when focus leaves this
+      // picker (so slider dragging doesn't spam the list).
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+          recentColorsStore.add(safeHex(value, "#ffffff"));
+        }
+      }}
+    >
       <span>{label}</span>
       <div className="color-input-main">
         <input
           aria-label={`${label} seletor de cor`}
           type="color"
           value={hex}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => {
+            recentColorsStore.add(event.target.value);
+            onChange(event.target.value);
+          }}
         />
         <div className="color-mode-toggle" role="tablist">
           {(["hsl", "hex", "rgb"] as const).map((option) => (
@@ -12168,6 +12271,13 @@ function ColorInput({
           ))}
         </div>
       )}
+      <ColorSwatches
+        current={hex}
+        onPick={(color) => {
+          recentColorsStore.add(color);
+          onChange(color);
+        }}
+      />
     </div>
   );
 }
