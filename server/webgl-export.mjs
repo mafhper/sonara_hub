@@ -430,6 +430,9 @@ export function buildRendererHtml({
 <html>
 <head>
   <meta charset="utf-8" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Cinzel:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400;1,600&family=DM+Serif+Display:ital@0;1&family=Montserrat:ital,wght@0,300;0,400;0,700;0,900;1,300;1,700&family=Oswald:wght@300;400;600;700&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Raleway:ital,wght@0,300;0,400;0,700;1,300;1,400&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet" />
   <style>
     html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #08090b; }
     canvas { display: block; width: ${size.width}px; height: ${size.height}px; }
@@ -474,6 +477,13 @@ export function buildRendererHtml({
         await window.reportScenePhase({ phase, ...data });
       }
     };
+
+    // Wait for custom fonts (up to 4 s) before exposing the render API so that
+    // the first frame is never drawn with fallback fonts.
+    await Promise.race([
+      document.fonts.ready,
+      new Promise((resolve) => setTimeout(resolve, 4000)),
+    ]);
 
     window.renderScenePoster = (time = 0) => {
       runtime.setAudio(audioAt(time));

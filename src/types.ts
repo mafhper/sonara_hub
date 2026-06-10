@@ -129,8 +129,13 @@ export type TextOverlaySettings = {
     | "side-left"
     | "side-right"
     | "editorial-stack"
-    | "quiet-album";
-  fontFamily: "Inter" | "Georgia" | "Arial";
+    | "quiet-album"
+    | "jazz-serif"
+    | "bold-impact"
+    | "cinzel-caps"
+    | "ambient-light"
+    | "minimal-grotesk";
+  fontFamily: FontFamily;
   fontSize: number;
   fontWeight: number;
   letterSpacing: number;
@@ -146,8 +151,22 @@ export type TextOverlaySettings = {
 
 export type TextFieldKey = "title" | "artist" | "album" | "year" | "version";
 
+export type FontFamily =
+  | "Inter"
+  | "Georgia"
+  | "Arial"
+  | "Playfair Display"
+  | "Cormorant Garamond"
+  | "DM Serif Display"
+  | "Cinzel"
+  | "Montserrat"
+  | "Oswald"
+  | "Raleway"
+  | "Space Grotesk"
+  | "Bebas Neue";
+
 export type TextFieldStyle = {
-  fontFamily: "Inter" | "Georgia" | "Arial";
+  fontFamily: FontFamily;
   fontSize: number;
   fontWeight: number;
   fontStyle: "normal" | "italic";
@@ -155,6 +174,7 @@ export type TextFieldStyle = {
   lineHeight: number;
   color: string;
   opacity: number;
+  textTransform?: "none" | "uppercase" | "lowercase";
   fadeOut?: {
     enabled: boolean;
     mode?: "tail" | "timed";

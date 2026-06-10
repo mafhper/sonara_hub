@@ -571,10 +571,27 @@ const coverSeriesPositionPresets: Record<
     { x: preset.x ?? 50, y: preset.y ?? 50 },
   ]),
 ) as Record<PositionPresetId, Pick<CoverSeriesSettings, "x" | "y">>;
-const textFontOptions: TextFieldStyle["fontFamily"][] = [
-  "Inter",
-  "Georgia",
-  "Arial",
+const textFontOptions: Array<{
+  value: TextFieldStyle["fontFamily"];
+  label: string;
+  category: string;
+}> = [
+  { value: "Inter", label: "Inter", category: "Sans-serif" },
+  { value: "Montserrat", label: "Montserrat", category: "Sans-serif" },
+  { value: "Oswald", label: "Oswald", category: "Sans-serif" },
+  { value: "Raleway", label: "Raleway", category: "Sans-serif" },
+  { value: "Space Grotesk", label: "Space Grotesk", category: "Sans-serif" },
+  { value: "Arial", label: "Arial", category: "Sans-serif" },
+  { value: "Playfair Display", label: "Playfair Display", category: "Serif" },
+  {
+    value: "Cormorant Garamond",
+    label: "Cormorant Garamond",
+    category: "Serif",
+  },
+  { value: "DM Serif Display", label: "DM Serif Display", category: "Serif" },
+  { value: "Cinzel", label: "Cinzel", category: "Serif" },
+  { value: "Georgia", label: "Georgia", category: "Serif" },
+  { value: "Bebas Neue", label: "Bebas Neue", category: "Display" },
 ];
 const textStylePresetLabels: Record<TextOverlaySettings["preset"], string> = {
   "top-left": "Topo esquerdo",
@@ -584,6 +601,11 @@ const textStylePresetLabels: Record<TextOverlaySettings["preset"], string> = {
   "side-right": "Lado a lado · direita",
   "editorial-stack": "Editorial",
   "quiet-album": "Álbum discreto",
+  "jazz-serif": "Jazz · Playfair",
+  "bold-impact": "Impacto · Oswald",
+  "cinzel-caps": "Épico · Cinzel",
+  "ambient-light": "Ambiental · Cormorant",
+  "minimal-grotesk": "Minimal · Space Grotesk",
 };
 const defaultCoverSeriesSettings: CoverSeriesSettings = {
   enabled: true,
@@ -11234,10 +11256,16 @@ function TextFieldStyleEditor({
             onChange({ fontFamily: fontFamily as TextFieldStyle["fontFamily"] })
           }
         >
-          {textFontOptions.map((font) => (
-            <option key={font} value={font}>
-              {font}
-            </option>
+          {(["Sans-serif", "Serif", "Display"] as const).map((cat) => (
+            <optgroup key={cat} label={cat}>
+              {textFontOptions
+                .filter((f) => f.category === cat)
+                .map((f) => (
+                  <option key={f.value} value={f.value}>
+                    {f.label}
+                  </option>
+                ))}
+            </optgroup>
           ))}
         </SelectField>
         <div
@@ -11265,6 +11293,41 @@ function TextFieldStyleEditor({
             }
           >
             <Italic />
+          </button>
+          <span aria-hidden="true" />
+          <button
+            className={
+              (style.textTransform ?? "none") === "uppercase" ? "active" : ""
+            }
+            title="MAIÚSCULAS"
+            type="button"
+            onClick={() =>
+              onChange({
+                textTransform:
+                  (style.textTransform ?? "none") === "uppercase"
+                    ? "none"
+                    : "uppercase",
+              })
+            }
+          >
+            <span style={{ fontWeight: 700, fontSize: "0.7rem" }}>AA</span>
+          </button>
+          <button
+            className={
+              (style.textTransform ?? "none") === "lowercase" ? "active" : ""
+            }
+            title="minúsculas"
+            type="button"
+            onClick={() =>
+              onChange({
+                textTransform:
+                  (style.textTransform ?? "none") === "lowercase"
+                    ? "none"
+                    : "lowercase",
+              })
+            }
+          >
+            <span style={{ fontSize: "0.7rem" }}>aa</span>
           </button>
           <span aria-hidden="true" />
           <button
@@ -13730,10 +13793,10 @@ function mergeTextFieldStyle(
   patch?: Partial<TextFieldStyle>,
 ): TextFieldStyle {
   const fallback = defaultTextFieldStyles[field];
-  const fontFamily = textFontOptions.includes(
-    patch?.fontFamily ?? base?.fontFamily ?? fallback.fontFamily,
-  )
-    ? (patch?.fontFamily ?? base?.fontFamily ?? fallback.fontFamily)
+  const candidateFont =
+    patch?.fontFamily ?? base?.fontFamily ?? fallback.fontFamily;
+  const fontFamily = textFontOptions.some((f) => f.value === candidateFont)
+    ? candidateFont
     : fallback.fontFamily;
   return {
     fontFamily,
@@ -13962,6 +14025,210 @@ function textPresetPatch(
       verticalAnchor: "top",
       fontSize: 32,
       shadow: 46,
+    };
+  }
+  if (preset === "jazz-serif") {
+    return {
+      preset,
+      order: ["title", "artist", "album", "year", "version"],
+      fieldStyles: normalizeTextFieldStyles(undefined, {
+        title: {
+          fontFamily: "Playfair Display",
+          fontSize: 46,
+          fontWeight: 700,
+          fontStyle: "italic",
+          color: "#fff8ec",
+        },
+        artist: {
+          fontFamily: "Playfair Display",
+          fontSize: 26,
+          fontWeight: 400,
+          color: "#d6c89a",
+          opacity: 80,
+        },
+        album: {
+          fontFamily: "Inter",
+          fontSize: 16,
+          fontWeight: 700,
+          letterSpacing: 6,
+          textTransform: "uppercase",
+          opacity: 60,
+        },
+        year: {
+          fontFamily: "Inter",
+          fontSize: 14,
+          letterSpacing: 4,
+          textTransform: "uppercase",
+          opacity: 50,
+        },
+      }),
+      x: 8,
+      y: 78,
+      align: "left",
+      verticalAnchor: "top",
+      fontSize: 46,
+      shadow: 64,
+    };
+  }
+  if (preset === "bold-impact") {
+    return {
+      preset,
+      order: ["title", "artist", "version", "album", "year"],
+      fieldStyles: normalizeTextFieldStyles(undefined, {
+        title: {
+          fontFamily: "Oswald",
+          fontSize: 56,
+          fontWeight: 700,
+          textTransform: "uppercase",
+          color: "#ffffff",
+          letterSpacing: 2,
+        },
+        artist: {
+          fontFamily: "Oswald",
+          fontSize: 28,
+          fontWeight: 400,
+          textTransform: "uppercase",
+          letterSpacing: 4,
+          color: "#c8d0de",
+          opacity: 82,
+        },
+        album: {
+          fontFamily: "Inter",
+          fontSize: 16,
+          fontWeight: 700,
+          letterSpacing: 6,
+          textTransform: "uppercase",
+          opacity: 56,
+        },
+      }),
+      x: 6,
+      y: 72,
+      align: "left",
+      verticalAnchor: "top",
+      fontSize: 54,
+      shadow: 70,
+    };
+  }
+  if (preset === "cinzel-caps") {
+    return {
+      preset,
+      order: ["title", "artist", "album", "year", "version"],
+      fieldStyles: normalizeTextFieldStyles(undefined, {
+        title: {
+          fontFamily: "Cinzel",
+          fontSize: 40,
+          fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: 5,
+          color: "#f5edda",
+        },
+        artist: {
+          fontFamily: "Cinzel",
+          fontSize: 20,
+          fontWeight: 400,
+          textTransform: "uppercase",
+          letterSpacing: 8,
+          color: "#c9bfa0",
+          opacity: 74,
+        },
+        album: {
+          fontFamily: "Cinzel",
+          fontSize: 15,
+          fontWeight: 400,
+          textTransform: "uppercase",
+          letterSpacing: 6,
+          opacity: 56,
+        },
+      }),
+      x: 50,
+      y: 82,
+      align: "center",
+      verticalAnchor: "top",
+      fontSize: 38,
+      shadow: 62,
+    };
+  }
+  if (preset === "ambient-light") {
+    return {
+      preset,
+      order: ["title", "artist", "album", "year", "version"],
+      fieldStyles: normalizeTextFieldStyles(undefined, {
+        title: {
+          fontFamily: "Cormorant Garamond",
+          fontSize: 50,
+          fontWeight: 300,
+          fontStyle: "italic",
+          color: "#fffdf8",
+          letterSpacing: 1,
+        },
+        artist: {
+          fontFamily: "Cormorant Garamond",
+          fontSize: 24,
+          fontWeight: 400,
+          color: "#cfc9b4",
+          opacity: 76,
+        },
+        album: {
+          fontFamily: "Inter",
+          fontSize: 13,
+          fontWeight: 400,
+          letterSpacing: 5,
+          textTransform: "uppercase",
+          color: "#a09882",
+          opacity: 58,
+        },
+        year: {
+          fontFamily: "Inter",
+          fontSize: 12,
+          letterSpacing: 3,
+          textTransform: "uppercase",
+          opacity: 48,
+        },
+      }),
+      x: 50,
+      y: 88,
+      align: "center",
+      verticalAnchor: "bottom",
+      fontSize: 44,
+      shadow: 42,
+    };
+  }
+  if (preset === "minimal-grotesk") {
+    return {
+      preset,
+      order: ["title", "artist", "album", "year", "version"],
+      fieldStyles: normalizeTextFieldStyles(undefined, {
+        title: {
+          fontFamily: "Space Grotesk",
+          fontSize: 38,
+          fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: 3,
+          color: "#ffffff",
+        },
+        artist: {
+          fontFamily: "Space Grotesk",
+          fontSize: 20,
+          fontWeight: 400,
+          color: "#b2bccb",
+          letterSpacing: 1,
+          opacity: 78,
+        },
+        album: {
+          fontFamily: "Space Grotesk",
+          fontSize: 14,
+          fontWeight: 600,
+          letterSpacing: 4,
+          textTransform: "uppercase",
+          opacity: 56,
+        },
+      }),
+      x: 5,
+      y: 5,
+      align: "left",
+      verticalAnchor: "top",
+      fontSize: 38,
+      shadow: 44,
     };
   }
   return {

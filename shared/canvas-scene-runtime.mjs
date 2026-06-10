@@ -1672,7 +1672,7 @@ function drawMetadata(
       const lineHeight = fontSize * ((style.lineHeight ?? 118) / 100);
       return {
         field,
-        text: values[field],
+        text: applyTextTransform(values[field], style.textTransform),
         style,
         fontSize,
         lineHeight,
@@ -1739,7 +1739,20 @@ function mergeMetadataFieldStyle(field, style = {}) {
   return {
     ...fallback,
     ...style,
-    fontFamily: ["Inter", "Georgia", "Arial"].includes(style.fontFamily)
+    fontFamily: [
+      "Inter",
+      "Georgia",
+      "Arial",
+      "Playfair Display",
+      "Cormorant Garamond",
+      "DM Serif Display",
+      "Cinzel",
+      "Montserrat",
+      "Oswald",
+      "Raleway",
+      "Space Grotesk",
+      "Bebas Neue",
+    ].includes(style.fontFamily)
       ? style.fontFamily
       : fallback.fontFamily,
     fontSize: clampValue(style.fontSize, fallback.fontSize, 9, 96),
@@ -1757,6 +1770,11 @@ function mergeMetadataFieldStyle(field, style = {}) {
         ? style.color
         : fallback.color,
     opacity: clampValue(style.opacity, fallback.opacity, 0, 100),
+    textTransform: ["none", "uppercase", "lowercase"].includes(
+      style.textTransform,
+    )
+      ? style.textTransform
+      : (fallback.textTransform ?? "none"),
     fadeOut: normalizeTextFadeOut(style.fadeOut ?? fallback.fadeOut),
     align: ["left", "center", "right"].includes(style.align)
       ? style.align
@@ -1837,10 +1855,34 @@ function fontFamilyStack(fontFamily) {
       return "Georgia, 'Times New Roman', serif";
     case "Arial":
       return "Arial, sans-serif";
+    case "Playfair Display":
+      return "'Playfair Display', Georgia, serif";
+    case "Cormorant Garamond":
+      return "'Cormorant Garamond', Georgia, serif";
+    case "DM Serif Display":
+      return "'DM Serif Display', Georgia, serif";
+    case "Cinzel":
+      return "Cinzel, Georgia, serif";
+    case "Montserrat":
+      return "Montserrat, Inter, sans-serif";
+    case "Oswald":
+      return "Oswald, Inter, sans-serif";
+    case "Raleway":
+      return "Raleway, Inter, sans-serif";
+    case "Space Grotesk":
+      return "'Space Grotesk', Inter, sans-serif";
+    case "Bebas Neue":
+      return "'Bebas Neue', Impact, sans-serif";
     case "Inter":
     default:
       return "Inter, Arial, sans-serif";
   }
+}
+
+function applyTextTransform(text, transform) {
+  if (transform === "uppercase") return String(text).toUpperCase();
+  if (transform === "lowercase") return String(text).toLowerCase();
+  return text;
 }
 
 function applyLetterSpacing(value, spacing) {
