@@ -10827,6 +10827,96 @@ function TextProfiles({
   );
 }
 
+// 3×3 grid button whose icon is just a dot in the matching corner/edge/center
+const positionPickerIcons: Record<PositionPresetId, ReactNode> = {
+  "top-left": (
+    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="2" cy="2" r="2" fill="currentColor" />
+    </svg>
+  ),
+  "top-center": (
+    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="5" cy="2" r="2" fill="currentColor" />
+    </svg>
+  ),
+  "top-right": (
+    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="8" cy="2" r="2" fill="currentColor" />
+    </svg>
+  ),
+  "middle-left": (
+    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="2" cy="5" r="2" fill="currentColor" />
+    </svg>
+  ),
+  center: (
+    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="5" cy="5" r="2" fill="currentColor" />
+    </svg>
+  ),
+  "middle-right": (
+    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="8" cy="5" r="2" fill="currentColor" />
+    </svg>
+  ),
+  "bottom-left": (
+    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="2" cy="8" r="2" fill="currentColor" />
+    </svg>
+  ),
+  "bottom-center": (
+    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="5" cy="8" r="2" fill="currentColor" />
+    </svg>
+  ),
+  "bottom-right": (
+    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="8" cy="8" r="2" fill="currentColor" />
+    </svg>
+  ),
+};
+
+function TextPositionPicker({
+  textSettings,
+  onTextSettings,
+}: {
+  textSettings: TextOverlaySettings;
+  onTextSettings: (patch: Partial<TextOverlaySettings>) => void;
+}) {
+  // Derive the "active" grid cell from current x/y/anchor/align
+  const activePreset = (
+    Object.keys(textPositionPresets) as PositionPresetId[]
+  ).find((id) => {
+    const p = textPositionPresets[id];
+    return (
+      p.x === textSettings.x &&
+      p.y === textSettings.y &&
+      p.verticalAnchor === textSettings.verticalAnchor &&
+      p.align === textSettings.align
+    );
+  });
+  return (
+    <div className="text-position-picker">
+      {(
+        Object.entries(textPositionPresets) as [
+          PositionPresetId,
+          Partial<TextOverlaySettings>,
+        ][]
+      ).map(([id, preset]) => (
+        <button
+          key={id}
+          className={id === activePreset ? "is-active" : ""}
+          title={positionPresetOptions.find(([k]) => k === id)?.[1] ?? id}
+          type="button"
+          onClick={() => onTextSettings(preset)}
+        >
+          {positionPickerIcons[id]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function TextInspector({
   metadata,
   scene,
@@ -10874,26 +10964,6 @@ function TextInspector({
     });
   }
 
-  function applyGlobalStyleToVisibleFields() {
-    const nextStyles = { ...textSettings.fieldStyles };
-    for (const field of textFieldOrder) {
-      if (!textSettings.fields[field]) continue;
-      nextStyles[field] = {
-        fontFamily: textSettings.fontFamily,
-        fontSize: textSettings.fontSize,
-        fontWeight: textSettings.fontWeight,
-        fontStyle: "normal",
-        letterSpacing: textSettings.letterSpacing,
-        lineHeight: textSettings.lineHeight,
-        color: textSettings.color,
-        opacity: textSettings.opacity,
-        fadeOut: normalizeTextFadeOut(nextStyles[field].fadeOut),
-        align: textSettings.align === "justify" ? "left" : textSettings.align,
-      };
-    }
-    onTextSettings({ fieldStyles: nextStyles });
-  }
-
   return (
     <>
       <InspectorGroup title="Texto no vídeo" open>
@@ -10937,11 +11007,26 @@ function TextInspector({
         </div>
       </InspectorGroup>
       <InspectorGroup title="Tipografia e posição" open>
-        <TextProfiles current={textSettings} onApply={onTextSettings} />
         <div className="inspector-subsection">
-          <p className="inspector-kicker">Tipografia</p>
+          <div className="text-profiles-header">
+            <p className="inspector-kicker">Perfis de texto</p>
+            <button
+              className="icon-button"
+              title="Restaurar configuração padrão"
+              type="button"
+              onClick={() =>
+                onTextSettings(cloneTextSettings(defaultTextSettings))
+              }
+            >
+              <RotateCcw />
+            </button>
+          </div>
+          <TextProfiles current={textSettings} onApply={onTextSettings} />
+        </div>
+        <div className="inspector-subsection">
+          <p className="inspector-kicker">Layout</p>
           <SelectField
-            label="Preset"
+            label="Estilo de texto"
             value={textSettings.preset}
             onChange={(preset) =>
               onTextSettings(
@@ -10955,123 +11040,59 @@ function TextInspector({
               </option>
             ))}
           </SelectField>
-          <SelectField
-            label="Fonte"
-            value={textSettings.fontFamily}
-            onChange={(fontFamily) =>
-              onTextSettings({
-                fontFamily: fontFamily as TextOverlaySettings["fontFamily"],
-              })
-            }
-          >
-            <option value="Inter">Inter</option>
-            <option value="Georgia">Georgia</option>
-            <option value="Arial">Arial</option>
-          </SelectField>
-          <div className="two-columns">
-            <RangeField
-              label="Tamanho"
-              max={88}
-              min={12}
-              unit="px"
-              value={textSettings.fontSize}
-              onChange={(fontSize) => onTextSettings({ fontSize })}
-            />
-            <RangeField
-              label="Peso"
-              max={900}
-              min={300}
-              value={textSettings.fontWeight}
-              onChange={(fontWeight) => onTextSettings({ fontWeight })}
-            />
-          </div>
-          <div className="two-columns">
-            <RangeField
-              label="Espaçamento"
-              max={24}
-              min={-2}
-              unit="px"
-              value={textSettings.letterSpacing}
-              onChange={(letterSpacing) => onTextSettings({ letterSpacing })}
-            />
-            <RangeField
-              label="Altura"
-              max={180}
-              min={90}
-              unit="%"
-              value={textSettings.lineHeight}
-              onChange={(lineHeight) => onTextSettings({ lineHeight })}
-            />
-          </div>
-        </div>
-        <div className="inspector-subsection">
-          <p className="inspector-kicker">Cor</p>
-          <ColorInput
-            label="Cor"
-            value={textSettings.color}
-            onChange={(color) => onTextSettings({ color })}
-          />
-          <RangeField
-            label="Opacidade"
-            value={textSettings.opacity}
-            onChange={(opacity) => onTextSettings({ opacity })}
-          />
         </div>
         <div className="inspector-subsection">
           <p className="inspector-kicker">Posição</p>
-          <SelectField
-            label="Posição predefinida"
-            value=""
-            onChange={(preset) => {
-              const next = textPositionPresets[preset as PositionPresetId];
-              if (next) onTextSettings(next);
-            }}
-          >
-            <option value="">Escolher posição…</option>
-            {positionPresetOptions.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </SelectField>
-          <div className="two-columns">
-            <RangeField
-              label="Horizontal"
-              value={textSettings.x}
-              onChange={(x) => onTextSettings({ x })}
+          <div className="inspector-row-inline">
+            <TextPositionPicker
+              textSettings={textSettings}
+              onTextSettings={onTextSettings}
             />
-            <RangeField
-              label="Vertical"
-              value={textSettings.y}
-              onChange={(y) => onTextSettings({ y })}
-            />
+            <div className="inspector-col-fill">
+              <div className="two-columns">
+                <RangeField
+                  label="Horizontal"
+                  value={textSettings.x}
+                  onChange={(x) => onTextSettings({ x })}
+                />
+                <RangeField
+                  label="Vertical"
+                  value={textSettings.y}
+                  onChange={(y) => onTextSettings({ y })}
+                />
+              </div>
+              <div className="two-columns">
+                <SelectField
+                  label="Alinhamento"
+                  value={textSettings.align}
+                  onChange={(align) =>
+                    onTextSettings({
+                      align: align as TextOverlaySettings["align"],
+                    })
+                  }
+                >
+                  <option value="left">Esquerda</option>
+                  <option value="center">Centro</option>
+                  <option value="right">Direita</option>
+                  <option value="justify">Justificado</option>
+                </SelectField>
+                <SelectField
+                  label="Âncora"
+                  value={textSettings.verticalAnchor}
+                  onChange={(verticalAnchor) =>
+                    onTextSettings({
+                      verticalAnchor:
+                        verticalAnchor as TextOverlaySettings["verticalAnchor"],
+                    })
+                  }
+                >
+                  <option value="top">Topo</option>
+                  <option value="middle">Centro</option>
+                  <option value="bottom">Base</option>
+                </SelectField>
+              </div>
+            </div>
           </div>
-          <SelectField
-            label="Alinhamento"
-            value={textSettings.align}
-            onChange={(align) =>
-              onTextSettings({ align: align as TextOverlaySettings["align"] })
-            }
-          >
-            <option value="left">Esquerda</option>
-            <option value="center">Centro</option>
-            <option value="right">Direita</option>
-            <option value="justify">Justificado</option>
-          </SelectField>
-          <SelectField
-            label="Âncora vertical"
-            value={textSettings.verticalAnchor}
-            onChange={(verticalAnchor) =>
-              onTextSettings({
-                verticalAnchor:
-                  verticalAnchor as TextOverlaySettings["verticalAnchor"],
-              })
-            }
-          >
-            <option value="top">Topo</option>
-            <option value="middle">Centro</option>
-            <option value="bottom">Base</option>
-          </SelectField>
         </div>
         <div className="inspector-subsection">
           <p className="inspector-kicker">Fundo</p>
@@ -11088,7 +11109,7 @@ function TextInspector({
         </div>
         <div className="text-field-style-stack">
           <span className="inspector-kicker">
-            Campos do texto · ordem, exibição e estilo
+            Campos · ordem, visibilidade e estilo individual
           </span>
           {orderedFields.map((field, index) => (
             <TextFieldStyleEditor
@@ -11112,26 +11133,8 @@ function TextInspector({
             />
           ))}
         </div>
-        <div className="text-action-row">
-          <button
-            className="quiet-action"
-            type="button"
-            title="Restaurar a tipografia e a posição padrão deste texto"
-            onClick={() =>
-              onTextSettings(cloneTextSettings(defaultTextSettings))
-            }
-          >
-            <RotateCcw /> Reset
-          </button>
-          <button
-            className="quiet-action"
-            type="button"
-            title="Aplicar o estilo global aos campos de texto visíveis"
-            onClick={applyGlobalStyleToVisibleFields}
-          >
-            <Check /> Aplicar
-          </button>
-          {onApplyBatch && (
+        {onApplyBatch && (
+          <div className="text-action-row">
             <button
               className="upload-action"
               type="button"
@@ -11140,8 +11143,8 @@ function TextInspector({
             >
               <Layers3 /> Aplicar a todos
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </InspectorGroup>
     </>
   );
@@ -11946,6 +11949,9 @@ function RangeField({
   unit?: string;
 }) {
   const [dragging, setDragging] = useState(false);
+  // Draft keeps the raw text while the user is typing so we don't commit
+  // intermediate states (e.g. clearing the field before typing a new number).
+  const [draft, setDraft] = useState<string | null>(null);
   const commitValue = (next: number) =>
     onChange(clampNumber(next, min, max, value));
   const fineValue = Number.isFinite(value)
@@ -11967,8 +11973,22 @@ function RangeField({
             min={min}
             step={step}
             type="number"
-            value={fineValue}
-            onChange={(event) => commitValue(Number(event.target.value))}
+            value={draft !== null ? draft : fineValue}
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={() => {
+              if (draft !== null) {
+                commitValue(Number(draft));
+                setDraft(null);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && draft !== null) {
+                commitValue(Number(draft));
+                setDraft(null);
+              } else if (event.key === "Escape") {
+                setDraft(null);
+              }
+            }}
           />
           {unit && <i>{unit}</i>}
         </span>

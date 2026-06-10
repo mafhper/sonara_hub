@@ -22,7 +22,16 @@ export async function saveJobHistory(filePath, jobs, limit = 50) {
   const tempPath = `${filePath}.tmp`;
   const recent = [...jobs].slice(-limit);
   await fs.writeFile(tempPath, `${JSON.stringify(recent, null, 2)}\n`, "utf8");
-  await fs.rename(tempPath, filePath);
+  try {
+    await fs.rename(tempPath, filePath);
+  } catch (err) {
+    // On Windows, rename can fail with EPERM when the destination is locked by
+    // another process (antivirus, OneDrive sync, etc.). Fall back to copyFile +
+    // unlink which works even when the destination is open.
+    if (err?.code !== "EPERM" && err?.code !== "EBUSY") throw err;
+    await fs.copyFile(tempPath, filePath);
+    await fs.unlink(tempPath).catch(() => undefined);
+  }
 }
 
 export function restoreInterruptedJobs(jobs, now = new Date(), options = {}) {
