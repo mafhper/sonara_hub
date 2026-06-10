@@ -4484,6 +4484,9 @@ function App() {
             onThumbnailMode={(trackId, thumbnailPreviewMode) =>
               updateTrackDraft(trackId, { thumbnailPreviewMode })
             }
+            onThumbnailTime={(trackId, thumbnailTime) =>
+              updateTrackDraft(trackId, { thumbnailTime })
+            }
             outputLabel={selectedOutput[1]}
             showMetadata={showMetadata}
             tracks={reviewTracks}
@@ -4496,6 +4499,7 @@ function App() {
             excludedTrackIds={publicationExcludedTrackIds}
             jobs={jobs}
             preset={selectedPublicationPreset}
+            previewAudioSrc={audioSrc}
             previewComposition={selectedTrack ? previewComposition : null}
             previewTrack={selectedTrack}
             queuePaused={queuePaused}
@@ -6176,6 +6180,7 @@ function PublicationAssetsWorkspace({
   jobs,
   lyricsPreviewText,
   preset,
+  previewAudioSrc,
   previewComposition,
   previewTrack,
   queuePaused,
@@ -6204,6 +6209,7 @@ function PublicationAssetsWorkspace({
   jobs: RenderJob[];
   lyricsPreviewText: string;
   preset: PublicationAssetPreset;
+  previewAudioSrc: string;
   // Effective composition from the same resolver the export uses, so the
   // preview shows exactly what the visual/text steps configured.
   previewComposition: {
@@ -6422,26 +6428,54 @@ function PublicationAssetsWorkspace({
             style={{ aspectRatio: `${preset.width} / ${preset.height}` }}
           >
             {previewTrack && previewComposition?.scene ? (
-              <CompositionThumbnail
-                className="publication-preview-render"
-                coverSrc={previewComposition.cover?.src}
-                durationSeconds={previewTrack.audioInfo?.durationSeconds}
-                fingerprint={`${thumbnailFingerprint(
-                  previewTrack,
-                  previewComposition.cover?.src,
-                  previewComposition.showMetadata,
-                )}:txt${selectedSettings.textScale},${selectedSettings.textOffsetX},${selectedSettings.textOffsetY},${selectedSettings.hideText ? 1 : 0}`}
-                height={previewHeight}
-                layers={previewComposition.layers}
-                metadata={previewComposition.metadata ?? previewTrack.metadata}
-                scene={previewComposition.scene}
-                showMetadata={previewComposition.showMetadata}
-                textSettings={applyPublicationTextOverride(
-                  previewComposition.textSettings ?? previewTrack.textSettings,
-                  selectedSettings,
-                )}
-                width={previewWidth}
-              />
+              preset.kind === "clip" && previewAudioSrc ? (
+                <CompositionLivePreview
+                  className="publication-preview-render publication-live-preview"
+                  audioSrc={previewAudioSrc}
+                  clipDuration={selectedSettings.clipDuration}
+                  clipStart={selectedSettings.clipStart}
+                  coverSrc={previewComposition.cover?.src}
+                  durationSeconds={previewTrack.audioInfo?.durationSeconds}
+                  layers={previewComposition.layers}
+                  metadata={
+                    previewComposition.metadata ?? previewTrack.metadata
+                  }
+                  scene={previewComposition.scene}
+                  showMetadata={previewComposition.showMetadata}
+                  textSettings={applyPublicationTextOverride(
+                    previewComposition.textSettings ??
+                      previewTrack.textSettings,
+                    selectedSettings,
+                  )}
+                />
+              ) : (
+                <CompositionThumbnail
+                  className="publication-preview-render"
+                  coverSrc={previewComposition.cover?.src}
+                  durationSeconds={previewTrack.audioInfo?.durationSeconds}
+                  fingerprint={`${thumbnailFingerprint(
+                    previewTrack,
+                    previewComposition.cover?.src,
+                    previewComposition.showMetadata,
+                  )}:txt${selectedSettings.textScale},${selectedSettings.textOffsetX},${selectedSettings.textOffsetY},${selectedSettings.hideText ? 1 : 0}`}
+                  frameTime={
+                    preset.kind === "image" ? selectedSettings.clipStart : 7.5
+                  }
+                  height={previewHeight}
+                  layers={previewComposition.layers}
+                  metadata={
+                    previewComposition.metadata ?? previewTrack.metadata
+                  }
+                  scene={previewComposition.scene}
+                  showMetadata={previewComposition.showMetadata}
+                  textSettings={applyPublicationTextOverride(
+                    previewComposition.textSettings ??
+                      previewTrack.textSettings,
+                    selectedSettings,
+                  )}
+                  width={previewWidth}
+                />
+              )
             ) : (
               <span className="publication-preview-empty">
                 {preset.kind === "clip" ? <Video /> : <Image />}
@@ -7997,6 +8031,7 @@ function VideoReviewGrid({
   onEditVisual,
   onSelectTrack,
   onThumbnailMode,
+  onThumbnailTime,
   outputLabel,
   showMetadata,
   tracks,
@@ -8009,10 +8044,17 @@ function VideoReviewGrid({
     trackId: string,
     mode: TrackDraft["thumbnailPreviewMode"],
   ) => void;
+  onThumbnailTime: (trackId: string, seconds: number) => void;
   outputLabel: string;
   showMetadata: boolean;
   tracks: TrackDraft[];
 }) {
+  // Which card is playing live: hover gives a muted animated preview, the
+  // overlay button switches to persistent playback with audio (one at a time).
+  const [livePreview, setLivePreview] = useState<{
+    trackId: string;
+    withAudio: boolean;
+  } | null>(null);
   return (
     <div className="review-stage video-review">
       <header className="review-stage-header">
@@ -8030,38 +8072,106 @@ function VideoReviewGrid({
           {tracks.map((track) => {
             const coverSrc = coverForTrack(track)?.src;
             const selected = track.id === selectedTrackId;
+            const audioSrc = trackAudioSrc(track);
+            const live =
+              livePreview?.trackId === track.id &&
+              track.thumbnailPreviewMode === "composition" &&
+              Boolean(audioSrc);
             return (
               <article
                 className={`youtube-card ${selected ? "selected" : ""}`}
                 key={track.id}
               >
-                <button
-                  className="youtube-thumbnail"
-                  type="button"
-                  onClick={() => onSelectTrack(track.id)}
+                <div
+                  className="youtube-thumbnail-shell"
+                  onMouseEnter={() =>
+                    setLivePreview((current) =>
+                      current?.withAudio
+                        ? current
+                        : { trackId: track.id, withAudio: false },
+                    )
+                  }
+                  onMouseLeave={() =>
+                    setLivePreview((current) =>
+                      current &&
+                      current.trackId === track.id &&
+                      !current.withAudio
+                        ? null
+                        : current,
+                    )
+                  }
                 >
-                  {track.thumbnailPreviewMode === "composition" ? (
-                    <CompositionThumbnail
-                      coverSrc={coverSrc}
-                      durationSeconds={track.audioInfo?.durationSeconds}
-                      fingerprint={thumbnailFingerprint(
-                        track,
-                        coverSrc,
-                        showMetadata,
-                      )}
-                      layers={track.layers}
-                      metadata={track.metadata}
-                      scene={track.scene}
-                      showMetadata={showMetadata}
-                      textSettings={track.textSettings}
-                    />
-                  ) : (
-                    <ArtworkFrame artworkSrc={coverSrc} />
-                  )}
-                  <span className="youtube-duration">
-                    {formatDuration(track.audioInfo?.durationSeconds)}
-                  </span>
-                </button>
+                  <div
+                    className="youtube-thumbnail"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onSelectTrack(track.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        onSelectTrack(track.id);
+                      }
+                    }}
+                  >
+                    {live ? (
+                      <CompositionLivePreview
+                        autoPlay
+                        className="composition-live-preview youtube-live-preview"
+                        audioSrc={audioSrc}
+                        durationSeconds={track.audioInfo?.durationSeconds}
+                        coverSrc={coverSrc}
+                        layers={track.layers}
+                        metadata={track.metadata}
+                        muted={!livePreview?.withAudio}
+                        scene={track.scene}
+                        showMetadata={showMetadata}
+                        textSettings={track.textSettings}
+                      />
+                    ) : track.thumbnailPreviewMode === "composition" ? (
+                      <CompositionThumbnail
+                        coverSrc={coverSrc}
+                        durationSeconds={track.audioInfo?.durationSeconds}
+                        fingerprint={thumbnailFingerprint(
+                          track,
+                          coverSrc,
+                          showMetadata,
+                        )}
+                        frameTime={track.thumbnailTime ?? 7.5}
+                        layers={track.layers}
+                        metadata={track.metadata}
+                        scene={track.scene}
+                        showMetadata={showMetadata}
+                        textSettings={track.textSettings}
+                      />
+                    ) : (
+                      <ArtworkFrame artworkSrc={coverSrc} />
+                    )}
+                    <span className="youtube-duration">
+                      {formatDuration(track.audioInfo?.durationSeconds)}
+                    </span>
+                  </div>
+                  {track.thumbnailPreviewMode === "composition" &&
+                    Boolean(audioSrc) && (
+                      <button
+                        aria-label={
+                          live && livePreview?.withAudio
+                            ? "Parar reprodução"
+                            : "Tocar com áudio"
+                        }
+                        className="youtube-live-toggle"
+                        type="button"
+                        onClick={() =>
+                          setLivePreview((current) =>
+                            current?.trackId === track.id && current.withAudio
+                              ? null
+                              : { trackId: track.id, withAudio: true },
+                          )
+                        }
+                      >
+                        {live && livePreview?.withAudio ? <Pause /> : <Play />}
+                      </button>
+                    )}
+                </div>
                 <div className="youtube-card-copy">
                   <strong>
                     {track.metadata.title || "Título não informado"}
@@ -8144,6 +8254,29 @@ function VideoReviewGrid({
                     Capa
                   </button>
                 </div>
+                {selected &&
+                  track.thumbnailPreviewMode === "composition" &&
+                  !live && (
+                    <label className="thumbnail-frame-picker">
+                      <span>
+                        Frame da miniatura ·{" "}
+                        {formatDuration(track.thumbnailTime ?? 7.5)}
+                      </span>
+                      <input
+                        max={Math.max(
+                          10,
+                          Math.floor(track.audioInfo?.durationSeconds ?? 60),
+                        )}
+                        min={0}
+                        step={1}
+                        type="range"
+                        value={track.thumbnailTime ?? 7.5}
+                        onChange={(event) =>
+                          onThumbnailTime(track.id, Number(event.target.value))
+                        }
+                      />
+                    </label>
+                  )}
                 {selected && (
                   <div className="video-card-options">
                     <button
@@ -8182,6 +8315,7 @@ function CompositionThumbnail({
   textSettings,
   width = 320,
   height = 180,
+  frameTime = 7.5,
   className = "composition-thumbnail",
 }: {
   coverSrc?: string;
@@ -8194,13 +8328,15 @@ function CompositionThumbnail({
   textSettings: TextOverlaySettings;
   width?: number;
   height?: number;
+  frameTime?: number;
   className?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = useState(false);
-  // Cache by composition fingerprint AND canvas size, so a 16:9 preview never
-  // gets reused for a vertical/square asset request and vice versa.
-  const cacheKey = `${fingerprint}@${width}x${height}`;
+  // Cache by composition fingerprint, canvas size AND frame time, so a 16:9
+  // preview never gets reused for a vertical/square asset request (or another
+  // chosen frame) and vice versa.
+  const cacheKey = `${fingerprint}@${width}x${height}@t${frameTime}`;
   const [previewSrc, setPreviewSrc] = useState(
     () => compositionThumbnailCache.get(cacheKey) ?? "",
   );
@@ -8229,7 +8365,7 @@ function CompositionThumbnail({
           if (!active || !canvas) return;
           runtime = createSceneRuntime(canvas, scene, composition);
           runtime.resize(width, height);
-          runtime.render(7.5);
+          runtime.render(frameTime);
           const nextPreview = canvas.toDataURL("image/jpeg", 0.82);
           compositionThumbnailCache.set(cacheKey, nextPreview);
           if (
@@ -8256,6 +8392,7 @@ function CompositionThumbnail({
     cacheKey,
     coverSrc,
     durationSeconds,
+    frameTime,
     height,
     layers,
     metadata,
@@ -8283,6 +8420,261 @@ function CompositionThumbnail({
         width={width}
       />
     </span>
+  );
+}
+
+// Animated, audio-reactive preview of the composition: plays the real audio
+// inside the clip window (clipStart..clipStart+clipDuration; null duration
+// previews to the end of the track) and renders the shared scene runtime per
+// frame, with play/pause and a scrubber. Used to check clips before exporting.
+function CompositionLivePreview({
+  audioSrc,
+  autoPlay = false,
+  className = "composition-live-preview",
+  clipStart = 0,
+  clipDuration = null,
+  coverSrc,
+  durationSeconds,
+  layers,
+  metadata,
+  muted = false,
+  scene,
+  showMetadata,
+  textSettings,
+}: {
+  audioSrc: string;
+  autoPlay?: boolean;
+  className?: string;
+  clipStart?: number;
+  clipDuration?: number | null;
+  coverSrc?: string;
+  durationSeconds?: number | null;
+  layers: MediaLayerV2[];
+  metadata: TrackMetadata;
+  muted?: boolean;
+  scene: ScenePresetV3;
+  showMetadata: boolean;
+  textSettings: TextOverlaySettings;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const audioElRef = useRef<HTMLAudioElement>(null);
+  const runtimeRef = useRef<ReturnType<typeof createSceneRuntime> | undefined>(
+    undefined,
+  );
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const windowStart = Math.max(0, clipStart);
+  const windowLength = Math.max(
+    1,
+    Math.min(
+      clipDuration ?? Number.POSITIVE_INFINITY,
+      Math.max(1, (durationSeconds ?? windowStart + 30) - windowStart),
+    ),
+  );
+  const windowStartRef = useRef(windowStart);
+  const windowEndRef = useRef(windowStart + windowLength);
+  windowStartRef.current = windowStart;
+  windowEndRef.current = windowStart + windowLength;
+  const [playing, setPlaying] = useState(false);
+  const [position, setPosition] = useState(0);
+
+  useEffect(() => {
+    runtimeRef.current?.setScene(scene);
+  }, [scene]);
+
+  useEffect(() => {
+    let active = true;
+    void loadMediaElements({
+      coverSrc,
+      durationSeconds,
+      layers: layers.map((layer) => ({ ...layer, src: layer.src })),
+      metadata,
+      showMetadata,
+      textSettings,
+    }).then((composition) => {
+      if (active) runtimeRef.current?.setComposition(composition);
+    });
+    return () => {
+      active = false;
+    };
+  }, [coverSrc, durationSeconds, layers, metadata, showMetadata, textSettings]);
+
+  // Seek to the window start whenever the window moves while paused, so the
+  // shown frame always matches the configured clip start.
+  useEffect(() => {
+    const audio = audioElRef.current;
+    if (audio && audio.paused) {
+      audio.currentTime = windowStart;
+      setPosition(0);
+    }
+  }, [windowStart]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const audio = audioElRef.current;
+    if (!canvas || !audio) return;
+    const runtime = createSceneRuntime(canvas, scene, {});
+    runtimeRef.current = runtime;
+    const frequency = new Uint8Array(1024);
+    const samples = new Uint8Array(2048);
+    let frame = 0;
+    const draw = () => {
+      const analyser = analyserRef.current;
+      if (analyser && !audio.paused) {
+        analyser.getByteFrequencyData(frequency);
+        analyser.getByteTimeDomainData(samples);
+        const average = (from: number, to: number) => {
+          let total = 0;
+          for (let index = from; index < to; index += 1)
+            total += frequency[index];
+          return total / Math.max(1, to - from) / 255;
+        };
+        runtime.setAudio({
+          low: average(0, 18),
+          mid: average(18, 74),
+          high: average(74, frequency.length),
+          samples: Array.from(samples)
+            .filter((_, index) => index % 6 === 0)
+            .map((value) => (value - 128) / 128),
+          spectrum: Array.from({ length: 24 }, (_, index) => {
+            const start = Math.floor(
+              Math.pow(index / 24, 2.15) * frequency.length,
+            );
+            const end = Math.max(
+              start + 1,
+              Math.floor(Math.pow((index + 1) / 24, 2.15) * frequency.length),
+            );
+            return average(start, Math.min(frequency.length, end));
+          }),
+        });
+      }
+      const current = Number.isFinite(audio.currentTime)
+        ? audio.currentTime
+        : windowStartRef.current;
+      if (!audio.paused && current >= windowEndRef.current) {
+        audio.currentTime = windowStartRef.current;
+      }
+      const scale = Math.min(1.5, window.devicePixelRatio || 1);
+      runtime.resize(canvas.clientWidth * scale, canvas.clientHeight * scale);
+      runtime.render(Math.max(windowStartRef.current, current));
+      frame = window.requestAnimationFrame(draw);
+    };
+    draw();
+    const handleTime = () =>
+      setPosition(
+        Math.max(0, (audio.currentTime ?? 0) - windowStartRef.current),
+      );
+    const handlePlay = () => setPlaying(true);
+    const handlePause = () => setPlaying(false);
+    const handleMetadata = () => {
+      if (audio.paused) audio.currentTime = windowStartRef.current;
+    };
+    audio.addEventListener("timeupdate", handleTime);
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("loadedmetadata", handleMetadata);
+    if (autoPlay) {
+      audio.muted = true;
+      void audio.play().catch(() => undefined);
+    }
+    return () => {
+      window.cancelAnimationFrame(frame);
+      audio.removeEventListener("timeupdate", handleTime);
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("loadedmetadata", handleMetadata);
+      audio.pause();
+      runtime.destroy();
+      runtimeRef.current = undefined;
+      void audioContextRef.current?.close().catch(() => undefined);
+      audioContextRef.current = null;
+      analyserRef.current = null;
+    };
+    // The runtime/audio graph lives for the component's lifetime; scene and
+    // composition updates flow through the effects above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const audio = audioElRef.current;
+    if (!audio) return;
+    audio.muted = muted;
+    if (!muted) {
+      // Unmuting implies a user gesture; wire the analyser so the waveform
+      // reacts to the audible audio.
+      ensureAudioGraph();
+      void audioContextRef.current?.resume().catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [muted]);
+
+  function ensureAudioGraph() {
+    const audio = audioElRef.current;
+    if (!audio || audioContextRef.current) return;
+    try {
+      const context = new AudioContext();
+      const source = context.createMediaElementSource(audio);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      analyser.connect(context.destination);
+      audioContextRef.current = context;
+      analyserRef.current = analyser;
+    } catch {
+      // Audio graph is an enhancement (reactive waveform); playback works
+      // without it.
+    }
+  }
+
+  function togglePlay() {
+    const audio = audioElRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      ensureAudioGraph();
+      void audioContextRef.current?.resume().catch(() => undefined);
+      if (
+        audio.currentTime < windowStartRef.current ||
+        audio.currentTime >= windowEndRef.current
+      ) {
+        audio.currentTime = windowStartRef.current;
+      }
+      void audio.play().catch(() => undefined);
+    } else {
+      audio.pause();
+    }
+  }
+
+  return (
+    <div className={className}>
+      <canvas ref={canvasRef} />
+      <audio preload="metadata" ref={audioElRef} src={audioSrc} />
+      <div className="live-preview-controls">
+        <button
+          aria-label={playing ? "Pausar prévia" : "Tocar prévia"}
+          type="button"
+          onClick={togglePlay}
+        >
+          {playing ? <Pause /> : <Play />}
+        </button>
+        <input
+          aria-label="Posição da prévia do clipe"
+          max={Math.round(windowLength * 10) / 10}
+          min={0}
+          step={0.1}
+          type="range"
+          value={Math.min(position, windowLength)}
+          onChange={(event) => {
+            const audio = audioElRef.current;
+            const next = Number(event.target.value);
+            setPosition(next);
+            if (audio) audio.currentTime = windowStartRef.current + next;
+          }}
+        />
+        <span>
+          {formatDuration(windowStart + Math.min(position, windowLength))}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -10902,10 +11294,25 @@ function PublicationInspector({
               />
             </>
           ) : (
-            <p className="helper-copy">
-              Imagens usam a composição visual completa; os controles de trecho
-              só se aplicam a clips.
-            </p>
+            <>
+              <NumberStepField
+                label="Frame do pôster"
+                max={300}
+                min={0}
+                step={1}
+                unit="s"
+                value={assetSettings.clipStart}
+                onChange={(clipStart) =>
+                  onAssetSettings({
+                    clipStart: clampPublicationClipStart(clipStart),
+                  })
+                }
+              />
+              <p className="helper-copy">
+                A imagem é renderizada neste segundo da composição — escolha o
+                frame que quer congelar.
+              </p>
+            </>
           )}
           <SelectField
             label="Letra deste asset"
@@ -13596,6 +14003,17 @@ function clampPanelWidth(
   );
   const max = Math.min(bounds.max, viewportLimitedMax);
   return Math.round(Math.min(Math.max(value, bounds.min), max));
+}
+
+// Same audio source resolution the player uses, so previews can play a track
+// whether it came from the internal input/ folder or an uploaded file.
+function trackAudioSrc(track: TrackDraft) {
+  return (
+    track.sourceUrl ??
+    (track.source === "input"
+      ? `/api/audio/${encodeURIComponent(track.sourceKey)}`
+      : "")
+  );
 }
 
 function thumbnailFingerprint(

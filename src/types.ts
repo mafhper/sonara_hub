@@ -253,6 +253,8 @@ export type TrackDraft = {
   lyricsOptions?: LyricsSuggestion[];
   lyricsSourcePath?: string;
   thumbnailPreviewMode: "composition" | "cover";
+  // Second of the composition used as the thumbnail frame in the review grid.
+  thumbnailTime?: number;
   // Per-track override for the numbered cover series. When null/undefined the
   // track follows the global coverSeriesSettings; when set, it wins for this
   // track only (preview and output).
@@ -368,6 +370,7 @@ export type ProjectSnapshot = {
     coverOverride?: ProjectSnapshotArtwork | null;
     coverOverrideAssetId?: string;
     thumbnailPreviewMode?: TrackDraft["thumbnailPreviewMode"];
+    thumbnailTime?: number;
     coverSeriesOverride?: CoverSeriesSettings | null;
   }>;
 };
