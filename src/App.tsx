@@ -4574,6 +4574,12 @@ function App() {
             onStopExport={() => stopPublicationExport()}
             onTogglePreset={togglePublicationPreset}
             onToggleTrack={togglePublicationTrack}
+            onAssetSettings={(patch) =>
+              updatePublicationAssetOverride(publicationPresetId, patch)
+            }
+            onUpdateLayer={(trackId, patch) =>
+              updateSelectedTrack({ ...selectedTrack, ...patch })
+            }
           />
         ) : workspaceMode === "visual" && visualStageView === "queue" ? (
           <VideoExportWorkspace
@@ -6351,6 +6357,8 @@ function PublicationAssetsWorkspace({
   onStopExport,
   onTogglePreset,
   onToggleTrack,
+  onAssetSettings,
+  onUpdateLayer,
 }: {
   assetMode: PublicationAssetMode;
   exportCount: number;
@@ -6389,6 +6397,8 @@ function PublicationAssetsWorkspace({
   onStopExport: () => void;
   onTogglePreset: (presetId: string) => void;
   onToggleTrack: (id: string) => void;
+  onAssetSettings: (patch: Partial<PublicationAssetSettings>) => void;
+  onUpdateLayer: (trackId: string, patch: { layers: MediaLayerV2[] }) => void;
 }) {
   const publicationJobs = jobs.filter(
     (job) => job.kind === "publication-asset",
@@ -6578,54 +6588,110 @@ function PublicationAssetsWorkspace({
             style={{ aspectRatio: `${preset.width} / ${preset.height}` }}
           >
             {previewTrack && previewComposition?.scene ? (
-              preset.kind === "clip" && previewAudioSrc ? (
-                <CompositionLivePreview
-                  className="publication-preview-render publication-live-preview"
-                  audioSrc={previewAudioSrc}
-                  clipDuration={selectedSettings.clipDuration}
-                  clipStart={selectedSettings.clipStart}
-                  coverSrc={previewComposition.cover?.src}
-                  durationSeconds={previewTrack.audioInfo?.durationSeconds}
-                  layers={previewComposition.layers}
-                  metadata={
-                    previewComposition.metadata ?? previewTrack.metadata
+              <>
+                {preset.kind === "clip" && previewAudioSrc ? (
+                  <CompositionLivePreview
+                    className="publication-preview-render publication-live-preview"
+                    audioSrc={previewAudioSrc}
+                    clipDuration={selectedSettings.clipDuration}
+                    clipStart={selectedSettings.clipStart}
+                    coverSrc={previewComposition.cover?.src}
+                    durationSeconds={previewTrack.audioInfo?.durationSeconds}
+                    layers={previewComposition.layers}
+                    metadata={
+                      previewComposition.metadata ?? previewTrack.metadata
+                    }
+                    scene={previewComposition.scene}
+                    showMetadata={previewComposition.showMetadata}
+                    textSettings={applyPublicationTextOverride(
+                      previewComposition.textSettings ??
+                        previewTrack.textSettings,
+                      selectedSettings,
+                    )}
+                  />
+                ) : (
+                  <CompositionThumbnail
+                    className="publication-preview-render"
+                    coverSrc={previewComposition.cover?.src}
+                    durationSeconds={previewTrack.audioInfo?.durationSeconds}
+                    fingerprint={`${thumbnailFingerprint(
+                      previewTrack,
+                      previewComposition.cover?.src,
+                      previewComposition.showMetadata,
+                    )}:txt${selectedSettings.textScale},${selectedSettings.textOffsetX},${selectedSettings.textOffsetY},${selectedSettings.hideText ? 1 : 0}`}
+                    frameTime={
+                      preset.kind === "image" ? selectedSettings.clipStart : 7.5
+                    }
+                    height={previewHeight}
+                    layers={previewComposition.layers}
+                    metadata={
+                      previewComposition.metadata ?? previewTrack.metadata
+                    }
+                    scene={previewComposition.scene}
+                    showMetadata={previewComposition.showMetadata}
+                    textSettings={applyPublicationTextOverride(
+                      previewComposition.textSettings ??
+                        previewTrack.textSettings,
+                      selectedSettings,
+                    )}
+                    width={previewWidth}
+                  />
+                )}
+                <CanvasInteractionOverlay
+                  layers={previewComposition.layers ?? []}
+                  showMetadata={previewComposition.showMetadata ?? true}
+                  textSettings={{
+                    ...(previewComposition.textSettings ??
+                      previewTrack.textSettings),
+                    x:
+                      (previewComposition.textSettings?.x ??
+                        previewTrack.textSettings.x) +
+                      selectedSettings.textOffsetX,
+                    y:
+                      (previewComposition.textSettings?.y ??
+                        previewTrack.textSettings.y) +
+                      selectedSettings.textOffsetY,
+                  }}
+                  onUpdateLayer={(id, patch) =>
+                    onUpdateLayer(previewTrack!.id, {
+                      layers: previewTrack.layers.map((l) =>
+                        l.id === id ? { ...l, ...patch } : l,
+                      ),
+                    })
                   }
-                  scene={previewComposition.scene}
-                  showMetadata={previewComposition.showMetadata}
-                  textSettings={applyPublicationTextOverride(
-                    previewComposition.textSettings ??
-                      previewTrack.textSettings,
-                    selectedSettings,
-                  )}
+                  onUpdateTextSettings={(patch) => {
+                    if (!previewTrack) return;
+                    if ("x" in patch) {
+                      onAssetSettings({
+                        textOffsetX:
+                          (patch.x ?? 50) -
+                          (previewComposition.textSettings?.x ??
+                            previewTrack.textSettings.x),
+                      });
+                    }
+                    if ("y" in patch) {
+                      onAssetSettings({
+                        textOffsetY:
+                          (patch.y ?? 50) -
+                          (previewComposition.textSettings?.y ??
+                            previewTrack.textSettings.y),
+                      });
+                    }
+                    if ("fontSize" in patch) {
+                      const baseFontSize =
+                        previewComposition.textSettings?.fontSize ??
+                        previewTrack.textSettings.fontSize;
+                      if (baseFontSize > 0) {
+                        onAssetSettings({
+                          textScale:
+                            Math.round((patch.fontSize! / baseFontSize) * 100) /
+                            100,
+                        });
+                      }
+                    }
+                  }}
                 />
-              ) : (
-                <CompositionThumbnail
-                  className="publication-preview-render"
-                  coverSrc={previewComposition.cover?.src}
-                  durationSeconds={previewTrack.audioInfo?.durationSeconds}
-                  fingerprint={`${thumbnailFingerprint(
-                    previewTrack,
-                    previewComposition.cover?.src,
-                    previewComposition.showMetadata,
-                  )}:txt${selectedSettings.textScale},${selectedSettings.textOffsetX},${selectedSettings.textOffsetY},${selectedSettings.hideText ? 1 : 0}`}
-                  frameTime={
-                    preset.kind === "image" ? selectedSettings.clipStart : 7.5
-                  }
-                  height={previewHeight}
-                  layers={previewComposition.layers}
-                  metadata={
-                    previewComposition.metadata ?? previewTrack.metadata
-                  }
-                  scene={previewComposition.scene}
-                  showMetadata={previewComposition.showMetadata}
-                  textSettings={applyPublicationTextOverride(
-                    previewComposition.textSettings ??
-                      previewTrack.textSettings,
-                    selectedSettings,
-                  )}
-                  width={previewWidth}
-                />
-              )
+              </>
             ) : (
               <span className="publication-preview-empty">
                 {preset.kind === "clip" ? <Video /> : <Image />}
