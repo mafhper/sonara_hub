@@ -7,9 +7,16 @@ import {
 import {
   type CanvasDragState,
   type CanvasHitTarget,
+  type CanvasResizeState,
+  type ResizeCorner,
   clampPct,
+  clampScale,
+  computeResizeScale,
   hitTestCanvas,
+  hitTestResizeCorner,
+  layerBoundingBox,
   pointerToPct,
+  textBoundingBox,
 } from "./canvas-interaction";
 import type { MediaLayerV2, TextOverlaySettings } from "./types";
 
@@ -21,6 +28,21 @@ interface Props {
   onUpdateTextSettings: (patch: Partial<TextOverlaySettings>) => void;
 }
 
+type InteractionState =
+  | { mode: "idle" }
+  | ({ mode: "dragging" } & CanvasDragState)
+  | ({ mode: "resizing" } & CanvasResizeState);
+
+const RESIZE_CORNERS: Array<{
+  corner: ResizeCorner;
+  cursor: string;
+}> = [
+  { corner: "nw", cursor: "nwse-resize" },
+  { corner: "ne", cursor: "nesw-resize" },
+  { corner: "se", cursor: "nwse-resize" },
+  { corner: "sw", cursor: "nesw-resize" },
+];
+
 export function CanvasInteractionOverlay({
   layers,
   showMetadata,
@@ -29,11 +51,16 @@ export function CanvasInteractionOverlay({
   onUpdateTextSettings,
 }: Props) {
   const overlayRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<CanvasDragState | null>(null);
   const [selection, setSelection] = useState<CanvasHitTarget | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const [interaction, setInteraction] = useState<InteractionState>({
+    mode: "idle",
+  });
+  const interactionRef = useRef<InteractionState>({ mode: "idle" });
 
-  // Drop stale layer selection when the layer set changes (e.g. track switch).
+  useEffect(() => {
+    interactionRef.current = interaction;
+  }, [interaction]);
+
   useEffect(() => {
     if (selection?.kind === "layer") {
       const still = layers.some((l) => l.id === selection.id);
@@ -41,11 +68,85 @@ export function CanvasInteractionOverlay({
     }
   }, [layers, selection]);
 
-  function handlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
-    const rect = overlayRef.current?.getBoundingClientRect();
-    if (!rect) return;
+  function getCanvasRect(): DOMRect | undefined {
+    return overlayRef.current?.getBoundingClientRect();
+  }
 
+  function getSelectedLayer(): MediaLayerV2 | undefined {
+    if (selection?.kind !== "layer") return undefined;
+    return layers.find((l) => l.id === selection.id);
+  }
+
+  function getSelectedBox(rect: DOMRect): {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    width: number;
+    height: number;
+  } | null {
+    if (selection?.kind === "layer") {
+      const layer = getSelectedLayer();
+      if (!layer) return null;
+      const el = (layer as Record<string, unknown>).element as
+        | {
+            videoWidth?: number;
+            naturalWidth?: number;
+            videoHeight?: number;
+            naturalHeight?: number;
+          }
+        | undefined;
+      return layerBoundingBox(
+        layer,
+        rect.width,
+        rect.height,
+        el?.videoWidth ?? el?.naturalWidth,
+        el?.videoHeight ?? el?.naturalHeight,
+      );
+    }
+    if (selection?.kind === "text" && showMetadata) {
+      return textBoundingBox(textSettings, rect.width, rect.height, 2);
+    }
+    return null;
+  }
+
+  function handlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    const rect = getCanvasRect();
+    if (!rect) return;
     const pct = pointerToPct(e.clientX, e.clientY, rect);
+
+    if (selection) {
+      const box = getSelectedBox(rect);
+      if (box) {
+        const corner = hitTestResizeCorner(pct, box);
+        if (corner) {
+          const layer = getSelectedLayer();
+          const startScale =
+            selection.kind === "layer" && layer
+              ? layer.scale
+              : textSettings.fontSize;
+          const startX =
+            selection.kind === "layer" && layer ? layer.x : textSettings.x;
+          const startY =
+            selection.kind === "layer" && layer ? layer.y : textSettings.y;
+          const resizeState: CanvasResizeState = {
+            item: selection,
+            corner,
+            startPointerPct: pct,
+            startScale: startScale as number,
+            startX: startX as number,
+            startY: startY as number,
+            startBox: box,
+          };
+          setInteraction({ mode: "resizing", ...resizeState });
+          interactionRef.current = { mode: "resizing", ...resizeState };
+          e.currentTarget.setPointerCapture(e.pointerId);
+          e.preventDefault();
+          return;
+        }
+      }
+    }
+
     const hit = hitTestCanvas(
       pct,
       layers,
@@ -60,7 +161,6 @@ export function CanvasInteractionOverlay({
     }
 
     setSelection(hit);
-    setIsDragging(true);
 
     const startItemX =
       hit.kind === "layer"
@@ -71,75 +171,119 @@ export function CanvasInteractionOverlay({
         ? (layers.find((l) => l.id === hit.id)?.y ?? 50)
         : textSettings.y;
 
-    dragRef.current = {
+    const dragState: CanvasDragState = {
       item: hit,
       startPointerPct: pct,
       startItemX,
       startItemY,
     };
-
+    setInteraction({ mode: "dragging", ...dragState });
+    interactionRef.current = { mode: "dragging", ...dragState };
     e.currentTarget.setPointerCapture(e.pointerId);
     e.preventDefault();
   }
 
   function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
-    const drag = dragRef.current;
-    if (!drag) return;
-    const rect = overlayRef.current?.getBoundingClientRect();
+    const state = interactionRef.current;
+    if (state.mode === "idle") return;
+    const rect = getCanvasRect();
     if (!rect) return;
 
     const pct = pointerToPct(e.clientX, e.clientY, rect);
-    const deltaX = pct.x - drag.startPointerPct.x;
-    const deltaY = pct.y - drag.startPointerPct.y;
-    const newX = clampPct(drag.startItemX + deltaX);
-    const newY = clampPct(drag.startItemY + deltaY);
 
-    if (drag.item.kind === "layer") {
-      onUpdateLayer(drag.item.id, { x: newX, y: newY });
+    if (state.mode === "dragging") {
+      const deltaX = pct.x - state.startPointerPct.x;
+      const deltaY = pct.y - state.startPointerPct.y;
+      const newX = clampPct(state.startItemX + deltaX);
+      const newY = clampPct(state.startItemY + deltaY);
+
+      if (state.item.kind === "layer") {
+        onUpdateLayer(state.item.id, { x: newX, y: newY });
+      } else {
+        onUpdateTextSettings({ x: newX, y: newY });
+      }
+      return;
+    }
+
+    if (state.mode === "resizing") {
+      const newScale = computeResizeScale(state, pct);
+
+      if (state.item.kind === "layer") {
+        onUpdateLayer(state.item.id, { scale: Math.round(newScale) });
+      } else {
+        const scaleRatio = newScale / state.startScale;
+        const newFontSize = Math.round(textSettings.fontSize * scaleRatio);
+        onUpdateTextSettings({
+          fontSize:
+            clampPct(newFontSize) > 0 ? newFontSize : textSettings.fontSize,
+        });
+      }
+    }
+  }
+
+  function endInteraction() {
+    setInteraction({ mode: "idle" });
+    interactionRef.current = { mode: "idle" };
+  }
+
+  function handlePointerMoveOrResize(e: ReactPointerEvent<HTMLDivElement>) {
+    const state = interactionRef.current;
+    if (state.mode === "idle") return;
+
+    if (state.mode === "dragging" || state.mode === "resizing") {
+      handlePointerMove(e);
+    }
+  }
+
+  let cursorClass = "";
+  if (interaction.mode === "dragging") {
+    cursorClass = " is-dragging";
+  } else if (interaction.mode === "resizing") {
+    if (interaction.corner === "nw" || interaction.corner === "se") {
+      cursorClass = " is-resizing-nwse";
     } else {
-      onUpdateTextSettings({ x: newX, y: newY });
+      cursorClass = " is-resizing-nesw";
     }
   }
 
-  function endDrag() {
-    dragRef.current = null;
-    setIsDragging(false);
-  }
-
-  // Resolve indicator position from live state so the handle tracks the drag.
-  let indicatorX: number | null = null;
-  let indicatorY: number | null = null;
-  let indicatorKind: "layer" | "text" | null = null;
-
-  if (selection?.kind === "layer") {
-    const layer = layers.find((l) => l.id === selection.id);
-    if (layer) {
-      indicatorX = layer.x;
-      indicatorY = layer.y;
-      indicatorKind = "layer";
-    }
-  } else if (selection?.kind === "text" && showMetadata) {
-    indicatorX = textSettings.x;
-    indicatorY = textSettings.y;
-    indicatorKind = "text";
-  }
+  const rect = overlayRef.current?.getBoundingClientRect();
+  const box = selection && rect ? getSelectedBox(rect) : null;
 
   return (
     <div
       ref={overlayRef}
-      className={`canvas-interaction-overlay${isDragging ? " is-dragging" : ""}`}
+      className={`canvas-interaction-overlay${cursorClass}`}
       onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
+      onPointerMove={handlePointerMoveOrResize}
+      onPointerUp={endInteraction}
+      onPointerCancel={endInteraction}
     >
-      {indicatorX !== null && indicatorY !== null && (
+      {box && selection && (
         <div
-          className={`canvas-drag-handle canvas-drag-handle--${indicatorKind ?? "layer"}`}
-          style={{ left: `${indicatorX}%`, top: `${indicatorY}%` }}
+          className="canvas-selection-outline"
+          style={{
+            left: `${box.left}%`,
+            top: `${box.top}%`,
+            width: `${box.width}%`,
+            height: `${box.height}%`,
+          }}
           aria-hidden
         />
       )}
+      {box &&
+        selection &&
+        RESIZE_CORNERS.map(({ corner, cursor }) => {
+          const x = corner === "nw" || corner === "sw" ? box.left : box.right;
+          const y = corner === "nw" || corner === "ne" ? box.top : box.bottom;
+          return (
+            <div
+              key={corner}
+              className={`canvas-resize-handle canvas-resize-handle--${corner}`}
+              style={{ left: `${x}%`, top: `${y}%` }}
+              aria-hidden
+            />
+          );
+        })}
     </div>
   );
 }

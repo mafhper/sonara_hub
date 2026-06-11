@@ -8798,7 +8798,7 @@ function CompositionLivePreview({
   }
 
   return (
-    <div className={className}>
+    <div className={`composition-live-preview ${className ?? ""}`}>
       <canvas ref={canvasRef} />
       <audio preload="metadata" ref={audioElRef} src={audioSrc} />
       <div className="live-preview-controls">

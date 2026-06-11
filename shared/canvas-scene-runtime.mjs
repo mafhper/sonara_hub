@@ -294,8 +294,9 @@ export function createSceneRuntime(
   };
 
   function resize(width = canvas.clientWidth, height = canvas.clientHeight) {
-    const nextWidth = Math.max(2, Math.round(width || 2));
-    const nextHeight = Math.max(2, Math.round(height || 2));
+    const MAX_DIM = 4096;
+    const nextWidth = Math.min(Math.max(2, Math.round(width || 2)), MAX_DIM);
+    const nextHeight = Math.min(Math.max(2, Math.round(height || 2)), MAX_DIM);
     if (canvas.width !== nextWidth || canvas.height !== nextHeight) {
       canvas.width = nextWidth;
       canvas.height = nextHeight;
