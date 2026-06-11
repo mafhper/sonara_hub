@@ -1697,7 +1697,7 @@ svg {
   min-height: 34px;
   list-style: none;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
   padding: 0 11px;
   color: #c9ced5;
   cursor: pointer;
@@ -1705,17 +1705,56 @@ svg {
   font-weight: 690;
 }
 
+.inspector-group-label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.inspector-scope-badge {
+  flex-shrink: 0;
+  padding: 1.5px 5px;
+  border-radius: 3px;
+  font-size: 7px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.7;
+}
+
+.inspector-group--series .inspector-scope-badge {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.inspector-group--track .inspector-scope-badge {
+  display: none;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--muted);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.inspector-panel.is-batch .inspector-group--track .inspector-scope-badge {
+  display: inline;
+}
+
 .inspector-group summary::-webkit-details-marker {
   display: none;
 }
 
-.inspector-group summary svg {
+.inspector-group summary > svg {
+  flex-shrink: 0;
   width: 13px;
   height: 13px;
   transition: transform 140ms ease;
 }
 
-.inspector-group[open] summary svg {
+.inspector-group[open] summary > svg {
   transform: rotate(180deg);
 }
 

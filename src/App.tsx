@@ -4637,7 +4637,9 @@ function App() {
         />
       </div>
 
-      <aside className="inspector-panel">
+      <aside
+        className={`inspector-panel${workflowMode === "batch" ? " is-batch" : ""}`}
+      >
         <PanelResizeHandle
           active={resizingPanel === "inspector"}
           className="inspector-resize"
@@ -7151,7 +7153,7 @@ function AudioLibraryInspector({
       <div className="audio-inspector-tab-content">
         {activeInspectorTab === "data" && (
           <>
-            <InspectorGroup title="Dados" open>
+            <InspectorGroup title="Dados" open scope="track">
               <div className="inspector-subsection">
                 <p className="inspector-kicker">Identidade</p>
                 <TextField
@@ -7230,7 +7232,10 @@ function AudioLibraryInspector({
                 </button>
               </div>
             </InspectorGroup>
-            <InspectorGroup title="Nomenclatura dos arquivos tratados">
+            <InspectorGroup
+              title="Nomenclatura dos arquivos tratados"
+              scope="series"
+            >
               <div className="inspector-subsection">
                 <p className="inspector-kicker">Padrão de arquivo</p>
                 <FileNamePatternSection
@@ -7240,7 +7245,7 @@ function AudioLibraryInspector({
                 />
               </div>
             </InspectorGroup>
-            <InspectorGroup title="Publicação YouTube">
+            <InspectorGroup title="Publicação YouTube" scope="track">
               <div className="inspector-subsection">
                 <p className="inspector-kicker">Canal</p>
                 <p className="helper-copy">
@@ -9605,7 +9610,7 @@ function MusicInspector({
 }) {
   return (
     <>
-      <InspectorGroup title="Faixa" open>
+      <InspectorGroup title="Faixa" open scope="track">
         <div className="inspector-subsection">
           <p className="inspector-kicker">Identidade</p>
           <TextField
@@ -9661,7 +9666,7 @@ function MusicInspector({
           )}
         </div>
       </InspectorGroup>
-      <InspectorGroup title="Arte do álbum" open>
+      <InspectorGroup title="Arte do álbum" open scope="series">
         <div className="inspector-subsection">
           <p className="inspector-kicker">Capa</p>
           {cover ? (
@@ -9697,7 +9702,7 @@ function MusicInspector({
           {!suggestedCover && <p className="helper-copy">{artworkHint}</p>}
         </div>
       </InspectorGroup>
-      <InspectorGroup title="Descrição e publicação">
+      <InspectorGroup title="Descrição e publicação" scope="track">
         <div className="inspector-subsection">
           <p className="inspector-kicker">Descrição</p>
           <TextArea
@@ -9810,7 +9815,7 @@ function VisualInspector(props: {
   const paletteId = selectedPaletteId(scene);
   return (
     <>
-      <InspectorGroup title="Atmosfera" open>
+      <InspectorGroup title="Atmosfera" open scope="track">
         <SelectField
           label="Preset"
           value={scene.id}
@@ -11015,7 +11020,7 @@ function TextInspector({
 
   return (
     <>
-      <InspectorGroup title="Texto no vídeo" open>
+      <InspectorGroup title="Texto no vídeo" open scope="track">
         <CheckField
           label="Mostrar texto no vídeo"
           checked={showMetadata}
@@ -11055,7 +11060,7 @@ function TextInspector({
           />
         </div>
       </InspectorGroup>
-      <InspectorGroup title="Tipografia e posição" open>
+      <InspectorGroup title="Tipografia e posição" open scope="track">
         <div className="inspector-subsection">
           <div className="text-profiles-header">
             <p className="inspector-kicker">Perfis de texto</p>
@@ -11986,7 +11991,7 @@ function ExportInspector({
           </button>
         </div>
       </InspectorGroup>
-      <InspectorGroup title="Nomenclatura dos vídeos exportados">
+      <InspectorGroup title="Nomenclatura dos vídeos exportados" scope="series">
         <div className="inspector-subsection">
           <p className="inspector-kicker">Padrão de arquivo</p>
           <FileNamePatternSection
@@ -12005,15 +12010,28 @@ function InspectorGroup({
   children,
   title,
   open = false,
+  scope,
 }: {
   children: ReactNode;
   title: string;
   open?: boolean;
+  scope?: "track" | "series";
 }) {
   return (
-    <details className="inspector-group" open={open}>
+    <details
+      className={`inspector-group${scope ? ` inspector-group--${scope}` : ""}`}
+      open={open}
+    >
       <summary>
-        {title}
+        <span className="inspector-group-label">
+          {title}
+          {scope === "series" && (
+            <span className="inspector-scope-badge">Série</span>
+          )}
+          {scope === "track" && (
+            <span className="inspector-scope-badge">Esta faixa</span>
+          )}
+        </span>
         <ChevronDown />
       </summary>
       <div className="inspector-body">{children}</div>
