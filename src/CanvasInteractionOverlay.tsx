@@ -8,14 +8,19 @@ import {
   type CanvasDragState,
   type CanvasHitTarget,
   type CanvasResizeState,
+  type CanvasRotateState,
   type ResizeCorner,
   clampPct,
+  clampRotation,
   clampScale,
   computeResizeScale,
+  computeRotationDeg,
   hitTestCanvas,
   hitTestResizeCorner,
+  hitTestRotateHandle,
   layerBoundingBox,
   pointerToPct,
+  ROTATE_HANDLE_OFFSET_PCT,
   textBoundingBox,
 } from "./canvas-interaction";
 import type { MediaLayerV2, TextOverlaySettings } from "./types";
@@ -26,12 +31,14 @@ interface Props {
   textSettings: TextOverlaySettings;
   onUpdateLayer: (id: string, patch: Partial<MediaLayerV2>) => void;
   onUpdateTextSettings: (patch: Partial<TextOverlaySettings>) => void;
+  onContextAction?: (action: string, target: CanvasHitTarget) => void;
 }
 
 type InteractionState =
   | { mode: "idle" }
   | ({ mode: "dragging" } & CanvasDragState)
-  | ({ mode: "resizing" } & CanvasResizeState);
+  | ({ mode: "resizing" } & CanvasResizeState)
+  | ({ mode: "rotating" } & CanvasRotateState);
 
 const RESIZE_CORNERS: Array<{
   corner: ResizeCorner;
@@ -49,6 +56,7 @@ export function CanvasInteractionOverlay({
   textSettings,
   onUpdateLayer,
   onUpdateTextSettings,
+  onContextAction,
 }: Props) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [selection, setSelection] = useState<CanvasHitTarget | null>(null);
@@ -144,6 +152,27 @@ export function CanvasInteractionOverlay({
           e.preventDefault();
           return;
         }
+
+        if (hitTestRotateHandle(pct, box)) {
+          const centerX = (box.left + box.right) / 2;
+          const centerY = (box.top + box.bottom) / 2;
+          const startRotation =
+            selection.kind === "layer" && getSelectedLayer()
+              ? (getSelectedLayer()!.rotation ?? 0)
+              : 0;
+          const rotateState: CanvasRotateState = {
+            item: selection,
+            startPointerPct: pct,
+            startRotation,
+            centerX,
+            centerY,
+          };
+          setInteraction({ mode: "rotating", ...rotateState });
+          interactionRef.current = { mode: "rotating", ...rotateState };
+          e.currentTarget.setPointerCapture(e.pointerId);
+          e.preventDefault();
+          return;
+        }
       }
     }
 
@@ -218,6 +247,22 @@ export function CanvasInteractionOverlay({
             clampPct(newFontSize) > 0 ? newFontSize : textSettings.fontSize,
         });
       }
+      return;
+    }
+
+    if (state.mode === "rotating") {
+      const deltaDeg = computeRotationDeg(
+        state.centerX,
+        state.centerY,
+        state.startPointerPct,
+        pct,
+      );
+      const newRotation = clampRotation(
+        Math.round((state.startRotation + deltaDeg) * 10) / 10,
+      );
+      if (state.item.kind === "layer") {
+        onUpdateLayer(state.item.id, { rotation: newRotation });
+      }
     }
   }
 
@@ -226,13 +271,10 @@ export function CanvasInteractionOverlay({
     interactionRef.current = { mode: "idle" };
   }
 
-  function handlePointerMoveOrResize(e: ReactPointerEvent<HTMLDivElement>) {
-    const state = interactionRef.current;
-    if (state.mode === "idle") return;
-
-    if (state.mode === "dragging" || state.mode === "resizing") {
-      handlePointerMove(e);
-    }
+  function handleContextMenu(e: ReactPointerEvent<HTMLDivElement>) {
+    if (!onContextAction || !selection) return;
+    e.preventDefault();
+    onContextAction("context", selection);
   }
 
   let cursorClass = "";
@@ -244,6 +286,8 @@ export function CanvasInteractionOverlay({
     } else {
       cursorClass = " is-resizing-nesw";
     }
+  } else if (interaction.mode === "rotating") {
+    cursorClass = " is-rotating";
   }
 
   const rect = overlayRef.current?.getBoundingClientRect();
@@ -254,9 +298,10 @@ export function CanvasInteractionOverlay({
       ref={overlayRef}
       className={`canvas-interaction-overlay${cursorClass}`}
       onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMoveOrResize}
+      onPointerMove={handlePointerMove}
       onPointerUp={endInteraction}
       onPointerCancel={endInteraction}
+      onContextMenu={handleContextMenu}
     >
       {box && selection && (
         <div
@@ -272,7 +317,7 @@ export function CanvasInteractionOverlay({
       )}
       {box &&
         selection &&
-        RESIZE_CORNERS.map(({ corner, cursor }) => {
+        RESIZE_CORNERS.map(({ corner }) => {
           const x = corner === "nw" || corner === "sw" ? box.left : box.right;
           const y = corner === "nw" || corner === "ne" ? box.top : box.bottom;
           return (
@@ -284,6 +329,28 @@ export function CanvasInteractionOverlay({
             />
           );
         })}
+      {box && selection && (
+        <div
+          className="canvas-rotate-handle"
+          style={{
+            left: `${(box.left + box.right) / 2}%`,
+            top: `${box.top - ROTATE_HANDLE_OFFSET_PCT}%`,
+          }}
+          aria-label="Girar"
+          aria-hidden
+        />
+      )}
+      {box && selection && (
+        <div
+          className="canvas-rotate-line"
+          style={{
+            left: `${(box.left + box.right) / 2}%`,
+            top: `${box.top - ROTATE_HANDLE_OFFSET_PCT}%`,
+            height: `${ROTATE_HANDLE_OFFSET_PCT}%`,
+          }}
+          aria-hidden
+        />
+      )}
     </div>
   );
 }

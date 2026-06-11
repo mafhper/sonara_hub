@@ -177,6 +177,47 @@ export function clampScale(v: number): number {
   return Math.max(10, Math.min(400, v));
 }
 
+/** Clamp a rotation value to -360..360. */
+export function clampRotation(v: number): number {
+  return Math.max(-360, Math.min(360, v));
+}
+
+/** Rotation handle sits above the top-center of the selection box. */
+export const ROTATE_HANDLE_OFFSET_PCT = 12;
+
+export function hitTestRotateHandle(
+  pct: { x: number; y: number },
+  box: { left: number; top: number; right: number; bottom: number },
+  offset: number = ROTATE_HANDLE_OFFSET_PCT,
+): boolean {
+  const cx = (box.left + box.right) / 2;
+  const cy = box.top - offset;
+  const r = 10;
+  const dx = pct.x - cx;
+  const dy = pct.y - cy;
+  return dx * dx + dy * dy < r * r;
+}
+
+/**
+ * Compute rotation angle in degrees from pointer movement.
+ * Uses the angle between the start vector (from center to pointer start)
+ * and the current vector (from center to pointer now).
+ */
+export function computeRotationDeg(
+  centerX: number,
+  centerY: number,
+  startPct: { x: number; y: number },
+  currentPct: { x: number; y: number },
+): number {
+  const startAngle = Math.atan2(startPct.y - centerY, startPct.x - centerX);
+  const currentAngle = Math.atan2(
+    currentPct.y - centerY,
+    currentPct.x - centerX,
+  );
+  const delta = ((currentAngle - startAngle) * 180) / Math.PI;
+  return delta;
+}
+
 export type CanvasDragState = {
   item: CanvasHitTarget;
   startPointerPct: { x: number; y: number };
@@ -199,6 +240,14 @@ export type CanvasResizeState = {
     width: number;
     height: number;
   };
+};
+
+export type CanvasRotateState = {
+  item: CanvasHitTarget;
+  startPointerPct: { x: number; y: number };
+  startRotation: number;
+  centerX: number;
+  centerY: number;
 };
 
 /**

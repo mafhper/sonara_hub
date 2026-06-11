@@ -957,6 +957,32 @@ svg {
   z-index: 2;
 }
 
+.canvas-rotate-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--button-bg, #1f242d);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 60%);
+  cursor: grab;
+  z-index: 2;
+}
+
+.canvas-rotate-line {
+  position: absolute;
+  width: 1px;
+  transform: translateX(-50%);
+  background: rgb(255 255 255 / 30%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.canvas-interaction-overlay.is-rotating {
+  cursor: grabbing;
+}
+
 .audio-library {
   min-height: 0;
   overflow: auto;
