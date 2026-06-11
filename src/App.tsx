@@ -1572,6 +1572,12 @@ function App() {
       ),
       lyricEntries,
     );
+    // If no snapshot was passed, try loading a persisted one from .sonara/.
+    const activeSnapshot =
+      snapshot ??
+      (selectedProjectId && selectedProjectId !== "."
+        ? await loadInternalProjectSnapshot(selectedProjectId)
+        : undefined);
     inputDirectoryRef.current = null;
     musicDirectoryRef.current = null;
     setInputFolderName(inputName);
@@ -1585,7 +1591,8 @@ function App() {
       setOutputFolderName(outputName);
       setOutputFolderKind("internal");
     }
-    setWorkspaceTracks(inputTracks, snapshot);
+    if (activeSnapshot) applySnapshotSettings(activeSnapshot);
+    setWorkspaceTracks(inputTracks, activeSnapshot);
     setProjectStateStatus(
       inputTracks.length
         ? selectedProject
@@ -1775,25 +1782,26 @@ function App() {
 
   async function cleanupProjectState(scope: ProjectCleanupScope) {
     const selectedProjectIds = new Set(cleanupProjectIds);
+    const isCleanable = (project: InputProjectOption) =>
+      isBrowserInputProject(project) ||
+      (project.source === "internal" && project.id !== ".");
     const targets =
       scope === "current"
         ? inputProjects.filter(
-            (project): project is BrowserInputProjectOption =>
-              project.id === selectedInputProjectId &&
-              isBrowserInputProject(project),
+            (project) =>
+              project.id === selectedInputProjectId && isCleanable(project),
           )
         : scope === "selected"
           ? inputProjects.filter(
-              (project): project is BrowserInputProjectOption =>
-                selectedProjectIds.has(project.id) &&
-                isBrowserInputProject(project),
+              (project) =>
+                selectedProjectIds.has(project.id) && isCleanable(project),
             )
-          : inputProjects.filter(isBrowserInputProject);
+          : inputProjects.filter(isCleanable);
     if (!targets.length) {
       setBatchFeedback(
         scope === "selected"
           ? "Selecione ao menos um projeto para limpar."
-          : "Nenhum projeto externo com .sonara foi detectado. Projetos internos usam o estado local do app.",
+          : "Nenhum projeto com preferências salvas encontrado.",
         "info",
       );
       return;
@@ -1829,7 +1837,11 @@ function App() {
       cancelPendingProjectSnapshotSave();
       const cleanedProjectIds = new Set(targets.map((project) => project.id));
       await Promise.all(
-        targets.map((project) => removeProjectSnapshot(project.handle)),
+        targets.map((project) =>
+          isBrowserInputProject(project)
+            ? removeProjectSnapshot(project.handle)
+            : deleteInternalProjectSnapshot(project.id),
+        ),
       );
       setCleanupProjectIds((current) =>
         current.filter((projectId) => !cleanedProjectIds.has(projectId)),
@@ -3949,22 +3961,37 @@ function App() {
 
   function saveActiveProjectSnapshot(snapshot: ProjectSnapshot) {
     const handle = musicDirectoryRef.current;
-    if (!handle || !selectedInputProjectId) return;
+    const projectId = selectedInputProjectId;
     cancelPendingProjectSnapshotSave();
-    projectSaveTimerRef.current = window.setTimeout(async () => {
-      try {
-        const permission = await handle.queryPermission?.({
-          mode: "readwrite",
-        });
-        if (permission !== "granted") return;
-        await writeProjectSnapshot(handle, snapshot);
-        setProjectStateStatus("Preferências do projeto salvas.");
-      } catch (reason) {
-        setProjectStateStatus(
-          `Não foi possível salvar o projeto: ${messageOf(reason)}`,
-        );
-      }
-    }, 350);
+    if (handle && projectId) {
+      // External project: save via FileSystem Access API.
+      projectSaveTimerRef.current = window.setTimeout(async () => {
+        try {
+          const permission = await handle.queryPermission?.({
+            mode: "readwrite",
+          });
+          if (permission !== "granted") return;
+          await writeProjectSnapshot(handle, snapshot);
+          setProjectStateStatus("Preferências do projeto salvas.");
+        } catch (reason) {
+          setProjectStateStatus(
+            `Não foi possível salvar o projeto: ${messageOf(reason)}`,
+          );
+        }
+      }, 350);
+    } else if (projectId && projectId !== ".") {
+      // Internal project: save via server API to input/<id>/.sonara/.
+      projectSaveTimerRef.current = window.setTimeout(async () => {
+        try {
+          await saveInternalProjectSnapshot(projectId, snapshot);
+          setProjectStateStatus("Preferências do projeto salvas.");
+        } catch (reason) {
+          setProjectStateStatus(
+            `Não foi possível salvar o projeto: ${messageOf(reason)}`,
+          );
+        }
+      }, 350);
+    }
   }
 
   function cancelPendingProjectSnapshotSave() {
@@ -13154,6 +13181,147 @@ async function removeProjectSnapshot(handle: FileSystemDirectoryHandle) {
   } catch {
     // Project has no persisted manual assets.
   }
+}
+
+// Internal project persistence — saves to input/<projectId>/.sonara/ via the
+// server API so assets survive across browser sessions without a DirectoryHandle.
+
+async function saveInternalProjectSnapshot(
+  projectId: string,
+  snapshot: ProjectSnapshot,
+): Promise<void> {
+  const portable = await createInternalPortableSnapshot(projectId, snapshot);
+  await fetch(
+    `/api/internal-snapshot?project=${encodeURIComponent(projectId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(portable),
+    },
+  );
+}
+
+async function loadInternalProjectSnapshot(
+  projectId: string,
+): Promise<ProjectSnapshot | undefined> {
+  try {
+    const res = await fetch(
+      `/api/internal-snapshot?project=${encodeURIComponent(projectId)}`,
+    );
+    if (!res.ok) return undefined;
+    const snapshot = (await res.json()) as ProjectSnapshot;
+    return hydrateInternalProjectSnapshotAssets(projectId, snapshot);
+  } catch {
+    return undefined;
+  }
+}
+
+async function deleteInternalProjectSnapshot(projectId: string): Promise<void> {
+  try {
+    await fetch(
+      `/api/internal-snapshot?project=${encodeURIComponent(projectId)}`,
+      { method: "DELETE" },
+    );
+  } catch {
+    // Best-effort.
+  }
+}
+
+async function createInternalPortableSnapshot(
+  projectId: string,
+  snapshot: ProjectSnapshot,
+): Promise<ProjectSnapshot> {
+  const assetsById = new Map<string, ProjectAssetManifestEntry>();
+  const registerAsset = async (file: File | undefined) => {
+    if (!file) return undefined;
+    const asset = await projectAssetManifestEntry(file);
+    if (!assetsById.has(asset.id)) {
+      const formData = new FormData();
+      formData.append("file", file);
+      await fetch(
+        `/api/internal-asset?project=${encodeURIComponent(projectId)}&fileName=${encodeURIComponent(asset.fileName)}`,
+        { method: "POST", body: formData },
+      );
+      assetsById.set(asset.id, asset);
+    }
+    return asset.id;
+  };
+  const coverAssetId = await registerAsset(snapshot.coverFile);
+  const tracks = [];
+  for (const track of snapshot.tracks) {
+    const coverOverrideAssetId = await registerAsset(track.coverOverride?.file);
+    const layers = [];
+    for (const layer of track.layers) {
+      const { file, ...serializableLayer } = layer;
+      layers.push({
+        ...serializableLayer,
+        assetId: await registerAsset(file),
+      });
+    }
+    tracks.push({
+      ...track,
+      sourceFile: undefined,
+      coverOverrideAssetId,
+      layers,
+      coverOverride: serializeArtworkSuggestion(track.coverOverride),
+    });
+  }
+  return {
+    ...snapshot,
+    coverFile: undefined,
+    coverAssetId,
+    assetManifest: { schemaVersion: 1, files: [...assetsById.values()] },
+    tracks,
+  };
+}
+
+async function hydrateInternalProjectSnapshotAssets(
+  projectId: string,
+  snapshot: ProjectSnapshot,
+): Promise<ProjectSnapshot> {
+  const entries = snapshot.assetManifest?.files ?? [];
+  if (!entries.length) return snapshot;
+  const filesById = new Map<string, File>();
+  await Promise.all(
+    entries.map(async (entry) => {
+      try {
+        const res = await fetch(
+          `/api/internal-asset?project=${encodeURIComponent(projectId)}&file=${encodeURIComponent(entry.fileName)}`,
+        );
+        if (!res.ok) return;
+        const blob = await res.blob();
+        filesById.set(
+          entry.id,
+          new File([blob], entry.originalName, {
+            type: entry.type,
+            lastModified: entry.lastModified,
+          }),
+        );
+      } catch {
+        // Asset unavailable — layer will appear empty but not crash.
+      }
+    }),
+  );
+  const fileById = (id: string | undefined) =>
+    id ? filesById.get(id) : undefined;
+  return {
+    ...snapshot,
+    coverFile: snapshot.coverFile ?? fileById(snapshot.coverAssetId),
+    tracks: snapshot.tracks.map((track) => {
+      const coverOverrideFile = fileById(track.coverOverrideAssetId);
+      return {
+        ...track,
+        coverOverride:
+          track.coverOverride && coverOverrideFile
+            ? { ...track.coverOverride, file: coverOverrideFile }
+            : track.coverOverride,
+        layers: track.layers.map((layer) => ({
+          ...layer,
+          file: layer.file ?? fileById(layer.assetId),
+        })),
+      };
+    }),
+  };
 }
 
 async function createPortableProjectSnapshot(

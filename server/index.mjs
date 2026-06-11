@@ -409,6 +409,107 @@ app.get("/api/project", async (req, res) => {
   });
 });
 
+// Internal project snapshot persistence — read/write .sonara/project.json and
+// .sonara/assets/ for projects inside input/ without needing a FileSystem
+// Access API DirectoryHandle in the browser.
+
+app.get("/api/internal-snapshot", async (req, res) => {
+  const scope = await inputProjectScope(req.query.project);
+  if (!scope.projectId || scope.projectId === ".") {
+    return res.status(400).json({ error: "invalid-project" });
+  }
+  const snapshotPath = path.join(scope.directory, ".sonara", "project.json");
+  try {
+    const content = await fs.readFile(snapshotPath, "utf-8");
+    res.type("application/json").send(content);
+  } catch (err) {
+    if (err?.code === "ENOENT")
+      return res.status(404).json({ error: "not-found" });
+    res.status(500).json({ error: String(err?.message ?? err) });
+  }
+});
+
+app.put(
+  "/api/internal-snapshot",
+  express.json({ limit: "50mb" }),
+  async (req, res) => {
+    const scope = await inputProjectScope(req.query.project);
+    if (!scope.projectId || scope.projectId === ".") {
+      return res.status(400).json({ error: "invalid-project" });
+    }
+    const sonaraDir = path.join(scope.directory, ".sonara");
+    await fs.mkdir(sonaraDir, { recursive: true });
+    const snapshotPath = path.join(sonaraDir, "project.json");
+    await fs.writeFile(snapshotPath, JSON.stringify(req.body, null, 2));
+    res.json({ ok: true });
+  },
+);
+
+app.delete("/api/internal-snapshot", async (req, res) => {
+  const scope = await inputProjectScope(req.query.project);
+  if (!scope.projectId || scope.projectId === ".") {
+    return res.status(400).json({ error: "invalid-project" });
+  }
+  const sonaraDir = path.join(scope.directory, ".sonara");
+  try {
+    await fs.rm(sonaraDir, { recursive: true, force: true });
+  } catch {
+    // Ignore — may not exist yet.
+  }
+  res.json({ ok: true });
+});
+
+app.post("/api/internal-asset", upload.single("file"), async (req, res) => {
+  const scope = await inputProjectScope(req.query.project);
+  if (!scope.projectId || scope.projectId === ".") {
+    if (req.file?.path) await tempFiles.cleanup(req.file);
+    return res.status(400).json({ error: "invalid-project" });
+  }
+  if (!req.file?.path) {
+    return res.status(400).json({ error: "no-file" });
+  }
+  const rawFileName = String(req.query.fileName ?? "").trim();
+  if (!rawFileName || rawFileName.includes("/") || rawFileName.includes("\\")) {
+    await tempFiles.cleanup(req.file);
+    return res.status(400).json({ error: "invalid-filename" });
+  }
+  const assetsDir = path.join(scope.directory, ".sonara", "assets");
+  await fs.mkdir(assetsDir, { recursive: true });
+  const destPath = path.join(assetsDir, rawFileName);
+  try {
+    await fs.rename(req.file.path, destPath);
+  } catch (err) {
+    if (err?.code === "EPERM" || err?.code === "EBUSY") {
+      await fs.copyFile(req.file.path, destPath);
+      await fs.unlink(req.file.path).catch(() => undefined);
+    } else {
+      await tempFiles.cleanup(req.file);
+      throw err;
+    }
+  }
+  res.json({ ok: true });
+});
+
+app.get("/api/internal-asset", async (req, res) => {
+  const scope = await inputProjectScope(req.query.project);
+  const rawFileName = String(req.query.file ?? "").trim();
+  if (!rawFileName || rawFileName.includes("/") || rawFileName.includes("\\")) {
+    return res.status(400).json({ error: "invalid-file" });
+  }
+  const assetPath = path.join(
+    scope.directory,
+    ".sonara",
+    "assets",
+    rawFileName,
+  );
+  try {
+    await fs.access(assetPath);
+    res.sendFile(assetPath);
+  } catch {
+    res.status(404).json({ error: "not-found" });
+  }
+});
+
 app.post("/api/audio-metadata", upload.single("audio"), async (req, res) => {
   if (!req.file?.path) {
     res.status(400).json({ error: "Envie um arquivo de áudio." });
