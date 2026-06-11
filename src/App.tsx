@@ -993,6 +993,10 @@ function App() {
   const [cleanupProjectIds, setCleanupProjectIds] = useState<string[]>([]);
   const [projectStateStatus, setProjectStateStatus] = useState("");
   const [workspaceWriteEnabled, setWorkspaceWriteEnabled] = useState(false);
+  // Explicit-open flow: the app boots into a Setup card (no auto-loaded project)
+  // and the user opens a work folder/project on purpose. This sidesteps the
+  // flaky auto-restore of input/ that left projects half-loaded.
+  const [setupPanelOpen, setSetupPanelOpen] = useState(true);
   const [outputFolderName, setOutputFolderName] = useState("outputs");
   const [outputFolderKind, setOutputFolderKind] =
     useState<WorkspaceFolderKind>("internal");
@@ -1319,10 +1323,15 @@ function App() {
   }
 
   useEffect(() => {
-    void loadInitialWorkspace();
+    void loadWorkspaceBaseline();
     void restoreOutputDirectory();
     void restoreJobHistory();
   }, []);
+
+  // Once any open path produces tracks, leave the Setup card for the workspace.
+  useEffect(() => {
+    if (tracks.length > 0) setSetupPanelOpen(false);
+  }, [tracks.length]);
 
   // Auto-analyze the active track's quality the first time it is selected, so
   // the Qualidade tab is populated without a manual "Analisar" click (runs once
@@ -1490,6 +1499,48 @@ function App() {
       return next.length === current.length ? current : next;
     });
   }, [inputProjects]);
+
+  // Boot without auto-loading a project: fetch presets/settings and the list of
+  // internal projects so the Setup picker is populated, then wait for the user
+  // to open a folder/project explicitly.
+  async function loadWorkspaceBaseline() {
+    try {
+      const [snapshot, presetPayload] = await Promise.all([
+        loadSnapshot(),
+        fetchJsonWithRetry<{ presets?: ScenePresetV3[] }>(
+          "/api/visual-presets",
+        ),
+      ]);
+      setVisualPresets(
+        normalizeVisualPresetList(
+          presetPayload.presets ?? builtinVisualPresets,
+        ),
+      );
+      applySnapshotSettings(snapshot);
+      try {
+        const project = await fetchJsonWithRetry<{
+          inputProjects?: InternalInputProject[];
+          inputDirectory?: string;
+          outputDirectory?: string;
+        }>("/api/project");
+        const projects = (project.inputProjects ?? []).map(
+          (item): InputProjectOption => ({ ...item, source: "internal" }),
+        );
+        setInputProjects(projects);
+        setInputFolderName(project.inputDirectory ?? "input");
+        setInputFolderKind("internal");
+        if (!outputDirectoryRef.current) {
+          setOutputFolderName(project.outputDirectory ?? "outputs");
+          setOutputFolderKind("internal");
+        }
+      } catch {
+        // No server / offline: the user can still open an external folder or
+        // import individual files from the Setup card.
+      }
+    } catch (reason) {
+      setError(messageOf(reason));
+    }
+  }
 
   async function loadInitialWorkspace() {
     try {
@@ -4292,151 +4343,163 @@ function App() {
       )}
 
       <aside className="library-panel">
-        <div className="library-header">
-          <div className="library-open-actions">
-            <button type="button" onClick={() => void chooseInputDirectory()}>
-              <FolderOpen />{" "}
-              {inputFolderKind === "internal"
-                ? "Escolher pasta externa"
-                : "Trocar pasta"}
-            </button>
-            <button
-              type="button"
-              onClick={() => audioInputRef.current?.click()}
-            >
-              <Plus /> Abrir arquivo
-            </button>
-          </div>
-        </div>
-        <div className="library-caption">
-          <span>
-            {tracks.length === 1 ? "1 música" : `${tracks.length} músicas`}
-          </span>
-          <span>
-            {selectedForBatchCount === 0
-              ? "fluxo individual"
-              : selectedForBatchCount === 1
-                ? "1 selecionada"
-                : `${selectedForBatchCount} selecionadas · lote`}
-          </span>
-        </div>
-        <div className="track-list">
-          {(() => {
-            // Originals that already produced a treated copy collapse (dim) so
-            // the eye goes to the treated set, which is what the video step uses.
-            const treatedOrigins = new Set(
-              tracks
-                .filter((track) => track.packageStatus === "treated")
-                .map((track) => track.variantOf),
-            );
-            return tracks.map((track) => (
-              <div
-                className={`track-row batch ${track.id === selectedTrack?.id ? "selected" : ""} ${treatedOrigins.has(track.id) ? "has-treated" : ""}`}
-                key={track.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => setSelectedTrackId(track.id)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    setSelectedTrackId(track.id);
-                  }
-                }}
-              >
-                <input
-                  aria-label={`Selecionar ${track.metadata.title} para o lote`}
-                  checked={track.selectedForBatch}
-                  type="checkbox"
-                  onClick={(event) => event.stopPropagation()}
-                  onChange={(event) => {
-                    event.stopPropagation();
-                    setTracks((current) =>
-                      current.map((item) =>
-                        item.id === track.id
-                          ? { ...item, selectedForBatch: event.target.checked }
-                          : item,
-                      ),
-                    );
-                  }}
-                />
-                <span className="track-cover">
-                  {coverForTrack(track)?.src ? (
-                    <img alt="" src={coverForTrack(track)?.src} />
-                  ) : (
-                    <Music2 />
-                  )}
-                </span>
-                <span className="track-copy">
-                  <strong>{track.metadata.title}</strong>
-                  <small>
-                    <span>
-                      {formatDuration(track.audioInfo?.durationSeconds)}
-                    </span>
-                    <em>
-                      {track.packageStatus === "treated"
-                        ? "Tratado"
-                        : "Original"}
-                    </em>
-                    {track.metadata.version && (
-                      <em>{track.metadata.version}</em>
-                    )}
-                  </small>
-                </span>
-                <button
-                  aria-label={`Remover ${track.metadata.title} da fila`}
-                  className="track-remove"
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    removeTrackFromQueue(track.id);
-                  }}
-                >
-                  <Trash2 />
-                </button>
-                <span className="track-status" />
-              </div>
-            ));
-          })()}
-        </div>
-        <div className="library-actions">
-          <div className="library-context">
-            <div className="library-paths">
-              <div>
-                <span>Entrada</span>
-                <div className="library-path-name">
+        {setupPanelOpen ? (
+          <div className="workspace-setup">
+            <div className="workspace-setup-greeting">
+              <h2>Bem-vindo ao Sonara Hub</h2>
+              <p>
+                Defina suas pastas de trabalho para começar. Nada é carregado
+                sozinho — você abre o que quiser, quando quiser.
+              </p>
+            </div>
+            <div className="setup-field">
+              <span className="setup-field-label">Pasta de entrada</span>
+              <div className="setup-field-row">
+                <div className="setup-field-value">
                   <strong>{inputFolderName}</strong>
                   <small>
                     {inputFolderKind === "internal"
-                      ? "Interno da raiz"
-                      : "Pasta autorizada"}
+                      ? "input/ interno da raiz"
+                      : "pasta autorizada"}
                   </small>
                 </div>
                 <button
                   type="button"
                   onClick={() => void chooseInputDirectory()}
                 >
-                  {inputFolderKind === "internal" ? "Externa" : "Trocar"}
+                  <FolderOpen />{" "}
+                  {inputFolderKind === "internal"
+                    ? "Escolher externa"
+                    : "Trocar"}
                 </button>
               </div>
-              <div>
-                <span>Saída</span>
-                <div className="library-path-name">
+            </div>
+            <div className="setup-field">
+              <span className="setup-field-label">Pasta de saída</span>
+              <div className="setup-field-row">
+                <div className="setup-field-value">
                   <strong>{outputFolderName}</strong>
                   <small>
                     {outputFolderKind === "internal"
-                      ? "Interno da raiz"
-                      : "Pasta autorizada"}
+                      ? "outputs/ interno da raiz"
+                      : "pasta autorizada"}
                   </small>
                 </div>
                 <button
                   type="button"
                   onClick={() => void chooseOutputDirectory()}
                 >
-                  {outputFolderKind === "internal" ? "Externa" : "Trocar"}
+                  <FolderOpen />{" "}
+                  {outputFolderKind === "internal"
+                    ? "Escolher externa"
+                    : "Trocar"}
                 </button>
               </div>
             </div>
             {inputProjects.length > 0 && (
+              <div className="setup-field">
+                <span className="setup-field-label">Projeto</span>
+                <div className="setup-field-row">
+                  <select
+                    className="setup-project-select"
+                    value={selectedInputProjectId}
+                    onChange={(event) =>
+                      void selectInputProject(event.target.value)
+                    }
+                  >
+                    <option value="">Escolha um projeto…</option>
+                    {inputProjects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {projectOptionLabel(project)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <p className="helper-copy">
+                  Abrir um projeto carrega suas músicas e os ajustes salvos no
+                  .sonara dele.
+                </p>
+              </div>
+            )}
+            <div className="setup-actions">
+              <button
+                type="button"
+                onClick={() => audioInputRef.current?.click()}
+              >
+                <Plus /> Abrir arquivo
+              </button>
+              {typeof window !== "undefined" && !window.showDirectoryPicker && (
+                <button
+                  className="quiet-action"
+                  type="button"
+                  onClick={() => fallbackFolderInputRef.current?.click()}
+                >
+                  <FolderOpen /> Importar arquivos
+                </button>
+              )}
+            </div>
+            <label className="check-field setup-write-toggle">
+              <input
+                checked={workspaceWriteEnabled}
+                type="checkbox"
+                onChange={(event) =>
+                  event.target.checked
+                    ? void enableWorkspaceWrites()
+                    : disableWorkspaceWrites()
+                }
+              />
+              Substituir ao finalizar (modo destrutivo)
+            </label>
+            <p className="helper-copy">
+              {workspaceWriteEnabled
+                ? "Os originais só serão trocados se todos os itens selecionados terminarem; cancelar ou falhar preserva a pasta."
+                : "Modo não destrutivo: os arquivos originais nunca são alterados — tudo vai para a pasta de saída."}
+            </p>
+            {projectStateStatus && (
+              <small className="library-project-status">
+                {projectStateStatus}
+              </small>
+            )}
+            <button
+              className="quiet-action setup-restore"
+              type="button"
+              onClick={() => void loadInitialWorkspace()}
+            >
+              <RotateCcw /> Restaurar última sessão
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="project-profile">
+              <span className="project-profile-cover">
+                {coverForTrack(selectedTrack ?? tracks[0])?.src ? (
+                  <img
+                    alt=""
+                    src={coverForTrack(selectedTrack ?? tracks[0])?.src}
+                  />
+                ) : (
+                  <Music2 />
+                )}
+              </span>
+              <div className="project-profile-copy">
+                <strong>{folderName}</strong>
+                <small>
+                  {(selectedTrack ?? tracks[0])?.metadata.album ||
+                    (selectedTrack ?? tracks[0])?.metadata.artist ||
+                    "espaço de trabalho"}
+                </small>
+              </div>
+              <button
+                aria-label="Abrir Setup"
+                className="icon-button"
+                title="Trocar pastas / projeto (Setup)"
+                type="button"
+                onClick={() => setSetupPanelOpen(true)}
+              >
+                <FolderOpen />
+              </button>
+            </div>
+            {inputProjects.length > 1 && (
               <label className="library-project-picker">
                 <span>Projeto</span>
                 <select
@@ -4453,49 +4516,126 @@ function App() {
                 </select>
               </label>
             )}
-            <div className="library-mode-row">
-              {projectStateStatus && (
-                <small className="library-project-status">
-                  {projectStateStatus}
-                </small>
-              )}
-              <small
-                className={`library-mode-badge ${workspaceWriteEnabled ? "write" : ""}`}
-              >
-                {workspaceWriteEnabled
-                  ? "Substituição ativa"
-                  : "Não destrutivo"}
-              </small>
+            <div className="library-caption-block">
+              <div className="library-caption">
+                <span>
+                  {tracks.length === 1
+                    ? "1 música"
+                    : `${tracks.length} músicas`}
+                </span>
+                <span>
+                  {selectedForBatchCount === 0
+                    ? "fluxo individual"
+                    : selectedForBatchCount === 1
+                      ? "1 selecionada"
+                      : `${selectedForBatchCount} selecionadas · lote`}
+                </span>
+              </div>
+              <div className="track-list">
+                {(() => {
+                  // Originals that already produced a treated copy collapse (dim) so
+                  // the eye goes to the treated set, which is what the video step uses.
+                  const treatedOrigins = new Set(
+                    tracks
+                      .filter((track) => track.packageStatus === "treated")
+                      .map((track) => track.variantOf),
+                  );
+                  return tracks.map((track) => (
+                    <div
+                      className={`track-row batch ${track.id === selectedTrack?.id ? "selected" : ""} ${treatedOrigins.has(track.id) ? "has-treated" : ""}`}
+                      key={track.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedTrackId(track.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedTrackId(track.id);
+                        }
+                      }}
+                    >
+                      <input
+                        aria-label={`Selecionar ${track.metadata.title} para o lote`}
+                        checked={track.selectedForBatch}
+                        type="checkbox"
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => {
+                          event.stopPropagation();
+                          setTracks((current) =>
+                            current.map((item) =>
+                              item.id === track.id
+                                ? {
+                                    ...item,
+                                    selectedForBatch: event.target.checked,
+                                  }
+                                : item,
+                            ),
+                          );
+                        }}
+                      />
+                      <span className="track-cover">
+                        {coverForTrack(track)?.src ? (
+                          <img alt="" src={coverForTrack(track)?.src} />
+                        ) : (
+                          <Music2 />
+                        )}
+                      </span>
+                      <span className="track-copy">
+                        <strong>{track.metadata.title}</strong>
+                        <small>
+                          <span>
+                            {formatDuration(track.audioInfo?.durationSeconds)}
+                          </span>
+                          <em>
+                            {track.packageStatus === "treated"
+                              ? "Tratado"
+                              : "Original"}
+                          </em>
+                          {track.metadata.version && (
+                            <em>{track.metadata.version}</em>
+                          )}
+                        </small>
+                      </span>
+                      <button
+                        aria-label={`Remover ${track.metadata.title} da fila`}
+                        className="track-remove"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          removeTrackFromQueue(track.id);
+                        }}
+                      >
+                        <Trash2 />
+                      </button>
+                      <span className="track-status" />
+                    </div>
+                  ));
+                })()}
+              </div>
+              <div className="library-footer">
+                {projectStateStatus && (
+                  <small className="library-project-status">
+                    {projectStateStatus}
+                  </small>
+                )}
+                <button
+                  className="library-footer-mode"
+                  type="button"
+                  title="Abrir Setup para alternar o modo de escrita"
+                  onClick={() => setSetupPanelOpen(true)}
+                >
+                  <span
+                    className={`library-mode-badge ${workspaceWriteEnabled ? "write" : ""}`}
+                  >
+                    {workspaceWriteEnabled
+                      ? "Substituição ativa"
+                      : "Não destrutivo"}
+                  </span>
+                </button>
+              </div>
             </div>
-          </div>
-          <label className="check-field library-write-toggle">
-            <input
-              checked={workspaceWriteEnabled}
-              type="checkbox"
-              onChange={(event) =>
-                event.target.checked
-                  ? void enableWorkspaceWrites()
-                  : disableWorkspaceWrites()
-              }
-            />
-            Substituir ao finalizar
-          </label>
-          {workspaceWriteEnabled && (
-            <p className="library-mode-note">
-              Os originais só serão trocados se todos os itens selecionados
-              terminarem. Cancelar ou falhar preserva a pasta.
-            </p>
-          )}
-          {typeof window !== "undefined" && !window.showDirectoryPicker && (
-            <button
-              className="quiet-action"
-              type="button"
-              onClick={() => fallbackFolderInputRef.current?.click()}
-            >
-              <FolderOpen /> Importar arquivos
-            </button>
-          )}
-        </div>
+          </>
+        )}
         <input
           hidden
           ref={audioInputRef}

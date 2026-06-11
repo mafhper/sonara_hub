@@ -643,6 +643,187 @@ svg {
   height: 13px;
 }
 
+/* ---- Workspace setup card (explicit-open flow) ---------------------- */
+.workspace-setup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  overflow: auto;
+}
+
+.workspace-setup-greeting h2 {
+  margin: 0 0 4px;
+  font-size: var(--font-lg);
+  color: var(--text-primary);
+}
+
+.workspace-setup-greeting p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--font-sm);
+  line-height: 1.45;
+}
+
+.setup-field {
+  display: grid;
+  gap: 6px;
+}
+
+.setup-field-label {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-weight: 760;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.setup-field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.setup-field-value {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+
+.setup-field-value strong {
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setup-field-value small {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+}
+
+.setup-field-row button,
+.setup-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  flex: none;
+  padding: 6px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--stage-surface-low);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.setup-field-row button svg,
+.setup-actions button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.setup-project-select {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--control-bg);
+  color: var(--text-secondary);
+  padding: 7px 8px;
+  font-size: var(--font-sm);
+}
+
+.setup-actions {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.setup-restore {
+  align-self: start;
+  margin-top: var(--space-1);
+}
+
+/* ---- Loaded project profile header + footer ------------------------- */
+.project-profile {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.project-profile-cover {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--stage-surface-low);
+  color: var(--text-dim);
+}
+
+.project-profile-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.project-profile-cover svg {
+  width: 16px;
+  height: 16px;
+}
+
+.project-profile-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+
+.project-profile-copy strong {
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-profile-copy small {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-caption-block {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.library-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border-soft);
+}
+
+.library-footer-mode {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
 .mode-switch {
   display: flex;
   gap: 2px;
