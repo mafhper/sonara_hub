@@ -679,6 +679,9 @@ export function normalizeVisualSettings(input = {}) {
           ),
         }
       : {}),
+    ...(Array.isArray(source.renderOrder) && source.renderOrder.length > 0
+      ? { renderOrder: source.renderOrder }
+      : {}),
   };
 }
 

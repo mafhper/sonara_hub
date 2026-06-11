@@ -333,3 +333,22 @@ test("unknown renderers fall back to liquid mesh and invalid colors use defaults
   assert.equal(visual.rendererId, "liquid-mesh");
   assert.match(visual.colors.base, /^#[0-9a-f]{6}$/i);
 });
+
+test("renderOrder is preserved when present and omitted when absent", () => {
+  const customOrder = [
+    { kind: "waveform" },
+    { kind: "media", layerId: "cover", order: 0 },
+    { kind: "atmosphere" },
+  ];
+
+  const withOrder = normalizeVisualSettings({
+    rendererId: "audio-dark",
+    renderOrder: customOrder,
+  });
+  assert.deepEqual(withOrder.renderOrder, customOrder);
+
+  const withoutOrder = normalizeVisualSettings({
+    rendererId: "audio-dark",
+  });
+  assert.equal(withoutOrder.renderOrder, undefined);
+});

@@ -418,7 +418,9 @@ export function createSceneRuntime(
       Array.isArray(composition.renderOrder) &&
       composition.renderOrder.length > 0
         ? composition.renderOrder
-        : legacyRenderStack(scene, composition);
+        : Array.isArray(scene.renderOrder) && scene.renderOrder.length > 0
+          ? scene.renderOrder
+          : legacyRenderStack(scene, composition);
 
     for (const item of stack) {
       switch (item.kind) {
