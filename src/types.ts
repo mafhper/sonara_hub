@@ -1,4 +1,5 @@
 import type { ScenePresetV3 } from "../shared/visual-effects.mjs";
+import type { RenderStackItem } from "../shared/visual-effects.mjs";
 import type { PublicationAssetOverrideMap } from "../shared/publication-assets.mjs";
 
 export type AudioInfo = {
@@ -121,6 +122,12 @@ export type MediaLayerV2 = {
   loop: boolean;
   order: number;
 };
+
+export type CompositionLayerKind =
+  | "atmosphere"
+  | "sun-focus"
+  | "waveform"
+  | "media";
 
 export type TextOverlaySettings = {
   fields: {

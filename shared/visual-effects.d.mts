@@ -80,6 +80,13 @@ export type VisualPalette = {
   advanced: Record<string, number>;
 };
 
+export type RenderStackItem =
+  | { kind: "atmosphere" }
+  | { kind: "sun-focus" }
+  | { kind: "waveform" }
+  | { kind: "vinyl" }
+  | { kind: "media"; layerId: string; order: number };
+
 export type ScenePresetV4 = {
   schemaVersion: 4;
   id: string;
@@ -108,6 +115,7 @@ export type ScenePresetV4 = {
   waveform: WaveformV2;
   playful?: PlayfulContent;
   cloudLight?: CloudLightSettings;
+  renderOrder?: RenderStackItem[];
 };
 
 export type ScenePresetV3 = ScenePresetV4;
