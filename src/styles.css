@@ -884,6 +884,7 @@ svg {
 }
 
 .preview-frame {
+  position: relative;
   width: 100%;
   max-height: 100%;
   aspect-ratio: 16 / 9;
@@ -895,6 +896,37 @@ svg {
     inset 0 1px 0 rgb(255 255 255 / 6%),
     0 20px 50px rgb(0 0 0 / 55%),
     0 4px 14px rgb(0 0 0 / 40%);
+}
+
+.canvas-interaction-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  cursor: default;
+}
+
+.canvas-interaction-overlay.is-dragging {
+  cursor: grabbing;
+}
+
+.canvas-drag-handle {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 60%);
+}
+
+.canvas-drag-handle--layer {
+  border: 2px solid var(--accent);
+  background: rgb(var(--accent-rgb, 124 58 237) / 20%);
+}
+
+.canvas-drag-handle--text {
+  border: 2px solid #a78bfa;
+  background: rgb(167 139 250 / 15%);
 }
 
 .audio-library {

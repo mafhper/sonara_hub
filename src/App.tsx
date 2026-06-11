@@ -159,6 +159,7 @@ import {
   saveDirectoryHandle,
   saveSnapshot,
 } from "./storage";
+import { CanvasInteractionOverlay } from "./CanvasInteractionOverlay";
 import type {
   AudioInfo,
   AudioTagDraft,
@@ -4604,6 +4605,17 @@ function App() {
                   previewComposition.textSettings ?? defaultTextSettings
                 }
               />
+              {selectedTrack && (
+                <CanvasInteractionOverlay
+                  layers={selectedTrack.layers}
+                  showMetadata={previewComposition.showMetadata}
+                  textSettings={
+                    previewComposition.textSettings ?? defaultTextSettings
+                  }
+                  onUpdateLayer={updateLayer}
+                  onUpdateTextSettings={updateTextSettings}
+                />
+              )}
             </div>
           </div>
         )}
