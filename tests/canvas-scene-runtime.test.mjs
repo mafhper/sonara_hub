@@ -4,6 +4,7 @@ import {
   effectiveLayerOpacity,
   effectiveTextOpacity,
   effectiveZoomScale,
+  legacyRenderStack,
 } from "../shared/canvas-scene-runtime.mjs";
 
 test("cover layer fade-out is proportional to video duration", () => {
@@ -130,4 +131,92 @@ test("zoom supports zoom-out and stays neutral when disabled", () => {
     effectiveZoomScale({ enabled: false, from: 100, to: 200 }, 5, 10),
     1,
   );
+});
+
+test("legacy render stack starts with atmosphere", () => {
+  const scene = { rendererId: "audio-dark", cloudLight: { enabled: false } };
+  const stack = legacyRenderStack(scene, { layers: [] });
+  assert.equal(stack[0].kind, "atmosphere");
+});
+
+test("legacy render stack includes sun-focus when cloudLight is enabled and not volumetric-clouds", () => {
+  const scene = {
+    rendererId: "liquid-mesh",
+    cloudLight: { enabled: true },
+    waveform: { visible: false },
+  };
+  const stack = legacyRenderStack(scene, { layers: [] });
+  assert.equal(stack[0].kind, "atmosphere");
+  assert.equal(stack[1].kind, "sun-focus");
+});
+
+test("legacy render stack omits sun-focus for volumetric-clouds", () => {
+  const scene = {
+    rendererId: "volumetric-clouds",
+    cloudLight: { enabled: true },
+    waveform: { visible: false },
+  };
+  const stack = legacyRenderStack(scene, { layers: [] });
+  assert.equal(stack.length, 1);
+  assert.equal(stack[0].kind, "atmosphere");
+});
+
+test("legacy render stack includes media layers in reverse order", () => {
+  const layers = [
+    { id: "a", order: 0, visible: true, element: "img" },
+    { id: "b", order: 1, visible: true, element: "img" },
+  ];
+  const scene = {
+    rendererId: "audio-dark",
+    cloudLight: { enabled: false },
+    waveform: { visible: false },
+  };
+  const stack = legacyRenderStack(scene, { layers });
+  assert.equal(stack[0].kind, "atmosphere");
+  assert.equal(stack[1].kind, "media");
+  assert.equal(stack[1].layerId, "b");
+  assert.equal(stack[2].kind, "media");
+  assert.equal(stack[2].layerId, "a");
+});
+
+test("legacy render stack includes vinyl when renderer is vinyl", () => {
+  const scene = {
+    rendererId: "vinyl",
+    cloudLight: { enabled: false },
+    waveform: { visible: false },
+  };
+  const stack = legacyRenderStack(scene, { layers: [] });
+  assert.equal(
+    stack.some((item) => item.kind === "vinyl"),
+    true,
+  );
+});
+
+test("legacy render stack includes waveform when visible", () => {
+  const scene = {
+    rendererId: "audio-dark",
+    cloudLight: { enabled: false },
+    waveform: { visible: true },
+  };
+  const stack = legacyRenderStack(scene, { layers: [] });
+  assert.equal(
+    stack.some((item) => item.kind === "waveform"),
+    true,
+  );
+});
+
+test("legacy render stack omits hidden media layers", () => {
+  const layers = [
+    { id: "a", order: 0, visible: true, element: "img" },
+    { id: "b", order: 1, visible: false, element: "img" },
+  ];
+  const scene = {
+    rendererId: "audio-dark",
+    cloudLight: { enabled: false },
+    waveform: { visible: false },
+  };
+  const stack = legacyRenderStack(scene, { layers });
+  const mediaItems = stack.filter((item) => item.kind === "media");
+  assert.equal(mediaItems.length, 1);
+  assert.equal(mediaItems[0].layerId, "a");
 });

@@ -1,4 +1,4 @@
-import type { ScenePresetV3 } from "./visual-effects.mjs";
+import type { ScenePresetV3, RenderStackItem } from "./visual-effects.mjs";
 
 export type RuntimeMediaLayer = {
   id: string;
@@ -51,6 +51,7 @@ export type SceneComposition = {
   showMetadata?: boolean;
   textSettings?: Record<string, unknown>;
   durationSeconds?: number | null;
+  renderOrder?: RenderStackItem[];
 };
 
 export function loadMediaElements(
@@ -101,3 +102,8 @@ export function createSceneRuntime(
   setAudio(audio: Record<string, number | number[]>): void;
   destroy(): void;
 };
+
+export function legacyRenderStack(
+  scene: ScenePresetV3,
+  composition: SceneComposition,
+): RenderStackItem[];

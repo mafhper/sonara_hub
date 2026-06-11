@@ -334,6 +334,25 @@ const blendModes = {
   overlay: "overlay",
 };
 
+export function legacyRenderStack(scene, composition) {
+  const stack = [{ kind: "atmosphere" }];
+  if (scene.cloudLight?.enabled && scene.rendererId !== "volumetric-clouds") {
+    stack.push({ kind: "sun-focus" });
+  }
+  for (const layer of [...(composition.layers ?? [])].reverse()) {
+    if (layer.visible !== false && layer.element) {
+      stack.push({ kind: "media", layerId: layer.id, order: layer.order });
+    }
+  }
+  if (scene.rendererId === "vinyl") {
+    stack.push({ kind: "vinyl" });
+  }
+  if (scene.waveform?.visible) {
+    stack.push({ kind: "waveform" });
+  }
+  return stack;
+}
+
 export function createSceneRuntime(
   canvas,
   initialScene,
@@ -369,17 +388,7 @@ export function createSceneRuntime(
     }
   }
 
-  function render(time = 0) {
-    resize(
-      canvas.clientWidth || canvas.width,
-      canvas.clientHeight || canvas.height,
-    );
-    const { scene, composition, audio } = state;
-    const width = canvas.width;
-    const height = canvas.height;
-    context.save();
-    context.clearRect(0, 0, width, height);
-
+  function renderAtmosphere(context, width, height, scene, audio, time) {
     if (fragmentShaders[scene.rendererId]) {
       webgl.render(scene, audio, time);
       context.drawImage(webglCanvas, 0, 0, width, height);
@@ -392,45 +401,82 @@ export function createSceneRuntime(
     } else {
       drawDarkSurface(context, width, height, scene, audio, time);
     }
+  }
 
-    // Optional light focus ("sol") for atmospheres that do not bake it into
-    // their shader. volumetric-clouds renders its own sun integrated with the
-    // cloud density, so it opts out here to avoid a double glow.
-    if (scene.cloudLight?.enabled && scene.rendererId !== "volumetric-clouds") {
-      drawLightFocus(context, width, height, scene.cloudLight, audio, time);
-    }
+  function render(time = 0) {
+    resize(
+      canvas.clientWidth || canvas.width,
+      canvas.clientHeight || canvas.height,
+    );
+    const { scene, composition, audio } = state;
+    const width = canvas.width;
+    const height = canvas.height;
+    context.save();
+    context.clearRect(0, 0, width, height);
 
-    // Draw back-to-front so the FIRST layer (top of the list in the UI) lands
-    // on top. The list shows index 0 first and treats it as the front layer,
-    // so iterate the array in reverse when painting.
-    for (const layer of [...(composition.layers ?? [])].reverse()) {
-      if (layer.visible !== false && layer.element) {
-        drawMediaLayer(
-          context,
-          width,
-          height,
-          layer,
-          time,
-          composition.durationSeconds,
-        );
+    const stack =
+      Array.isArray(composition.renderOrder) &&
+      composition.renderOrder.length > 0
+        ? composition.renderOrder
+        : legacyRenderStack(scene, composition);
+
+    for (const item of stack) {
+      switch (item.kind) {
+        case "atmosphere":
+          renderAtmosphere(context, width, height, scene, audio, time);
+          break;
+        case "sun-focus":
+          if (scene.cloudLight?.enabled) {
+            drawLightFocus(
+              context,
+              width,
+              height,
+              scene.cloudLight,
+              audio,
+              time,
+            );
+          }
+          break;
+        case "waveform":
+          if (scene.waveform?.visible) {
+            drawWaveform(context, width, height, scene.waveform, audio, time);
+          }
+          break;
+        case "vinyl":
+          if (scene.rendererId === "vinyl") {
+            drawVinyl(
+              context,
+              width,
+              height,
+              scene,
+              composition.coverElement,
+              composition.metadata ?? {},
+              audio,
+              time,
+            );
+          }
+          break;
+        case "media": {
+          const layer = (composition.layers ?? []).find(
+            (l) => l.id === item.layerId,
+          );
+          if (layer && layer.visible !== false && layer.element) {
+            drawMediaLayer(
+              context,
+              width,
+              height,
+              layer,
+              time,
+              composition.durationSeconds,
+            );
+          }
+          break;
+        }
       }
     }
 
-    if (scene.rendererId === "vinyl") {
-      drawVinyl(
-        context,
-        width,
-        height,
-        scene,
-        composition.coverElement,
-        composition.metadata ?? {},
-        audio,
-        time,
-      );
-    }
-    if (scene.waveform?.visible) {
-      drawWaveform(context, width, height, scene.waveform, audio, time);
-    }
+    // Text and global shade always render last — they are not part of the
+    // reorderable stack because text overlay is conceptually always on top.
     if (composition.showMetadata !== false) {
       drawMetadata(
         context,
