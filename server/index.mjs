@@ -504,7 +504,10 @@ app.get("/api/internal-asset", async (req, res) => {
   );
   try {
     await fs.access(assetPath);
-    res.sendFile(assetPath);
+    // Assets live under .sonara/ (a dot-directory). express/send defaults to
+    // dotfiles:"ignore", which 404s any path containing a dot-segment — that is
+    // why restored cover/external layers silently failed to load. Allow it.
+    res.sendFile(assetPath, { dotfiles: "allow" });
   } catch {
     res.status(404).json({ error: "not-found" });
   }

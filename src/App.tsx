@@ -998,6 +998,10 @@ function App() {
   // and the user opens a work folder/project on purpose. This sidesteps the
   // flaky auto-restore of input/ that left projects half-loaded.
   const [setupPanelOpen, setSetupPanelOpen] = useState(true);
+  // Force the user to confirm input + output folders before the project list is
+  // offered, so a project never loads into an unconfirmed workspace (which led
+  // to saving into "another save"). Reset each fresh boot.
+  const [foldersReady, setFoldersReady] = useState(false);
   const [outputFolderName, setOutputFolderName] = useState("outputs");
   const [outputFolderKind, setOutputFolderKind] =
     useState<WorkspaceFolderKind>("internal");
@@ -1452,9 +1456,19 @@ function App() {
     savePanelWidths({ left: leftRailWidth, right: rightRailWidth });
   }, [leftRailWidth, rightRailWidth]);
 
+  // Set true by setWorkspaceTracks on every project load. The auto-save below
+  // skips exactly the save that the load itself triggers, so opening a project
+  // never overwrites its saved .sonara with a still-hydrating state (e.g. before
+  // the cover/external layers have been rebuilt from .sonara/assets).
+  const hydratingRef = useRef(false);
+
   useEffect(() => {
     if (!tracks.length) return;
     const timeout = window.setTimeout(() => {
+      if (hydratingRef.current) {
+        hydratingRef.current = false;
+        return;
+      }
       const snapshot = createSnapshot();
       void saveSnapshot(snapshot);
       void saveActiveProjectSnapshot(snapshot);
@@ -4195,6 +4209,9 @@ function App() {
     baseTracks: TrackDraft[],
     snapshot?: ProjectSnapshot,
   ) {
+    // Suppress the immediate post-load auto-save (see hydratingRef) so restoring
+    // a project does not clobber its own .sonara before hydration completes.
+    hydratingRef.current = true;
     if (!snapshot) {
       setTracks(baseTracks);
       setSelectedTrackId(baseTracks[0]?.id ?? "");
@@ -4436,77 +4453,116 @@ function App() {
                 </button>
               </div>
             </div>
-            {inputProjects.length > 0 && (
-              <div className="setup-field">
-                <span className="setup-field-label">Projeto</span>
-                <div className="setup-field-row">
-                  <select
-                    className="setup-project-select"
-                    value={selectedInputProjectId}
-                    onChange={(event) =>
-                      void selectInputProject(event.target.value)
-                    }
-                  >
-                    <option value="">Escolha um projeto…</option>
-                    {inputProjects.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {projectOptionLabel(project)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <p className="helper-copy">
-                  Abrir um projeto carrega suas músicas e os ajustes salvos no
-                  .sonara dele.
-                </p>
-              </div>
-            )}
-            <div className="setup-actions">
-              <button
-                type="button"
-                onClick={() => audioInputRef.current?.click()}
-              >
-                <Plus /> Abrir arquivo
-              </button>
-              {typeof window !== "undefined" && !window.showDirectoryPicker && (
+            {!foldersReady ? (
+              <>
                 <button
-                  className="quiet-action"
+                  className="upload-action setup-confirm-folders"
                   type="button"
-                  onClick={() => fallbackFolderInputRef.current?.click()}
+                  onClick={() => setFoldersReady(true)}
                 >
-                  <FolderOpen /> Importar arquivos
+                  Confirmar pastas e continuar
                 </button>
-              )}
-            </div>
-            <label className="check-field setup-write-toggle">
-              <input
-                checked={workspaceWriteEnabled}
-                type="checkbox"
-                onChange={(event) =>
-                  event.target.checked
-                    ? void enableWorkspaceWrites()
-                    : disableWorkspaceWrites()
-                }
-              />
-              Substituir ao finalizar (modo destrutivo)
-            </label>
-            <p className="helper-copy">
-              {workspaceWriteEnabled
-                ? "Os originais só serão trocados se todos os itens selecionados terminarem; cancelar ou falhar preserva a pasta."
-                : "Modo não destrutivo: os arquivos originais nunca são alterados — tudo vai para a pasta de saída."}
-            </p>
-            {projectStateStatus && (
-              <small className="library-project-status">
-                {projectStateStatus}
-              </small>
+                <p className="helper-copy">
+                  Defina entrada e saída acima e confirme. Só então os projetos
+                  ficam disponíveis — assim nada carrega num espaço de trabalho
+                  indefinido.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="setup-field">
+                  <span className="setup-field-label">Projeto</span>
+                  {inputProjects.length > 0 ? (
+                    <>
+                      <div className="setup-field-row">
+                        <select
+                          className="setup-project-select"
+                          value={selectedInputProjectId}
+                          onChange={(event) =>
+                            void selectInputProject(event.target.value)
+                          }
+                        >
+                          <option value="">Escolha um projeto…</option>
+                          {inputProjects.map((project) => (
+                            <option key={project.id} value={project.id}>
+                              {projectOptionLabel(project)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <p className="helper-copy">
+                        Abrir um projeto carrega suas músicas e os ajustes
+                        salvos no .sonara dele.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="setup-field-row">
+                        <button
+                          type="button"
+                          onClick={() => void loadWorkspaceBaseline()}
+                        >
+                          <RotateCcw /> Atualizar lista
+                        </button>
+                      </div>
+                      <p className="helper-copy">
+                        Nenhum projeto interno encontrado. Confirme que o
+                        servidor está no ar (npm run dev) e que há projetos na
+                        pasta de entrada — ou abra uma pasta/arquivo externo
+                        abaixo.
+                      </p>
+                    </>
+                  )}
+                </div>
+                <div className="setup-actions">
+                  <button
+                    type="button"
+                    onClick={() => audioInputRef.current?.click()}
+                  >
+                    <Plus /> Abrir arquivo
+                  </button>
+                  {typeof window !== "undefined" &&
+                    !window.showDirectoryPicker && (
+                      <button
+                        className="quiet-action"
+                        type="button"
+                        onClick={() => fallbackFolderInputRef.current?.click()}
+                      >
+                        <FolderOpen /> Importar arquivos
+                      </button>
+                    )}
+                </div>
+                <label className="check-field setup-write-toggle">
+                  <input
+                    checked={workspaceWriteEnabled}
+                    type="checkbox"
+                    onChange={(event) =>
+                      event.target.checked
+                        ? void enableWorkspaceWrites()
+                        : disableWorkspaceWrites()
+                    }
+                  />
+                  Substituir ao finalizar (modo destrutivo)
+                </label>
+                <p className="helper-copy">
+                  {workspaceWriteEnabled
+                    ? "Os originais só serão trocados se todos os itens selecionados terminarem; cancelar ou falhar preserva a pasta."
+                    : "Modo não destrutivo: os arquivos originais nunca são alterados — tudo vai para a pasta de saída."}
+                </p>
+                {projectStateStatus && (
+                  <small className="library-project-status">
+                    {projectStateStatus}
+                  </small>
+                )}
+                <button
+                  className="quiet-action setup-restore"
+                  type="button"
+                  onClick={() => void loadInitialWorkspace()}
+                >
+                  <RotateCcw /> Restaurar última sessão
+                </button>
+              </>
             )}
-            <button
-              className="quiet-action setup-restore"
-              type="button"
-              onClick={() => void loadInitialWorkspace()}
-            >
-              <RotateCcw /> Restaurar última sessão
-            </button>
           </div>
         ) : (
           <>

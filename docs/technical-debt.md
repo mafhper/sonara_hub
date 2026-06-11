@@ -1,5 +1,9 @@
 # Debitos tecnicos
 
+> Para o estado atual completo, bugs conhecidos e próximas etapas (incluindo o
+> redesenho da barra de camadas, saves múltiplos por projeto e o split do
+> `App.tsx`), ver [backlog.md](backlog.md).
+
 ## Benchmark de render longo
 
 Existe um benchmark automatizado curto para render/export em

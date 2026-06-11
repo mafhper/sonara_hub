@@ -6209,9 +6209,11 @@ button:disabled {
 .live-preview-controls {
   position: absolute;
   inset: auto 0 0;
-  /* Sit above the canvas interaction overlay (z-index:1) so play/seek stay
-     clickable; the overlay otherwise covers the whole stage and swallows the
-     controls' pointer events, which broke the Divulgação mini-clip player. */
+  /* Defense-in-depth only. This z-index does NOT actually elevate the controls
+     above the canvas interaction overlay, because they're trapped in the
+     stacking context of .composition-live-preview. The effective fix is
+     shrinking the overlay's bottom — see
+     `.publication-preview-stage .composition-live-preview ~ .canvas-interaction-overlay`. */
   z-index: 2;
   display: flex;
   align-items: center;
