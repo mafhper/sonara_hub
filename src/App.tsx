@@ -73,6 +73,7 @@ import {
 import type {
   CloudLightSettings,
   PlayfulContent,
+  RenderStackItem,
   ScenePresetV3,
   VisualPalette,
   WaveformType,
@@ -2808,6 +2809,45 @@ function App() {
         cloudLight: { ...selectedScene.cloudLight, ...patch },
       }),
     );
+  }
+
+  function computeRenderStack(): RenderStackItem[] {
+    const scene = selectedScene;
+    const layers = selectedTrack?.layers ?? [];
+    const stack: RenderStackItem[] = [];
+    stack.push({ kind: "atmosphere" });
+    if (scene.cloudLight?.enabled && scene.rendererId !== "volumetric-clouds") {
+      stack.push({ kind: "sun-focus" });
+    }
+    for (const layer of [...layers].reverse()) {
+      if (layer.visible !== false) {
+        stack.push({ kind: "media", layerId: layer.id, order: layer.order });
+      }
+    }
+    if (scene.rendererId === "vinyl") {
+      stack.push({ kind: "vinyl" });
+    }
+    if (scene.waveform?.visible) {
+      stack.push({ kind: "waveform" });
+    }
+    if (Array.isArray(scene.renderOrder) && scene.renderOrder.length > 0) {
+      return scene.renderOrder;
+    }
+    return stack;
+  }
+
+  function moveRenderStackItem(
+    stack: RenderStackItem[],
+    fromIndex: number,
+    direction: -1 | 1,
+  ): RenderStackItem[] {
+    const toIndex = fromIndex + direction;
+    if (toIndex < 0 || toIndex >= stack.length) return stack;
+    const newStack = [...stack];
+    const temp = newStack[fromIndex];
+    newStack[fromIndex] = newStack[toIndex];
+    newStack[toIndex] = temp;
+    return newStack;
   }
 
   function applyPalette(palette: VisualPalette) {
@@ -10056,6 +10096,75 @@ function PaletteSwatches({
   );
 }
 
+function buildRenderStackItems(
+  scene: ScenePresetV3,
+  layers: MediaLayerV2[],
+  onWaveform: (patch: Partial<WaveformV1>) => void,
+  onCloudLight: (patch: Partial<CloudLightSettings>) => void,
+  onUpdateLayer: (id: string, patch: Partial<MediaLayerV2>) => void,
+) {
+  const stack: {
+    key: string;
+    label: string;
+    kind: RenderStackItem["kind"];
+    visible: boolean;
+    onToggle: () => void;
+  }[] = [];
+
+  stack.push({
+    key: "atmosphere",
+    label: scene.name ?? "Atmosfera",
+    kind: "atmosphere",
+    visible: true,
+    onToggle: () => {},
+  });
+
+  if (scene.cloudLight?.enabled && scene.rendererId !== "volumetric-clouds") {
+    stack.push({
+      key: "sun-focus",
+      label: "Foco solar",
+      kind: "sun-focus",
+      visible: true,
+      onToggle: () => onCloudLight({ enabled: false }),
+    });
+  }
+
+  const visibleLayers = [...layers]
+    .reverse()
+    .filter((l) => l.visible !== false);
+  for (const layer of visibleLayers) {
+    stack.push({
+      key: `media-${layer.id}`,
+      label: layer.name || "Camada",
+      kind: "media",
+      visible: layer.visible !== false,
+      onToggle: () => onUpdateLayer(layer.id, { visible: !layer.visible }),
+    });
+  }
+
+  if (scene.rendererId === "vinyl") {
+    stack.push({
+      key: "vinyl",
+      label: "Vinil",
+      kind: "vinyl",
+      visible: true,
+      onToggle: () => {},
+    });
+  }
+
+  if (scene.waveform?.visible) {
+    stack.push({
+      key: "waveform",
+      label: "Waveform",
+      kind: "waveform",
+      visible: true,
+      onToggle: () => onWaveform({ visible: false }),
+    });
+  }
+
+  return stack;
+}
+
 function VisualInspector(props: {
   layers: MediaLayerV2[];
   layerUndoLabel: string | null;
@@ -10085,8 +10194,41 @@ function VisualInspector(props: {
 }) {
   const { scene } = props;
   const paletteId = selectedPaletteId(scene);
+  const stackItems = buildRenderStackItems(
+    scene,
+    props.layers,
+    props.onWaveform,
+    props.onCloudLight,
+    props.onUpdateLayer,
+  );
   return (
     <>
+      <InspectorGroup
+        title={`Composição · ${stackItems.length}`}
+        open
+        scope="series"
+      >
+        <div className="composition-stack-list">
+          {stackItems.map((item) => (
+            <div key={item.key} className="composition-stack-row">
+              <span className="composition-stack-label">{item.label}</span>
+              <button
+                aria-label={
+                  item.visible
+                    ? `Ocultar ${item.label}`
+                    : `Mostrar ${item.label}`
+                }
+                title={item.visible ? "Visível" : "Oculta"}
+                type="button"
+                className="icon-button-sm"
+                onClick={() => item.onToggle()}
+              >
+                {item.visible ? <Eye /> : <EyeOff />}
+              </button>
+            </div>
+          ))}
+        </div>
+      </InspectorGroup>
       <InspectorGroup title="Atmosfera" open scope="track">
         <SelectField
           label="Preset"

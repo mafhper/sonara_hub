@@ -2602,6 +2602,28 @@ svg {
   margin: 8px 0 0;
 }
 
+.composition-stack-list {
+  display: grid;
+  gap: 6px;
+}
+
+.composition-stack-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.composition-stack-label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+}
+
 .helper-copy {
   margin: 10px 0 0;
 }
