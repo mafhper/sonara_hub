@@ -4848,6 +4848,39 @@ function App() {
                   }
                   onUpdateLayer={updateLayer}
                   onUpdateTextSettings={updateTextSettings}
+                  cloudLight={
+                    selectedScene.cloudLight?.enabled &&
+                    selectedScene.rendererId !== "volumetric-clouds"
+                      ? {
+                          x: selectedScene.cloudLight.x,
+                          y: selectedScene.cloudLight.y,
+                          enabled: true,
+                        }
+                      : null
+                  }
+                  onCloudLight={(patch) =>
+                    selectedScene.cloudLight &&
+                    updateCloudLight({
+                      ...selectedScene.cloudLight,
+                      ...patch,
+                    })
+                  }
+                  waveform={
+                    selectedScene.waveform?.visible
+                      ? {
+                          position: selectedScene.waveform.position,
+                          width: selectedScene.waveform.width,
+                          height: selectedScene.waveform.height,
+                          visible: true,
+                        }
+                      : null
+                  }
+                  onWaveformDrag={(patch) =>
+                    updateWaveform({
+                      ...selectedScene.waveform,
+                      ...patch,
+                    })
+                  }
                 />
               )}
             </div>

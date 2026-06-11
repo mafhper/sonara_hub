@@ -1,6 +1,11 @@
 import type { MediaLayerV2, TextOverlaySettings } from "./types";
 
-export type CanvasHitTarget = { kind: "layer"; id: string } | { kind: "text" };
+export type CanvasHitTarget =
+  | { kind: "layer"; id: string }
+  | { kind: "text" }
+  | { kind: "atmosphere" }
+  | { kind: "sun-focus" }
+  | { kind: "waveform" };
 
 export type ResizeCorner = "nw" | "ne" | "se" | "sw";
 
@@ -30,9 +35,20 @@ export function hitTestCanvas(
   textX: number,
   textY: number,
   showMetadata: boolean,
+  options?: {
+    cloudLight?: { x: number; y: number; enabled: boolean };
+    waveform?: {
+      position: number;
+      width: number;
+      height: number;
+      visible: boolean;
+    };
+  },
 ): CanvasHitTarget | null {
   const LAYER_RADIUS_SQ = 22 * 22;
   const TEXT_RADIUS_SQ = 14 * 14;
+  const SUN_RADIUS_SQ = 18 * 18;
+  const WAVEFORM_RADIUS_SQ = 16 * 16;
 
   const sorted = [...layers]
     .filter((l) => l.visible)
@@ -54,7 +70,27 @@ export function hitTestCanvas(
     }
   }
 
-  return null;
+  if (options?.waveform?.visible) {
+    const { position, width, height } = options.waveform;
+    const wfX = 50;
+    const wfY = position;
+    const dx = pct.x - wfX;
+    const dy = pct.y - wfY;
+    if (dx * dx + dy * dy < WAVEFORM_RADIUS_SQ) {
+      return { kind: "waveform" };
+    }
+  }
+
+  if (options?.cloudLight?.enabled) {
+    const { x, y } = options.cloudLight;
+    const dx = pct.x - x;
+    const dy = pct.y - y;
+    if (dx * dx + dy * dy < SUN_RADIUS_SQ) {
+      return { kind: "sun-focus" };
+    }
+  }
+
+  return { kind: "atmosphere" };
 }
 
 /**

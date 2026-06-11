@@ -32,6 +32,15 @@ interface Props {
   onUpdateLayer: (id: string, patch: Partial<MediaLayerV2>) => void;
   onUpdateTextSettings: (patch: Partial<TextOverlaySettings>) => void;
   onContextAction?: (action: string, target: CanvasHitTarget) => void;
+  cloudLight?: { x: number; y: number; enabled: boolean } | null;
+  onCloudLight?: (patch: { x: number; y: number }) => void;
+  waveform?: {
+    position: number;
+    width: number;
+    height: number;
+    visible: boolean;
+  } | null;
+  onWaveformDrag?: (patch: { position: number }) => void;
 }
 
 type InteractionState =
@@ -57,6 +66,10 @@ export function CanvasInteractionOverlay({
   onUpdateLayer,
   onUpdateTextSettings,
   onContextAction,
+  cloudLight,
+  onCloudLight,
+  waveform,
+  onWaveformDrag,
 }: Props) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [selection, setSelection] = useState<CanvasHitTarget | null>(null);
@@ -114,6 +127,38 @@ export function CanvasInteractionOverlay({
     }
     if (selection?.kind === "text" && showMetadata) {
       return textBoundingBox(textSettings, rect.width, rect.height, 2);
+    }
+    if (selection?.kind === "sun-focus" && cloudLight) {
+      const s = 6;
+      return {
+        left: cloudLight.x - s,
+        top: cloudLight.y - s,
+        right: cloudLight.x + s,
+        bottom: cloudLight.y + s,
+        width: s * 2,
+        height: s * 2,
+      };
+    }
+    if (selection?.kind === "waveform" && waveform) {
+      const s = 12;
+      return {
+        left: 50 - s,
+        top: waveform.position - s / 2,
+        right: 50 + s,
+        bottom: waveform.position + s / 2,
+        width: s * 2,
+        height: s,
+      };
+    }
+    if (selection?.kind === "atmosphere") {
+      return {
+        left: 0,
+        top: 0,
+        right: 100,
+        bottom: 100,
+        width: 100,
+        height: 100,
+      };
     }
     return null;
   }
@@ -182,6 +227,10 @@ export function CanvasInteractionOverlay({
       textSettings.x,
       textSettings.y,
       showMetadata,
+      {
+        cloudLight: cloudLight ?? undefined,
+        waveform: waveform ?? undefined,
+      },
     );
 
     if (!hit) {
@@ -191,14 +240,21 @@ export function CanvasInteractionOverlay({
 
     setSelection(hit);
 
-    const startItemX =
-      hit.kind === "layer"
-        ? (layers.find((l) => l.id === hit.id)?.x ?? 50)
-        : textSettings.x;
-    const startItemY =
-      hit.kind === "layer"
-        ? (layers.find((l) => l.id === hit.id)?.y ?? 50)
-        : textSettings.y;
+    let startItemX = 50;
+    let startItemY = 50;
+
+    if (hit.kind === "layer") {
+      startItemX = layers.find((l) => l.id === hit.id)?.x ?? 50;
+      startItemY = layers.find((l) => l.id === hit.id)?.y ?? 50;
+    } else if (hit.kind === "text") {
+      startItemX = textSettings.x;
+      startItemY = textSettings.y;
+    } else if (hit.kind === "sun-focus" && cloudLight) {
+      startItemX = cloudLight.x;
+      startItemY = cloudLight.y;
+    } else if (hit.kind === "waveform" && waveform) {
+      startItemY = waveform.position;
+    }
 
     const dragState: CanvasDragState = {
       item: hit,
@@ -228,7 +284,11 @@ export function CanvasInteractionOverlay({
 
       if (state.item.kind === "layer") {
         onUpdateLayer(state.item.id, { x: newX, y: newY });
-      } else {
+      } else if (state.item.kind === "sun-focus" && onCloudLight) {
+        onCloudLight({ x: newX, y: newY });
+      } else if (state.item.kind === "waveform" && onWaveformDrag) {
+        onWaveformDrag({ position: newY });
+      } else if (state.item.kind !== "atmosphere") {
         onUpdateTextSettings({ x: newX, y: newY });
       }
       return;
