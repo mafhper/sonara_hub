@@ -3029,6 +3029,18 @@ svg {
   height: 100%;
 }
 
+/* When a CompositionLivePreview (clip player with controls) exists in the
+   publication stage, the canvas-interaction-overlay above it must leave
+   room at the bottom so the play/pause button and scrubber stay clickable.
+   Without this, the overlay swallows pointer events because the stacking
+   context of .composition-live-preview (z-index:auto) cannot elevate the
+   child controls' z-index:2 above the sibling overlay's z-index:1. */
+.publication-preview-stage
+  .composition-live-preview
+  ~ .canvas-interaction-overlay {
+  bottom: 40px;
+}
+
 /* Empty-state message: centre it in the absolute-positioned context. */
 .publication-preview-stage > .publication-preview-empty {
   position: absolute;
