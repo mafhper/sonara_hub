@@ -73,28 +73,34 @@ test("every visual preset exposes four reusable palettes", () => {
   }
 });
 
-test("ported shader presets normalize and share fullscreen renderers", () => {
+test("ported shader presets normalize to their fullscreen renderers", () => {
   const plasma = normalizeVisualSettings({ rendererId: "plasma-nebula" });
   assert.equal(plasma.rendererId, "plasma");
   assert.equal(plasma.id, "plasma-nebula");
-  assert.equal(plasma.category, "Shaders");
+  assert.equal(plasma.category, "Espaço");
   assert.deepEqual(
     plasma.controls.map((entry) => entry.key),
     ["scale", "complexity", "saturation", "glow"],
   );
   assert.equal(plasma.advanced.complexity, 60);
 
+  // Plasma lava and vortex galaxy now own dedicated renderers so they no longer
+  // look identical to plasma nebula / the whirlpool vortex.
   const plasmaLava = normalizeVisualSettings({ rendererId: "plasma-lava" });
-  assert.equal(plasmaLava.rendererId, "plasma");
+  assert.equal(plasmaLava.rendererId, "lava");
   assert.equal(plasmaLava.colors.base, "#dc2626");
 
-  const vortex = normalizeVisualSettings({ rendererId: "vortex-galaxy" });
-  assert.equal(vortex.rendererId, "vortex");
+  const whirlpool = normalizeVisualSettings({ rendererId: "vortex-whirlpool" });
+  assert.equal(whirlpool.rendererId, "vortex");
+
+  const galaxy = normalizeVisualSettings({ rendererId: "vortex-galaxy" });
+  assert.equal(galaxy.rendererId, "galaxy");
+  assert.equal(galaxy.category, "Espaço");
   assert.deepEqual(
-    vortex.controls.map((entry) => entry.key),
+    galaxy.controls.map((entry) => entry.key),
     ["arms", "twist", "zoom", "glow"],
   );
-  assert.equal(vortex.advanced.arms, 57);
+  assert.equal(galaxy.advanced.arms, 57);
 });
 
 test("starfield uses one preset with parameterized palettes", () => {

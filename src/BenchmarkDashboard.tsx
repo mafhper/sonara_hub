@@ -1722,7 +1722,7 @@ function BaselinePanel({
       <div className="bench-panel-title">
         <Database />
         <div>
-          <strong>Baseline fixa</strong>
+          <strong>Baseline</strong>
           <span>
             Referência congelada para comparar runs futuros sem depender do run
             anterior.
@@ -1731,22 +1731,8 @@ function BaselinePanel({
       </div>
 
       <div className="bench-baseline-layout">
-        <div className="bench-baseline-copy">
-          <h2>O que ela resolve</h2>
-          <p>
-            Baseline é um run salvo em um slot estável. Ela serve para comparar
-            a evolução do mesmo tipo de benchmark ao longo do tempo, separada do
-            score canônico por commit.
-          </p>
-          <p>
-            Se o slot está vazio, o dashboard volta a comparar com o run
-            anterior compatível. Quando o slot aponta para um run existente, a
-            comparação de baseline usa esse run como referência.
-          </p>
-        </div>
-
         <div className="bench-baseline-control">
-          <label>
+          <label className="bench-baseline-slot-label">
             <span>Slot</span>
             <select
               value={baselineSlot}
@@ -1756,11 +1742,11 @@ function BaselinePanel({
                 baselineOptions.map((baseline) => (
                   <option key={baseline.slot} value={baseline.slot}>
                     {baseline.label} ·{" "}
-                    {baseline.found ? shortId(baseline.runId) : "slot vazio"}
+                    {baseline.found ? shortId(baseline.runId) : "vazio"}
                   </option>
                 ))
               ) : (
-                <option value={baselineSlot}>Carregando baselines</option>
+                <option value={baselineSlot}>Carregando…</option>
               )}
             </select>
           </label>
@@ -1769,109 +1755,115 @@ function BaselinePanel({
               <>
                 <strong>{shortId(selectedBaseline.runId)}</strong>
                 <span>
+                  {selectedBaseline.run?.profile ?? ""}
+                  {" · "}
                   {relativeDate(selectedBaseline.run?.createdAt ?? "")}
                 </span>
               </>
             ) : (
               <>
-                <strong>Sem run salvo</strong>
+                <strong>Sem run</strong>
                 <span>Fallback: run anterior compatível</span>
               </>
             )}
           </div>
-          <button
-            className="bench-baseline-action"
-            disabled={!latestRun || baselineSaving}
-            type="button"
-            onClick={onSaveLatest}
-          >
-            <Database />
-            {baselineSaving ? "Salvando..." : "Usar último run"}
-          </button>
-          <button
-            className="bench-secondary-action"
-            type="button"
-            onClick={onRefresh}
-          >
-            <RefreshCcw /> Verificar baseline
-          </button>
+          <div className="bench-baseline-actions">
+            <button
+              className="bench-baseline-action"
+              disabled={!latestRun || baselineSaving}
+              type="button"
+              onClick={onSaveLatest}
+            >
+              <Database />
+              {baselineSaving ? "Salvando…" : "Salvar último run"}
+            </button>
+            <button
+              className="bench-secondary-action"
+              type="button"
+              onClick={onRefresh}
+            >
+              <RefreshCcw />
+            </button>
+          </div>
           {baselineMessage && (
             <small className="bench-baseline-message">{baselineMessage}</small>
           )}
         </div>
+
+        <div className="bench-baseline-status-grid">
+          <BaselineStatusCard
+            label="Slot"
+            value={selectedBaseline?.label ?? "—"}
+            detail={
+              activeBaseline === baselineSlot
+                ? "Ativo"
+                : `Diferente do ativo (${baselineLabel(activeBaseline)})`
+            }
+            tone={activeBaseline === baselineSlot ? "ok" : "warn"}
+          />
+          <BaselineStatusCard
+            label="Run"
+            value={
+              selectedBaseline?.found ? shortId(selectedBaseline.runId) : "—"
+            }
+            detail={
+              selectedBaseline?.found
+                ? (selectedBaseline.run?.testLabel ??
+                  selectedBaseline.run?.profile ??
+                  "")
+                : "Nenhum run salvo neste slot"
+            }
+            tone={selectedBaseline?.found ? "ok" : "warn"}
+          />
+          <BaselineStatusCard
+            label="Último run"
+            value={latestRun ? shortId(latestRun.runId) : "—"}
+            detail={
+              latestRun
+                ? (latestRun.testLabel ?? latestRun.profile ?? "")
+                : "Rode um benchmark"
+            }
+            tone={latestRun ? "info" : "warn"}
+          />
+          <BaselineStatusCard
+            label="Comparação"
+            value={
+              canCompare
+                ? "Baseline"
+                : sameAsLatest
+                  ? "Mesmo run"
+                  : fallbackComparison
+                    ? "Anterior"
+                    : "—"
+            }
+            detail={
+              canCompare
+                ? `Referência ${shortId(comparisonReferenceRun?.runId ?? "")}`
+                : sameAsLatest
+                  ? "Rode outro run para ver deltas"
+                  : fallbackComparison
+                    ? `Fallback ${shortId(fallbackComparison.referenceRun.runId)}`
+                    : "Sem par compatível"
+            }
+            tone={canCompare ? "ok" : "info"}
+          />
+        </div>
       </div>
 
-      <div className="bench-baseline-status-grid">
-        <BaselineStatusCard
-          label="Slot selecionado"
-          value={selectedBaseline?.label ?? "Sem slot"}
-          detail={`Relatório ativo: ${baselineLabel(activeBaseline)}`}
-          tone={activeBaseline === baselineSlot ? "ok" : "warn"}
-        />
-        <BaselineStatusCard
-          label="Run salvo"
-          value={
-            selectedBaseline?.found ? shortId(selectedBaseline.runId) : "Nenhum"
-          }
-          detail={
-            selectedBaseline?.found
-              ? selectedBaseline.run?.testLabel ||
-                selectedBaseline.run?.profile ||
-                "Run salvo"
-              : "Use o último run para preencher este slot"
-          }
-          tone={selectedBaseline?.found ? "ok" : "warn"}
-        />
-        <BaselineStatusCard
-          label="Último run"
-          value={latestRun ? shortId(latestRun.runId) : "Sem dados"}
-          detail={
-            latestRun
-              ? latestRun.testLabel || latestRun.profile
-              : "Rode um benchmark"
-          }
-          tone={latestRun ? "info" : "warn"}
-        />
-        <BaselineStatusCard
-          label="Comparação"
-          value={
-            canCompare
-              ? "Baseline ativa"
-              : sameAsLatest
-                ? "Mesmo run"
-                : fallbackComparison
-                  ? "Run anterior"
-                  : "Indisponível"
-          }
-          detail={
-            canCompare
-              ? `Referência ${shortId(comparisonReferenceRun?.runId ?? "")}`
-              : sameAsLatest
-                ? "Após salvar o último run, rode outro compatível para ver deltas"
-                : fallbackComparison
-                  ? `Fallback ${shortId(fallbackComparison.referenceRun.runId)}`
-                  : "Sem par compatível para comparar"
-          }
-          tone={canCompare ? "ok" : "info"}
-        />
-      </div>
-
-      <div className="bench-baseline-checklist">
-        <strong>Como saber que está funcionando</strong>
-        <ul>
-          <li className={selectedBaseline?.found ? "ok" : "warn"}>
-            O slot escolhido precisa mostrar um run salvo e encontrado no
-            histórico local.
-          </li>
-          <li className={activeBaseline === baselineSlot ? "ok" : "warn"}>
-            O relatório ativo deve bater com o slot selecionado no dropdown.
-          </li>
-          <li className={canCompare || sameAsLatest ? "ok" : "info"}>
-            A comparação por baseline aparece quando o último run é diferente do
-            run salvo; se ambos são o mesmo run, a ausência de delta é esperada.
-          </li>
-        </ul>
-      </div>
+      <details className="bench-baseline-details">
+        <summary>Como funciona a baseline</summary>
+        <p>
+          Baseline é um run salvo em um slot (<code>stable</code>,{" "}
+          <code>beta</code> ou <code>experimental</code>). Ela serve como
+          referência fixa para comparar a evolução do benchmark ao longo do
+          tempo, separada do score canônico por commit.
+        </p>
+        <p>
+          Se o slot está vazio, o dashboard volta a comparar com o run anterior
+          compatível. Quando o slot aponta para um run existente, a comparação
+          de baseline usa esse run como referência.
+        </p>
+      </details>
     </section>
   );
 }

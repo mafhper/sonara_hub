@@ -106,6 +106,16 @@ export type MediaLayerV2 = {
     startPercent?: number;
     durationSeconds?: number;
   };
+  fadeIn?: {
+    enabled: boolean;
+    startPercent?: number;
+    durationSeconds?: number;
+  };
+  zoom?: {
+    enabled: boolean;
+    from: number;
+    to: number;
+  };
   fit: "cover" | "contain";
   blendMode: "normal" | "screen" | "multiply" | "overlay";
   loop: boolean;
@@ -179,6 +189,11 @@ export type TextFieldStyle = {
     enabled: boolean;
     mode?: "tail" | "timed";
     endPercent: number;
+    startPercent?: number;
+    durationSeconds?: number;
+  };
+  fadeIn?: {
+    enabled: boolean;
     startPercent?: number;
     durationSeconds?: number;
   };

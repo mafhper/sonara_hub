@@ -218,6 +218,9 @@ type VisualStageView = "editor" | "videos" | "promotion" | "queue";
 type PublicationAssetMode = "single" | "group" | "all";
 type CoverFadeOutSettings = NonNullable<MediaLayerV2["coverFadeOut"]>;
 type TextFadeOutSettings = NonNullable<TextFieldStyle["fadeOut"]>;
+type LayerFadeInSettings = NonNullable<MediaLayerV2["fadeIn"]>;
+type LayerZoomSettings = NonNullable<MediaLayerV2["zoom"]>;
+type TextFadeInSettings = NonNullable<TextFieldStyle["fadeIn"]>;
 type PreparedVideoOutputProject = {
   assets: FileSystemDirectoryHandle;
   backup: FileSystemDirectoryHandle | null;
@@ -748,6 +751,16 @@ const defaultTextFadeOut: TextFadeOutSettings = {
   endPercent: 70,
   startPercent: 10,
   durationSeconds: 2,
+};
+const defaultFadeIn: LayerFadeInSettings = {
+  enabled: false,
+  startPercent: 0,
+  durationSeconds: 1.5,
+};
+const defaultLayerZoom: LayerZoomSettings = {
+  enabled: false,
+  from: 100,
+  to: 115,
 };
 const visualColorLabels: Record<keyof ScenePresetV3["colors"], string> = {
   base: "Base",
@@ -3087,7 +3100,44 @@ function App() {
     setTracks((current) =>
       applyVisualTemplateToTracks(current, selectedTrackId),
     );
-    setBatchFeedback("Visual aplicado ao lote selecionado.");
+    setBatchFeedback(
+      "Atmosfera e cores aplicadas ao lote. As camadas de cada vídeo foram preservadas.",
+    );
+  }
+
+  function applyLayersToBatch() {
+    const targets = tracks.filter(
+      (track) => track.selectedForBatch && track.id !== selectedTrackId,
+    ).length;
+    if (targets === 0) {
+      setBatchFeedback(
+        "Selecione ao menos um outro vídeo no lote para receber as camadas.",
+        "info",
+      );
+      return;
+    }
+    setTracks((current) =>
+      applyLayersTemplateToTracks(current, selectedTrackId),
+    );
+    setBatchFeedback(
+      `Camadas desta faixa copiadas para ${targets} vídeo${targets === 1 ? "" : "s"} do lote.`,
+    );
+  }
+
+  function applyLayerSet(layers: MediaLayerV2[]) {
+    if (!selectedTrack) return;
+    if (!layers.length) {
+      setBatchFeedback(
+        "Este conjunto não tinha imagens utilizáveis para aplicar.",
+        "info",
+      );
+      return;
+    }
+    captureLayersUndo("aplicar conjunto");
+    updateSelectedTrack({
+      layers: layers.slice(0, 3).map((layer, order) => ({ ...layer, order })),
+    });
+    setBatchFeedback("Conjunto de camadas aplicado a esta faixa.");
   }
 
   function applyPublicationToBatch() {
@@ -4577,9 +4627,7 @@ function App() {
             onAssetSettings={(patch) =>
               updatePublicationAssetOverride(publicationPresetId, patch)
             }
-            onUpdateLayer={(trackId, patch) =>
-              updateSelectedTrack({ ...selectedTrack, ...patch })
-            }
+            onUpdateLayer={(trackId, patch) => updateTrackDraft(trackId, patch)}
           />
         ) : workspaceMode === "visual" && visualStageView === "queue" ? (
           <VideoExportWorkspace
@@ -4803,6 +4851,10 @@ function App() {
                     ? applyCoverLayerPresetToBatch
                     : undefined
                 }
+                onApplyLayersBatch={
+                  workflowMode === "batch" ? applyLayersToBatch : undefined
+                }
+                onApplyLayerSet={applyLayerSet}
                 onCloudLight={updateCloudLight}
                 onColors={updateColors}
                 onCommon={updateCommon}
@@ -9874,6 +9926,8 @@ function VisualInspector(props: {
   onApplyBatch?: () => void;
   onApplyCoverLayer: (preset: CoverLayerPreset) => void;
   onApplyCoverLayerBatch?: (preset: CoverLayerPreset) => void;
+  onApplyLayersBatch?: () => void;
+  onApplyLayerSet: (layers: MediaLayerV2[]) => void;
   onCloudLight: (patch: Partial<CloudLightSettings>) => void;
   onColors: (key: "base" | "effect" | "light", value: string) => void;
   onCommon: (key: string, value: number) => void;
@@ -9939,7 +9993,7 @@ function VisualInspector(props: {
             type="button"
             onClick={props.onApplyBatch}
           >
-            <Layers3 /> Aplicar visual ao lote
+            <Layers3 /> Aplicar atmosfera ao lote
           </button>
         )}
         <div className="inspector-subsection visual-palette-section">
@@ -10102,68 +10156,71 @@ function VisualInspector(props: {
           </button>
         </InspectorGroup>
       )}
-      {scene.rendererId === "volumetric-clouds" && scene.cloudLight && (
-        <InspectorGroup title="Foco solar">
-          <CheckField
-            label="Mostrar foco solar"
-            checked={scene.cloudLight.enabled}
-            onChange={(enabled) => props.onCloudLight({ enabled })}
-          />
-          {scene.cloudLight.enabled && (
-            <>
-              <ColorInput
-                label="Cor do sol"
-                value={scene.cloudLight.color}
-                onChange={(color) => props.onCloudLight({ color })}
-              />
-              <RangeField
-                label="Intensidade solar"
-                value={scene.cloudLight.intensity}
-                onChange={(intensity) => props.onCloudLight({ intensity })}
-              />
-              <RangeField
-                label="Posição horizontal"
-                value={scene.cloudLight.x}
-                onChange={(x) => props.onCloudLight({ x })}
-              />
-              <RangeField
-                label="Posição vertical"
-                value={scene.cloudLight.y}
-                onChange={(y) => props.onCloudLight({ y })}
-              />
-              <RangeField
-                label="Raio"
-                value={scene.cloudLight.radius}
-                onChange={(radius) => props.onCloudLight({ radius })}
-              />
-              <RangeField
-                label="Difusão"
-                value={scene.cloudLight.diffusion}
-                onChange={(diffusion) => props.onCloudLight({ diffusion })}
-              />
-              <RangeField
-                label="Movimento"
-                value={scene.cloudLight.motion}
-                onChange={(motion) => props.onCloudLight({ motion })}
-              />
-              <div className="two-columns">
-                <RangeField
-                  label="Velocidade"
-                  value={scene.cloudLight.speed}
-                  onChange={(speed) => props.onCloudLight({ speed })}
+      {scene.cloudLight &&
+        !["vinyl", "playful-shapes", "piano-ribbons", "audio-dark"].includes(
+          scene.rendererId,
+        ) && (
+          <InspectorGroup title="Foco solar">
+            <CheckField
+              label="Mostrar foco solar"
+              checked={scene.cloudLight.enabled}
+              onChange={(enabled) => props.onCloudLight({ enabled })}
+            />
+            {scene.cloudLight.enabled && (
+              <>
+                <ColorInput
+                  label="Cor do sol"
+                  value={scene.cloudLight.color}
+                  onChange={(color) => props.onCloudLight({ color })}
                 />
                 <RangeField
-                  label="Direção"
-                  max={360}
-                  unit="°"
-                  value={scene.cloudLight.direction}
-                  onChange={(direction) => props.onCloudLight({ direction })}
+                  label="Intensidade solar"
+                  value={scene.cloudLight.intensity}
+                  onChange={(intensity) => props.onCloudLight({ intensity })}
                 />
-              </div>
-            </>
-          )}
-        </InspectorGroup>
-      )}
+                <RangeField
+                  label="Posição horizontal"
+                  value={scene.cloudLight.x}
+                  onChange={(x) => props.onCloudLight({ x })}
+                />
+                <RangeField
+                  label="Posição vertical"
+                  value={scene.cloudLight.y}
+                  onChange={(y) => props.onCloudLight({ y })}
+                />
+                <RangeField
+                  label="Raio"
+                  value={scene.cloudLight.radius}
+                  onChange={(radius) => props.onCloudLight({ radius })}
+                />
+                <RangeField
+                  label="Difusão"
+                  value={scene.cloudLight.diffusion}
+                  onChange={(diffusion) => props.onCloudLight({ diffusion })}
+                />
+                <RangeField
+                  label="Movimento"
+                  value={scene.cloudLight.motion}
+                  onChange={(motion) => props.onCloudLight({ motion })}
+                />
+                <div className="two-columns">
+                  <RangeField
+                    label="Velocidade"
+                    value={scene.cloudLight.speed}
+                    onChange={(speed) => props.onCloudLight({ speed })}
+                  />
+                  <RangeField
+                    label="Direção"
+                    max={360}
+                    unit="°"
+                    value={scene.cloudLight.direction}
+                    onChange={(direction) => props.onCloudLight({ direction })}
+                  />
+                </div>
+              </>
+            )}
+          </InspectorGroup>
+        )}
       <InspectorGroup title="Waveform">
         <CheckField
           label="Mostrar waveform"
@@ -10444,6 +10501,8 @@ function LayerEditor(props: {
   onAddLayer: () => void;
   onApplyCoverLayer: (preset: CoverLayerPreset) => void;
   onApplyCoverLayerBatch?: (preset: CoverLayerPreset) => void;
+  onApplyLayersBatch?: () => void;
+  onApplyLayerSet: (layers: MediaLayerV2[]) => void;
   onMoveLayer: (id: string, direction: -1 | 1) => void;
   onRemoveLayer: (id: string) => void;
   onUndoLayer: () => void;
@@ -10470,6 +10529,22 @@ function LayerEditor(props: {
             </button>
           )}
         </div>
+        {props.onApplyLayersBatch && (
+          <>
+            <button
+              className="quiet-action"
+              disabled={props.layers.length === 0}
+              type="button"
+              onClick={props.onApplyLayersBatch}
+            >
+              <Layers3 /> Aplicar camadas aos vídeos do lote
+            </button>
+            <p className="helper-copy">
+              Copia estas camadas para os outros vídeos selecionados no lote.
+              Cada vídeo recebe uma cópia independente.
+            </p>
+          </>
+        )}
       </div>
       <div className="inspector-subsection">
         <p className="inspector-kicker">Capa no vídeo</p>
@@ -10509,6 +10584,7 @@ function LayerEditor(props: {
           arquivo de capa de cada faixa quando disponível.
         </p>
       </div>
+      <LayerSets currentLayers={props.layers} onApply={props.onApplyLayerSet} />
       {props.layers.map((layer, index) => (
         <details className="layer-row" key={layer.id}>
           <summary>
@@ -10549,7 +10625,16 @@ function LayerEditor(props: {
             value={layer.opacity}
             onChange={(opacity) => props.onUpdateLayer(layer.id, { opacity })}
           />
-          {isCoverLayer(layer) && (
+          <div className="layer-animation inspector-subsection">
+            <p className="inspector-kicker">Animação</p>
+            <FadeInFields
+              settings={normalizeFadeIn(layer.fadeIn)}
+              onChange={(fadeIn) =>
+                props.onUpdateLayer(layer.id, {
+                  fadeIn: normalizeFadeIn({ ...layer.fadeIn, ...fadeIn }),
+                })
+              }
+            />
             <CoverFadeOutFields
               settings={normalizeLayerCoverFadeOut(layer.coverFadeOut)}
               onChange={(coverFadeOut) =>
@@ -10561,7 +10646,15 @@ function LayerEditor(props: {
                 })
               }
             />
-          )}
+            <ZoomFields
+              settings={normalizeLayerZoom(layer.zoom)}
+              onChange={(zoom) =>
+                props.onUpdateLayer(layer.id, {
+                  zoom: normalizeLayerZoom({ ...layer.zoom, ...zoom }),
+                })
+              }
+            />
+          </div>
           <RangeField
             label="Escala"
             max={220}
@@ -10685,14 +10778,16 @@ function LayerEditor(props: {
 function CoverFadeOutFields({
   settings,
   onChange,
+  label = "imagem",
 }: {
   settings: CoverFadeOutSettings;
   onChange: (patch: Partial<CoverFadeOutSettings>) => void;
+  label?: string;
 }) {
   return (
     <div className="cover-fade-controls">
       <CheckField
-        label="Fade-out da capa"
+        label={`Fade-out da ${label}`}
         checked={settings.enabled}
         onChange={(enabled) => onChange({ enabled })}
       />
@@ -10742,11 +10837,98 @@ function CoverFadeOutFields({
           )}
           <p className="helper-copy">
             {(settings.mode ?? "tail") === "timed"
-              ? "A capa começa a sumir no ponto escolhido e zera após a duração definida."
-              : "A capa fica visível e faz fade-out apenas no trecho final do vídeo."}
+              ? `A ${label} começa a sumir no ponto escolhido e zera após a duração definida.`
+              : `A ${label} fica visível e faz fade-out apenas no trecho final do vídeo.`}
           </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function FadeInFields({
+  settings,
+  onChange,
+  label = "imagem",
+}: {
+  settings: LayerFadeInSettings;
+  onChange: (patch: Partial<LayerFadeInSettings>) => void;
+  label?: string;
+}) {
+  return (
+    <div className="fade-in-controls">
+      <CheckField
+        label={`Fade-in de ${label}`}
+        checked={settings.enabled}
+        onChange={(enabled) => onChange({ enabled })}
+      />
+      {settings.enabled && (
+        <>
+          <RangeField
+            label="Começa em"
+            max={95}
+            min={0}
+            step={5}
+            unit="% do vídeo"
+            value={settings.startPercent ?? 0}
+            onChange={(startPercent) => onChange({ startPercent })}
+          />
+          <RangeField
+            label="Duração"
+            max={20}
+            min={0.25}
+            step={0.25}
+            unit="s"
+            value={settings.durationSeconds ?? 1.5}
+            onChange={(durationSeconds) => onChange({ durationSeconds })}
+          />
           <p className="helper-copy">
-            Cada texto tem seu próprio fade na seção de campos do texto.
+            Surge gradualmente a partir do ponto escolhido.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ZoomFields({
+  settings,
+  onChange,
+}: {
+  settings: LayerZoomSettings;
+  onChange: (patch: Partial<LayerZoomSettings>) => void;
+}) {
+  return (
+    <div className="zoom-controls">
+      <CheckField
+        label="Zoom da imagem"
+        checked={settings.enabled}
+        onChange={(enabled) => onChange({ enabled })}
+      />
+      {settings.enabled && (
+        <>
+          <RangeField
+            label="Escala inicial"
+            max={300}
+            min={20}
+            step={5}
+            unit="%"
+            value={settings.from}
+            onChange={(from) => onChange({ from })}
+          />
+          <RangeField
+            label="Escala final"
+            max={300}
+            min={20}
+            step={5}
+            unit="%"
+            value={settings.to}
+            onChange={(to) => onChange({ to })}
+          />
+          <p className="helper-copy">
+            {settings.to >= settings.from
+              ? "Zoom-in: amplia lentamente do início ao fim do vídeo."
+              : "Zoom-out: reduz lentamente do início ao fim do vídeo."}
           </p>
         </>
       )}
@@ -10953,6 +11135,251 @@ function TextProfiles({
               </button>
             </li>
           ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ---- Saved layer sets ----------------------------------------------------
+// Reusable layer configurations, persisted to localStorage so they survive
+// reloads and can be reapplied to any video. Mirrors textProfilesStore, but a
+// layer also carries an image, so the source File is embedded as a data URL
+// (capped) and the live File/object-URL are rebuilt on apply.
+const LAYER_SETS_KEY = "sonara.layerSets";
+const LAYER_SETS_LIMIT = 30;
+// ~1.4M chars of base64 ≈ ~1MB of binary; larger images save config-only so a
+// single set never blows past the localStorage quota.
+const LAYER_SET_IMAGE_CAP = 1_400_000;
+
+type SavedLayer = Omit<MediaLayerV2, "file" | "src"> & {
+  fileName: string;
+  fileType: string;
+  dataUrl: string | null;
+};
+
+type LayerSet = { name: string; layers: SavedLayer[] };
+
+function readFileAsDataUrl(file: File): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = () =>
+        resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function serializeLayersForSet(
+  layers: MediaLayerV2[],
+): Promise<SavedLayer[]> {
+  return Promise.all(
+    layers.map(async ({ file, src: _src, ...rest }) => {
+      const dataUrl = file ? await readFileAsDataUrl(file) : null;
+      return {
+        ...rest,
+        fileName: file?.name ?? `${rest.name || "camada"}`,
+        fileType: file?.type ?? "image/png",
+        dataUrl:
+          dataUrl && dataUrl.length <= LAYER_SET_IMAGE_CAP ? dataUrl : null,
+      };
+    }),
+  );
+}
+
+function dataUrlToFile(
+  dataUrl: string,
+  name: string,
+  type: string,
+): File | null {
+  try {
+    const [header, body] = dataUrl.split(",");
+    const mime = header.match(/data:([^;]+)/)?.[1] || type || "image/png";
+    const binary = /;base64/i.test(header)
+      ? atob(body)
+      : decodeURIComponent(body);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return new File([bytes], name, { type: mime });
+  } catch {
+    return null;
+  }
+}
+
+// Rebuilds live layers from a saved set. Layers whose image could not be
+// embedded (too large) are skipped, since a layer needs a usable source.
+function restoreLayersFromSet(set: LayerSet): MediaLayerV2[] {
+  const restored: MediaLayerV2[] = [];
+  for (const saved of set.layers) {
+    if (!saved.dataUrl) continue;
+    const file = dataUrlToFile(saved.dataUrl, saved.fileName, saved.fileType);
+    if (!file) continue;
+    const {
+      dataUrl: _dataUrl,
+      fileName: _fileName,
+      fileType: _fileType,
+      ...rest
+    } = saved;
+    restored.push({
+      ...rest,
+      id: crypto.randomUUID(),
+      file,
+      src: URL.createObjectURL(file),
+    });
+  }
+  return restored.map((layer, order) => ({ ...layer, order }));
+}
+
+const layerSetsStore = (() => {
+  let sets: LayerSet[] = readLayerSets();
+  const listeners = new Set<() => void>();
+  function readLayerSets(): LayerSet[] {
+    try {
+      const raw = JSON.parse(
+        window.localStorage.getItem(LAYER_SETS_KEY) ?? "[]",
+      );
+      if (!Array.isArray(raw)) return [];
+      return raw
+        .filter(
+          (entry): entry is LayerSet =>
+            Boolean(entry) &&
+            typeof entry.name === "string" &&
+            Array.isArray(entry.layers),
+        )
+        .slice(0, LAYER_SETS_LIMIT);
+    } catch {
+      return [];
+    }
+  }
+  function persist() {
+    try {
+      window.localStorage.setItem(LAYER_SETS_KEY, JSON.stringify(sets));
+    } catch {
+      // localStorage may be full (embedded images) or unavailable; the
+      // in-memory list still works for this session.
+    }
+    listeners.forEach((listener) => listener());
+  }
+  return {
+    getSnapshot: () => sets,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    save(name: string, layers: SavedLayer[]) {
+      const clean = name.trim().slice(0, 60);
+      if (!clean) return;
+      sets = [
+        { name: clean, layers },
+        ...sets.filter((entry) => entry.name !== clean),
+      ].slice(0, LAYER_SETS_LIMIT);
+      persist();
+    },
+    remove(name: string) {
+      sets = sets.filter((entry) => entry.name !== name);
+      persist();
+    },
+  };
+})();
+
+function useLayerSets() {
+  return useSyncExternalStore(
+    layerSetsStore.subscribe,
+    layerSetsStore.getSnapshot,
+    layerSetsStore.getSnapshot,
+  );
+}
+
+function LayerSets({
+  currentLayers,
+  onApply,
+}: {
+  currentLayers: MediaLayerV2[];
+  onApply: (layers: MediaLayerV2[]) => void;
+}) {
+  const sets = useLayerSets();
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  async function save() {
+    const clean = name.trim();
+    if (!clean || !currentLayers.length || saving) return;
+    setSaving(true);
+    try {
+      const serialized = await serializeLayersForSet(currentLayers);
+      layerSetsStore.save(clean, serialized);
+      setName("");
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="inspector-subsection layer-sets">
+      <p className="inspector-kicker">Conjuntos de camadas</p>
+      <div className="text-profiles-save">
+        <input
+          aria-label="Nome do conjunto de camadas"
+          className="text-profile-name"
+          maxLength={60}
+          placeholder="Nome do conjunto"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void save();
+          }}
+        />
+        <button
+          className="quiet-action"
+          disabled={!name.trim() || !currentLayers.length || saving}
+          type="button"
+          onClick={() => void save()}
+        >
+          <Save /> {saving ? "Salvando…" : "Salvar"}
+        </button>
+      </div>
+      {sets.length === 0 ? (
+        <p className="helper-copy">
+          Salve as camadas atuais (imagem, posição, escala e animação) como um
+          conjunto para reaplicar em qualquer vídeo depois.
+        </p>
+      ) : (
+        <ul className="text-profiles-list">
+          {sets.map((set) => {
+            const usable = set.layers.filter((layer) => layer.dataUrl).length;
+            return (
+              <li key={set.name}>
+                <button
+                  className="text-profile-apply"
+                  disabled={usable === 0}
+                  title={
+                    usable === 0
+                      ? "As imagens deste conjunto eram grandes demais para salvar"
+                      : `Aplicar conjunto ${set.name}`
+                  }
+                  type="button"
+                  onClick={() => onApply(restoreLayersFromSet(set))}
+                >
+                  <span>{set.name}</span>
+                  <span className="layer-set-count">
+                    {usable}/{set.layers.length}
+                  </span>
+                </button>
+                <button
+                  aria-label={`Excluir conjunto ${set.name}`}
+                  className="icon-button"
+                  type="button"
+                  onClick={() => layerSetsStore.remove(set.name)}
+                >
+                  <Trash2 />
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -11519,6 +11946,18 @@ function TextFieldStyleEditor({
               fadeOut: normalizeTextFadeOut({
                 ...style.fadeOut,
                 ...fadeOut,
+              }),
+            })
+          }
+        />
+        <FadeInFields
+          label={textFieldLabels[field]}
+          settings={normalizeFadeIn(style.fadeIn)}
+          onChange={(fadeIn) =>
+            onChange({
+              fadeIn: normalizeFadeIn({
+                ...style.fadeIn,
+                ...fadeIn,
               }),
             })
           }
@@ -12946,6 +13385,15 @@ function restoreTrack(
       ...saved.metadata,
       lyrics: savedLyrics ? saved.metadata.lyrics : base.metadata.lyrics,
     },
+    // The live base track (resolved now from the input project or an uploaded
+    // file) owns the audio identity. A snapshot can carry a stale source
+    // ("folder") and a dead blob sourceUrl from a past session; letting those
+    // win leaves restored input projects silent (audioSrc "") until the folder
+    // is re-confirmed, and also breaks export, which keys off source "input" +
+    // sourceKey. So the audio plumbing always comes from base, never saved.
+    source: base.source,
+    sourceKey: base.sourceKey,
+    audioInfo: base.audioInfo ?? saved.audioInfo,
     sourceFile,
     sourceUrl: sourceFile ? URL.createObjectURL(sourceFile) : base.sourceUrl,
     coverOverride,
@@ -13934,6 +14382,10 @@ function isBrowserInputProject(
   return project.source === "browser" && Boolean(project.handle);
 }
 
+// Applies ONLY the atmosphere/colors (scene) to the batch. Layers are
+// deliberately left untouched so each video keeps its own — copying layers is a
+// separate, explicit action (applyLayersTemplateToTracks) to avoid the silent
+// cross-video replication that confused users.
 function applyVisualTemplateToTracks(
   tracks: TrackDraft[],
   selectedTrackId: string,
@@ -13941,16 +14393,30 @@ function applyVisualTemplateToTracks(
   const source = selectedTrackFrom(tracks, selectedTrackId);
   if (!source) return tracks;
   const scene = normalizeVisualSettings(source.scene);
-  const layers = source.layers.map((layer) => ({
-    ...layer,
-    id: crypto.randomUUID(),
-  }));
   return tracks.map((track) =>
     track.selectedForBatch
       ? {
           ...track,
           scene,
-          layers: layers.map((layer) => ({
+        }
+      : track,
+  );
+}
+
+// Copies the selected track's layers onto every batch-selected track, minting a
+// fresh id per layer so each video owns an independent copy. This is the only
+// path that propagates layers across videos, and it is always user-initiated.
+function applyLayersTemplateToTracks(
+  tracks: TrackDraft[],
+  selectedTrackId: string,
+) {
+  const source = selectedTrackFrom(tracks, selectedTrackId);
+  if (!source) return tracks;
+  return tracks.map((track) =>
+    track.selectedForBatch && track.id !== source.id
+      ? {
+          ...track,
+          layers: source.layers.map((layer) => ({
             ...layer,
             id: crypto.randomUUID(),
           })),
@@ -14100,6 +14566,7 @@ function mergeTextFieldStyle(
       fallback.opacity,
     ),
     fadeOut: normalizeTextFadeOut(patch?.fadeOut ?? base?.fadeOut),
+    fadeIn: normalizeFadeIn(patch?.fadeIn ?? base?.fadeIn),
     align: ["left", "center", "right"].includes(
       patch?.align ?? base?.align ?? fallback.align,
     )
@@ -14634,6 +15101,36 @@ function normalizeLayerCoverFadeOut(
       60,
       defaultCoverFadeOut.durationSeconds,
     ),
+  };
+}
+
+function normalizeFadeIn(
+  value?: Partial<LayerFadeInSettings> | null,
+): LayerFadeInSettings {
+  return {
+    enabled: value?.enabled === true,
+    startPercent: clampNumber(Number(value?.startPercent ?? 0), 0, 95, 0),
+    durationSeconds: clampNumber(
+      Number(value?.durationSeconds ?? 1.5),
+      0.25,
+      60,
+      1.5,
+    ),
+  };
+}
+
+function normalizeLayerZoom(
+  value?: Partial<LayerZoomSettings> | null,
+): LayerZoomSettings {
+  return {
+    enabled: value?.enabled === true,
+    from: clampNumber(
+      Number(value?.from ?? defaultLayerZoom.from),
+      20,
+      400,
+      100,
+    ),
+    to: clampNumber(Number(value?.to ?? defaultLayerZoom.to), 20, 400, 115),
   };
 }
 

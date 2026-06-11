@@ -263,6 +263,68 @@ void main() {
   col += u_accentColor * smoothstep(0.75, 0.0, length(uv)) * 0.05 * pulse(u_audioMid, 0.3);
   gl_FragColor = vec4(finish(col, uv01), 1.0);
 }`,
+  // Top-down spiral galaxy (Via-Láctea). Adapta a ideia do
+  // nebula/effect-particle-galaxy (braços espirais 3D em GL_POINTS) para um
+  // campo fullscreen procedural: braços logarítmicos girando, bojo central
+  // luminoso, poeira ao longo dos braços e estrelas pontilhadas. Substitui o
+  // antigo "vortex-galaxy" que era idêntico ao vórtice.
+  galaxy: `${shaderPrelude}
+float gHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+void main() {
+  vec2 res = u_resolution.xy;
+  vec2 uv01 = gl_FragCoord.xy / res;
+  vec2 uv = (gl_FragCoord.xy - 0.5 * res) / res.y;
+  float zoom = mix(1.7, 0.75, u_param2);
+  uv *= zoom;
+  float t = u_time * (0.04 + u_speed * 0.45);
+  float r = length(uv);
+  float a = atan(uv.y, uv.x);
+  float armCount = 2.0 + floor(u_param0 * 5.0 + 0.5);
+  float winding = 2.4 + u_param1 * 5.5;
+  float ang = a + winding * log(r + 0.07) + t;
+  float arm = pow(cos(ang * armCount) * 0.5 + 0.5, 2.6);
+  float disk = exp(-r * 2.2);
+  float core = exp(-r * r * 26.0);
+  float dust = fbm(vec2(ang * armCount * 0.25, r * 5.0) + t * 0.2);
+  float armGlow = arm * disk * (0.45 + 0.7 * dust);
+  vec2 sg = uv * mix(150.0, 52.0, clamp(r, 0.0, 1.0));
+  float star = step(0.93, gHash(floor(sg))) * disk * (0.4 + arm * 0.8);
+  vec3 color = mix(u_colorA * 0.25, u_colorB, armGlow);
+  color = mix(color, u_accentColor, core);
+  color += u_accentColor * core * 1.6;
+  color += u_colorB * armGlow * (0.5 + u_param3 * 1.2);
+  color += vec3(1.0) * star * (0.5 + u_param4 * 0.8);
+  color += u_accentColor * smoothstep(1.4, 0.0, r) * 0.04;
+  color *= 0.45 + u_intensity * 1.25;
+  color *= 1.0 + u_audioBass * u_audioReaction * 0.5;
+  color = pow(max(color, 0.0), vec3(0.92));
+  gl_FragColor = vec4(finish(color, uv01), 1.0);
+}`,
+  // Lava: fluxo vulcânico ascendente com veios incandescentes e núcleo quente.
+  // Distinto da "plasma" (nebulosa cósmica difusa) para que Plasma lava e
+  // Plasma nebulosa deixem de ser o mesmo efeito só recolorido.
+  lava: `${shaderPrelude}
+void main() {
+  vec2 frag = gl_FragCoord.xy / u_resolution.xy;
+  vec2 ratio = vec2(u_resolution.x / u_resolution.y, 1.0);
+  float scale = mix(0.6, 2.6, u_param0);
+  vec2 uv = (frag * 2.0 - 1.0) * ratio * scale;
+  float t = u_time * (0.1 + u_speed * 0.9);
+  vec2 flow = uv * vec2(1.4, 1.0);
+  flow.y -= t * 0.6;
+  float n = fbm(flow * 1.4);
+  n += 0.5 * fbm(flow * 3.1 + n);
+  float veins = abs(sin((uv.x * 3.0 + n * 3.5) * 1.6 + t));
+  veins = pow(1.0 - veins, 2.0);
+  float heat = clamp(n * 0.8 + veins * 0.6, 0.0, 1.5);
+  vec3 color = mix(u_colorA, u_colorB, smoothstep(0.1, 0.9, heat));
+  color = mix(color, u_accentColor, smoothstep(0.7, 1.2, heat + veins * 0.5));
+  color += u_accentColor * veins * (0.4 + u_param3 * 0.8) * pulse(u_audioBass, 0.6);
+  color += u_colorB * smoothstep(1.0, 0.0, length(uv)) * 0.12 * u_param2;
+  color *= 0.5 + u_intensity * 1.3;
+  color = pow(max(color, 0.0), vec3(0.9));
+  gl_FragColor = vec4(finish(color, frag), 1.0);
+}`,
 };
 
 const blendModes = {
@@ -329,6 +391,13 @@ export function createSceneRuntime(
       drawPianoRibbons(context, width, height, scene, audio, time);
     } else {
       drawDarkSurface(context, width, height, scene, audio, time);
+    }
+
+    // Optional light focus ("sol") for atmospheres that do not bake it into
+    // their shader. volumetric-clouds renders its own sun integrated with the
+    // cloud density, so it opts out here to avoid a double glow.
+    if (scene.cloudLight?.enabled && scene.rendererId !== "volumetric-clouds") {
+      drawLightFocus(context, width, height, scene.cloudLight, audio, time);
     }
 
     // Draw back-to-front so the FIRST layer (top of the list in the UI) lands
@@ -980,12 +1049,43 @@ function drawDarkSurface(context, width, height, scene, audio, time) {
 }
 
 export function effectiveLayerOpacity(layer, time = 0, durationSeconds = null) {
-  return effectiveTimedOpacity(
-    clampPercent(layer.opacity ?? 100) / 100,
-    layer.coverFadeOut,
-    time,
-    durationSeconds,
+  return (
+    effectiveTimedOpacity(
+      clampPercent(layer.opacity ?? 100) / 100,
+      layer.coverFadeOut,
+      time,
+      durationSeconds,
+    ) * fadeInFactor(layer.fadeIn, time, durationSeconds)
   );
+}
+
+// Fade-in ramps opacity 0 → 1 over a window at the start of the clip. Mirrors
+// the fade-out timing math so previews and exports stay identical.
+function fadeInFactor(fadeIn, time = 0, durationSeconds = null) {
+  if (!fadeIn?.enabled) return 1;
+  const duration = Number(durationSeconds);
+  if (!(duration > 0)) return 1;
+  const startPercent = clampNumber(Number(fadeIn.startPercent ?? 0), 0, 95);
+  const fadeDuration = clampNumber(
+    Number(fadeIn.durationSeconds ?? 1.5),
+    0.25,
+    60,
+  );
+  const fadeStart = duration * (startPercent / 100);
+  const progress = (Math.max(0, time) - fadeStart) / fadeDuration;
+  return clampNumber(progress, 0, 1);
+}
+
+// Continuous zoom across the clip: scale multiplier eases linearly from `from`
+// to `to` (both percent). Returns 1 when disabled so callers can multiply.
+export function effectiveZoomScale(zoom, time = 0, durationSeconds = null) {
+  if (!zoom?.enabled) return 1;
+  const from = clampNumber(Number(zoom.from ?? 100), 20, 400) / 100;
+  const to = clampNumber(Number(zoom.to ?? 115), 20, 400) / 100;
+  const duration = Number(durationSeconds);
+  if (!(duration > 0)) return from;
+  const progress = clampNumber(Math.max(0, time) / duration, 0, 1);
+  return from + (to - from) * progress;
 }
 
 function effectiveTimedOpacity(
@@ -1030,8 +1130,9 @@ function drawMediaLayer(
   if (opacity <= 0) return;
   const naturalWidth = element.videoWidth || element.naturalWidth || width;
   const naturalHeight = element.videoHeight || element.naturalHeight || height;
-  const targetWidth = width * ((layer.scale ?? 100) / 100);
-  const targetHeight = height * ((layer.scale ?? 100) / 100);
+  const zoom = effectiveZoomScale(layer.zoom, time, durationSeconds);
+  const targetWidth = width * ((layer.scale ?? 100) / 100) * zoom;
+  const targetHeight = height * ((layer.scale ?? 100) / 100) * zoom;
   const factor =
     layer.fit === "cover"
       ? Math.max(targetWidth / naturalWidth, targetHeight / naturalHeight)
@@ -1064,6 +1165,51 @@ function drawMediaLayer(
     context.fillStyle = `rgba(0,0,0,${Math.max(0, Math.min(100, layer.maskOpacity)) / 100})`;
     context.fillRect(-drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
   }
+  context.restore();
+}
+
+// Generic, renderer-agnostic sun/light overlay. Drawn after the base scene so
+// any atmosphere can carry a configurable light point, mirroring the controls
+// (position, radius, diffusion, drift) that volumetric-clouds bakes into its
+// shader. Off by default, so it never alters an existing look unless enabled.
+function drawLightFocus(context, width, height, light, audio, time = 0) {
+  const intensity = clampNumber(light.intensity ?? 54, 0, 100) / 100;
+  if (intensity <= 0) return;
+  const minDim = Math.min(width, height);
+  const dir = ((light.direction ?? 18) * Math.PI) / 180;
+  const motion = clampNumber(light.motion ?? 0, 0, 100) / 100;
+  const speed = 0.05 + (clampNumber(light.speed ?? 36, 0, 100) / 100) * 0.8;
+  const drift = Math.sin(time * speed) * motion * 0.18 * minDim;
+  const cx =
+    (clampNumber(light.x ?? 28, 0, 100) / 100) * width + Math.cos(dir) * drift;
+  const cy =
+    (clampNumber(light.y ?? 24, 0, 100) / 100) * height + Math.sin(dir) * drift;
+  const radius =
+    (0.08 + (clampNumber(light.radius ?? 32, 8, 72) / 100) * 0.46) * minDim;
+  const diffusion =
+    0.5 + (clampNumber(light.diffusion ?? 68, 0, 100) / 100) * 1.8;
+  const bass = audio?.bass ?? audio?.low ?? 0;
+  const reactive = Math.min(1, intensity * (1 + bass * 0.4));
+  const color = light.color ?? "#f8dca6";
+  context.save();
+  context.globalCompositeOperation = "screen";
+  const halo = context.createRadialGradient(
+    cx,
+    cy,
+    radius * 0.4,
+    cx,
+    cy,
+    radius * diffusion * 2.2,
+  );
+  halo.addColorStop(0, hexToRgba(color, reactive * 0.5));
+  halo.addColorStop(1, hexToRgba(color, 0));
+  context.fillStyle = halo;
+  context.fillRect(0, 0, width, height);
+  const core = context.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  core.addColorStop(0, hexToRgba(color, reactive));
+  core.addColorStop(1, hexToRgba(color, 0));
+  context.fillStyle = core;
+  context.fillRect(0, 0, width, height);
   context.restore();
 }
 
@@ -1707,11 +1853,13 @@ function drawMetadata(
 }
 
 export function effectiveTextOpacity(style, time = 0, durationSeconds = null) {
-  return effectiveTimedOpacity(
-    clampPercent(style.opacity ?? 100) / 100,
-    style.fadeOut,
-    time,
-    durationSeconds,
+  return (
+    effectiveTimedOpacity(
+      clampPercent(style.opacity ?? 100) / 100,
+      style.fadeOut,
+      time,
+      durationSeconds,
+    ) * fadeInFactor(style.fadeIn, time, durationSeconds)
   );
 }
 
@@ -1777,6 +1925,7 @@ function mergeMetadataFieldStyle(field, style = {}) {
       ? style.textTransform
       : (fallback.textTransform ?? "none"),
     fadeOut: normalizeTextFadeOut(style.fadeOut ?? fallback.fadeOut),
+    fadeIn: normalizeTextFadeIn(style.fadeIn ?? fallback.fadeIn),
     align: ["left", "center", "right"].includes(style.align)
       ? style.align
       : fallback.align,
@@ -1806,6 +1955,14 @@ function normalizeTextFadeOut(value = {}) {
       0.25,
       60,
     ),
+  };
+}
+
+function normalizeTextFadeIn(value = {}) {
+  return {
+    enabled: value?.enabled === true,
+    startPercent: clampValue(value?.startPercent, 0, 0, 95),
+    durationSeconds: clampValue(value?.durationSeconds, 1.5, 0.25, 60),
   };
 }
 

@@ -154,7 +154,9 @@ function preset({
     controls,
     waveform: { ...waveformDefaults },
     ...(playful ? { playful: normalizePlayfulContent(playful) } : {}),
-    ...(cloudLight ? { cloudLight: normalizeCloudLight(cloudLight) } : {}),
+    // Every preset carries an optional light focus (disabled by default) so the
+    // "Foco solar" control is available across atmospheres, not just clouds.
+    cloudLight: normalizeCloudLight(cloudLight ?? cloudLightDefaults),
   };
 }
 
@@ -361,7 +363,7 @@ export const builtinVisualPresets = [
     id: "plasma-nebula",
     rendererId: "plasma",
     name: "Plasma nebulosa",
-    category: "Shaders",
+    category: "Espaço",
     note: "Nebulosa cósmica com manchas roxas-azuladas e brilho difuso.",
     colors: { base: "#7c3aed", effect: "#0ea5e9", light: "#f0abfc" },
     common: { speed: 22, intensity: 60, brightness: 50, audioReaction: 22 },
@@ -375,9 +377,9 @@ export const builtinVisualPresets = [
   }),
   preset({
     id: "plasma-lava",
-    rendererId: "plasma",
+    rendererId: "lava",
     name: "Plasma lava",
-    category: "Shaders",
+    category: "Lava",
     note: "Fluxo vulcânico com veios vermelhos, laranja e núcleo claro.",
     colors: { base: "#dc2626", effect: "#f97316", light: "#fef3c7" },
     common: { speed: 32, intensity: 72, brightness: 52, audioReaction: 26 },
@@ -393,7 +395,7 @@ export const builtinVisualPresets = [
     id: "vortex-whirlpool",
     rendererId: "vortex",
     name: "Vórtice",
-    category: "Shaders",
+    category: "Espaço",
     note: "Espiral azul profunda com centro luminoso e arrasto suave.",
     colors: { base: "#0ea5e9", effect: "#1e3a5f", light: "#7dd3fc" },
     common: { speed: 28, intensity: 62, brightness: 48, audioReaction: 24 },
@@ -407,9 +409,9 @@ export const builtinVisualPresets = [
   }),
   preset({
     id: "vortex-galaxy",
-    rendererId: "vortex",
+    rendererId: "galaxy",
     name: "Galáxia espiral",
-    category: "Shaders",
+    category: "Espaço",
     note: "Núcleo galáctico com braços espirais densos e poeira cósmica.",
     colors: { base: "#ec4899", effect: "#6366f1", light: "#f0abfc" },
     common: { speed: 14, intensity: 54, brightness: 46, audioReaction: 20 },
@@ -425,7 +427,7 @@ export const builtinVisualPresets = [
     id: "starfield",
     rendererId: "starfield",
     name: "Campo Estelar",
-    category: "Atmosferas",
+    category: "Espaço",
     note: "Estrelas voando pelo espaço com profundidade, cintilação e matizes variados (portado do Nebula). Substitui o antigo efeito de estrelas.",
     colors: { base: "#05060f", effect: "#bfdbfe", light: "#67e8f9" },
     common: { speed: 22, intensity: 80, brightness: 60, audioReaction: 24 },

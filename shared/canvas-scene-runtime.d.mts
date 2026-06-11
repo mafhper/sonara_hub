@@ -21,6 +21,16 @@ export type RuntimeMediaLayer = {
     startPercent?: number;
     durationSeconds?: number;
   };
+  fadeIn?: {
+    enabled: boolean;
+    startPercent?: number;
+    durationSeconds?: number;
+  };
+  zoom?: {
+    enabled: boolean;
+    from: number;
+    to: number;
+  };
   fit: "cover" | "contain";
   blendMode: "normal" | "screen" | "multiply" | "overlay";
   loop: boolean;
@@ -61,7 +71,21 @@ export function effectiveTextOpacity(
       startPercent?: number;
       durationSeconds?: number;
     };
+    fadeIn?: {
+      enabled?: boolean;
+      startPercent?: number;
+      durationSeconds?: number;
+    };
   },
+  time?: number,
+  durationSeconds?: number | null,
+): number;
+export function effectiveZoomScale(
+  zoom?: {
+    enabled?: boolean;
+    from?: number;
+    to?: number;
+  } | null,
   time?: number,
   durationSeconds?: number | null,
 ): number;

@@ -18,20 +18,20 @@ npm run test:release
 
 ## Cobertura automatizada atual
 
-| Area              | Teste                                                                   | Nivel         |
-| ----------------- | ----------------------------------------------------------------------- | ------------- |
-| Contratos visuais | normalizacao V4, compatibilidade V3 e descarte de efeitos legados       | PR            |
-| Presets locais    | criar, atualizar, excluir e rejeitar IDs invalidos                      | PR            |
-| API local         | retry controlado e mensagem acionavel durante reinicio do servidor      | PR            |
-| Biblioteca MP3    | inferencia, pacote ID3 limpo, APIC, USLT, capas numeradas e margem      | PR            |
-| Envelope de audio | energia, graves, medios, agudos, 64 amostras e 24 bandas espectrais     | PR            |
-| Exportacao WebGL  | cabecalho WebM, frames deterministas, CFR e mux com escala              | PR            |
-| Perfis de render  | interno 720p/1080p, 2K/4K final e FPS por perfil                        | PR            |
-| UI principal      | audio real, seek, camadas PNG/SVG/video, undo, waveform, lote e paineis | Release local |
-| Variações         | trocar audio, aguardar autosave, recarregar e manter a segunda versao   | Release local |
-| Renderizadores    | nove familias em 720p e amostras adicionais 1080p, 2K e 4K              | Release local |
-| Waveforms         | cinco estilos decorativos em 720p e controles contextuais               | Release local |
-| Performance       | benchmark local de render/export com historico em `.dev/bench/`         | Release local |
+| Area              | Teste                                                                    | Nivel         |
+| ----------------- | ------------------------------------------------------------------------ | ------------- |
+| Contratos visuais | normalizacao V4, compatibilidade V3 e descarte de efeitos legados        | PR            |
+| Presets locais    | criar, atualizar, excluir e rejeitar IDs invalidos                       | PR            |
+| API local         | retry controlado e mensagem acionavel durante reinicio do servidor       | PR            |
+| Biblioteca MP3    | inferencia, pacote ID3 limpo, APIC, USLT, capas numeradas e margem       | PR            |
+| Envelope de audio | energia, graves, medios, agudos, 64 amostras e 24 bandas espectrais      | PR            |
+| Exportacao WebGL  | cabecalho WebM, frames deterministas, CFR e mux com escala               | PR            |
+| Perfis de render  | interno 720p/1080p, 2K/4K final e FPS por perfil                         | PR            |
+| UI principal      | audio real, seek, camadas PNG/SVG/video, undo, waveform, lote e paineis  | Release local |
+| Variações         | trocar audio, aguardar autosave, recarregar e manter a segunda versao    | Release local |
+| Renderizadores    | todas as familias em 720p (inclui galaxy e lava dedicados) + 1080p/2K/4K | Release local |
+| Waveforms         | cinco estilos decorativos em 720p e controles contextuais                | Release local |
+| Performance       | benchmark local de render/export com historico em `.dev/bench/`          | Release local |
 
 ## Jornadas obrigatorias
 
@@ -60,17 +60,19 @@ estabilizadas. Ate la, devem ser executadas manualmente em cada candidato.
 O smoke rapido cobre todas as familias em 720p. Antes da v1.0.0, manter pelo
 menos uma amostra decodificavel para cada combinacao de maior risco:
 
-| Caso | Visual          | Resolucao | Perfil     | Composicao                       |
-| ---- | --------------- | --------- | ---------- | -------------------------------- |
-| E01  | Fluxo liquido   | 4K        | Rapido     | SVG, waveform, texto e capa      |
-| E02  | Nuvens amplas   | 2K        | Automatico | foco solar, vídeo em loop e lote |
-| E03  | Aurora          | 4K        | Final      | audio reativo                    |
-| E04  | Aura vetorial   | 1080p     | Final      | tres camadas e sombra            |
-| E05  | Vinil           | 1080p     | Final      | capa central e RPM               |
-| E06  | Tela escura     | 720p      | Rapido     | apenas audio                     |
-| E07  | Formas lúdicas  | 1080p     | Final      | coleções temáticas e emojis      |
-| E08  | Mesh colorido   | 1080p     | Automático | paleta infantil e áudio reativo  |
-| E09  | Faixas de piano | 720p      | Rápido     | bandas amplas e deriva suave     |
+| Caso | Visual          | Resolucao | Perfil     | Composicao                                       |
+| ---- | --------------- | --------- | ---------- | ------------------------------------------------ |
+| E01  | Fluxo liquido   | 4K        | Rapido     | SVG, waveform, texto e capa                      |
+| E02  | Nuvens amplas   | 2K        | Automatico | foco solar, vídeo em loop e lote                 |
+| E03  | Aurora          | 4K        | Final      | audio reativo                                    |
+| E04  | Aura vetorial   | 1080p     | Final      | tres camadas e sombra                            |
+| E05  | Vinil           | 1080p     | Final      | capa central e RPM                               |
+| E06  | Tela escura     | 720p      | Rapido     | apenas audio                                     |
+| E07  | Formas lúdicas  | 1080p     | Final      | coleções temáticas e emojis                      |
+| E08  | Mesh colorido   | 1080p     | Automático | paleta infantil e áudio reativo                  |
+| E09  | Faixas de piano | 720p      | Rápido     | bandas amplas e deriva suave                     |
+| E10  | Galáxia espiral | 1080p     | Final      | renderer galaxy distinto do vórtice e foco solar |
+| E11  | Plasma lava     | 1080p     | Automático | renderer lava distinto do plasma nebulosa        |
 
 Cada MP4 deve ser validado com ffmpeg e conferido por largura, altura, FPS,
 duracao, stream de audio e tolerancia de duracao. O sidecar deve ser lido como
