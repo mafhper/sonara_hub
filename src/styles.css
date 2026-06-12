@@ -737,6 +737,70 @@ svg {
   font-size: var(--font-sm);
 }
 
+.project-save-controls {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.project-save-controls.compact {
+  padding: 0 var(--space-3) var(--space-2);
+}
+
+.project-save-picker {
+  display: grid;
+  gap: 6px;
+}
+
+.project-save-picker span {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-weight: 760;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.project-save-select {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--control-bg);
+  color: var(--text-secondary);
+  padding: 7px 8px;
+  font-size: var(--font-sm);
+}
+
+.project-save-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.project-save-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--stage-surface-low);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+
+.project-save-actions button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.project-save-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .setup-actions {
   display: grid;
   gap: var(--space-2);

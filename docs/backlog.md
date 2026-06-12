@@ -35,6 +35,9 @@ reinicie o `npm run dev` inteiro. O front (vite) tem HMR.
 - **Workspace reliability (06-12):** fallback seguro para handles externos sem
   permissão, autosave por projeto sem clobber no boot/troca rápida, e save de
   snapshot tolerante a assets manuais ilegíveis/obsoletos.
+- **Saves múltiplos por projeto (06-12):** `project.json` segue como save padrão
+  legado; saves nomeados ficam em `.sonara/saves/` com UI para salvar como,
+  carregar, renomear e excluir.
 
 ## Dívida estrutural — PRIORIDADE
 
@@ -109,14 +112,16 @@ Visão do dono do produto:
   `composition.renderOrder` em `canvas-scene-runtime.mjs`) e há a seção
   "Composição" (a refazer conforme acima). Corrige B4 de quebra.
 
-### R2. Saves múltiplos (nomeados) por projeto
+### R2. Saves múltiplos (nomeados) por projeto — ENTREGUE
 
-- Hoje abrir um projeto **sobrescreve** o `.sonara`. Pedido: poder ter vários
-  saves por álbum e carregar configurações diferentes.
-- **Abordagem:** evoluir a persistência de `.sonara/project.json` único para
-  `.sonara/saves/<nome>.json` + UI para salvar-como / escolher / renomear /
-  excluir. Servidor: ampliar os handlers de `internal-snapshot` (`server/index.mjs`).
-  Resolve a raiz de B1 (deixa de ser "sobrescreve" e vira "salva em slot").
+- `.sonara/project.json` continua sendo o save padrão/legado.
+- Saves nomeados são gravados em `.sonara/saves/<slug>.json`, tanto em projetos
+  externos quanto internos via `/api/internal-snapshot`.
+- UI na sidebar/Setup permite salvar como, carregar, renomear e excluir saves
+  nomeados. O save padrão não é renomeado/excluído por esse controle; a limpeza
+  geral de `.sonara` continua em Configurações locais.
+- Coberto em `tests/project-folder-flow.mjs` com criação, troca e exclusão de
+  save nomeado sem sobrescrever o padrão.
 
 ### R3. Setup: pastas antes dos projetos — CONFIRMADO
 

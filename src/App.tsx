@@ -300,6 +300,11 @@ type ToastNotice = {
   tone: ToastTone;
   copyText?: string;
 };
+type ProjectSaveOption = {
+  id: string;
+  name: string;
+  isDefault?: boolean;
+};
 type InteractionDialogState = {
   id: number;
   title: string;
@@ -400,6 +405,13 @@ const INPUT_PROJECT_STORAGE_KEY = "sonara-hub-input-project";
 const PROJECT_STATE_DIRECTORY = ".sonara";
 const PROJECT_STATE_FILE = "project.json";
 const PROJECT_ASSETS_DIRECTORY = "assets";
+const PROJECT_SAVES_DIRECTORY = "saves";
+const DEFAULT_PROJECT_SAVE_ID = "default";
+const defaultProjectSave: ProjectSaveOption = {
+  id: DEFAULT_PROJECT_SAVE_ID,
+  name: "Padrão",
+  isDefault: true,
+};
 
 type FileNamePattern = { tokens: string[]; separator: string };
 const DEFAULT_LEFT_RAIL_WIDTH = 256;
@@ -993,6 +1005,13 @@ function App() {
   const [selectedInputProjectId, setSelectedInputProjectId] = useState("");
   const [cleanupProjectIds, setCleanupProjectIds] = useState<string[]>([]);
   const [projectStateStatus, setProjectStateStatus] = useState("");
+  const [projectSaves, setProjectSaves] = useState<ProjectSaveOption[]>([
+    defaultProjectSave,
+  ]);
+  const [selectedProjectSaveId, setSelectedProjectSaveId] = useState(
+    DEFAULT_PROJECT_SAVE_ID,
+  );
+  const [projectSavesBusy, setProjectSavesBusy] = useState(false);
   const [workspaceWriteEnabled, setWorkspaceWriteEnabled] = useState(false);
   // Explicit-open flow: the app boots into a Setup card (no auto-loaded project)
   // and the user opens a work folder/project on purpose. This sidesteps the
@@ -1595,11 +1614,13 @@ function App() {
 
   async function loadInternalInputWorkspace({
     requestedProjectId = "",
+    saveId = DEFAULT_PROJECT_SAVE_ID,
     notify = false,
     snapshotOverride,
     useSnapshotOverride = false,
   }: {
     requestedProjectId?: string;
+    saveId?: string;
     notify?: boolean;
     snapshotOverride?: ProjectSnapshot;
     useSnapshotOverride?: boolean;
@@ -1666,8 +1687,12 @@ function App() {
     const activeSnapshot =
       (useSnapshotOverride ? snapshotOverride : undefined) ??
       (selectedProjectId && selectedProjectId !== "."
-        ? await loadInternalProjectSnapshot(selectedProjectId)
+        ? await loadInternalProjectSnapshot(selectedProjectId, saveId)
         : undefined);
+    const saves =
+      selectedProjectId && selectedProjectId !== "."
+        ? await listInternalProjectSaves(selectedProjectId)
+        : [defaultProjectSave];
     inputDirectoryRef.current = null;
     musicDirectoryRef.current = null;
     setInputFolderName(inputName);
@@ -1675,6 +1700,8 @@ function App() {
     setFolderName(selectedProject?.name ?? inputName);
     setInputProjects(projects);
     setSelectedInputProjectId(selectedProjectId);
+    setProjectSaves(ensureProjectSaveOption(saves, saveId));
+    setSelectedProjectSaveId(saveId);
     setCleanupProjectIds([]);
     setWorkspaceWriteEnabled(false);
     if (!outputDirectoryRef.current) {
@@ -2057,7 +2084,13 @@ function App() {
     musicDirectoryRef.current = project.handle;
     setInputFolderKind("external");
     await saveDirectoryHandle("music-directory", project.handle);
-    const projectSnapshot = await loadProjectSnapshot(project.handle);
+    const saves = await listProjectSaves(project.handle);
+    setProjectSaves(saves);
+    setSelectedProjectSaveId(DEFAULT_PROJECT_SAVE_ID);
+    const projectSnapshot = await loadProjectSnapshot(
+      project.handle,
+      DEFAULT_PROJECT_SAVE_ID,
+    );
     applySnapshotSettings(projectSnapshot);
     await readMusicDirectory(project.handle, projectSnapshot);
     setProjectStateStatus(
@@ -2074,6 +2107,192 @@ function App() {
       folderName ||
       inputFolderName
     );
+  }
+
+  function selectedInputProject() {
+    return inputProjects.find(
+      (project) => project.id === selectedInputProjectId,
+    );
+  }
+
+  async function selectProjectSave(saveId: string) {
+    const project = selectedInputProject();
+    if (!project) return;
+    setProjectSavesBusy(true);
+    try {
+      cancelPendingProjectSnapshotSave();
+      const snapshot = isBrowserInputProject(project)
+        ? await loadProjectSnapshot(project.handle, saveId)
+        : project.source === "internal" && project.id !== "."
+          ? await loadInternalProjectSnapshot(project.id, saveId)
+          : undefined;
+      if (!snapshot) {
+        setBatchFeedback(
+          "Este save ainda não tem preferências salvas.",
+          "warning",
+        );
+        return;
+      }
+      const saveOption =
+        projectSaves.find((save) => save.id === saveId) ??
+        projectSaveOptionFromSnapshot(saveId, snapshot);
+      setSelectedProjectSaveId(saveId);
+      setProjectSaves((current) =>
+        ensureProjectSaveOption(current, saveOption),
+      );
+      if (isBrowserInputProject(project)) {
+        applySnapshotSettings(snapshot);
+        await readMusicDirectory(project.handle, snapshot);
+      } else {
+        await loadInternalInputWorkspace({
+          requestedProjectId: project.id,
+          saveId,
+          snapshotOverride: snapshot,
+          useSnapshotOverride: true,
+        });
+      }
+      setProjectStateStatus(`Save "${saveOption.name}" carregado.`);
+    } catch (reason) {
+      setError(messageOf(reason));
+    } finally {
+      setProjectSavesBusy(false);
+    }
+  }
+
+  async function saveProjectAs() {
+    const project = selectedInputProject();
+    if (!project || !tracks.length) {
+      setBatchFeedback("Abra um projeto antes de criar um save.", "warning");
+      return;
+    }
+    const name = await requestTextInput({
+      title: "Salvar configuração",
+      message:
+        "Crie um save nomeado para testar outra configuração sem substituir o padrão.",
+      label: "Nome do save",
+      value: "",
+      confirmLabel: "Salvar",
+    });
+    if (!name) return;
+    const save = { id: projectSaveIdFromName(name), name };
+    const exists = projectSaves.some((item) => item.id === save.id);
+    if (
+      exists &&
+      !(await requestConfirmation({
+        title: "Substituir save?",
+        message: `Já existe um save chamado "${name}". Substituir o conteúdo dele pelo estado atual?`,
+        confirmLabel: "Substituir",
+      }))
+    ) {
+      return;
+    }
+    setProjectSavesBusy(true);
+    try {
+      cancelPendingProjectSnapshotSave();
+      const snapshot = createSnapshot();
+      if (isBrowserInputProject(project)) {
+        await writeProjectSnapshot(project.handle, snapshot, save);
+        setProjectSaves(await listProjectSaves(project.handle));
+      } else if (project.source === "internal" && project.id !== ".") {
+        await saveInternalProjectSnapshot(project.id, snapshot, save);
+        setProjectSaves(await listInternalProjectSaves(project.id));
+      }
+      setSelectedProjectSaveId(save.id);
+      setProjectStateStatus(`Save "${save.name}" criado.`);
+      setBatchFeedback(`Save "${save.name}" criado.`);
+    } catch (reason) {
+      setError(messageOf(reason));
+    } finally {
+      setProjectSavesBusy(false);
+    }
+  }
+
+  async function renameProjectSave() {
+    const project = selectedInputProject();
+    const currentSave = projectSaves.find(
+      (save) => save.id === selectedProjectSaveId,
+    );
+    if (!project || !currentSave || currentSave.isDefault) return;
+    const name = await requestTextInput({
+      title: "Renomear save",
+      message: "O conteúdo atual será mantido no novo nome.",
+      label: "Novo nome",
+      value: currentSave.name,
+      confirmLabel: "Renomear",
+    });
+    if (!name || name === currentSave.name) return;
+    const nextSave = { id: projectSaveIdFromName(name), name };
+    const exists = projectSaves.some(
+      (save) => save.id === nextSave.id && save.id !== currentSave.id,
+    );
+    if (
+      exists &&
+      !(await requestConfirmation({
+        title: "Substituir save?",
+        message: `Já existe um save chamado "${name}". Substituir pelo save atual?`,
+        confirmLabel: "Substituir",
+      }))
+    ) {
+      return;
+    }
+    setProjectSavesBusy(true);
+    try {
+      cancelPendingProjectSnapshotSave();
+      const snapshot = createSnapshot();
+      if (isBrowserInputProject(project)) {
+        await writeProjectSnapshot(project.handle, snapshot, nextSave);
+        await removeProjectSnapshot(project.handle, currentSave.id);
+        setProjectSaves(await listProjectSaves(project.handle));
+      } else if (project.source === "internal" && project.id !== ".") {
+        await saveInternalProjectSnapshot(project.id, snapshot, nextSave);
+        await deleteInternalProjectSnapshot(project.id, currentSave.id);
+        setProjectSaves(await listInternalProjectSaves(project.id));
+      }
+      setSelectedProjectSaveId(nextSave.id);
+      setProjectStateStatus(`Save renomeado para "${nextSave.name}".`);
+      setBatchFeedback(`Save renomeado para "${nextSave.name}".`);
+    } catch (reason) {
+      setError(messageOf(reason));
+    } finally {
+      setProjectSavesBusy(false);
+    }
+  }
+
+  async function deleteProjectSave() {
+    const project = selectedInputProject();
+    const currentSave = projectSaves.find(
+      (save) => save.id === selectedProjectSaveId,
+    );
+    if (!project || !currentSave || currentSave.isDefault) return;
+    if (
+      !(await requestConfirmation({
+        title: "Excluir save?",
+        message: `Excluir o save "${currentSave.name}"? O áudio e outros arquivos do projeto não serão removidos.`,
+        confirmLabel: "Excluir save",
+        tone: "danger",
+      }))
+    ) {
+      return;
+    }
+    setProjectSavesBusy(true);
+    try {
+      cancelPendingProjectSnapshotSave();
+      if (isBrowserInputProject(project)) {
+        await removeProjectSnapshot(project.handle, currentSave.id);
+        setProjectSaves(await listProjectSaves(project.handle));
+      } else if (project.source === "internal" && project.id !== ".") {
+        await deleteInternalProjectSnapshot(project.id, currentSave.id);
+        setProjectSaves(await listInternalProjectSaves(project.id));
+      }
+      setSelectedProjectSaveId(DEFAULT_PROJECT_SAVE_ID);
+      setProjectStateStatus(`Save "${currentSave.name}" excluído.`);
+      setBatchFeedback(`Save "${currentSave.name}" excluído.`);
+      await selectProjectSave(DEFAULT_PROJECT_SAVE_ID);
+    } catch (reason) {
+      setError(messageOf(reason));
+    } finally {
+      setProjectSavesBusy(false);
+    }
   }
 
   async function enableWorkspaceWrites() {
@@ -2155,6 +2374,8 @@ function App() {
     musicDirectoryRef.current = null;
     setInputFolderName("input");
     setInputFolderKind("internal");
+    setProjectSaves([defaultProjectSave]);
+    setSelectedProjectSaveId(DEFAULT_PROJECT_SAVE_ID);
     setWorkspaceWriteEnabled(false);
     if (message) setBatchFeedback(message, "warning");
   }
@@ -4195,6 +4416,9 @@ function App() {
     if (!snapshot.tracks.length) return;
     const handle = musicDirectoryRef.current;
     const projectId = selectedInputProjectId;
+    const activeSave =
+      projectSaves.find((save) => save.id === selectedProjectSaveId) ??
+      defaultProjectSave;
     cancelPendingProjectSnapshotSave();
     if (handle && projectId) {
       // External project: save via FileSystem Access API.
@@ -4204,7 +4428,7 @@ function App() {
             mode: "readwrite",
           });
           if (permission !== "granted") return;
-          await writeProjectSnapshot(handle, snapshot);
+          await writeProjectSnapshot(handle, snapshot, activeSave);
           setProjectStateStatus("Preferências do projeto salvas.");
         } catch (reason) {
           setProjectStateStatus(
@@ -4216,7 +4440,7 @@ function App() {
       // Internal project: save via server API to input/<id>/.sonara/.
       projectSaveTimerRef.current = window.setTimeout(async () => {
         try {
-          await saveInternalProjectSnapshot(projectId, snapshot);
+          await saveInternalProjectSnapshot(projectId, snapshot, activeSave);
           setProjectStateStatus("Preferências do projeto salvas.");
         } catch (reason) {
           setProjectStateStatus(
@@ -4594,6 +4818,17 @@ function App() {
                     </>
                   )}
                 </div>
+                {selectedInputProjectId && (
+                  <ProjectSaveControls
+                    busy={projectSavesBusy}
+                    onDelete={() => void deleteProjectSave()}
+                    onRename={() => void renameProjectSave()}
+                    onSaveAs={() => void saveProjectAs()}
+                    onSelect={(saveId) => void selectProjectSave(saveId)}
+                    saves={projectSaves}
+                    selectedSaveId={selectedProjectSaveId}
+                  />
+                )}
                 <div className="setup-actions">
                   <button
                     type="button"
@@ -4691,6 +4926,18 @@ function App() {
                   ))}
                 </select>
               </label>
+            )}
+            {selectedInputProjectId && (
+              <ProjectSaveControls
+                busy={projectSavesBusy}
+                compact
+                onDelete={() => void deleteProjectSave()}
+                onRename={() => void renameProjectSave()}
+                onSaveAs={() => void saveProjectAs()}
+                onSelect={(saveId) => void selectProjectSave(saveId)}
+                saves={projectSaves}
+                selectedSaveId={selectedProjectSaveId}
+              />
             )}
             <div className="library-caption-block">
               <div className="library-caption">
@@ -5464,8 +5711,8 @@ function App() {
                   <div>
                     <h3>Dados dos projetos</h3>
                     <p>
-                      Limpe apenas os snapshots `.sonara/project.json` gravados
-                      em cada projeto da Pasta de Entrada.
+                      Limpe apenas os saves `.sonara` gravados em cada projeto
+                      da Pasta de Entrada.
                     </p>
                     <small>
                       {inputProjects.length
@@ -5798,6 +6045,68 @@ function InteractionDialog({
           </button>
         </footer>
       </form>
+    </div>
+  );
+}
+
+function ProjectSaveControls({
+  busy,
+  compact = false,
+  onDelete,
+  onRename,
+  onSaveAs,
+  onSelect,
+  saves,
+  selectedSaveId,
+}: {
+  busy: boolean;
+  compact?: boolean;
+  onDelete: () => void;
+  onRename: () => void;
+  onSaveAs: () => void;
+  onSelect: (saveId: string) => void;
+  saves: ProjectSaveOption[];
+  selectedSaveId: string;
+}) {
+  const selectedSave = saves.find((save) => save.id === selectedSaveId);
+  const namedSaveSelected = Boolean(selectedSave && !selectedSave.isDefault);
+  return (
+    <div className={`project-save-controls ${compact ? "compact" : ""}`}>
+      <label className="project-save-picker">
+        <span>Save</span>
+        <select
+          className="project-save-select"
+          disabled={busy}
+          value={selectedSaveId}
+          onChange={(event) => onSelect(event.target.value)}
+        >
+          {saves.map((save) => (
+            <option key={save.id} value={save.id}>
+              {save.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="project-save-actions">
+        <button disabled={busy} type="button" onClick={onSaveAs}>
+          <Save /> Salvar como
+        </button>
+        <button
+          disabled={busy || !namedSaveSelected}
+          type="button"
+          onClick={onRename}
+        >
+          <RotateCcw /> Renomear
+        </button>
+        <button
+          className="danger-action"
+          disabled={busy || !namedSaveSelected}
+          type="button"
+          onClick={onDelete}
+        >
+          <Trash2 /> Excluir
+        </button>
+      </div>
     </div>
   );
 }
@@ -14129,10 +14438,16 @@ async function countAudioFiles(
 
 async function loadProjectSnapshot(
   handle: FileSystemDirectoryHandle,
+  saveId = DEFAULT_PROJECT_SAVE_ID,
 ): Promise<ProjectSnapshot | undefined> {
   try {
     const directory = await handle.getDirectoryHandle(PROJECT_STATE_DIRECTORY);
-    const fileHandle = await directory.getFileHandle(PROJECT_STATE_FILE);
+    const fileHandle =
+      saveId === DEFAULT_PROJECT_SAVE_ID
+        ? await directory.getFileHandle(PROJECT_STATE_FILE)
+        : await (
+            await directory.getDirectoryHandle(PROJECT_SAVES_DIRECTORY)
+          ).getFileHandle(projectSaveFileName(saveId));
     const file = await fileHandle.getFile();
     const snapshot = JSON.parse(await file.text()) as ProjectSnapshot;
     return hydrateProjectSnapshotAssets(handle, snapshot);
@@ -14144,27 +14459,51 @@ async function loadProjectSnapshot(
 async function writeProjectSnapshot(
   handle: FileSystemDirectoryHandle,
   snapshot: ProjectSnapshot,
+  save: ProjectSaveOption = defaultProjectSave,
 ) {
   const directory = await handle.getDirectoryHandle(PROJECT_STATE_DIRECTORY, {
     create: true,
   });
   const portableSnapshot = await createPortableProjectSnapshot(
     directory,
-    snapshot,
+    projectSnapshotWithSave(snapshot, save),
   );
-  const file = await directory.getFileHandle(PROJECT_STATE_FILE, {
-    create: true,
-  });
+  const file =
+    save.id === DEFAULT_PROJECT_SAVE_ID
+      ? await directory.getFileHandle(PROJECT_STATE_FILE, { create: true })
+      : await (
+          await directory.getDirectoryHandle(PROJECT_SAVES_DIRECTORY, {
+            create: true,
+          })
+        ).getFileHandle(projectSaveFileName(save.id), { create: true });
   const writable = await file.createWritable();
   await writable.write(JSON.stringify(portableSnapshot, null, 2));
   await writable.close();
 }
 
-async function removeProjectSnapshot(handle: FileSystemDirectoryHandle) {
+async function removeProjectSnapshot(
+  handle: FileSystemDirectoryHandle,
+  saveId?: string,
+) {
   let directory: FileSystemDirectoryHandle;
   try {
     directory = await handle.getDirectoryHandle(PROJECT_STATE_DIRECTORY);
   } catch {
+    return;
+  }
+  if (saveId) {
+    try {
+      if (saveId === DEFAULT_PROJECT_SAVE_ID) {
+        await directory.removeEntry(PROJECT_STATE_FILE);
+      } else {
+        const savesDirectory = await directory.getDirectoryHandle(
+          PROJECT_SAVES_DIRECTORY,
+        );
+        await savesDirectory.removeEntry(projectSaveFileName(saveId));
+      }
+    } catch {
+      // Save does not exist.
+    }
     return;
   }
   try {
@@ -14185,10 +14524,14 @@ async function removeProjectSnapshot(handle: FileSystemDirectoryHandle) {
 async function saveInternalProjectSnapshot(
   projectId: string,
   snapshot: ProjectSnapshot,
+  save: ProjectSaveOption = defaultProjectSave,
 ): Promise<void> {
-  const portable = await createInternalPortableSnapshot(projectId, snapshot);
+  const portable = await createInternalPortableSnapshot(
+    projectId,
+    projectSnapshotWithSave(snapshot, save),
+  );
   await fetch(
-    `/api/internal-snapshot?project=${encodeURIComponent(projectId)}`,
+    `/api/internal-snapshot?${internalSnapshotQuery(projectId, save)}`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -14199,10 +14542,14 @@ async function saveInternalProjectSnapshot(
 
 async function loadInternalProjectSnapshot(
   projectId: string,
+  saveId = DEFAULT_PROJECT_SAVE_ID,
 ): Promise<ProjectSnapshot | undefined> {
   try {
     const res = await fetch(
-      `/api/internal-snapshot?project=${encodeURIComponent(projectId)}`,
+      `/api/internal-snapshot?${internalSnapshotQuery(projectId, {
+        id: saveId,
+        name: projectSaveLabelFromId(saveId),
+      })}`,
     );
     if (!res.ok) return undefined;
     const snapshot = (await res.json()) as ProjectSnapshot;
@@ -14212,15 +14559,159 @@ async function loadInternalProjectSnapshot(
   }
 }
 
-async function deleteInternalProjectSnapshot(projectId: string): Promise<void> {
+async function deleteInternalProjectSnapshot(
+  projectId: string,
+  saveId?: string,
+): Promise<void> {
   try {
-    await fetch(
-      `/api/internal-snapshot?project=${encodeURIComponent(projectId)}`,
-      { method: "DELETE" },
-    );
+    const query = saveId
+      ? internalSnapshotQuery(projectId, {
+          id: saveId,
+          name: projectSaveLabelFromId(saveId),
+        })
+      : `project=${encodeURIComponent(projectId)}`;
+    await fetch(`/api/internal-snapshot?${query}`, { method: "DELETE" });
   } catch {
     // Best-effort.
   }
+}
+
+async function listProjectSaves(
+  handle: FileSystemDirectoryHandle,
+): Promise<ProjectSaveOption[]> {
+  const saves = new Map<string, ProjectSaveOption>([
+    [defaultProjectSave.id, defaultProjectSave],
+  ]);
+  try {
+    const directory = await handle.getDirectoryHandle(PROJECT_STATE_DIRECTORY);
+    const savesDirectory = await directory.getDirectoryHandle(
+      PROJECT_SAVES_DIRECTORY,
+    );
+    for await (const [name, entry] of savesDirectory.entries()) {
+      if (entry.kind !== "file" || !name.toLowerCase().endsWith(".json")) {
+        continue;
+      }
+      const id = name.replace(/\.json$/i, "");
+      let option: ProjectSaveOption = {
+        id,
+        name: projectSaveLabelFromId(id),
+      };
+      try {
+        const file = await entry.getFile();
+        const snapshot = JSON.parse(await file.text()) as ProjectSnapshot;
+        option = projectSaveOptionFromSnapshot(id, snapshot);
+      } catch {
+        // Keep a recoverable save option even if the file is temporarily bad.
+      }
+      saves.set(option.id, option);
+    }
+  } catch {
+    // Project has no named saves yet.
+  }
+  return sortProjectSaves([...saves.values()]);
+}
+
+async function listInternalProjectSaves(
+  projectId: string,
+): Promise<ProjectSaveOption[]> {
+  try {
+    const res = await fetch(
+      `/api/internal-snapshot?project=${encodeURIComponent(projectId)}&list=1`,
+    );
+    if (!res.ok) return [defaultProjectSave];
+    const payload = (await res.json()) as { saves?: ProjectSaveOption[] };
+    return sortProjectSaves(payload.saves ?? [defaultProjectSave]);
+  } catch {
+    return [defaultProjectSave];
+  }
+}
+
+function projectSnapshotWithSave(
+  snapshot: ProjectSnapshot,
+  save: ProjectSaveOption,
+): ProjectSnapshot {
+  return {
+    ...snapshot,
+    saveId: save.id,
+    saveName: save.name,
+  };
+}
+
+function projectSaveOptionFromSnapshot(
+  id: string,
+  snapshot?: ProjectSnapshot,
+): ProjectSaveOption {
+  if (id === DEFAULT_PROJECT_SAVE_ID) return defaultProjectSave;
+  return {
+    id,
+    name:
+      normalizeProjectSaveName(snapshot?.saveName ?? "") ||
+      projectSaveLabelFromId(id),
+  };
+}
+
+function ensureProjectSaveOption(
+  saves: ProjectSaveOption[],
+  save: ProjectSaveOption | string,
+) {
+  const option =
+    typeof save === "string"
+      ? (saves.find((item) => item.id === save) ?? {
+          id: save,
+          name: projectSaveLabelFromId(save),
+        })
+      : save;
+  const next = new Map(saves.map((item) => [item.id, item]));
+  next.set(option.id, option);
+  return sortProjectSaves([...next.values()]);
+}
+
+function sortProjectSaves(saves: ProjectSaveOption[]) {
+  return saves.sort((first, second) => {
+    if (first.id === DEFAULT_PROJECT_SAVE_ID) return -1;
+    if (second.id === DEFAULT_PROJECT_SAVE_ID) return 1;
+    return first.name.localeCompare(second.name, "pt-BR", {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
+}
+
+function normalizeProjectSaveName(value: string) {
+  return value.replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+function projectSaveIdFromName(value: string) {
+  const normalized = normalizeProjectSaveName(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return normalized || `save-${Date.now()}`;
+}
+
+function projectSaveLabelFromId(id: string) {
+  if (id === DEFAULT_PROJECT_SAVE_ID) return defaultProjectSave.name;
+  return id
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function projectSaveFileName(saveId: string) {
+  return `${projectSaveIdFromName(saveId)}.json`;
+}
+
+function internalSnapshotQuery(projectId: string, save: ProjectSaveOption) {
+  const params = new URLSearchParams({ project: projectId });
+  if (save.id !== DEFAULT_PROJECT_SAVE_ID) {
+    params.set("save", save.id);
+    params.set("saveName", save.name);
+  }
+  return params.toString();
 }
 
 async function createInternalPortableSnapshot(

@@ -385,6 +385,8 @@ export type ProjectSnapshot = {
   publicationAssetOverrides?: PublicationAssetOverrideMap;
   assetManifest?: ProjectAssetManifest;
   coverAssetId?: string;
+  saveId?: string;
+  saveName?: string;
   coverSeriesSettings?: CoverSeriesSettings;
   selectedTrackId: string;
   outputPreset: string;
