@@ -2724,6 +2724,213 @@ svg {
   opacity: 0.38;
 }
 
+/* ----- Pilha visual unificada (master-detail do inspetor visual) ----- */
+
+.composition-section {
+  padding: 0 11px 11px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.composition-section-header {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  color: #c9ced5;
+  font-size: 9px;
+  font-weight: 690;
+}
+
+.composition-stack-row {
+  padding: 0;
+  overflow: hidden;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+.composition-stack-select {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 4px 7px 9px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.composition-stack-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.composition-stack-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.composition-stack-tag {
+  flex-shrink: 0;
+  max-width: 96px;
+  overflow: hidden;
+  padding: 1.5px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  font-size: 7px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  line-height: 1.7;
+}
+
+.composition-stack-actions {
+  padding-right: 6px;
+}
+
+.composition-stack-row.is-selected {
+  border-color: color-mix(in srgb, var(--accent-warm) 55%, transparent);
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--accent-warm) 13%, transparent),
+      transparent 38%
+    ),
+    var(--surface-raised);
+  box-shadow: var(--elev-1);
+}
+
+.composition-stack-row.is-selected .composition-stack-icon {
+  color: var(--accent-warm);
+}
+
+.composition-stack-row.is-selected .composition-stack-tag {
+  border-color: color-mix(in srgb, var(--accent-warm) 32%, transparent);
+  color: var(--accent-warm);
+}
+
+.stack-add-menu {
+  margin-top: 8px;
+}
+
+.stack-add-menu > summary {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px dashed var(--button-border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  list-style: none;
+}
+
+.stack-add-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.stack-add-menu > summary svg {
+  width: 13px;
+  height: 13px;
+}
+
+.stack-add-menu[open] > summary {
+  border-style: solid;
+  color: var(--text-primary);
+}
+
+.stack-add-menu-body {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: 8px;
+  padding: 11px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--stage-surface-low);
+}
+
+.stack-undo-action {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.stack-detail {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.stack-detail-header {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--surface-raised);
+}
+
+.stack-detail-header .composition-stack-icon {
+  color: var(--accent-warm);
+}
+
+.stack-detail-title {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.stack-detail-title strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--font-md);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack-detail-title small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack-detail-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 3px;
+}
+
+.stack-detail-body {
+  display: grid;
+  gap: var(--space-3);
+  padding: 11px;
+}
+
+.stack-detail-body > .inspector-group {
+  margin: 0 -11px;
+  padding: 0;
+}
+
+.stack-detail-body > .inspector-group:last-child {
+  border-bottom: 0;
+}
+
 .helper-copy {
   margin: 10px 0 0;
 }
