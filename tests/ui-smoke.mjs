@@ -260,6 +260,28 @@ try {
   await page
     .locator(".composition-stack-label", { hasText: "Capa - Direita" })
     .waitFor();
+  const coverStackRow = page
+    .locator(".composition-stack-row", { hasText: "Capa - Direita" })
+    .first();
+  await coverStackRow
+    .getByRole("button", { name: "Ocultar Capa - Direita" })
+    .click();
+  await coverStackRow
+    .getByRole("button", { name: "Mostrar Capa - Direita" })
+    .waitFor();
+  assert.equal(
+    await page
+      .locator(".composition-stack-row", { hasText: "Capa - Direita" })
+      .count(),
+    1,
+    "hidden composition media layer should stay in the stack",
+  );
+  await coverStackRow
+    .getByRole("button", { name: "Mostrar Capa - Direita" })
+    .click();
+  await coverStackRow
+    .getByRole("button", { name: "Ocultar Capa - Direita" })
+    .waitFor();
   const coverLayer = page
     .locator(".layer-row", { hasText: "Capa - Direita" })
     .first();
@@ -292,8 +314,26 @@ try {
   await musicTextFade.getByText("Começa em").waitFor();
   await musicTextFade.getByLabel("Duração", { exact: true }).waitFor();
   await page.getByRole("button", { exact: true, name: "Visual" }).click();
-  await page.getByText("Waveform", { exact: true }).click();
-  await page.getByText("Mostrar waveform").click();
+  const waveformStackRow = page
+    .locator(".composition-stack-row", { hasText: "Waveform" })
+    .first();
+  await waveformStackRow
+    .getByRole("button", { name: "Mostrar Waveform" })
+    .click();
+  await waveformStackRow
+    .getByRole("button", { name: "Ocultar Waveform" })
+    .waitFor();
+  await waveformStackRow
+    .getByRole("button", { name: "Ocultar Waveform" })
+    .click();
+  await waveformStackRow
+    .getByRole("button", { name: "Mostrar Waveform" })
+    .waitFor();
+  const waveformGroup = page.locator(".inspector-group", {
+    has: page.locator(".inspector-group-label", { hasText: /^Waveform$/ }),
+  });
+  await waveformGroup.locator("summary").click();
+  await waveformGroup.getByText("Mostrar waveform").click();
   const waveformSelect = page.locator(
     'select:has(option[value="radial-ring"])',
   );

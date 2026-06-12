@@ -38,6 +38,10 @@ reinicie o `npm run dev` inteiro. O front (vite) tem HMR.
 - **Saves múltiplos por projeto (06-12):** `project.json` segue como save padrão
   legado; saves nomeados ficam em `.sonara/saves/` com UI para salvar como,
   carregar, renomear e excluir.
+- **Composição/camadas (06-12):** a lista de composição agora usa o render stack
+  como fonte, mantém atmosfera, foco solar, mídias, vinil e waveform no mesmo
+  fluxo, permite reordenar pelo stack e ocultar/reexibir pelo ícone de olho sem
+  perder a camada da lista.
 
 ## Dívida estrutural — PRIORIDADE
 
@@ -83,10 +87,11 @@ reinicie o `npm run dev` inteiro. O front (vite) tem HMR.
   (`server/index.mjs`). Confirmado por fluxo Playwright de projeto interno com
   snapshot `.sonara`.
 
-### B4. "Composição: ocultar some pra sempre"
+### B4. "Composição: ocultar some pra sempre" — CORRIGIDO
 
-- Na seção "Composição" do inspetor visual, ocultar um item o remove da lista sem
-  como reexibir. Será absorvido pelo redesenho R1 (ver abaixo), mas é um bug.
+- A seção "Composição" agora reconcilia a ordem salva com o stack padrão e inclui
+  camadas ocultas, foco solar e waveform mesmo quando estão desativados. O olho
+  alterna visibilidade sem remover a linha, e o smoke UI cobre mídia e waveform.
 
 ### B5. Conflito de porta só no preview embutido — CORRIGIDO
 
@@ -97,7 +102,7 @@ reinicie o `npm run dev` inteiro. O front (vite) tem HMR.
 
 ## Próximas funcionalidades (pedidas)
 
-### R1. Redesenho da barra lateral de camadas (UI/UX)
+### R1. Redesenho da barra lateral de camadas (UI/UX) — BASE FUNCIONAL ENTREGUE
 
 Visão do dono do produto:
 
@@ -108,9 +113,12 @@ Visão do dono do produto:
 - Trocar de atmosfera **substitui** a camada de atmosfera (idem para os demais).
 - Separar comandos **gerais** de **individuais**, simplificar, reorganizar.
   "Um bom design não precisa de explicação."
-- Base existente: render stack já unifica a ordem (`legacyRenderStack` /
-  `composition.renderOrder` em `canvas-scene-runtime.mjs`) e há a seção
-  "Composição" (a refazer conforme acima). Corrige B4 de quebra.
+- Base entregue: a seção "Composição" agora é uma lista única derivada do render
+  stack, com olho para visibilidade e setas para ordem. O runtime continua
+  ignorando itens desativados no render sem removê-los da lista.
+- Refinamento restante: mover mais controles individuais para dentro dos
+  acordeons da própria lista e reduzir a duplicação com os grupos legados de
+  Atmosfera/Waveform/Camadas.
 
 ### R2. Saves múltiplos (nomeados) por projeto — ENTREGUE
 

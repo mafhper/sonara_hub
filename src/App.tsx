@@ -3125,26 +3125,47 @@ function App() {
   function computeRenderStack(): RenderStackItem[] {
     const scene = selectedScene;
     const layers = selectedTrack?.layers ?? [];
+    const stack = defaultRenderStack(scene, layers);
+    if (Array.isArray(scene.renderOrder) && scene.renderOrder.length > 0) {
+      return reconcileRenderStack(scene.renderOrder, stack);
+    }
+    return stack;
+  }
+
+  function defaultRenderStack(
+    scene: ScenePresetV3,
+    layers: MediaLayerV2[],
+  ): RenderStackItem[] {
     const stack: RenderStackItem[] = [];
     stack.push({ kind: "atmosphere" });
-    if (scene.cloudLight?.enabled && scene.rendererId !== "volumetric-clouds") {
+    if (scene.cloudLight && scene.rendererId !== "volumetric-clouds") {
       stack.push({ kind: "sun-focus" });
     }
     for (const layer of [...layers].reverse()) {
-      if (layer.visible !== false) {
-        stack.push({ kind: "media", layerId: layer.id, order: layer.order });
-      }
+      stack.push({ kind: "media", layerId: layer.id, order: layer.order });
     }
     if (scene.rendererId === "vinyl") {
       stack.push({ kind: "vinyl" });
     }
-    if (scene.waveform?.visible) {
+    if (scene.waveform) {
       stack.push({ kind: "waveform" });
     }
-    if (Array.isArray(scene.renderOrder) && scene.renderOrder.length > 0) {
-      return scene.renderOrder;
-    }
     return stack;
+  }
+
+  function reconcileRenderStack(
+    saved: RenderStackItem[],
+    fallback: RenderStackItem[],
+  ): RenderStackItem[] {
+    const fallbackKeys = new Set(fallback.map(renderStackKey));
+    const savedByKey = new Map(
+      saved.map((item) => [renderStackKey(item), item]),
+    );
+    const next = saved.filter((item) => fallbackKeys.has(renderStackKey(item)));
+    for (const item of fallback) {
+      if (!savedByKey.has(renderStackKey(item))) next.push(item);
+    }
+    return next;
   }
 
   function moveRenderStackItem(
@@ -3159,6 +3180,14 @@ function App() {
     newStack[fromIndex] = newStack[toIndex];
     newStack[toIndex] = temp;
     return newStack;
+  }
+
+  function moveSelectedRenderStackItem(index: number, direction: -1 | 1) {
+    const current = computeRenderStack();
+    updateScene({
+      ...selectedScene,
+      renderOrder: moveRenderStackItem(current, index, direction),
+    });
   }
 
   function applyPalette(palette: VisualPalette) {
@@ -5438,6 +5467,7 @@ function App() {
                     : null
                 }
                 presets={visualPresets}
+                renderStack={computeRenderStack()}
                 scene={selectedScene}
                 onAddLayer={() => layerInputRef.current?.click()}
                 onAdvanced={updateAdvanced}
@@ -5457,6 +5487,7 @@ function App() {
                 onDeletePreset={() => void deletePreset()}
                 onDuplicatePreset={() => void duplicatePreset()}
                 onMoveLayer={moveLayer}
+                onMoveRenderStack={moveSelectedRenderStackItem}
                 onPalette={applyPalette}
                 onPlayful={updatePlayful}
                 onRemoveLayer={removeLayer}
@@ -10574,9 +10605,14 @@ function PaletteSwatches({
   );
 }
 
+function renderStackKey(item: RenderStackItem) {
+  return item.kind === "media" ? `media-${item.layerId}` : item.kind;
+}
+
 function buildRenderStackItems(
   scene: ScenePresetV3,
   layers: MediaLayerV2[],
+  renderStack: RenderStackItem[],
   onWaveform: (patch: Partial<WaveformV1>) => void,
   onCloudLight: (patch: Partial<CloudLightSettings>) => void,
   onUpdateLayer: (id: string, patch: Partial<MediaLayerV2>) => void,
@@ -10586,58 +10622,58 @@ function buildRenderStackItems(
     label: string;
     kind: RenderStackItem["kind"];
     visible: boolean;
+    toggleDisabled?: boolean;
     onToggle: () => void;
   }[] = [];
 
-  stack.push({
-    key: "atmosphere",
-    label: scene.name ?? "Atmosfera",
-    kind: "atmosphere",
-    visible: true,
-    onToggle: () => {},
-  });
-
-  if (scene.cloudLight?.enabled && scene.rendererId !== "volumetric-clouds") {
-    stack.push({
-      key: "sun-focus",
-      label: "Foco solar",
-      kind: "sun-focus",
-      visible: true,
-      onToggle: () => onCloudLight({ enabled: false }),
-    });
-  }
-
-  const visibleLayers = [...layers]
-    .reverse()
-    .filter((l) => l.visible !== false);
-  for (const layer of visibleLayers) {
-    stack.push({
-      key: `media-${layer.id}`,
-      label: layer.name || "Camada",
-      kind: "media",
-      visible: layer.visible !== false,
-      onToggle: () => onUpdateLayer(layer.id, { visible: !layer.visible }),
-    });
-  }
-
-  if (scene.rendererId === "vinyl") {
-    stack.push({
-      key: "vinyl",
-      label: "Vinil",
-      kind: "vinyl",
-      visible: true,
-      onToggle: () => {},
-    });
-  }
-
-  if (scene.waveform?.visible) {
-    stack.push({
-      key: "waveform",
-      label: "Waveform",
-      kind: "waveform",
-      visible: true,
-      onToggle: () => onWaveform({ visible: false }),
-    });
+  for (const item of renderStack) {
+    if (item.kind === "atmosphere") {
+      stack.push({
+        key: renderStackKey(item),
+        label: scene.name ?? "Atmosfera",
+        kind: item.kind,
+        visible: true,
+        toggleDisabled: true,
+        onToggle: () => {},
+      });
+    } else if (item.kind === "sun-focus") {
+      stack.push({
+        key: renderStackKey(item),
+        label: "Foco solar",
+        kind: item.kind,
+        visible: Boolean(scene.cloudLight?.enabled),
+        onToggle: () =>
+          onCloudLight({ enabled: !Boolean(scene.cloudLight?.enabled) }),
+      });
+    } else if (item.kind === "media") {
+      const layer = layers.find((candidate) => candidate.id === item.layerId);
+      if (!layer) continue;
+      stack.push({
+        key: renderStackKey(item),
+        label: layer.name || "Camada",
+        kind: item.kind,
+        visible: layer.visible !== false,
+        onToggle: () => onUpdateLayer(layer.id, { visible: !layer.visible }),
+      });
+    } else if (item.kind === "vinyl") {
+      stack.push({
+        key: renderStackKey(item),
+        label: "Vinil",
+        kind: item.kind,
+        visible: scene.rendererId === "vinyl",
+        toggleDisabled: true,
+        onToggle: () => {},
+      });
+    } else if (item.kind === "waveform") {
+      stack.push({
+        key: renderStackKey(item),
+        label: "Waveform",
+        kind: item.kind,
+        visible: Boolean(scene.waveform?.visible),
+        onToggle: () =>
+          onWaveform({ visible: !Boolean(scene.waveform?.visible) }),
+      });
+    }
   }
 
   return stack;
@@ -10647,6 +10683,7 @@ function VisualInspector(props: {
   layers: MediaLayerV2[];
   layerUndoLabel: string | null;
   presets: ScenePresetV3[];
+  renderStack: RenderStackItem[];
   scene: ScenePresetV3;
   onAddLayer: () => void;
   onAdvanced: (key: string, value: number) => void;
@@ -10661,6 +10698,7 @@ function VisualInspector(props: {
   onDeletePreset: () => void;
   onDuplicatePreset: () => void;
   onMoveLayer: (id: string, direction: -1 | 1) => void;
+  onMoveRenderStack: (index: number, direction: -1 | 1) => void;
   onPalette: (palette: VisualPalette) => void;
   onPlayful: (patch: PlayfulPatch) => void;
   onRemoveLayer: (id: string) => void;
@@ -10675,6 +10713,7 @@ function VisualInspector(props: {
   const stackItems = buildRenderStackItems(
     scene,
     props.layers,
+    props.renderStack,
     props.onWaveform,
     props.onCloudLight,
     props.onUpdateLayer,
@@ -10687,22 +10726,51 @@ function VisualInspector(props: {
         scope="series"
       >
         <div className="composition-stack-list">
-          {stackItems.map((item) => (
-            <div key={item.key} className="composition-stack-row">
+          {stackItems.map((item, index) => (
+            <div
+              key={item.key}
+              className={`composition-stack-row ${
+                item.visible ? "" : "is-hidden-layer"
+              }`}
+            >
               <span className="composition-stack-label">{item.label}</span>
-              <button
-                aria-label={
-                  item.visible
-                    ? `Ocultar ${item.label}`
-                    : `Mostrar ${item.label}`
-                }
-                title={item.visible ? "Visível" : "Oculta"}
-                type="button"
-                className="icon-button-sm"
-                onClick={() => item.onToggle()}
-              >
-                {item.visible ? <Eye /> : <EyeOff />}
-              </button>
+              <span className="composition-stack-actions">
+                <button
+                  aria-label={`Subir ${item.label}`}
+                  className="icon-button-sm"
+                  disabled={index === 0}
+                  title="Subir"
+                  type="button"
+                  onClick={() => props.onMoveRenderStack(index, -1)}
+                >
+                  <ChevronUp />
+                </button>
+                <button
+                  aria-label={`Descer ${item.label}`}
+                  className="icon-button-sm"
+                  disabled={index === stackItems.length - 1}
+                  title="Descer"
+                  type="button"
+                  onClick={() => props.onMoveRenderStack(index, 1)}
+                >
+                  <ChevronDown />
+                </button>
+                <button
+                  aria-label={
+                    item.visible
+                      ? `Ocultar ${item.label}`
+                      : `Mostrar ${item.label}`
+                  }
+                  title={item.visible ? "Visível" : "Oculta"}
+                  type="button"
+                  aria-pressed={item.visible}
+                  className="icon-button-sm"
+                  disabled={item.toggleDisabled}
+                  onClick={() => item.onToggle()}
+                >
+                  {item.visible ? <Eye /> : <EyeOff />}
+                </button>
+              </span>
             </div>
           ))}
         </div>
