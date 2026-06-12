@@ -66,6 +66,36 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  CheckField,
+  ColorInput,
+  IconButton,
+  InspectorGroup,
+  NumberStepField,
+  RangeField,
+  SelectField,
+  TextArea,
+  TextField,
+  clampNumber,
+  safeHex,
+  sliderStyle,
+} from "./inspectors/fields";
+import { FadeInFields, LayerControls } from "./inspectors/LayerControls";
+import {
+  type CoverFadeOutSettings,
+  type LayerFadeInSettings,
+  type LayerZoomSettings,
+  isCoverLayer,
+  normalizeFadeIn,
+  normalizeLayerCoverFadeOut,
+} from "./inspectors/layer-normalizers";
+import {
+  CompositionStackList,
+  buildRenderStackItems,
+  renderStackKey,
+  stackItemDescription,
+  stackItemIcon,
+} from "./inspectors/CompositionStack";
+import {
   builtinVisualPresets,
   normalizeVisualPresetList,
   normalizeVisualSettings,
@@ -217,10 +247,7 @@ type WorkspaceFolderKind = "internal" | "external";
 type AudioStageView = "edit" | "catalog" | "videos";
 type VisualStageView = "editor" | "videos" | "promotion" | "queue";
 type PublicationAssetMode = "single" | "group" | "all";
-type CoverFadeOutSettings = NonNullable<MediaLayerV2["coverFadeOut"]>;
 type TextFadeOutSettings = NonNullable<TextFieldStyle["fadeOut"]>;
-type LayerFadeInSettings = NonNullable<MediaLayerV2["fadeIn"]>;
-type LayerZoomSettings = NonNullable<MediaLayerV2["zoom"]>;
 type TextFadeInSettings = NonNullable<TextFieldStyle["fadeIn"]>;
 type PreparedVideoOutputProject = {
   assets: FileSystemDirectoryHandle;
@@ -751,13 +778,6 @@ const coverLayerPresetLabels: Record<CoverLayerPreset, string> = {
   right: "Direita",
   corner: "Canto",
 };
-const defaultCoverFadeOut: CoverFadeOutSettings = {
-  enabled: false,
-  mode: "tail",
-  endPercent: 35,
-  startPercent: 10,
-  durationSeconds: 2,
-};
 const defaultTextFadeOut: TextFadeOutSettings = {
   enabled: false,
   mode: "tail",
@@ -769,11 +789,6 @@ const defaultFadeIn: LayerFadeInSettings = {
   enabled: false,
   startPercent: 0,
   durationSeconds: 1.5,
-};
-const defaultLayerZoom: LayerZoomSettings = {
-  enabled: false,
-  from: 100,
-  to: 115,
 };
 const visualColorLabels: Record<keyof ScenePresetV3["colors"], string> = {
   base: "Base",
@@ -954,6 +969,10 @@ function App() {
   const [audioStageView, setAudioStageView] = useState<AudioStageView>("edit");
   const [visualStageView, setVisualStageView] =
     useState<VisualStageView>("editor");
+  // Item ativo da pilha de composição (chaves de renderStackKey). Vive no App
+  // para futura sincronização com a seleção do canvas.
+  const [selectedStackKey, setSelectedStackKey] =
+    useState<string>("atmosphere");
   const [visualPresets, setVisualPresets] =
     useState<ScenePresetV3[]>(builtinVisualPresets);
   const [outputPreset, setOutputPreset] = useState("youtube-1080p");
@@ -3182,11 +3201,48 @@ function App() {
     return newStack;
   }
 
-  function moveSelectedRenderStackItem(index: number, direction: -1 | 1) {
-    const current = computeRenderStack();
-    updateScene({
-      ...selectedScene,
-      renderOrder: moveRenderStackItem(current, index, direction),
+  // Reordena o array layers para refletir a pilha: itens de mídia pintados por
+  // último (frente) ficam no índice 0, mantendo a convenção legada do array.
+  function syncLayersWithStack(
+    layers: MediaLayerV2[],
+    stack: RenderStackItem[],
+  ): MediaLayerV2[] {
+    const orderedIds = stack
+      .filter(
+        (item): item is Extract<RenderStackItem, { kind: "media" }> =>
+          item.kind === "media",
+      )
+      .map((item) => item.layerId)
+      .reverse();
+    const byId = new Map(layers.map((layer) => [layer.id, layer]));
+    const ordered = orderedIds.flatMap((id) => {
+      const layer = byId.get(id);
+      return layer ? [layer] : [];
+    });
+    const missing = layers.filter((layer) => !orderedIds.includes(layer.id));
+    return [...ordered, ...missing].map((layer, order) => ({
+      ...layer,
+      order,
+    }));
+  }
+
+  function moveCompositionItem(key: string, direction: "forward" | "backward") {
+    if (!selectedTrack) return;
+    const stack = computeRenderStack();
+    const index = stack.findIndex((item) => renderStackKey(item) === key);
+    if (index < 0) return;
+    // "forward" = pintado depois = mais à frente no vídeo.
+    const next = moveRenderStackItem(
+      stack,
+      index,
+      direction === "forward" ? 1 : -1,
+    );
+    if (next === stack) return;
+    // renderOrder e layers precisam mudar no MESMO update para o preview e a
+    // pilha nunca divergirem por um frame.
+    updateSelectedTrack({
+      scene: { ...selectedScene, renderOrder: next },
+      layers: syncLayersWithStack(selectedTrack.layers, next),
     });
   }
 
@@ -3494,18 +3550,6 @@ function App() {
     });
   }
 
-  function moveLayer(id: string, direction: -1 | 1) {
-    if (!selectedTrack) return;
-    const layers = [...selectedTrack.layers];
-    const index = layers.findIndex((layer) => layer.id === id);
-    const target = index + direction;
-    if (index < 0 || target < 0 || target >= layers.length) return;
-    [layers[index], layers[target]] = [layers[target], layers[index]];
-    updateSelectedTrack({
-      layers: layers.map((layer, order) => ({ ...layer, order })),
-    });
-  }
-
   function applyMusicToBatch() {
     setTracks((current) =>
       applyMusicTemplateToTracks(current, selectedTrackId),
@@ -3532,7 +3576,7 @@ function App() {
       applyVisualTemplateToTracks(current, selectedTrackId),
     );
     setBatchFeedback(
-      "Atmosfera e cores aplicadas ao lote. As camadas de cada vídeo foram preservadas.",
+      "Fundo visual e cores aplicados ao lote. As mídias de cada vídeo foram preservadas.",
     );
   }
 
@@ -5469,6 +5513,8 @@ function App() {
                 presets={visualPresets}
                 renderStack={computeRenderStack()}
                 scene={selectedScene}
+                selectedStackKey={selectedStackKey}
+                onSelectStackKey={setSelectedStackKey}
                 onAddLayer={() => layerInputRef.current?.click()}
                 onAdvanced={updateAdvanced}
                 onApplyCoverLayer={addCoverLayerPreset}
@@ -5486,8 +5532,7 @@ function App() {
                 onCommon={updateCommon}
                 onDeletePreset={() => void deletePreset()}
                 onDuplicatePreset={() => void duplicatePreset()}
-                onMoveLayer={moveLayer}
-                onMoveRenderStack={moveSelectedRenderStackItem}
+                onMoveRenderStack={moveCompositionItem}
                 onPalette={applyPalette}
                 onPlayful={updatePlayful}
                 onRemoveLayer={removeLayer}
@@ -10605,78 +10650,66 @@ function PaletteSwatches({
   );
 }
 
-function renderStackKey(item: RenderStackItem) {
-  return item.kind === "media" ? `media-${item.layerId}` : item.kind;
-}
-
-function buildRenderStackItems(
-  scene: ScenePresetV3,
-  layers: MediaLayerV2[],
-  renderStack: RenderStackItem[],
-  onWaveform: (patch: Partial<WaveformV1>) => void,
-  onCloudLight: (patch: Partial<CloudLightSettings>) => void,
-  onUpdateLayer: (id: string, patch: Partial<MediaLayerV2>) => void,
-) {
-  const stack: {
-    key: string;
-    label: string;
-    kind: RenderStackItem["kind"];
-    visible: boolean;
-    toggleDisabled?: boolean;
-    onToggle: () => void;
-  }[] = [];
-
-  for (const item of renderStack) {
-    if (item.kind === "atmosphere") {
-      stack.push({
-        key: renderStackKey(item),
-        label: scene.name ?? "Atmosfera",
-        kind: item.kind,
-        visible: true,
-        toggleDisabled: true,
-        onToggle: () => {},
-      });
-    } else if (item.kind === "sun-focus") {
-      stack.push({
-        key: renderStackKey(item),
-        label: "Foco solar",
-        kind: item.kind,
-        visible: Boolean(scene.cloudLight?.enabled),
-        onToggle: () =>
-          onCloudLight({ enabled: !Boolean(scene.cloudLight?.enabled) }),
-      });
-    } else if (item.kind === "media") {
-      const layer = layers.find((candidate) => candidate.id === item.layerId);
-      if (!layer) continue;
-      stack.push({
-        key: renderStackKey(item),
-        label: layer.name || "Camada",
-        kind: item.kind,
-        visible: layer.visible !== false,
-        onToggle: () => onUpdateLayer(layer.id, { visible: !layer.visible }),
-      });
-    } else if (item.kind === "vinyl") {
-      stack.push({
-        key: renderStackKey(item),
-        label: "Vinil",
-        kind: item.kind,
-        visible: scene.rendererId === "vinyl",
-        toggleDisabled: true,
-        onToggle: () => {},
-      });
-    } else if (item.kind === "waveform") {
-      stack.push({
-        key: renderStackKey(item),
-        label: "Waveform",
-        kind: item.kind,
-        visible: Boolean(scene.waveform?.visible),
-        onToggle: () =>
-          onWaveform({ visible: !Boolean(scene.waveform?.visible) }),
-      });
-    }
-  }
-
-  return stack;
+function SunFocusFields({
+  cloudLight,
+  onCloudLight,
+}: {
+  cloudLight: CloudLightSettings;
+  onCloudLight: (patch: Partial<CloudLightSettings>) => void;
+}) {
+  return (
+    <>
+      <ColorInput
+        label="Cor do sol"
+        value={cloudLight.color}
+        onChange={(color) => onCloudLight({ color })}
+      />
+      <RangeField
+        label="Intensidade solar"
+        value={cloudLight.intensity}
+        onChange={(intensity) => onCloudLight({ intensity })}
+      />
+      <RangeField
+        label="Posição horizontal"
+        value={cloudLight.x}
+        onChange={(x) => onCloudLight({ x })}
+      />
+      <RangeField
+        label="Posição vertical"
+        value={cloudLight.y}
+        onChange={(y) => onCloudLight({ y })}
+      />
+      <RangeField
+        label="Raio"
+        value={cloudLight.radius}
+        onChange={(radius) => onCloudLight({ radius })}
+      />
+      <RangeField
+        label="Difusão"
+        value={cloudLight.diffusion}
+        onChange={(diffusion) => onCloudLight({ diffusion })}
+      />
+      <RangeField
+        label="Movimento"
+        value={cloudLight.motion}
+        onChange={(motion) => onCloudLight({ motion })}
+      />
+      <div className="two-columns">
+        <RangeField
+          label="Velocidade"
+          value={cloudLight.speed}
+          onChange={(speed) => onCloudLight({ speed })}
+        />
+        <RangeField
+          label="Direção"
+          max={360}
+          unit="°"
+          value={cloudLight.direction}
+          onChange={(direction) => onCloudLight({ direction })}
+        />
+      </div>
+    </>
+  );
 }
 
 function VisualInspector(props: {
@@ -10685,6 +10718,7 @@ function VisualInspector(props: {
   presets: ScenePresetV3[];
   renderStack: RenderStackItem[];
   scene: ScenePresetV3;
+  selectedStackKey: string;
   onAddLayer: () => void;
   onAdvanced: (key: string, value: number) => void;
   onApplyBatch?: () => void;
@@ -10697,19 +10731,21 @@ function VisualInspector(props: {
   onCommon: (key: string, value: number) => void;
   onDeletePreset: () => void;
   onDuplicatePreset: () => void;
-  onMoveLayer: (id: string, direction: -1 | 1) => void;
-  onMoveRenderStack: (index: number, direction: -1 | 1) => void;
+  onMoveRenderStack: (key: string, direction: "forward" | "backward") => void;
   onPalette: (palette: VisualPalette) => void;
   onPlayful: (patch: PlayfulPatch) => void;
   onRemoveLayer: (id: string) => void;
   onSavePreset: () => void;
   onSelectPreset: (id: string) => void;
+  onSelectStackKey: (key: string) => void;
   onUndoLayer: () => void;
   onUpdateLayer: (id: string, patch: Partial<MediaLayerV2>) => void;
   onWaveform: (patch: Partial<WaveformV1>) => void;
 }) {
   const { scene } = props;
   const paletteId = selectedPaletteId(scene);
+  const [coverPreset, setCoverPreset] =
+    useState<CoverLayerPreset>("background");
   const stackItems = buildRenderStackItems(
     scene,
     props.layers,
@@ -10718,1050 +10754,720 @@ function VisualInspector(props: {
     props.onCloudLight,
     props.onUpdateLayer,
   );
+  // Se o item selecionado saiu da pilha (troca de faixa, camada removida),
+  // recua para a atmosfera — ela sempre existe.
+  const selectedItem =
+    stackItems.find((item) => item.key === props.selectedStackKey) ??
+    stackItems.find((item) => item.kind === "atmosphere") ??
+    stackItems[0];
+  const selectedLayer =
+    selectedItem?.kind === "media"
+      ? props.layers.find((layer) => layer.id === selectedItem.layerId)
+      : undefined;
+  // volumetric-clouds desenha o sol dentro do próprio shader da atmosfera (não
+  // há item "Foco solar" na pilha); os controles entram no pane da atmosfera.
+  const sunInsideAtmosphere =
+    scene.rendererId === "volumetric-clouds" && Boolean(scene.cloudLight);
   return (
     <>
-      <InspectorGroup
-        title={`Composição · ${stackItems.length}`}
-        open
-        scope="series"
-      >
-        <div className="composition-stack-list">
-          {stackItems.map((item, index) => (
-            <div
-              key={item.key}
-              className={`composition-stack-row ${
-                item.visible ? "" : "is-hidden-layer"
-              }`}
-            >
-              <span className="composition-stack-label">{item.label}</span>
-              <span className="composition-stack-actions">
-                <button
-                  aria-label={`Subir ${item.label}`}
-                  className="icon-button-sm"
-                  disabled={index === 0}
-                  title="Subir"
-                  type="button"
-                  onClick={() => props.onMoveRenderStack(index, -1)}
-                >
-                  <ChevronUp />
-                </button>
-                <button
-                  aria-label={`Descer ${item.label}`}
-                  className="icon-button-sm"
-                  disabled={index === stackItems.length - 1}
-                  title="Descer"
-                  type="button"
-                  onClick={() => props.onMoveRenderStack(index, 1)}
-                >
-                  <ChevronDown />
-                </button>
-                <button
-                  aria-label={
-                    item.visible
-                      ? `Ocultar ${item.label}`
-                      : `Mostrar ${item.label}`
-                  }
-                  title={item.visible ? "Visível" : "Oculta"}
-                  type="button"
-                  aria-pressed={item.visible}
-                  className="icon-button-sm"
-                  disabled={item.toggleDisabled}
-                  onClick={() => item.onToggle()}
-                >
-                  {item.visible ? <Eye /> : <EyeOff />}
-                </button>
-              </span>
-            </div>
-          ))}
-        </div>
-      </InspectorGroup>
-      <InspectorGroup title="Atmosfera" open scope="track">
-        <SelectField
-          label="Preset"
-          value={scene.id}
-          onChange={props.onSelectPreset}
-        >
-          {groupPresets(props.presets).map(([category, presets]) => (
-            <optgroup key={category} label={category}>
-              {presets.map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.name}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </SelectField>
-        <p className="preset-note">{scene.note}</p>
-        <div className="preset-actions">
-          <button type="button" onClick={props.onDuplicatePreset}>
-            <Copy /> Duplicar
-          </button>
-          <button
-            type="button"
-            title={
-              scene.source === "custom"
-                ? "Salvar os ajustes neste preset"
-                : "Criar um preset novo a partir dos ajustes atuais"
-            }
-            onClick={props.onSavePreset}
-          >
-            <Save /> Salvar
-          </button>
-          <button
-            disabled={scene.source !== "custom"}
-            type="button"
-            onClick={props.onDeletePreset}
-          >
-            <Trash2 /> Excluir
-          </button>
-        </div>
-        {props.onApplyBatch && (
-          <button
-            className="upload-action"
-            type="button"
-            onClick={props.onApplyBatch}
-          >
-            <Layers3 /> Aplicar atmosfera ao lote
-          </button>
-        )}
-        <div className="inspector-subsection visual-palette-section">
-          <p className="inspector-kicker">PALETAS</p>
-          <div className="palette-option-list" aria-label="Cores das paletas">
-            {scene.palettes.map((palette) => (
+      <section className="composition-section">
+        <header className="composition-section-header">
+          <span className="inspector-group-label">
+            Pilha visual · {stackItems.length}
+          </span>
+        </header>
+        <CompositionStackList
+          items={stackItems}
+          selectedKey={selectedItem?.key ?? "atmosphere"}
+          onMoveItem={props.onMoveRenderStack}
+          onRemoveLayer={props.onRemoveLayer}
+          onSelect={props.onSelectStackKey}
+        />
+        <details className="stack-add-menu">
+          <summary>
+            <Plus /> Adicionar à composição
+          </summary>
+          <div className="stack-add-menu-body">
+            <div className="inline-actions">
               <button
-                aria-pressed={palette.id === paletteId}
-                className={palette.id === paletteId ? "active" : ""}
-                key={palette.id}
+                disabled={props.layers.length >= 3}
+                title="Adiciona uma imagem, SVG ou vídeo como camada sobreposta."
                 type="button"
-                onClick={() => props.onPalette(palette)}
+                onClick={props.onAddLayer}
               >
-                <span>{palette.name}</span>
-                <PaletteSwatches
-                  colors={palette.colors}
-                  label={`Cores da paleta ${palette.name}`}
-                />
+                <Upload /> Adicionar mídia
               </button>
-            ))}
-          </div>
-        </div>
-        <div className="inspector-subsection visual-color-section">
-          <p className="inspector-kicker">Cores da atmosfera</p>
-          <div className="visual-color-grid">
-            {(["base", "effect", "light"] as const).map((key) => (
-              <ColorInput
-                key={key}
-                label={visualColorLabels[key]}
-                value={scene.colors[key]}
-                onChange={(value) => props.onColors(key, value)}
-              />
-            ))}
-          </div>
-        </div>
-      </InspectorGroup>
-      <InspectorGroup title="Movimento" open>
-        <RangeField
-          label="Intensidade"
-          value={scene.common.intensity}
-          onChange={(value) => props.onCommon("intensity", value)}
-        />
-        <RangeField
-          label="Velocidade"
-          value={scene.common.speed}
-          onChange={(value) => props.onCommon("speed", value)}
-        />
-        <RangeField
-          label="Direção"
-          max={360}
-          unit="°"
-          value={scene.common.direction}
-          onChange={(value) => props.onCommon("direction", value)}
-        />
-        <RangeField
-          label="Reação musical"
-          value={scene.common.audioReaction}
-          onChange={(value) => props.onCommon("audioReaction", value)}
-        />
-      </InspectorGroup>
-      <InspectorGroup title="Ajustes avançados">
-        {scene.controls.map((control) => (
-          <RangeField
-            key={control.key}
-            label={control.label}
-            min={control.min}
-            max={control.max}
-            unit={control.unit}
-            value={scene.advanced[control.key]}
-            onChange={(value) => props.onAdvanced(control.key, value)}
-          />
-        ))}
-      </InspectorGroup>
-      {scene.rendererId === "playful-shapes" && scene.playful && (
-        <InspectorGroup title="Conteúdo lúdico" open>
-          <SelectField
-            label="Movimento"
-            value={scene.playful.motionMode}
-            onChange={(motionMode) =>
-              props.onPlayful({
-                motionMode: motionMode as PlayfulContent["motionMode"],
-              })
-            }
-          >
-            <option value="calm">Calmo</option>
-            <option value="soft-rhythm">Ritmo suave</option>
-            <option value="play">Brincadeira</option>
-          </SelectField>
-          <RangeField
-            label="Seed"
-            max={999999}
-            value={scene.playful.seed}
-            onChange={(seed) => props.onPlayful({ seed })}
-          />
-          <div className="check-stack">
-            <CheckField
-              label="Retângulos"
-              checked={scene.playful.enabled.rectangles}
-              onChange={(rectangles) =>
-                props.onPlayful({ enabled: { rectangles } })
-              }
-            />
-            <CheckField
-              label="Letras"
-              checked={scene.playful.enabled.letters}
-              onChange={(letters) => props.onPlayful({ enabled: { letters } })}
-            />
-            <CheckField
-              label="Números"
-              checked={scene.playful.enabled.numbers}
-              onChange={(numbers) => props.onPlayful({ enabled: { numbers } })}
-            />
-            <CheckField
-              label="Emojis"
-              checked={scene.playful.enabled.emojis}
-              onChange={(emojis) => props.onPlayful({ enabled: { emojis } })}
-            />
-          </div>
-          {scene.playful.enabled.letters && (
-            <TextField
-              label="Letras personalizadas"
-              value={scene.playful.collections.letters}
-              onChange={(letters) =>
-                props.onPlayful({ collections: { letters } })
-              }
-            />
-          )}
-          {scene.playful.enabled.numbers && (
-            <TextField
-              label="Números personalizados"
-              value={scene.playful.collections.numbers}
-              onChange={(numbers) =>
-                props.onPlayful({ collections: { numbers } })
-              }
-            />
-          )}
-          {scene.playful.enabled.emojis && (
-            <TextField
-              label="Emojis personalizados"
-              value={scene.playful.collections.emojis}
-              onChange={(emojis) =>
-                props.onPlayful({ collections: { emojis } })
-              }
-            />
-          )}
-          <button
-            className="quiet-action"
-            type="button"
-            onClick={() =>
-              props.onPlayful({
-                collections: {
-                  letters: "A B C D E",
-                  numbers: "1 2 3 4 5",
-                  emojis: "☀️ 🎈 🌱 ⭐ 🎵",
-                },
-              })
-            }
-          >
-            <RotateCcw /> Restaurar coleções
-          </button>
-        </InspectorGroup>
-      )}
-      {scene.cloudLight &&
-        !["vinyl", "playful-shapes", "piano-ribbons", "audio-dark"].includes(
-          scene.rendererId,
-        ) && (
-          <InspectorGroup title="Foco solar">
-            <CheckField
-              label="Mostrar foco solar"
-              checked={scene.cloudLight.enabled}
-              onChange={(enabled) => props.onCloudLight({ enabled })}
-            />
-            {scene.cloudLight.enabled && (
-              <>
-                <ColorInput
-                  label="Cor do sol"
-                  value={scene.cloudLight.color}
-                  onChange={(color) => props.onCloudLight({ color })}
-                />
-                <RangeField
-                  label="Intensidade solar"
-                  value={scene.cloudLight.intensity}
-                  onChange={(intensity) => props.onCloudLight({ intensity })}
-                />
-                <RangeField
-                  label="Posição horizontal"
-                  value={scene.cloudLight.x}
-                  onChange={(x) => props.onCloudLight({ x })}
-                />
-                <RangeField
-                  label="Posição vertical"
-                  value={scene.cloudLight.y}
-                  onChange={(y) => props.onCloudLight({ y })}
-                />
-                <RangeField
-                  label="Raio"
-                  value={scene.cloudLight.radius}
-                  onChange={(radius) => props.onCloudLight({ radius })}
-                />
-                <RangeField
-                  label="Difusão"
-                  value={scene.cloudLight.diffusion}
-                  onChange={(diffusion) => props.onCloudLight({ diffusion })}
-                />
-                <RangeField
-                  label="Movimento"
-                  value={scene.cloudLight.motion}
-                  onChange={(motion) => props.onCloudLight({ motion })}
-                />
-                <div className="two-columns">
-                  <RangeField
-                    label="Velocidade"
-                    value={scene.cloudLight.speed}
-                    onChange={(speed) => props.onCloudLight({ speed })}
-                  />
-                  <RangeField
-                    label="Direção"
-                    max={360}
-                    unit="°"
-                    value={scene.cloudLight.direction}
-                    onChange={(direction) => props.onCloudLight({ direction })}
-                  />
-                </div>
-              </>
-            )}
-          </InspectorGroup>
-        )}
-      <InspectorGroup title="Waveform">
-        <CheckField
-          label="Mostrar waveform"
-          checked={scene.waveform.visible}
-          onChange={(visible) => props.onWaveform({ visible })}
-        />
-        {scene.waveform.visible && (
-          <>
-            <div className="inspector-subsection">
-              <p className="inspector-kicker">Tipo base</p>
+            </div>
+            <div className="cover-layer-apply">
               <SelectField
-                label="Desenho da onda"
-                value={scene.waveform.type}
-                onChange={(type) =>
-                  props.onWaveform({ type: type as WaveformType })
+                label="Capa no vídeo"
+                value={coverPreset}
+                onChange={(preset) =>
+                  setCoverPreset(preset as CoverLayerPreset)
                 }
               >
-                <option value="mirror-line">Linha espelhada</option>
-                <option value="single-line">Linha simples</option>
-                <option value="filled-ribbon">Faixa preenchida</option>
-                <option value="spectrum-bars">Barras espectrais</option>
-                <option value="radial-ring">Anel radial</option>
+                {(
+                  Object.keys(coverLayerPresetLabels) as CoverLayerPreset[]
+                ).map((preset) => (
+                  <option key={preset} value={preset}>
+                    {coverLayerPresetLabels[preset]}
+                  </option>
+                ))}
               </SelectField>
-              <p className="helper-copy compact-copy">
-                Tipo atual: {waveformTypeLabel(scene.waveform.type)}.
-              </p>
+              <button
+                className="upload-action"
+                type="button"
+                onClick={() => props.onApplyCoverLayer(coverPreset)}
+              >
+                <Image /> Aplicar capa
+              </button>
             </div>
-            <div className="inspector-subsection">
-              <p className="inspector-kicker">Modelos rápidos</p>
-              <div className="waveform-model-list">
-                {waveformStylePresets.map((preset) => (
+            <p className="helper-copy">
+              A capa entra como camada e preserva escala, posição, sombra e
+              máscara ao trocar de posição.
+            </p>
+            <LayerSets
+              currentLayers={props.layers}
+              onApply={props.onApplyLayerSet}
+            />
+          </div>
+        </details>
+        {props.layerUndoLabel && (
+          <button
+            className="quiet-action stack-undo-action"
+            type="button"
+            onClick={props.onUndoLayer}
+          >
+            <RotateCcw /> Desfazer {props.layerUndoLabel}
+          </button>
+        )}
+      </section>
+      {selectedItem && (
+        <section className="stack-detail">
+          <header className="stack-detail-header">
+            <span aria-hidden="true" className="composition-stack-icon">
+              {stackItemIcon(selectedItem)}
+            </span>
+            <span className="stack-detail-title">
+              <strong>{selectedItem.label}</strong>
+              <small>{stackItemDescription(selectedItem)}</small>
+            </span>
+            <span className="stack-detail-actions">
+              {!selectedItem.toggleDisabled && (
+                <IconButton
+                  label={
+                    selectedItem.visible
+                      ? `Ocultar ${selectedItem.label}`
+                      : `Mostrar ${selectedItem.label}`
+                  }
+                  onClick={() => selectedItem.onToggle()}
+                >
+                  {selectedItem.visible ? <Eye /> : <EyeOff />}
+                </IconButton>
+              )}
+              {selectedItem.kind === "media" && selectedItem.layerId && (
+                <IconButton
+                  label={`Remover ${selectedItem.label}`}
+                  onClick={() =>
+                    props.onRemoveLayer(selectedItem.layerId as string)
+                  }
+                >
+                  <Trash2 />
+                </IconButton>
+              )}
+            </span>
+          </header>
+          {selectedItem.kind === "atmosphere" && (
+            <div className="stack-detail-body">
+              <SelectField
+                label="Preset"
+                value={scene.id}
+                onChange={props.onSelectPreset}
+              >
+                {groupPresets(props.presets).map(([category, presets]) => (
+                  <optgroup key={category} label={category}>
+                    {presets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </SelectField>
+              <p className="preset-note">{scene.note}</p>
+              <div className="preset-actions">
+                <button type="button" onClick={props.onDuplicatePreset}>
+                  <Copy /> Duplicar
+                </button>
+                <button
+                  type="button"
+                  title={
+                    scene.source === "custom"
+                      ? "Salvar os ajustes neste preset"
+                      : "Criar um preset novo a partir dos ajustes atuais"
+                  }
+                  onClick={props.onSavePreset}
+                >
+                  <Save /> Salvar
+                </button>
+                <button
+                  disabled={scene.source !== "custom"}
+                  type="button"
+                  onClick={props.onDeletePreset}
+                >
+                  <Trash2 /> Excluir
+                </button>
+              </div>
+              {props.onApplyBatch && (
+                <button
+                  className="upload-action"
+                  type="button"
+                  onClick={props.onApplyBatch}
+                >
+                  <Layers3 /> Aplicar fundo visual ao lote
+                </button>
+              )}
+              <div className="inspector-subsection visual-palette-section">
+                <p className="inspector-kicker">PALETAS</p>
+                <div
+                  className="palette-option-list"
+                  aria-label="Cores das paletas"
+                >
+                  {scene.palettes.map((palette) => (
+                    <button
+                      aria-pressed={palette.id === paletteId}
+                      className={palette.id === paletteId ? "active" : ""}
+                      key={palette.id}
+                      type="button"
+                      onClick={() => props.onPalette(palette)}
+                    >
+                      <span>{palette.name}</span>
+                      <PaletteSwatches
+                        colors={palette.colors}
+                        label={`Cores da paleta ${palette.name}`}
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="inspector-subsection visual-color-section">
+                <p className="inspector-kicker">Cores da atmosfera</p>
+                <div className="visual-color-grid">
+                  {(["base", "effect", "light"] as const).map((key) => (
+                    <ColorInput
+                      key={key}
+                      label={visualColorLabels[key]}
+                      value={scene.colors[key]}
+                      onChange={(value) => props.onColors(key, value)}
+                    />
+                  ))}
+                </div>
+              </div>
+              <InspectorGroup title="Movimento e áudio" open>
+                <RangeField
+                  label="Intensidade"
+                  value={scene.common.intensity}
+                  onChange={(value) => props.onCommon("intensity", value)}
+                />
+                <RangeField
+                  label="Velocidade"
+                  value={scene.common.speed}
+                  onChange={(value) => props.onCommon("speed", value)}
+                />
+                <RangeField
+                  label="Direção"
+                  max={360}
+                  unit="°"
+                  value={scene.common.direction}
+                  onChange={(value) => props.onCommon("direction", value)}
+                />
+                <RangeField
+                  label="Reação musical"
+                  value={scene.common.audioReaction}
+                  onChange={(value) => props.onCommon("audioReaction", value)}
+                />
+              </InspectorGroup>
+              <InspectorGroup title="Ajustes do efeito">
+                {scene.controls.map((control) => (
+                  <RangeField
+                    key={control.key}
+                    label={control.label}
+                    min={control.min}
+                    max={control.max}
+                    unit={control.unit}
+                    value={scene.advanced[control.key]}
+                    onChange={(value) => props.onAdvanced(control.key, value)}
+                  />
+                ))}
+              </InspectorGroup>
+              {sunInsideAtmosphere && scene.cloudLight && (
+                <InspectorGroup title="Foco solar">
+                  <CheckField
+                    label="Mostrar foco solar"
+                    checked={scene.cloudLight.enabled}
+                    onChange={(enabled) => props.onCloudLight({ enabled })}
+                  />
+                  {scene.cloudLight.enabled && (
+                    <SunFocusFields
+                      cloudLight={scene.cloudLight}
+                      onCloudLight={props.onCloudLight}
+                    />
+                  )}
+                </InspectorGroup>
+              )}
+              {scene.rendererId === "playful-shapes" && scene.playful && (
+                <InspectorGroup title="Conteúdo lúdico" open>
+                  <SelectField
+                    label="Movimento"
+                    value={scene.playful.motionMode}
+                    onChange={(motionMode) =>
+                      props.onPlayful({
+                        motionMode: motionMode as PlayfulContent["motionMode"],
+                      })
+                    }
+                  >
+                    <option value="calm">Calmo</option>
+                    <option value="soft-rhythm">Ritmo suave</option>
+                    <option value="play">Brincadeira</option>
+                  </SelectField>
+                  <RangeField
+                    label="Seed"
+                    max={999999}
+                    value={scene.playful.seed}
+                    onChange={(seed) => props.onPlayful({ seed })}
+                  />
+                  <div className="check-stack">
+                    <CheckField
+                      label="Retângulos"
+                      checked={scene.playful.enabled.rectangles}
+                      onChange={(rectangles) =>
+                        props.onPlayful({ enabled: { rectangles } })
+                      }
+                    />
+                    <CheckField
+                      label="Letras"
+                      checked={scene.playful.enabled.letters}
+                      onChange={(letters) =>
+                        props.onPlayful({ enabled: { letters } })
+                      }
+                    />
+                    <CheckField
+                      label="Números"
+                      checked={scene.playful.enabled.numbers}
+                      onChange={(numbers) =>
+                        props.onPlayful({ enabled: { numbers } })
+                      }
+                    />
+                    <CheckField
+                      label="Emojis"
+                      checked={scene.playful.enabled.emojis}
+                      onChange={(emojis) =>
+                        props.onPlayful({ enabled: { emojis } })
+                      }
+                    />
+                  </div>
+                  {scene.playful.enabled.letters && (
+                    <TextField
+                      label="Letras personalizadas"
+                      value={scene.playful.collections.letters}
+                      onChange={(letters) =>
+                        props.onPlayful({ collections: { letters } })
+                      }
+                    />
+                  )}
+                  {scene.playful.enabled.numbers && (
+                    <TextField
+                      label="Números personalizados"
+                      value={scene.playful.collections.numbers}
+                      onChange={(numbers) =>
+                        props.onPlayful({ collections: { numbers } })
+                      }
+                    />
+                  )}
+                  {scene.playful.enabled.emojis && (
+                    <TextField
+                      label="Emojis personalizados"
+                      value={scene.playful.collections.emojis}
+                      onChange={(emojis) =>
+                        props.onPlayful({ collections: { emojis } })
+                      }
+                    />
+                  )}
                   <button
-                    key={preset.name}
+                    className="quiet-action"
                     type="button"
                     onClick={() =>
-                      props.onWaveform({
-                        ...preset.patch,
-                        advanced: {
-                          ...scene.waveform.advanced,
-                          ...preset.patch.advanced,
+                      props.onPlayful({
+                        collections: {
+                          letters: "A B C D E",
+                          numbers: "1 2 3 4 5",
+                          emojis: "☀️ 🎈 🌱 ⭐ 🎵",
                         },
                       })
                     }
                   >
-                    <strong>{preset.name}</strong>
-                    <small>{preset.description}</small>
+                    <RotateCcw /> Restaurar coleções
                   </button>
-                ))}
-              </div>
+                </InspectorGroup>
+              )}
             </div>
-            <div className="inspector-subsection">
-              <p className="inspector-kicker">Aparência</p>
-              <SelectField
-                label="Modo de cor"
-                value={scene.waveform.colorMode}
-                onChange={(colorMode) =>
-                  props.onWaveform({
-                    colorMode: colorMode as WaveformV1["colorMode"],
-                  })
-                }
-              >
-                <option value="single">Cor única</option>
-                <option value="gradient">Gradiente</option>
-                <option value="bands">Cores por banda</option>
-              </SelectField>
-              <div className="waveform-gradient-presets">
-                {waveformGradientPresets.map((preset) => (
-                  <button
-                    aria-label={`Gradiente ${preset.name}`}
-                    className="waveform-gradient-swatch"
-                    key={preset.name}
-                    style={{
-                      background: `linear-gradient(90deg, ${preset.colors[0]}, ${preset.colors[1]}, ${preset.colors[2]})`,
-                    }}
-                    title={preset.name}
-                    type="button"
-                    onClick={() =>
-                      props.onWaveform({
-                        colorMode: "gradient",
-                        color: preset.colors[0],
-                        secondaryColor: preset.colors[1],
-                        tertiaryColor: preset.colors[2],
-                      })
-                    }
-                  />
-                ))}
-              </div>
-              <div className="waveform-color-grid">
-                <ColorInput
-                  label="Principal"
-                  value={scene.waveform.color}
-                  onChange={(color) => props.onWaveform({ color })}
+          )}
+          {selectedItem.kind === "sun-focus" && scene.cloudLight && (
+            <div className="stack-detail-body">
+              {scene.cloudLight.enabled ? (
+                <SunFocusFields
+                  cloudLight={scene.cloudLight}
+                  onCloudLight={props.onCloudLight}
                 />
-                <ColorInput
-                  label="Cor 2"
-                  value={scene.waveform.secondaryColor}
-                  onChange={(secondaryColor) =>
-                    props.onWaveform({ secondaryColor })
-                  }
-                />
-                <ColorInput
-                  label="Cor 3"
-                  value={scene.waveform.tertiaryColor}
-                  onChange={(tertiaryColor) =>
-                    props.onWaveform({ tertiaryColor })
-                  }
-                />
-              </div>
-              <RangeField
-                label="Opacidade"
-                value={scene.waveform.opacity}
-                onChange={(opacity) => props.onWaveform({ opacity })}
+              ) : (
+                <p className="helper-copy">
+                  Foco solar oculto. Use o olho na pilha de composição para
+                  ativá-lo.
+                </p>
+              )}
+            </div>
+          )}
+          {selectedItem.kind === "media" && selectedLayer && (
+            <div className="stack-detail-body">
+              <LayerControls
+                layer={selectedLayer}
+                onUpdateLayer={props.onUpdateLayer}
               />
-              <div className="two-columns">
-                <RangeField
-                  label="Altura"
-                  value={scene.waveform.height}
-                  onChange={(height) => props.onWaveform({ height })}
-                />
-                <RangeField
-                  label="Posição"
-                  value={scene.waveform.position}
-                  onChange={(position) => props.onWaveform({ position })}
-                />
-              </div>
-              <div className="two-columns">
-                <RangeField
-                  label="Largura"
-                  value={scene.waveform.width}
-                  onChange={(width) => props.onWaveform({ width })}
-                />
-                <RangeField
-                  label="Espessura"
-                  min={1}
-                  max={6}
-                  unit="px"
-                  value={scene.waveform.thickness}
-                  onChange={(thickness) => props.onWaveform({ thickness })}
-                />
-              </div>
-              <div className="two-columns">
-                <RangeField
-                  label="Suavização"
-                  value={scene.waveform.smoothing}
-                  onChange={(smoothing) => props.onWaveform({ smoothing })}
-                />
-                <RangeField
-                  label="Reação musical"
-                  value={scene.waveform.audioReaction}
-                  onChange={(audioReaction) =>
-                    props.onWaveform({ audioReaction })
-                  }
-                />
-              </div>
             </div>
-            <div className="inspector-subsection">
-              <p className="inspector-kicker">Ajustes do tipo</p>
-              {scene.waveform.type === "filled-ribbon" && (
-                <RangeField
-                  label="Preenchimento"
-                  value={scene.waveform.advanced.fillOpacity}
-                  onChange={(fillOpacity) =>
-                    props.onWaveform({
-                      advanced: { ...scene.waveform.advanced, fillOpacity },
-                    })
-                  }
-                />
+          )}
+          {selectedItem.kind === "waveform" && (
+            <div className="stack-detail-body">
+              {!scene.waveform.visible && (
+                <p className="helper-copy">
+                  Waveform oculto. Use o olho na pilha de composição para
+                  ativá-lo.
+                </p>
               )}
-              {scene.waveform.type === "spectrum-bars" && (
+              {scene.waveform.visible && (
                 <>
-                  <RangeField
-                    label="Espacamento"
-                    value={scene.waveform.advanced.barGap}
-                    onChange={(barGap) =>
-                      props.onWaveform({
-                        advanced: { ...scene.waveform.advanced, barGap },
-                      })
-                    }
-                  />
-                  <RangeField
-                    label="Arredondamento"
-                    value={scene.waveform.advanced.barRadius}
-                    onChange={(barRadius) =>
-                      props.onWaveform({
-                        advanced: { ...scene.waveform.advanced, barRadius },
-                      })
-                    }
-                  />
-                  <RangeField
-                    label="Pico decrescente"
-                    value={scene.waveform.advanced.barPeakHold}
-                    onChange={(barPeakHold) =>
-                      props.onWaveform({
-                        advanced: {
-                          ...scene.waveform.advanced,
-                          barPeakHold,
-                        },
-                      })
-                    }
-                  />
-                  <RangeField
-                    label="Velocidade do pico"
-                    value={scene.waveform.advanced.barPeakDecay}
-                    onChange={(barPeakDecay) =>
-                      props.onWaveform({
-                        advanced: {
-                          ...scene.waveform.advanced,
-                          barPeakDecay,
-                        },
-                      })
-                    }
-                  />
+                  <div className="inspector-subsection">
+                    <p className="inspector-kicker">Tipo base</p>
+                    <SelectField
+                      label="Desenho da onda"
+                      value={scene.waveform.type}
+                      onChange={(type) =>
+                        props.onWaveform({ type: type as WaveformType })
+                      }
+                    >
+                      <option value="mirror-line">Linha espelhada</option>
+                      <option value="single-line">Linha simples</option>
+                      <option value="filled-ribbon">Faixa preenchida</option>
+                      <option value="spectrum-bars">Barras espectrais</option>
+                      <option value="radial-ring">Anel radial</option>
+                    </SelectField>
+                    <p className="helper-copy compact-copy">
+                      Tipo atual: {waveformTypeLabel(scene.waveform.type)}.
+                    </p>
+                  </div>
+                  <div className="inspector-subsection">
+                    <p className="inspector-kicker">Modelos rápidos</p>
+                    <div className="waveform-model-list">
+                      {waveformStylePresets.map((preset) => (
+                        <button
+                          key={preset.name}
+                          type="button"
+                          onClick={() =>
+                            props.onWaveform({
+                              ...preset.patch,
+                              advanced: {
+                                ...scene.waveform.advanced,
+                                ...preset.patch.advanced,
+                              },
+                            })
+                          }
+                        >
+                          <strong>{preset.name}</strong>
+                          <small>{preset.description}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="inspector-subsection">
+                    <p className="inspector-kicker">Aparência</p>
+                    <SelectField
+                      label="Modo de cor"
+                      value={scene.waveform.colorMode}
+                      onChange={(colorMode) =>
+                        props.onWaveform({
+                          colorMode: colorMode as WaveformV1["colorMode"],
+                        })
+                      }
+                    >
+                      <option value="single">Cor única</option>
+                      <option value="gradient">Gradiente</option>
+                      <option value="bands">Cores por banda</option>
+                    </SelectField>
+                    <div className="waveform-gradient-presets">
+                      {waveformGradientPresets.map((preset) => (
+                        <button
+                          aria-label={`Gradiente ${preset.name}`}
+                          className="waveform-gradient-swatch"
+                          key={preset.name}
+                          style={{
+                            background: `linear-gradient(90deg, ${preset.colors[0]}, ${preset.colors[1]}, ${preset.colors[2]})`,
+                          }}
+                          title={preset.name}
+                          type="button"
+                          onClick={() =>
+                            props.onWaveform({
+                              colorMode: "gradient",
+                              color: preset.colors[0],
+                              secondaryColor: preset.colors[1],
+                              tertiaryColor: preset.colors[2],
+                            })
+                          }
+                        />
+                      ))}
+                    </div>
+                    <div className="waveform-color-grid">
+                      <ColorInput
+                        label="Principal"
+                        value={scene.waveform.color}
+                        onChange={(color) => props.onWaveform({ color })}
+                      />
+                      <ColorInput
+                        label="Cor 2"
+                        value={scene.waveform.secondaryColor}
+                        onChange={(secondaryColor) =>
+                          props.onWaveform({ secondaryColor })
+                        }
+                      />
+                      <ColorInput
+                        label="Cor 3"
+                        value={scene.waveform.tertiaryColor}
+                        onChange={(tertiaryColor) =>
+                          props.onWaveform({ tertiaryColor })
+                        }
+                      />
+                    </div>
+                    <RangeField
+                      label="Opacidade"
+                      value={scene.waveform.opacity}
+                      onChange={(opacity) => props.onWaveform({ opacity })}
+                    />
+                    <div className="two-columns">
+                      <RangeField
+                        label="Altura"
+                        value={scene.waveform.height}
+                        onChange={(height) => props.onWaveform({ height })}
+                      />
+                      <RangeField
+                        label="Posição"
+                        value={scene.waveform.position}
+                        onChange={(position) => props.onWaveform({ position })}
+                      />
+                    </div>
+                    <div className="two-columns">
+                      <RangeField
+                        label="Largura"
+                        value={scene.waveform.width}
+                        onChange={(width) => props.onWaveform({ width })}
+                      />
+                      <RangeField
+                        label="Espessura"
+                        min={1}
+                        max={6}
+                        unit="px"
+                        value={scene.waveform.thickness}
+                        onChange={(thickness) =>
+                          props.onWaveform({ thickness })
+                        }
+                      />
+                    </div>
+                    <div className="two-columns">
+                      <RangeField
+                        label="Suavização"
+                        value={scene.waveform.smoothing}
+                        onChange={(smoothing) =>
+                          props.onWaveform({ smoothing })
+                        }
+                      />
+                      <RangeField
+                        label="Reação musical"
+                        value={scene.waveform.audioReaction}
+                        onChange={(audioReaction) =>
+                          props.onWaveform({ audioReaction })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="inspector-subsection">
+                    <p className="inspector-kicker">Ajustes do tipo</p>
+                    {scene.waveform.type === "filled-ribbon" && (
+                      <RangeField
+                        label="Preenchimento"
+                        value={scene.waveform.advanced.fillOpacity}
+                        onChange={(fillOpacity) =>
+                          props.onWaveform({
+                            advanced: {
+                              ...scene.waveform.advanced,
+                              fillOpacity,
+                            },
+                          })
+                        }
+                      />
+                    )}
+                    {scene.waveform.type === "spectrum-bars" && (
+                      <>
+                        <RangeField
+                          label="Espacamento"
+                          value={scene.waveform.advanced.barGap}
+                          onChange={(barGap) =>
+                            props.onWaveform({
+                              advanced: { ...scene.waveform.advanced, barGap },
+                            })
+                          }
+                        />
+                        <RangeField
+                          label="Arredondamento"
+                          value={scene.waveform.advanced.barRadius}
+                          onChange={(barRadius) =>
+                            props.onWaveform({
+                              advanced: {
+                                ...scene.waveform.advanced,
+                                barRadius,
+                              },
+                            })
+                          }
+                        />
+                        <RangeField
+                          label="Pico decrescente"
+                          value={scene.waveform.advanced.barPeakHold}
+                          onChange={(barPeakHold) =>
+                            props.onWaveform({
+                              advanced: {
+                                ...scene.waveform.advanced,
+                                barPeakHold,
+                              },
+                            })
+                          }
+                        />
+                        <RangeField
+                          label="Velocidade do pico"
+                          value={scene.waveform.advanced.barPeakDecay}
+                          onChange={(barPeakDecay) =>
+                            props.onWaveform({
+                              advanced: {
+                                ...scene.waveform.advanced,
+                                barPeakDecay,
+                              },
+                            })
+                          }
+                        />
+                      </>
+                    )}
+                    {scene.waveform.type === "radial-ring" && (
+                      <>
+                        <RangeField
+                          label="Raio"
+                          value={scene.waveform.advanced.radialRadius}
+                          onChange={(radialRadius) =>
+                            props.onWaveform({
+                              advanced: {
+                                ...scene.waveform.advanced,
+                                radialRadius,
+                              },
+                            })
+                          }
+                        />
+                        <RangeField
+                          label="Arco"
+                          value={scene.waveform.advanced.radialArc}
+                          onChange={(radialArc) =>
+                            props.onWaveform({
+                              advanced: {
+                                ...scene.waveform.advanced,
+                                radialArc,
+                              },
+                            })
+                          }
+                        />
+                        <RangeField
+                          label="Rotação"
+                          min={-180}
+                          max={180}
+                          unit="deg"
+                          value={scene.waveform.advanced.radialRotation}
+                          onChange={(radialRotation) =>
+                            props.onWaveform({
+                              advanced: {
+                                ...scene.waveform.advanced,
+                                radialRotation,
+                              },
+                            })
+                          }
+                        />
+                        <RangeField
+                          label="Brilho"
+                          value={scene.waveform.advanced.radialGlow}
+                          onChange={(radialGlow) =>
+                            props.onWaveform({
+                              advanced: {
+                                ...scene.waveform.advanced,
+                                radialGlow,
+                              },
+                            })
+                          }
+                        />
+                      </>
+                    )}
+                  </div>
                 </>
               )}
-              {scene.waveform.type === "radial-ring" && (
-                <>
-                  <RangeField
-                    label="Raio"
-                    value={scene.waveform.advanced.radialRadius}
-                    onChange={(radialRadius) =>
-                      props.onWaveform({
-                        advanced: { ...scene.waveform.advanced, radialRadius },
-                      })
-                    }
-                  />
-                  <RangeField
-                    label="Arco"
-                    value={scene.waveform.advanced.radialArc}
-                    onChange={(radialArc) =>
-                      props.onWaveform({
-                        advanced: { ...scene.waveform.advanced, radialArc },
-                      })
-                    }
-                  />
-                  <RangeField
-                    label="Rotação"
-                    min={-180}
-                    max={180}
-                    unit="deg"
-                    value={scene.waveform.advanced.radialRotation}
-                    onChange={(radialRotation) =>
-                      props.onWaveform({
-                        advanced: {
-                          ...scene.waveform.advanced,
-                          radialRotation,
-                        },
-                      })
-                    }
-                  />
-                  <RangeField
-                    label="Brilho"
-                    value={scene.waveform.advanced.radialGlow}
-                    onChange={(radialGlow) =>
-                      props.onWaveform({
-                        advanced: {
-                          ...scene.waveform.advanced,
-                          radialGlow,
-                        },
-                      })
-                    }
-                  />
-                </>
-              )}
             </div>
-          </>
-        )}
-      </InspectorGroup>
-      <InspectorGroup title={`Camadas · ${props.layers.length}/3`} open>
-        <LayerEditor {...props} />
-      </InspectorGroup>
-    </>
-  );
-}
-
-function LayerEditor(props: {
-  layers: MediaLayerV2[];
-  layerUndoLabel: string | null;
-  onAddLayer: () => void;
-  onApplyCoverLayer: (preset: CoverLayerPreset) => void;
-  onApplyCoverLayerBatch?: (preset: CoverLayerPreset) => void;
-  onApplyLayersBatch?: () => void;
-  onApplyLayerSet: (layers: MediaLayerV2[]) => void;
-  onMoveLayer: (id: string, direction: -1 | 1) => void;
-  onRemoveLayer: (id: string) => void;
-  onUndoLayer: () => void;
-  onUpdateLayer: (id: string, patch: Partial<MediaLayerV2>) => void;
-}) {
-  const [coverPreset, setCoverPreset] =
-    useState<CoverLayerPreset>("background");
-  return (
-    <div className="layer-editor">
-      <div className="inspector-subsection">
-        <p className="inspector-kicker">Mídias</p>
-        <div className="inline-actions">
-          <button
-            disabled={props.layers.length >= 3}
-            title="Adiciona uma imagem, SVG ou vídeo como camada sobreposta."
-            type="button"
-            onClick={props.onAddLayer}
-          >
-            <Upload /> Adicionar mídia
-          </button>
-          {props.layerUndoLabel && (
-            <button type="button" onClick={props.onUndoLayer}>
-              <RotateCcw /> Desfazer {props.layerUndoLabel}
-            </button>
           )}
-        </div>
-        {props.onApplyLayersBatch && (
-          <>
-            <button
-              className="quiet-action"
-              disabled={props.layers.length === 0}
-              type="button"
-              onClick={props.onApplyLayersBatch}
-            >
-              <Layers3 /> Aplicar camadas aos vídeos do lote
-            </button>
-            <p className="helper-copy">
-              Copia estas camadas para os outros vídeos selecionados no lote.
-              Cada vídeo recebe uma cópia independente.
-            </p>
-          </>
-        )}
-      </div>
-      <div className="inspector-subsection">
-        <p className="inspector-kicker">Capa no vídeo</p>
-        <div className="cover-layer-apply">
-          <SelectField
-            label="Posição"
-            value={coverPreset}
-            onChange={(preset) => setCoverPreset(preset as CoverLayerPreset)}
-          >
-            {(Object.keys(coverLayerPresetLabels) as CoverLayerPreset[]).map(
-              (preset) => (
-                <option key={preset} value={preset}>
-                  {coverLayerPresetLabels[preset]}
-                </option>
-              ),
-            )}
-          </SelectField>
-          <button
-            className="upload-action"
-            type="button"
-            onClick={() => props.onApplyCoverLayer(coverPreset)}
-          >
-            <Image /> Aplicar capa
-          </button>
-        </div>
-        {props.onApplyCoverLayerBatch && (
-          <button
-            className="quiet-action"
-            type="button"
-            onClick={() => props.onApplyCoverLayerBatch?.(coverPreset)}
-          >
-            <Layers3 /> Aplicar capa ao lote
-          </button>
-        )}
-        <p className="helper-copy">
-          O lote preserva escala, posição, sombra e máscara, trocando apenas o
-          arquivo de capa de cada faixa quando disponível.
-        </p>
-      </div>
-      <LayerSets currentLayers={props.layers} onApply={props.onApplyLayerSet} />
-      {props.layers.map((layer, index) => (
-        <details className="layer-row" key={layer.id}>
-          <summary>
-            <span>{layer.name}</span>
-            <span className="layer-buttons">
-              <IconButton
-                label={layer.visible ? "Ocultar camada" : "Mostrar camada"}
-                onClick={() =>
-                  props.onUpdateLayer(layer.id, { visible: !layer.visible })
-                }
-              >
-                {layer.visible ? <Eye /> : <EyeOff />}
-              </IconButton>
-              <IconButton
-                disabled={index === 0}
-                label="Trazer camada para frente"
-                onClick={() => props.onMoveLayer(layer.id, -1)}
-              >
-                <ChevronUp />
-              </IconButton>
-              <IconButton
-                disabled={index === props.layers.length - 1}
-                label="Enviar camada para trás"
-                onClick={() => props.onMoveLayer(layer.id, 1)}
-              >
-                <ChevronDown />
-              </IconButton>
-              <IconButton
-                label="Remover camada"
-                onClick={() => props.onRemoveLayer(layer.id)}
-              >
-                <Trash2 />
-              </IconButton>
-            </span>
-          </summary>
-          <RangeField
-            label="Opacidade"
-            value={layer.opacity}
-            onChange={(opacity) => props.onUpdateLayer(layer.id, { opacity })}
-          />
-          <div className="layer-animation inspector-subsection">
-            <p className="inspector-kicker">Animação</p>
-            <FadeInFields
-              settings={normalizeFadeIn(layer.fadeIn)}
-              onChange={(fadeIn) =>
-                props.onUpdateLayer(layer.id, {
-                  fadeIn: normalizeFadeIn({ ...layer.fadeIn, ...fadeIn }),
-                })
-              }
-            />
-            <CoverFadeOutFields
-              settings={normalizeLayerCoverFadeOut(layer.coverFadeOut)}
-              label={isCoverLayer(layer) ? "capa" : "imagem"}
-              onChange={(coverFadeOut) =>
-                props.onUpdateLayer(layer.id, {
-                  coverFadeOut: normalizeLayerCoverFadeOut({
-                    ...layer.coverFadeOut,
-                    ...coverFadeOut,
-                  }),
-                })
-              }
-            />
-            <ZoomFields
-              settings={normalizeLayerZoom(layer.zoom)}
-              onChange={(zoom) =>
-                props.onUpdateLayer(layer.id, {
-                  zoom: normalizeLayerZoom({ ...layer.zoom, ...zoom }),
-                })
-              }
-            />
-          </div>
-          <RangeField
-            label="Escala"
-            max={220}
-            value={layer.scale}
-            onChange={(scale) => props.onUpdateLayer(layer.id, { scale })}
-          />
-          <RangeField
-            label="Horizontal"
-            value={layer.x}
-            onChange={(x) => props.onUpdateLayer(layer.id, { x })}
-          />
-          <RangeField
-            label="Vertical"
-            value={layer.y}
-            onChange={(y) => props.onUpdateLayer(layer.id, { y })}
-          />
-          <RangeField
-            label="Rotação"
-            min={-180}
-            max={180}
-            unit="°"
-            value={layer.rotation}
-            onChange={(rotation) => props.onUpdateLayer(layer.id, { rotation })}
-          />
-          <RangeField
-            label="Desfoque da camada"
-            max={48}
-            value={layer.blur}
-            onChange={(blur) => props.onUpdateLayer(layer.id, { blur })}
-          />
-          <RangeField
-            label="Máscara escura"
-            max={90}
-            value={layer.maskOpacity}
-            onChange={(maskOpacity) =>
-              props.onUpdateLayer(layer.id, { maskOpacity })
-            }
-          />
-          <RangeField
-            label="Sombra"
-            value={layer.shadow.opacity}
-            onChange={(opacity) =>
-              props.onUpdateLayer(layer.id, {
-                shadow: { ...layer.shadow, opacity },
-              })
-            }
-          />
-          <RangeField
-            label="Desfoque da sombra"
-            max={80}
-            value={layer.shadow.blur}
-            onChange={(blur) =>
-              props.onUpdateLayer(layer.id, {
-                shadow: { ...layer.shadow, blur },
-              })
-            }
-          />
-          <RangeField
-            label="Sombra horizontal"
-            min={-80}
-            max={80}
-            value={layer.shadow.x}
-            onChange={(x) =>
-              props.onUpdateLayer(layer.id, {
-                shadow: { ...layer.shadow, x },
-              })
-            }
-          />
-          <RangeField
-            label="Sombra vertical"
-            min={-80}
-            max={80}
-            value={layer.shadow.y}
-            onChange={(y) =>
-              props.onUpdateLayer(layer.id, {
-                shadow: { ...layer.shadow, y },
-              })
-            }
-          />
-          {layer.kind === "video" && (
-            <CheckField
-              label="Repetir vídeo"
-              checked={layer.loop}
-              onChange={(loop) => props.onUpdateLayer(layer.id, { loop })}
-            />
+          {selectedItem.kind === "vinyl" && (
+            <div className="stack-detail-body">
+              <p className="helper-copy">
+                O prato e o braço seguem a capa da faixa e reagem ao áudio. Os
+                ajustes do vinil ficam nos controles do preset, no item
+                Atmosfera.
+              </p>
+            </div>
           )}
-          <div className="two-columns">
-            <SelectField
-              label="Encaixe"
-              value={layer.fit}
-              onChange={(fit) =>
-                props.onUpdateLayer(layer.id, {
-                  fit: fit as MediaLayerV2["fit"],
-                })
-              }
-            >
-              <option value="contain">Conter</option>
-              <option value="cover">Cobrir</option>
-            </SelectField>
-            <SelectField
-              label="Mistura"
-              value={layer.blendMode}
-              onChange={(blendMode) =>
-                props.onUpdateLayer(layer.id, {
-                  blendMode: blendMode as MediaLayerV2["blendMode"],
-                })
-              }
-            >
-              <option value="normal">Normal</option>
-              <option value="screen">Tela</option>
-              <option value="multiply">Multiplicar</option>
-              <option value="overlay">Sobrepor</option>
-            </SelectField>
-          </div>
-        </details>
-      ))}
-    </div>
-  );
-}
-
-function CoverFadeOutFields({
-  settings,
-  onChange,
-  label = "imagem",
-}: {
-  settings: CoverFadeOutSettings;
-  onChange: (patch: Partial<CoverFadeOutSettings>) => void;
-  label?: string;
-}) {
-  return (
-    <div className="cover-fade-controls">
-      <CheckField
-        label={`Fade-out da ${label}`}
-        checked={settings.enabled}
-        onChange={(enabled) => onChange({ enabled })}
-      />
-      {settings.enabled && (
-        <>
-          <SelectField
-            label="Tipo de fade"
-            value={settings.mode ?? "tail"}
-            onChange={(mode) =>
-              onChange({ mode: mode === "timed" ? "timed" : "tail" })
-            }
-          >
-            <option value="tail">Final do vídeo</option>
-            <option value="timed">Ponto + duração</option>
-          </SelectField>
-          {(settings.mode ?? "tail") === "timed" ? (
+        </section>
+      )}
+      {(props.onApplyLayersBatch || props.onApplyCoverLayerBatch) && (
+        <InspectorGroup title="Lote" open scope="series">
+          {props.onApplyLayersBatch && (
             <>
-              <RangeField
-                label="Começa em"
-                max={95}
-                min={0}
-                step={5}
-                unit="% do vídeo"
-                value={settings.startPercent ?? 10}
-                onChange={(startPercent) => onChange({ startPercent })}
-              />
-              <RangeField
-                label="Duração"
-                max={20}
-                min={0.25}
-                step={0.25}
-                unit="s"
-                value={settings.durationSeconds ?? 2}
-                onChange={(durationSeconds) => onChange({ durationSeconds })}
-              />
+              <button
+                className="quiet-action"
+                disabled={props.layers.length === 0}
+                type="button"
+                onClick={props.onApplyLayersBatch}
+              >
+                <Layers3 /> Aplicar mídias ao lote
+              </button>
+              <p className="helper-copy">
+                Copia estas mídias para os outros vídeos selecionados no lote.
+                Cada vídeo recebe uma cópia independente.
+              </p>
             </>
-          ) : (
-            <RangeField
-              label="Duração do fade"
-              max={95}
-              min={5}
-              step={5}
-              unit="% finais"
-              value={settings.endPercent}
-              onChange={(endPercent) => onChange({ endPercent })}
-            />
           )}
-          <p className="helper-copy">
-            {(settings.mode ?? "tail") === "timed"
-              ? `A ${label} começa a sumir no ponto escolhido e zera após a duração definida.`
-              : `A ${label} fica visível e faz fade-out apenas no trecho final do vídeo.`}
-          </p>
-        </>
+          {props.onApplyCoverLayerBatch && (
+            <>
+              <button
+                className="quiet-action"
+                type="button"
+                onClick={() => props.onApplyCoverLayerBatch?.(coverPreset)}
+              >
+                <Layers3 /> Aplicar capa ao lote
+              </button>
+              <p className="helper-copy">
+                O lote preserva escala, posição, sombra e máscara, trocando
+                apenas o arquivo de capa de cada faixa quando disponível.
+              </p>
+            </>
+          )}
+        </InspectorGroup>
       )}
-    </div>
-  );
-}
-
-function FadeInFields({
-  settings,
-  onChange,
-  label = "imagem",
-}: {
-  settings: LayerFadeInSettings;
-  onChange: (patch: Partial<LayerFadeInSettings>) => void;
-  label?: string;
-}) {
-  return (
-    <div className="fade-in-controls">
-      <CheckField
-        label={`Fade-in de ${label}`}
-        checked={settings.enabled}
-        onChange={(enabled) => onChange({ enabled })}
-      />
-      {settings.enabled && (
-        <>
-          <RangeField
-            label="Começa em"
-            max={95}
-            min={0}
-            step={5}
-            unit="% do vídeo"
-            value={settings.startPercent ?? 0}
-            onChange={(startPercent) => onChange({ startPercent })}
-          />
-          <RangeField
-            label="Duração"
-            max={20}
-            min={0.25}
-            step={0.25}
-            unit="s"
-            value={settings.durationSeconds ?? 1.5}
-            onChange={(durationSeconds) => onChange({ durationSeconds })}
-          />
-          <p className="helper-copy">
-            Surge gradualmente a partir do ponto escolhido.
-          </p>
-        </>
-      )}
-    </div>
-  );
-}
-
-function ZoomFields({
-  settings,
-  onChange,
-}: {
-  settings: LayerZoomSettings;
-  onChange: (patch: Partial<LayerZoomSettings>) => void;
-}) {
-  return (
-    <div className="zoom-controls">
-      <CheckField
-        label="Zoom da imagem"
-        checked={settings.enabled}
-        onChange={(enabled) => onChange({ enabled })}
-      />
-      {settings.enabled && (
-        <>
-          <RangeField
-            label="Escala inicial"
-            max={300}
-            min={20}
-            step={5}
-            unit="%"
-            value={settings.from}
-            onChange={(from) => onChange({ from })}
-          />
-          <RangeField
-            label="Escala final"
-            max={300}
-            min={20}
-            step={5}
-            unit="%"
-            value={settings.to}
-            onChange={(to) => onChange({ to })}
-          />
-          <p className="helper-copy">
-            {settings.to >= settings.from
-              ? "Zoom-in: amplia lentamente do início ao fim do vídeo."
-              : "Zoom-out: reduz lentamente do início ao fim do vídeo."}
-          </p>
-        </>
-      )}
-    </div>
+    </>
   );
 }
 
@@ -13352,255 +13058,6 @@ function ExportInspector({
   );
 }
 
-function InspectorGroup({
-  children,
-  title,
-  open = false,
-  scope,
-}: {
-  children: ReactNode;
-  title: string;
-  open?: boolean;
-  scope?: "track" | "series";
-}) {
-  return (
-    <details
-      className={`inspector-group${scope ? ` inspector-group--${scope}` : ""}`}
-      open={open}
-    >
-      <summary>
-        <span className="inspector-group-label">
-          {title}
-          {scope === "series" && (
-            <span className="inspector-scope-badge">Série</span>
-          )}
-          {scope === "track" && (
-            <span className="inspector-scope-badge">Esta faixa</span>
-          )}
-        </span>
-        <ChevronDown />
-      </summary>
-      <div className="inspector-body">{children}</div>
-    </details>
-  );
-}
-
-function RangeField({
-  label,
-  value,
-  onChange,
-  min = 0,
-  max = 100,
-  step = 1,
-  unit = "",
-}: {
-  label: string;
-  value: number;
-  onChange: (value: number) => void;
-  min?: number;
-  max?: number;
-  step?: number;
-  unit?: string;
-}) {
-  const [dragging, setDragging] = useState(false);
-  // Draft keeps the raw text while the user is typing so we don't commit
-  // intermediate states (e.g. clearing the field before typing a new number).
-  const [draft, setDraft] = useState<string | null>(null);
-  const commitValue = (next: number) =>
-    onChange(clampNumber(next, min, max, value));
-  const fineValue = Number.isFinite(value)
-    ? Math.round(value * 100) / 100
-    : min;
-  const displayValue = unit ? `${fineValue}${unit}` : String(fineValue);
-  return (
-    <label
-      className={`range-field sonara-slider ${dragging ? "is-dragging" : ""}`}
-      style={sliderStyle(value, min, max)}
-    >
-      <span className="range-field-header">
-        {label}
-        <span className="range-value-edit">
-          <input
-            aria-label={`${label} valor`}
-            className="range-value"
-            max={max}
-            min={min}
-            step={step}
-            type="number"
-            value={draft !== null ? draft : fineValue}
-            onChange={(event) => setDraft(event.target.value)}
-            onBlur={() => {
-              if (draft !== null) {
-                commitValue(Number(draft));
-                setDraft(null);
-              }
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && draft !== null) {
-                commitValue(Number(draft));
-                setDraft(null);
-              } else if (event.key === "Escape") {
-                setDraft(null);
-              }
-            }}
-          />
-          {unit && <i>{unit}</i>}
-        </span>
-      </span>
-      <span className="sonara-slider-trackwrap">
-        <input
-          aria-label={label}
-          aria-valuetext={displayValue}
-          className="sonara-slider-control"
-          min={min}
-          max={max}
-          step={step}
-          type="range"
-          value={value}
-          onBlur={() => setDragging(false)}
-          onChange={(event) => commitValue(Number(event.target.value))}
-          onPointerCancel={() => setDragging(false)}
-          onPointerDown={() => setDragging(true)}
-          onPointerUp={() => setDragging(false)}
-        />
-        <span className="sonara-slider-value-badge" aria-hidden="true">
-          {displayValue}
-        </span>
-      </span>
-    </label>
-  );
-}
-
-function NumberStepField({
-  label,
-  max,
-  min,
-  step = 1,
-  unit = "",
-  value,
-  onChange,
-}: {
-  label: string;
-  max: number;
-  min: number;
-  step?: number;
-  unit?: string;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  const commitValue = (next: number) =>
-    onChange(clampNumber(next, min, max, value));
-  return (
-    <label className="number-step-field">
-      <span>{label}</span>
-      <div>
-        <button
-          aria-label={`Diminuir ${label}`}
-          type="button"
-          onClick={() => commitValue(value - step)}
-        >
-          <ChevronDown />
-        </button>
-        <input
-          aria-label={label}
-          max={max}
-          min={min}
-          step={step}
-          type="number"
-          value={Number.isFinite(value) ? Math.round(value * 100) / 100 : min}
-          onChange={(event) => commitValue(Number(event.target.value))}
-        />
-        {unit && <small>{unit}</small>}
-        <button
-          aria-label={`Aumentar ${label}`}
-          type="button"
-          onClick={() => commitValue(value + step)}
-        >
-          <ChevronUp />
-        </button>
-      </div>
-    </label>
-  );
-}
-
-function TextField({
-  label,
-  value,
-  onChange,
-  suggestions,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  suggestions?: string[];
-  placeholder?: string;
-}) {
-  const listId = suggestions ? `dl-${label.replace(/\W+/g, "-")}` : undefined;
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <input
-        list={listId}
-        placeholder={placeholder}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      {suggestions && (
-        <datalist id={listId}>
-          {suggestions.map((option) => (
-            <option key={option} value={option} />
-          ))}
-        </datalist>
-      )}
-    </label>
-  );
-}
-
-function TextArea({
-  label,
-  rows = 5,
-  value,
-  onChange,
-}: {
-  label: string;
-  rows?: number;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <textarea
-        rows={rows}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
-  );
-}
-
-function SelectField({
-  children,
-  label,
-  value,
-  onChange,
-}: {
-  children: ReactNode;
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        {children}
-      </select>
-    </label>
-  );
-}
-
 function FileNamePatternSection({
   extension = "mp3",
   onChange,
@@ -13727,339 +13184,6 @@ function FileNamePatternEditor({
   );
 }
 
-function CheckField({
-  checked,
-  label,
-  onChange,
-}: {
-  checked: boolean;
-  label: string;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <label className="check-field">
-      <input
-        checked={checked}
-        type="checkbox"
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      <span>{label}</span>
-    </label>
-  );
-}
-
-// Shared palette of recently-used colors, persisted in localStorage and synced
-// across every ColorInput so a color picked in one place can be reused in
-// another. Most-recent-first, de-duplicated, capped.
-const RECENT_COLORS_KEY = "sonara.recentColors";
-const RECENT_COLORS_LIMIT = 12;
-
-const recentColorsStore = (() => {
-  let colors: string[] = readRecentColors();
-  const listeners = new Set<() => void>();
-  function readRecentColors(): string[] {
-    try {
-      const raw = JSON.parse(
-        window.localStorage.getItem(RECENT_COLORS_KEY) ?? "[]",
-      );
-      if (!Array.isArray(raw)) return [];
-      return raw
-        .filter((entry): entry is string => typeof entry === "string")
-        .filter((entry) => /^#[0-9a-f]{6}$/i.test(entry))
-        .slice(0, RECENT_COLORS_LIMIT);
-    } catch {
-      return [];
-    }
-  }
-  return {
-    getSnapshot: () => colors,
-    subscribe(listener: () => void) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    add(value: string) {
-      if (!/^#[0-9a-f]{6}$/i.test(value)) return;
-      const next = value.toLowerCase();
-      const updated = [next, ...colors.filter((entry) => entry !== next)].slice(
-        0,
-        RECENT_COLORS_LIMIT,
-      );
-      if (
-        updated.length === colors.length &&
-        updated.every((entry, index) => entry === colors[index])
-      ) {
-        return;
-      }
-      colors = updated;
-      try {
-        window.localStorage.setItem(RECENT_COLORS_KEY, JSON.stringify(colors));
-      } catch {
-        // localStorage may be unavailable; the in-memory list still works.
-      }
-      listeners.forEach((listener) => listener());
-    },
-  };
-})();
-
-function useRecentColors() {
-  return useSyncExternalStore(
-    recentColorsStore.subscribe,
-    recentColorsStore.getSnapshot,
-    recentColorsStore.getSnapshot,
-  );
-}
-
-function ColorSwatches({
-  current,
-  onPick,
-}: {
-  current: string;
-  onPick: (value: string) => void;
-}) {
-  const recents = useRecentColors();
-  if (recents.length === 0) return null;
-  return (
-    <div className="color-swatches">
-      <span className="color-swatches-label">Recentes</span>
-      <div className="color-swatches-row">
-        {recents.map((color) => (
-          <button
-            aria-label={`Usar cor ${color}`}
-            className={`color-swatch${color.toLowerCase() === current.toLowerCase() ? " is-active" : ""}`}
-            key={color}
-            style={{ background: color }}
-            title={color.toUpperCase()}
-            type="button"
-            onClick={() => onPick(color)}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ColorInput({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const hex = safeHex(value, "#ffffff");
-  // HSL is the default editor (easier to explore variations than hex/rgb); the
-  // stored value stays #RRGGBB. Keep HSL in local state so dragging one slider
-  // doesn't jitter from hex rounding round-trips.
-  const [mode, setMode] = useState<"hsl" | "hex" | "rgb">("hsl");
-  const [hsl, setHsl] = useState(() => hexToHsl(hex));
-  const [draft, setDraft] = useState(hex.toUpperCase());
-  useEffect(() => {
-    // Resync only when the value changed from outside, not from our own edit.
-    if (hslToHex(hsl.h, hsl.s, hsl.l).toLowerCase() !== hex.toLowerCase()) {
-      setHsl(hexToHsl(hex));
-    }
-    setDraft(hex.toUpperCase());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hex]);
-
-  const commitHsl = (part: "h" | "s" | "l", next: number) => {
-    const updated = { ...hsl, [part]: next };
-    setHsl(updated);
-    onChange(hslToHex(updated.h, updated.s, updated.l));
-  };
-  const commitDraft = (next: string) => {
-    setDraft(next.toUpperCase());
-    if (/^#[0-9a-f]{6}$/i.test(next)) onChange(next);
-  };
-  const rgb = hexToRgbColor(hex);
-  const commitRgb = (part: "r" | "g" | "b", next: number) => {
-    const channel = Math.max(0, Math.min(255, Math.round(next) || 0));
-    const updated = { ...rgb, [part]: channel };
-    onChange(rgbColorToHex(updated.r, updated.g, updated.b));
-  };
-  const hueStops = "#ff0000,#ffff00,#00ff00,#00ffff,#0000ff,#ff00ff,#ff0000";
-
-  return (
-    <div
-      className="color-input"
-      // Record the chosen color in the shared palette when focus leaves this
-      // picker (so slider dragging doesn't spam the list).
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node)) {
-          recentColorsStore.add(safeHex(value, "#ffffff"));
-        }
-      }}
-    >
-      <span>{label}</span>
-      <div className="color-input-main">
-        <input
-          aria-label={`${label} seletor de cor`}
-          type="color"
-          value={hex}
-          onChange={(event) => {
-            recentColorsStore.add(event.target.value);
-            onChange(event.target.value);
-          }}
-        />
-        <div className="color-mode-toggle" role="tablist">
-          {(["hsl", "hex", "rgb"] as const).map((option) => (
-            <button
-              aria-selected={mode === option}
-              className={mode === option ? "active" : ""}
-              key={option}
-              role="tab"
-              type="button"
-              onClick={() => setMode(option)}
-            >
-              {option.toUpperCase()}
-            </button>
-          ))}
-        </div>
-      </div>
-      {mode === "hsl" && (
-        <div className="color-hsl">
-          <ColorSlider
-            label="H"
-            max={360}
-            trackBackground={`linear-gradient(90deg, ${hueStops})`}
-            value={hsl.h}
-            onChange={(next) => commitHsl("h", next)}
-          />
-          <ColorSlider
-            label="S"
-            max={100}
-            trackBackground={`linear-gradient(90deg, ${hslToHex(hsl.h, 0, hsl.l)}, ${hslToHex(hsl.h, 100, hsl.l)})`}
-            value={hsl.s}
-            onChange={(next) => commitHsl("s", next)}
-          />
-          <ColorSlider
-            label="L"
-            max={100}
-            trackBackground={`linear-gradient(90deg, #000, ${hslToHex(hsl.h, hsl.s, 50)}, #fff)`}
-            value={hsl.l}
-            onChange={(next) => commitHsl("l", next)}
-          />
-        </div>
-      )}
-      {mode === "hex" && (
-        <input
-          aria-label={`${label} hexadecimal`}
-          className="color-hex-input color-hex-standalone"
-          maxLength={7}
-          spellCheck={false}
-          value={draft}
-          onBlur={() => setDraft(hex.toUpperCase())}
-          onChange={(event) => commitDraft(event.target.value)}
-        />
-      )}
-      {mode === "rgb" && (
-        <div className="color-rgb">
-          {(["r", "g", "b"] as const).map((channel) => (
-            <label className="color-rgb-field" key={channel}>
-              <span>{channel.toUpperCase()}</span>
-              <input
-                max={255}
-                min={0}
-                type="number"
-                value={rgb[channel]}
-                onChange={(event) =>
-                  commitRgb(channel, Number(event.target.value))
-                }
-              />
-            </label>
-          ))}
-        </div>
-      )}
-      <ColorSwatches
-        current={hex}
-        onPick={(color) => {
-          recentColorsStore.add(color);
-          onChange(color);
-        }}
-      />
-    </div>
-  );
-}
-
-function ColorSlider({
-  label,
-  max,
-  onChange,
-  trackBackground,
-  value,
-}: {
-  label: string;
-  max: number;
-  onChange: (value: number) => void;
-  trackBackground: string;
-  value: number;
-}) {
-  const [dragging, setDragging] = useState(false);
-  // The value is editable directly (type the HSL number) as well as draggable;
-  // clamp on change so an out-of-range entry can't push the channel past its max.
-  const clamp = (next: number) =>
-    Number.isFinite(next) ? Math.min(max, Math.max(0, Math.round(next))) : 0;
-  return (
-    <label
-      className={`color-slider sonara-slider color-sonara-slider ${dragging ? "is-dragging" : ""}`}
-      style={sliderStyle(value, 0, max, trackBackground)}
-    >
-      <span className="color-slider-label">{label}</span>
-      <span className="sonara-slider-trackwrap">
-        <input
-          aria-label={`${label} slider`}
-          aria-valuetext={String(value)}
-          className="sonara-slider-control"
-          max={max}
-          min={0}
-          type="range"
-          value={value}
-          onBlur={() => setDragging(false)}
-          onChange={(event) => onChange(Number(event.target.value))}
-          onPointerCancel={() => setDragging(false)}
-          onPointerDown={() => setDragging(true)}
-          onPointerUp={() => setDragging(false)}
-        />
-        <span className="sonara-slider-value-badge" aria-hidden="true">
-          {value}
-        </span>
-      </span>
-      <input
-        aria-label={label}
-        className="color-slider-value"
-        max={max}
-        min={0}
-        type="number"
-        value={value}
-        onChange={(event) => onChange(clamp(Number(event.target.value)))}
-      />
-    </label>
-  );
-}
-
-type SliderStyle = CSSProperties & {
-  "--slider-progress": string;
-  "--slider-value-x": string;
-  "--slider-track"?: string;
-};
-
-function sliderStyle(
-  value: number,
-  min: number,
-  max: number,
-  trackBackground?: string,
-): SliderStyle {
-  const span = max - min;
-  const rawPercent = span > 0 ? ((value - min) / span) * 100 : 0;
-  const percent = clampNumber(rawPercent, 0, 100, 0);
-  return {
-    "--slider-progress": `${percent}%`,
-    "--slider-value-x": `${percent}%`,
-    ...(trackBackground ? { "--slider-track": trackBackground } : {}),
-  };
-}
-
 function PanelResizeHandle({
   active,
   className,
@@ -14087,34 +13211,6 @@ function PanelResizeHandle({
       }}
       onPointerDown={onPointerDown}
     />
-  );
-}
-
-function IconButton({
-  children,
-  disabled,
-  label,
-  onClick,
-}: {
-  children: ReactNode;
-  disabled?: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      aria-label={label}
-      className="icon-button"
-      disabled={disabled}
-      title={label}
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation();
-        onClick();
-      }}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -16008,69 +15104,6 @@ function textPresetPatch(
   };
 }
 
-function safeHex(value: string | undefined, fallback: string) {
-  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)
-    ? value
-    : fallback;
-}
-
-function hexToRgbColor(hex: string) {
-  const value = safeHex(hex, "#ffffff").slice(1);
-  return {
-    r: Number.parseInt(value.slice(0, 2), 16),
-    g: Number.parseInt(value.slice(2, 4), 16),
-    b: Number.parseInt(value.slice(4, 6), 16),
-  };
-}
-
-function rgbColorToHex(r: number, g: number, b: number) {
-  const channel = (v: number) =>
-    Math.max(0, Math.min(255, Math.round(v)))
-      .toString(16)
-      .padStart(2, "0");
-  return `#${channel(r)}${channel(g)}${channel(b)}`;
-}
-
-function hexToHsl(hex: string) {
-  const { r, g, b } = hexToRgbColor(hex);
-  const rn = r / 255;
-  const gn = g / 255;
-  const bn = b / 255;
-  const max = Math.max(rn, gn, bn);
-  const min = Math.min(rn, gn, bn);
-  const delta = max - min;
-  let h = 0;
-  if (delta !== 0) {
-    if (max === rn) h = ((gn - bn) / delta) % 6;
-    else if (max === gn) h = (bn - rn) / delta + 2;
-    else h = (rn - gn) / delta + 4;
-    h *= 60;
-    if (h < 0) h += 360;
-  }
-  const l = (max + min) / 2;
-  const s = delta === 0 ? 0 : delta / (1 - Math.abs(2 * l - 1));
-  return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) };
-}
-
-function hslToHex(h: number, s: number, l: number) {
-  const sn = Math.max(0, Math.min(100, s)) / 100;
-  const ln = Math.max(0, Math.min(100, l)) / 100;
-  const hue = ((h % 360) + 360) % 360;
-  const c = (1 - Math.abs(2 * ln - 1)) * sn;
-  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
-  const m = ln - c / 2;
-  let r = 0;
-  let g = 0;
-  let b = 0;
-  if (hue < 60) [r, g, b] = [c, x, 0];
-  else if (hue < 120) [r, g, b] = [x, c, 0];
-  else if (hue < 180) [r, g, b] = [0, c, x];
-  else if (hue < 240) [r, g, b] = [0, x, c];
-  else if (hue < 300) [r, g, b] = [x, 0, c];
-  else [r, g, b] = [c, 0, x];
-  return rgbColorToHex((r + m) * 255, (g + m) * 255, (b + m) * 255);
-}
-
 function coverLayerFromArtwork(
   artwork: { file: File; src: string },
   preset: CoverLayerPreset,
@@ -16107,68 +15140,6 @@ function coverLayerFromArtwork(
       ...(template?.shadow ?? {}),
     },
   };
-}
-
-function normalizeLayerCoverFadeOut(
-  value?: Partial<CoverFadeOutSettings> | null,
-): CoverFadeOutSettings {
-  const mode = value?.mode === "timed" ? "timed" : "tail";
-  return {
-    enabled: value?.enabled === true,
-    mode,
-    endPercent: clampNumber(
-      Number(value?.endPercent ?? defaultCoverFadeOut.endPercent),
-      5,
-      95,
-      defaultCoverFadeOut.endPercent,
-    ),
-    startPercent: clampNumber(
-      Number(value?.startPercent ?? defaultCoverFadeOut.startPercent),
-      0,
-      95,
-      defaultCoverFadeOut.startPercent,
-    ),
-    durationSeconds: clampNumber(
-      Number(value?.durationSeconds ?? defaultCoverFadeOut.durationSeconds),
-      0.25,
-      60,
-      defaultCoverFadeOut.durationSeconds,
-    ),
-  };
-}
-
-function normalizeFadeIn(
-  value?: Partial<LayerFadeInSettings> | null,
-): LayerFadeInSettings {
-  return {
-    enabled: value?.enabled === true,
-    startPercent: clampNumber(Number(value?.startPercent ?? 0), 0, 95, 0),
-    durationSeconds: clampNumber(
-      Number(value?.durationSeconds ?? 1.5),
-      0.25,
-      60,
-      1.5,
-    ),
-  };
-}
-
-function normalizeLayerZoom(
-  value?: Partial<LayerZoomSettings> | null,
-): LayerZoomSettings {
-  return {
-    enabled: value?.enabled === true,
-    from: clampNumber(
-      Number(value?.from ?? defaultLayerZoom.from),
-      20,
-      400,
-      100,
-    ),
-    to: clampNumber(Number(value?.to ?? defaultLayerZoom.to), 20, 400, 115),
-  };
-}
-
-function isCoverLayer(layer: MediaLayerV2) {
-  return layer.id.startsWith("cover-layer-") || layer.name.startsWith("Capa -");
 }
 
 function groupPresets(presets: ScenePresetV3[]) {
@@ -16392,19 +15363,6 @@ function savePanelWidths(widths: { left: number; right: number }) {
   } catch {
     // Local layout preference can be ignored when storage is unavailable.
   }
-}
-
-function clampNumber(
-  value: number | undefined,
-  min: number,
-  max: number,
-  fallback = min,
-) {
-  const numeric = Number(value);
-  return Math.min(
-    Math.max(Number.isFinite(numeric) ? numeric : fallback, min),
-    max,
-  );
 }
 
 function clampPanelWidth(
