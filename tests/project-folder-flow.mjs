@@ -185,6 +185,60 @@ async function testExternalProjectFolderFlow(browser) {
       );
     }
 
+    await page.getByRole("button", { name: "Salvar como" }).click();
+    const saveDialog = page.getByRole("dialog", {
+      name: "Salvar configuração",
+    });
+    await saveDialog.getByLabel("Nome do save").fill("Save Noite");
+    await saveDialog.getByRole("button", { name: "Salvar" }).click();
+    await page.waitForFunction(
+      () =>
+        window.__sonaraMockFS
+          .dump()
+          .alphaSaves["save-noite"]?.includes("Alpha Editado"),
+      null,
+      { timeout: 7_000 },
+    );
+
+    await titleInput.fill("Alpha Noite");
+    await page.waitForFunction(
+      () => {
+        const dump = window.__sonaraMockFS.dump();
+        return (
+          dump.alphaState.includes("Alpha Editado") &&
+          !dump.alphaState.includes("Alpha Noite") &&
+          dump.alphaSaves["save-noite"]?.includes("Alpha Noite")
+        );
+      },
+      null,
+      { timeout: 7_000 },
+    );
+
+    await page.locator(".project-save-select").selectOption("default");
+    await page.waitForFunction(() =>
+      document
+        .querySelector(".inspector-scroll label.field input")
+        ?.value.includes("Alpha Editado"),
+    );
+    await page.locator(".project-save-select").selectOption("save-noite");
+    await page.waitForFunction(() =>
+      document
+        .querySelector(".inspector-scroll label.field input")
+        ?.value.includes("Alpha Noite"),
+    );
+    await page.getByRole("button", { name: "Excluir" }).click();
+    const deleteSaveDialog = page.getByRole("dialog", {
+      name: "Excluir save?",
+    });
+    await deleteSaveDialog
+      .getByRole("button", { name: "Excluir save" })
+      .click();
+    await page.waitForFunction(
+      () => !("save-noite" in window.__sonaraMockFS.dump().alphaSaves),
+      null,
+      { timeout: 7_000 },
+    );
+
     await page.locator(".setup-project-select").selectOption("Projeto Beta");
     await page.waitForFunction(
       () => window.__sonaraMockFS.dump().objectUrlsRevoked > 0,
@@ -523,14 +577,27 @@ async function createScenarioPage(
           const readProjectState = (project) =>
             project.children[".sonara"]?.children?.["project.json"]
               ?.textPayload ?? "";
+          const readProjectSaves = (project) =>
+            Object.fromEntries(
+              Object.entries(
+                project.children[".sonara"]?.children?.saves?.children ?? {},
+              )
+                .filter(([, entry]) => entry.kind === "file")
+                .map(([name, entry]) => [
+                  name.replace(/\.json$/i, ""),
+                  entry.textPayload,
+                ]),
+            );
           const readProjectAssets = (project) =>
             Object.keys(
               project.children[".sonara"]?.children?.assets?.children ?? {},
             );
           return {
             alphaAssets: readProjectAssets(alpha),
+            alphaSaves: readProjectSaves(alpha),
             alphaState: readProjectState(alpha),
             betaAssets: readProjectAssets(beta),
+            betaSaves: readProjectSaves(beta),
             betaState: readProjectState(beta),
             objectUrlsCreated: createdObjectUrls.length,
             objectUrlsRevoked: revokedObjectUrls.length,

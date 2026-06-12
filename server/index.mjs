@@ -419,7 +419,12 @@ app.get("/api/internal-snapshot", async (req, res) => {
   if (!scope.projectId || scope.projectId === ".") {
     return res.status(400).json({ error: "invalid-project" });
   }
-  const snapshotPath = path.join(scope.directory, ".sonara", "project.json");
+  if (String(req.query.list ?? "") === "1") {
+    return res.json({ saves: await listInternalProjectSaves(scope) });
+  }
+  const save = internalProjectSaveFromQuery(req.query);
+  if (!save) return res.status(400).json({ error: "invalid-save" });
+  const snapshotPath = internalProjectSnapshotPath(scope, save.id);
   try {
     const content = await fs.readFile(snapshotPath, "utf-8");
     res.type("application/json").send(content);
@@ -438,10 +443,18 @@ app.put(
     if (!scope.projectId || scope.projectId === ".") {
       return res.status(400).json({ error: "invalid-project" });
     }
-    const sonaraDir = path.join(scope.directory, ".sonara");
-    await fs.mkdir(sonaraDir, { recursive: true });
-    const snapshotPath = path.join(sonaraDir, "project.json");
-    await fs.writeFile(snapshotPath, JSON.stringify(req.body, null, 2));
+    const save = internalProjectSaveFromQuery(req.query, req.body);
+    if (!save) return res.status(400).json({ error: "invalid-save" });
+    const snapshotPath = internalProjectSnapshotPath(scope, save.id);
+    await fs.mkdir(path.dirname(snapshotPath), { recursive: true });
+    await fs.writeFile(
+      snapshotPath,
+      JSON.stringify(
+        { ...req.body, saveId: save.id, saveName: save.name },
+        null,
+        2,
+      ),
+    );
     res.json({ ok: true });
   },
 );
@@ -452,6 +465,18 @@ app.delete("/api/internal-snapshot", async (req, res) => {
     return res.status(400).json({ error: "invalid-project" });
   }
   const sonaraDir = path.join(scope.directory, ".sonara");
+  if (req.query.save != null) {
+    const save = internalProjectSaveFromQuery(req.query);
+    if (!save) return res.status(400).json({ error: "invalid-save" });
+    try {
+      await fs.rm(internalProjectSnapshotPath(scope, save.id), {
+        force: true,
+      });
+    } catch {
+      // Ignore — may not exist yet.
+    }
+    return res.json({ ok: true });
+  }
   try {
     await fs.rm(sonaraDir, { recursive: true, force: true });
   } catch {
@@ -459,6 +484,97 @@ app.delete("/api/internal-snapshot", async (req, res) => {
   }
   res.json({ ok: true });
 });
+
+async function listInternalProjectSaves(scope) {
+  const saves = new Map([
+    ["default", { id: "default", name: "Padrão", isDefault: true }],
+  ]);
+  const savesDir = path.join(scope.directory, ".sonara", "saves");
+  let entries = [];
+  try {
+    entries = await fs.readdir(savesDir, { withFileTypes: true });
+  } catch {
+    return Array.from(saves.values());
+  }
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".json")) {
+      continue;
+    }
+    const id = entry.name.replace(/\.json$/i, "");
+    let save = { id, name: projectSaveLabelFromId(id) };
+    try {
+      const snapshot = JSON.parse(
+        await fs.readFile(path.join(savesDir, entry.name), "utf8"),
+      );
+      save = {
+        id,
+        name: normalizeProjectSaveName(snapshot.saveName) || save.name,
+      };
+    } catch {
+      // Keep the save visible so it can be repaired/deleted by the user.
+    }
+    saves.set(id, save);
+  }
+  return Array.from(saves.values()).sort((first, second) => {
+    if (first.id === "default") return -1;
+    if (second.id === "default") return 1;
+    return first.name.localeCompare(second.name, "pt-BR", {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
+}
+
+function internalProjectSnapshotPath(scope, saveId) {
+  if (saveId === "default") {
+    return path.join(scope.directory, ".sonara", "project.json");
+  }
+  return path.join(
+    scope.directory,
+    ".sonara",
+    "saves",
+    `${normalizeProjectSaveId(saveId)}.json`,
+  );
+}
+
+function internalProjectSaveFromQuery(query, body = {}) {
+  const rawSave = String(query.save ?? body.saveId ?? "default");
+  const id =
+    rawSave === "default" ? "default" : normalizeProjectSaveId(rawSave);
+  if (!id) return null;
+  const fallbackName = id === "default" ? "Padrão" : projectSaveLabelFromId(id);
+  return {
+    id,
+    name:
+      normalizeProjectSaveName(query.saveName ?? body.saveName) || fallbackName,
+    isDefault: id === "default",
+  };
+}
+
+function normalizeProjectSaveName(value) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+}
+
+function normalizeProjectSaveId(value) {
+  return normalizeProjectSaveName(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function projectSaveLabelFromId(id) {
+  return id
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 
 app.post("/api/internal-asset", upload.single("file"), async (req, res) => {
   const scope = await inputProjectScope(req.query.project);
