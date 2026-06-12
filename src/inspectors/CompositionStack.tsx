@@ -81,13 +81,14 @@ export function buildRenderStackItems(
     } else if (item.kind === "media") {
       const layer = layers.find((candidate) => candidate.id === item.layerId);
       if (!layer) continue;
+      const visible = layer.visible !== false;
       stack.push({
         key: renderStackKey(item),
         label: layer.name || "Camada",
         tag: "Mídia",
         kind: item.kind,
-        visible: layer.visible !== false,
-        onToggle: () => onUpdateLayer(layer.id, { visible: !layer.visible }),
+        visible,
+        onToggle: () => onUpdateLayer(layer.id, { visible: !visible }),
         layerId: layer.id,
         mediaKind: layer.kind,
       });
@@ -149,74 +150,86 @@ export function CompositionStackList({
       role="listbox"
     >
       {/* Topo da lista = pintado por último = frente do vídeo. */}
-      {[...items].reverse().map((item, displayIndex) => (
-        <div
-          key={item.key}
-          className={`composition-stack-row ${
-            item.visible ? "" : "is-hidden-layer"
-          } ${item.key === selectedKey ? "is-selected" : ""}`}
-        >
-          <button
-            aria-selected={item.key === selectedKey}
-            className="composition-stack-select"
-            role="option"
-            type="button"
-            onClick={() => onSelect(item.key)}
+      {[...items].reverse().map((item, displayIndex) => {
+        const depthLabel =
+          displayIndex === 0
+            ? "Frente"
+            : displayIndex === items.length - 1
+              ? "Fundo"
+              : String(items.length - displayIndex);
+        return (
+          <div
+            key={item.key}
+            className={`composition-stack-row ${
+              item.visible ? "" : "is-hidden-layer"
+            } ${item.key === selectedKey ? "is-selected" : ""}`}
           >
-            <span aria-hidden="true" className="composition-stack-icon">
-              {stackItemIcon(item)}
-            </span>
-            <span className="composition-stack-label">{item.label}</span>
-            <span className="composition-stack-tag">{item.tag}</span>
-          </button>
-          <span className="composition-stack-actions">
             <button
-              aria-label={`Trazer ${item.label} para frente`}
-              className="icon-button-sm"
-              disabled={displayIndex === 0}
-              title="Trazer para frente"
+              aria-label={`${item.label}, ${item.tag}, ${item.visible ? "visível" : "oculta"}`}
+              aria-selected={item.key === selectedKey}
+              className="composition-stack-select"
+              role="option"
               type="button"
-              onClick={() => onMoveItem(item.key, "forward")}
+              onClick={() => onSelect(item.key)}
             >
-              <ChevronUp />
+              <span aria-hidden="true" className="composition-stack-icon">
+                {stackItemIcon(item)}
+              </span>
+              <span className="composition-stack-label">{item.label}</span>
+              <span className="composition-stack-depth">{depthLabel}</span>
+              <span className="composition-stack-tag">{item.tag}</span>
             </button>
-            <button
-              aria-label={`Enviar ${item.label} para trás`}
-              className="icon-button-sm"
-              disabled={displayIndex === items.length - 1}
-              title="Enviar para trás"
-              type="button"
-              onClick={() => onMoveItem(item.key, "backward")}
-            >
-              <ChevronDown />
-            </button>
-            <button
-              aria-label={
-                item.visible ? `Ocultar ${item.label}` : `Mostrar ${item.label}`
-              }
-              aria-pressed={item.visible}
-              className="icon-button-sm"
-              disabled={item.toggleDisabled}
-              title={item.visible ? "Visível" : "Oculta"}
-              type="button"
-              onClick={() => item.onToggle()}
-            >
-              {item.visible ? <Eye /> : <EyeOff />}
-            </button>
-            {item.kind === "media" && item.layerId && onRemoveLayer && (
+            <span className="composition-stack-actions">
               <button
-                aria-label={`Remover ${item.label}`}
+                aria-label={`Trazer ${item.label} para frente`}
                 className="icon-button-sm"
-                title="Remover camada"
+                disabled={displayIndex === 0}
+                title="Trazer para frente"
                 type="button"
-                onClick={() => onRemoveLayer(item.layerId as string)}
+                onClick={() => onMoveItem(item.key, "forward")}
               >
-                <Trash2 />
+                <ChevronUp />
               </button>
-            )}
-          </span>
-        </div>
-      ))}
+              <button
+                aria-label={`Enviar ${item.label} para trás`}
+                className="icon-button-sm"
+                disabled={displayIndex === items.length - 1}
+                title="Enviar para trás"
+                type="button"
+                onClick={() => onMoveItem(item.key, "backward")}
+              >
+                <ChevronDown />
+              </button>
+              <button
+                aria-label={
+                  item.visible
+                    ? `Ocultar ${item.label}`
+                    : `Mostrar ${item.label}`
+                }
+                aria-pressed={item.visible}
+                className="icon-button-sm"
+                disabled={item.toggleDisabled}
+                title={item.visible ? "Visível" : "Oculta"}
+                type="button"
+                onClick={() => item.onToggle()}
+              >
+                {item.visible ? <Eye /> : <EyeOff />}
+              </button>
+              {item.kind === "media" && item.layerId && onRemoveLayer && (
+                <button
+                  aria-label={`Remover ${item.label}`}
+                  className="icon-button-sm"
+                  title="Remover camada"
+                  type="button"
+                  onClick={() => onRemoveLayer(item.layerId as string)}
+                >
+                  <Trash2 />
+                </button>
+              )}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

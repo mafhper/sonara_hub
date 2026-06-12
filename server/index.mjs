@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import fssync from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
+import { availableParallelism } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import express from "express";
 import { parseFile } from "music-metadata";
@@ -35,6 +36,7 @@ import {
 import {
   cleanupJobWorkDir,
   createCanceledJobError,
+  createJobQueue,
   createJobRunner,
   createJobStageTracker,
   isCanceledJobError,
@@ -125,6 +127,7 @@ const customPresetPath = path.join(
 );
 const jobHistoryPath = path.join(rootDir, "data", "jobs.local.json");
 const port = resolveServerPort();
+const audioJobConcurrency = resolveAudioJobConcurrency();
 
 await Promise.all([
   fs.mkdir(uploadDir, { recursive: true }),
@@ -152,7 +155,14 @@ if (jobs.size) {
 let queuePaused = false;
 const queueWaiters = new Set();
 const presetStore = createPresetStore(customPresetPath);
-let renderQueue = Promise.resolve();
+const renderJobQueue = createJobQueue({
+  concurrency: 1,
+  onError: (error) => logUnexpectedError("render job queue", error),
+});
+const audioJobQueue = createJobQueue({
+  concurrency: audioJobConcurrency,
+  onError: (error) => logUnexpectedError("audio job queue", error),
+});
 const activeJobWorkers = new Map();
 const benchmarkExecutions = new Map();
 
@@ -1156,6 +1166,10 @@ app.get("/api/jobs", (_req, res) => {
   res.json({
     jobs: recentJobs(),
     queuePaused,
+    queues: {
+      audio: audioJobQueue.snapshot(),
+      render: renderJobQueue.snapshot(),
+    },
   });
 });
 
@@ -1295,19 +1309,19 @@ for (const job of jobs.values()) {
 }
 
 function enqueueRender(options) {
-  enqueueJob(options, "VIDEO_RENDER_ERROR", (jobOptions) =>
+  enqueueJob(renderJobQueue, options, "VIDEO_RENDER_ERROR", (jobOptions) =>
     runRenderWorker("video-render", jobOptions),
   );
 }
 
 function enqueuePublicationAsset(options) {
-  enqueueJob(options, "PUBLICATION_ASSET_ERROR", (jobOptions) =>
+  enqueueJob(renderJobQueue, options, "PUBLICATION_ASSET_ERROR", (jobOptions) =>
     runRenderWorker("publication-asset", jobOptions),
   );
 }
 
 function enqueueAudioProcess(options) {
-  enqueueJob(options, "AUDIO_PROCESS_ERROR", processAudio);
+  enqueueJob(audioJobQueue, options, "AUDIO_PROCESS_ERROR", processAudio);
 }
 
 async function persistRenderOptions(kind, options) {
@@ -1387,7 +1401,7 @@ function runRenderWorker(kind, options) {
   });
 }
 
-function enqueueJob(options, fallbackErrorCode, worker) {
+function enqueueJob(queue, options, fallbackErrorCode, worker) {
   const releaseTempFiles = tempFiles.retain(options.uploadedFiles);
   const runJob = createJobRunner({
     cleanupWorkDir: (jobId) => cleanupJobWorkDir(workDir, jobId),
@@ -1397,7 +1411,7 @@ function enqueueJob(options, fallbackErrorCode, worker) {
     runQueuedJob,
     updateJob,
   });
-  renderQueue = renderQueue.then(() => runJob(options, worker));
+  queue.enqueue(() => runJob(options, worker));
 }
 
 async function runQueuedJob(jobId, worker) {
@@ -2909,6 +2923,15 @@ function clampNumber(value, min, max) {
     return min;
   }
   return Math.min(max, Math.max(min, value));
+}
+
+function resolveAudioJobConcurrency() {
+  const configured = Number(process.env.SONARA_AUDIO_JOB_CONCURRENCY);
+  if (Number.isFinite(configured) && configured > 0) {
+    return clampNumber(Math.floor(configured), 1, 4);
+  }
+  const cores = Math.max(1, availableParallelism());
+  return clampNumber(cores - 1, 1, 2);
 }
 
 function normalizeHexColor(value, fallback) {

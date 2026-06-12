@@ -2,14 +2,12 @@ import {
   AlignCenter,
   AlignLeft,
   AlignRight,
-  AlertTriangle,
   ArrowDown,
   ArrowUp,
   BarChart3,
   Bell,
   Bold,
   Check,
-  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -26,7 +24,6 @@ import {
   Gauge,
   GripVertical,
   Image,
-  Info,
   Italic,
   Layers3,
   Loader2,
@@ -85,6 +82,19 @@ import {
   FileNamePatternSection,
 } from "./inspectors/FileNamePattern";
 import { FadeInFields, LayerControls } from "./inspectors/LayerControls";
+import {
+  InteractionDialog,
+  type InteractionDialogState,
+  NotificationCenter,
+  type ToastNotice,
+  type ToastTone,
+  ToastViewport,
+} from "./ui/Feedback";
+import {
+  BatchJobBoard,
+  formatDurationMs,
+  jobStageLabel,
+} from "./jobs/BatchJobBoard";
 import {
   type CoverFadeOutSettings,
   type LayerFadeInSettings,
@@ -317,30 +327,10 @@ type DestructiveAudioBatch = {
   jobIds: string[];
   finalizing: boolean;
 };
-type ToastTone = "success" | "info" | "warning" | "error";
-type ToastNotice = {
-  id: number;
-  message: string;
-  tone: ToastTone;
-  copyText?: string;
-};
 type ProjectSaveOption = {
   id: string;
   name: string;
   isDefault?: boolean;
-};
-type InteractionDialogState = {
-  id: number;
-  title: string;
-  message: string;
-  confirmLabel: string;
-  cancelLabel: string;
-  tone: "default" | "danger";
-  input?: {
-    label: string;
-    value: string;
-  };
-  resolve: (value: string | boolean | null) => void;
 };
 
 const emptyBands: AudioBands = {
@@ -5820,193 +5810,6 @@ function App() {
   );
 }
 
-function ToastViewport({
-  onCopy,
-  onDismiss,
-  toasts,
-}: {
-  onCopy: (toast: ToastNotice) => void;
-  onDismiss: (id: number) => void;
-  toasts: ToastNotice[];
-}) {
-  if (!toasts.length) return null;
-  return (
-    <div className="toast-viewport" aria-label="Notificações">
-      {toasts.map((toast) => (
-        <section
-          aria-live={toast.tone === "error" ? "assertive" : "polite"}
-          className={`toast-notice ${toast.tone}`}
-          key={toast.id}
-          role={toast.tone === "error" ? "alert" : "status"}
-        >
-          <span className="toast-icon">{toastIcon(toast.tone)}</span>
-          <p>{toast.message}</p>
-          <div className="toast-actions">
-            {toast.copyText && (
-              <button type="button" onClick={() => onCopy(toast)}>
-                <Copy /> Copiar
-              </button>
-            )}
-            <button
-              aria-label="Fechar notificação"
-              className="toast-close"
-              type="button"
-              onClick={() => onDismiss(toast.id)}
-            >
-              <X />
-            </button>
-          </div>
-        </section>
-      ))}
-    </div>
-  );
-}
-
-function toastIcon(tone: ToastTone) {
-  if (tone === "success") return <CheckCircle2 />;
-  if (tone === "warning" || tone === "error") return <AlertTriangle />;
-  return <Info />;
-}
-
-function NotificationCenter({
-  notifications,
-  onClear,
-  onClose,
-  onCopy,
-}: {
-  notifications: ToastNotice[];
-  onClear: () => void;
-  onClose: () => void;
-  onCopy: (text: string) => void;
-}) {
-  return (
-    <div
-      className="notification-overlay"
-      role="presentation"
-      onMouseDown={onClose}
-    >
-      <section
-        aria-label="Notificações da sessão"
-        className="notification-panel"
-        role="dialog"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header>
-          <strong>Notificações da sessão</strong>
-          {notifications.length > 0 && (
-            <button className="quiet-action" type="button" onClick={onClear}>
-              Limpar
-            </button>
-          )}
-        </header>
-        {notifications.length === 0 ? (
-          <p className="helper-copy">Nenhuma notificação ainda.</p>
-        ) : (
-          <ul className="notification-list">
-            {notifications.map((notice) => (
-              <li
-                className={`notification-item ${notice.tone}`}
-                key={notice.id}
-              >
-                <span className="notification-item-icon">
-                  {toastIcon(notice.tone)}
-                </span>
-                <p>{notice.message}</p>
-                {notice.copyText && (
-                  <button
-                    aria-label="Copiar"
-                    className="icon-button"
-                    type="button"
-                    onClick={() => onCopy(notice.copyText ?? notice.message)}
-                  >
-                    <Copy />
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function InteractionDialog({
-  dialog,
-  onCancel,
-  onConfirm,
-}: {
-  dialog: InteractionDialogState;
-  onCancel: () => void;
-  onConfirm: (value: string | boolean) => void;
-}) {
-  const [inputValue, setInputValue] = useState(dialog.input?.value ?? "");
-  return (
-    <div
-      className="interaction-dialog-overlay"
-      role="presentation"
-      onMouseDown={onCancel}
-    >
-      <form
-        aria-labelledby={`interaction-dialog-title-${dialog.id}`}
-        aria-modal="true"
-        className={`interaction-dialog ${dialog.tone}`}
-        role="dialog"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onCancel();
-        }}
-        onMouseDown={(event) => event.stopPropagation()}
-        onSubmit={(event) => {
-          event.preventDefault();
-          onConfirm(dialog.input ? inputValue : true);
-        }}
-      >
-        <header>
-          <div>
-            <span className="overline">
-              {dialog.tone === "danger" ? "Confirmar operação" : "Sonara Hub"}
-            </span>
-            <h2 id={`interaction-dialog-title-${dialog.id}`}>{dialog.title}</h2>
-          </div>
-          <IconButton label="Fechar diálogo" onClick={onCancel}>
-            <X />
-          </IconButton>
-        </header>
-        <div className="interaction-dialog-body">
-          <p>{dialog.message}</p>
-          {dialog.input && (
-            <label className="field">
-              <span>{dialog.input.label}</span>
-              <input
-                autoFocus
-                value={inputValue}
-                onChange={(event) => setInputValue(event.target.value)}
-              />
-            </label>
-          )}
-        </div>
-        <footer>
-          <button className="quiet-action" type="button" onClick={onCancel}>
-            {dialog.cancelLabel}
-          </button>
-          <button
-            autoFocus={!dialog.input}
-            className={
-              dialog.tone === "danger"
-                ? "danger-confirm-action"
-                : "primary-action"
-            }
-            type="submit"
-          >
-            {dialog.tone === "danger" ? <Trash2 /> : <Check />}
-            {dialog.confirmLabel}
-          </button>
-        </footer>
-      </form>
-    </div>
-  );
-}
-
 function ProjectSaveControls({
   busy,
   compact = false,
@@ -7445,180 +7248,6 @@ function PublicationAssetsWorkspace({
         onResume={onResumeQueue}
       />
     </div>
-  );
-}
-
-function BatchJobBoard({
-  jobs,
-  kind = "audio-process",
-  emptyCopy = "Ao processar, cada arquivo aparece aqui com etapa, progresso e controle de cancelamento.",
-  title = "Processamento do lote",
-  onCancelAll,
-  onCancelJob,
-  onClearTerminal,
-  onCopyJobError,
-  onPause,
-  onResume,
-  queuePaused,
-}: {
-  jobs: RenderJob[];
-  kind?: NonNullable<RenderJob["kind"]>;
-  emptyCopy?: string;
-  title?: string;
-  onCancelAll: () => void;
-  onCancelJob: (id: string) => void;
-  onClearTerminal: () => void;
-  onCopyJobError?: (job: RenderJob) => void;
-  onPause: () => void;
-  onResume: () => void;
-  queuePaused: boolean;
-}) {
-  const activeJobs = jobs.filter((job) => job.kind === kind);
-  const jobCounts = {
-    running: activeJobs.filter((job) => job.status === "running").length,
-    waiting: activeJobs.filter((job) =>
-      ["queued", "paused"].includes(job.status),
-    ).length,
-    done: activeJobs.filter((job) => job.status === "done").length,
-    failed: activeJobs.filter((job) =>
-      ["error", "canceled"].includes(job.status),
-    ).length,
-  };
-  return (
-    <section className="batch-job-board">
-      <header>
-        <div>
-          <span className="overline">{title}</span>
-          <strong>
-            {activeJobs.length
-              ? `${activeJobs.length} processamento${activeJobs.length === 1 ? "" : "s"} registrado${activeJobs.length === 1 ? "" : "s"}`
-              : "Nenhum processamento iniciado"}
-          </strong>
-        </div>
-        <div className="batch-job-actions">
-          {jobCounts.done + jobCounts.failed > 0 && (
-            <button type="button" onClick={onClearTerminal}>
-              <Trash2 /> Limpar concluídos
-            </button>
-          )}
-          <button type="button" onClick={queuePaused ? onResume : onPause}>
-            {queuePaused ? <Play /> : <Pause />}
-            {queuePaused ? "Retomar fila" : "Pausar fila"}
-          </button>
-          <button type="button" onClick={onCancelAll}>
-            <X /> Cancelar todos
-          </button>
-        </div>
-      </header>
-      {activeJobs.length > 0 && (
-        <div className="batch-job-summary">
-          <span>
-            <b>{jobCounts.running}</b> em andamento
-          </span>
-          <span>
-            <b>{jobCounts.waiting}</b> aguardando
-          </span>
-          <span>
-            <b>{jobCounts.done}</b> concluídos
-          </span>
-          <span>
-            <b>{jobCounts.failed}</b> interrompidos
-          </span>
-        </div>
-      )}
-      {activeJobs.length === 0 ? (
-        <p className="helper-copy">{emptyCopy}</p>
-      ) : (
-        <div className="batch-job-list">
-          {activeJobs.map((job) => {
-            const terminal = ["done", "error", "canceled"].includes(job.status);
-            return (
-              <div className={`batch-job-row ${job.status}`} key={job.id}>
-                <div>
-                  <strong>
-                    {job.metadata?.title || readableJobMessage(job.message)}
-                  </strong>
-                  <small>
-                    {jobStatusLabel(job.status)} ·{" "}
-                    {readableJobMessage(job.message)}
-                  </small>
-                  {job.stage && job.stage !== "complete" && (
-                    <small className="job-stage-line">
-                      Etapa: {jobStageLabel(job.stage)}
-                    </small>
-                  )}
-                  {job.maxAttempts && job.maxAttempts > 1 ? (
-                    <small className="job-stage-line">
-                      Tentativa {job.attempt ?? 0}/{job.maxAttempts}
-                      {job.nextAttemptAt
-                        ? ` · próxima ${formatRetryTime(job.nextAttemptAt)}`
-                        : ""}
-                    </small>
-                  ) : null}
-                  {job.stageTimings?.length ? (
-                    <small className="job-stage-line">
-                      Tempos: {formatJobStageTimings(job.stageTimings)}
-                    </small>
-                  ) : null}
-                </div>
-                <progress max={100} value={job.progress} />
-                <span>{job.progress}%</span>
-                {terminal ? (
-                  <div className="job-terminal-actions">
-                    {kind === "audio-process" && job.outputUrl && (
-                      <a href={job.outputUrl} download title="Baixar MP3">
-                        <Download /> MP3
-                      </a>
-                    )}
-                    {kind === "video-render" && job.outputUrl && (
-                      <a href={job.outputUrl} download title="Baixar MP4">
-                        <Download /> MP4
-                      </a>
-                    )}
-                    {kind === "publication-asset" && job.outputUrl && (
-                      <a href={job.outputUrl} download title="Baixar asset">
-                        <Download /> Asset
-                      </a>
-                    )}
-                    {job.sidecarUrl && (
-                      <a href={job.sidecarUrl} download title="Baixar JSON">
-                        <Download /> JSON
-                      </a>
-                    )}
-                    {kind === "publication-asset" && job.markdownUrl && (
-                      <a
-                        href={job.markdownUrl}
-                        download
-                        title="Baixar Markdown"
-                      >
-                        <Download /> MD
-                      </a>
-                    )}
-                    <span className="job-terminal-state">
-                      {jobStatusLabel(job.status)}
-                    </span>
-                    {job.status === "error" && job.errorCode && (
-                      <span className="job-error-code">
-                        Código: {job.errorCode}
-                      </span>
-                    )}
-                    {job.status === "error" && onCopyJobError && (
-                      <button type="button" onClick={() => onCopyJobError(job)}>
-                        <Copy /> Copiar erro
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <button type="button" onClick={() => onCancelJob(job.id)}>
-                    <X /> Cancelar
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </section>
   );
 }
 
@@ -13932,71 +13561,6 @@ function stepLabel(step: ActiveStep) {
     text: "Texto",
     export: "Exportar",
   }[step];
-}
-
-function jobStatusLabel(status: RenderJob["status"]) {
-  return {
-    queued: "na fila",
-    paused: "pausado",
-    running: "processando",
-    done: "concluído",
-    error: "falhou",
-    canceled: "cancelado",
-  }[status];
-}
-
-function jobStageLabel(stage: string) {
-  return (
-    {
-      "asset-prepare": "preparo do asset",
-      "audio-analysis": "análise de áudio",
-      "audio-assets": "capas e sidecars",
-      "audio-prepare": "preparo do MP3",
-      "audio-tags": "metadados limpos",
-      "ffmpeg-mux": "mux FFmpeg",
-      manifest: "manifesto",
-      "output-validation": "validação final",
-      "poster-render": "poster",
-      "webgl-render": "render WebGL",
-    }[stage] ?? stage
-  );
-}
-
-function formatJobStageTimings(
-  timings: NonNullable<RenderJob["stageTimings"]>,
-) {
-  return timings
-    .slice(-4)
-    .map(
-      (item) =>
-        `${jobStageLabel(item.stage)} ${formatDurationMs(item.durationMs)}${item.interrupted ? " interrompido" : ""}`,
-    )
-    .join(" · ");
-}
-
-function formatDurationMs(value: number) {
-  const milliseconds = Math.max(0, Number(value) || 0);
-  if (milliseconds < 1000) return `${Math.round(milliseconds)}ms`;
-  return `${(milliseconds / 1000).toFixed(milliseconds < 10000 ? 1 : 0)}s`;
-}
-
-function formatRetryTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "em breve";
-  return date.toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function readableJobMessage(message: string) {
-  return message
-    .replaceAll("Renderizacao", "Renderização")
-    .replaceAll("concluida", "concluída")
-    .replaceAll("concluido", "concluído")
-    .replaceAll("Analisando audio", "Analisando áudio")
-    .replaceAll("Servidor local indisponivel", "Servidor local indisponível");
 }
 
 function formatUsage(usage?: { files: number; bytes: number }) {

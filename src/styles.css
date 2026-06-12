@@ -2657,7 +2657,7 @@ svg {
 
 .preset-note,
 .helper-copy {
-  color: #7f8894;
+  color: var(--text-dim);
   font-size: 9px;
   line-height: 1.5;
 }
@@ -2668,17 +2668,19 @@ svg {
 
 .composition-stack-list {
   display: grid;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .composition-stack-row {
   display: flex;
+  min-height: 36px;
   align-items: center;
   gap: 6px;
   padding: 5px 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
   border-radius: 6px;
-  background: var(--surface);
+  background: var(--stage-row-bg);
+  box-shadow: var(--elev-1);
 }
 
 .composition-stack-row.is-hidden-layer .composition-stack-label {
@@ -2714,6 +2716,23 @@ svg {
   color: var(--button-text);
 }
 
+.icon-button-sm:not(:disabled):hover {
+  border-color: var(--control-border);
+  background: var(--button-hover-bg);
+}
+
+.icon-button-sm:focus-visible,
+.composition-stack-select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.icon-button-sm[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent-cool) 42%, transparent);
+  background: var(--accent-cool-low);
+  color: var(--accent-cool-strong);
+}
+
 .icon-button-sm svg {
   width: 12px;
   height: 12px;
@@ -2736,7 +2755,7 @@ svg {
   min-height: 34px;
   align-items: center;
   gap: 6px;
-  color: #c9ced5;
+  color: var(--text-secondary);
   font-size: 9px;
   font-weight: 690;
 }
@@ -2746,7 +2765,29 @@ svg {
   overflow: hidden;
   transition:
     border-color 140ms ease,
-    background 140ms ease;
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.composition-stack-row:hover {
+  border-color: var(--control-border);
+  background: var(--stage-row-hover);
+}
+
+.composition-stack-row:focus-within {
+  border-color: var(--focus);
+  box-shadow: var(--glow-focus);
+}
+
+.composition-stack-row.is-hidden-layer {
+  border-color: var(--line-soft);
+  background: var(--stage-surface-low);
+}
+
+.composition-stack-row.is-hidden-layer .composition-stack-icon,
+.composition-stack-row.is-hidden-layer .composition-stack-depth,
+.composition-stack-row.is-hidden-layer .composition-stack-tag {
+  opacity: 0.58;
 }
 
 .composition-stack-select {
@@ -2755,7 +2796,7 @@ svg {
   min-width: 0;
   align-items: center;
   gap: 7px;
-  padding: 7px 4px 7px 9px;
+  padding: 7px 6px 7px 9px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -2776,14 +2817,22 @@ svg {
   height: 13px;
 }
 
+.composition-stack-depth {
+  flex: 0 0 38px;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-weight: 650;
+  text-align: right;
+}
+
 .composition-stack-tag {
   flex-shrink: 0;
   max-width: 96px;
   overflow: hidden;
   padding: 1.5px 5px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--hairline);
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
   color: var(--text-muted);
   font-size: 7px;
   font-weight: 750;
@@ -2872,13 +2921,17 @@ svg {
 }
 
 .stack-detail-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   min-height: 40px;
   align-items: center;
   gap: 8px;
   padding: 7px 11px;
   border-bottom: 1px solid var(--line-soft);
-  background: var(--surface-raised);
+  background: var(--surface-raised-grad);
+  box-shadow: var(--elev-1);
 }
 
 .stack-detail-header .composition-stack-icon {

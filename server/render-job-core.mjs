@@ -50,28 +50,37 @@ export async function renderVideoJob({
   stages.enter("audio-analysis", {
     status: "running",
     progress: 1,
-    message: "Analisando áudio",
+    message: "Analisando áudio e preparando assets",
   });
-  const audio = await analyzeAudio(audioPath);
-  const sourceAnalysis = await analyzeAudioQuality(audioPath);
-  assertNotCanceled(shouldCancel);
-  const duration = Math.max(
-    1,
-    audio.durationSeconds ?? Number(settings.durationFallback),
-  );
   const outputSize = presetSize(settings.preset);
   const size = renderCanvasSize(outputSize, settings);
   const jobWorkDir = path.join(workDir, jobId);
   await fs.mkdir(jobWorkDir, { recursive: true });
 
-  const background = backgroundFile
-    ? await prepareBackground(backgroundFile, jobWorkDir, size)
-    : { type: "generated", path: null };
-  const mediaLayers = await prepareMediaLayers(
-    mediaLayerFiles,
-    settings.compositionSettings.mediaLayers,
-    jobWorkDir,
-    size,
+  const [audio, sourceAnalysis, audioEnvelope, background, mediaLayers, cover] =
+    await Promise.all([
+      analyzeAudio(audioPath),
+      analyzeAudioQuality(audioPath),
+      sampleAudioEnvelope(audioPath),
+      backgroundFile
+        ? prepareBackground(backgroundFile, jobWorkDir, size)
+        : Promise.resolve({ type: "generated", path: null }),
+      prepareMediaLayers(
+        mediaLayerFiles,
+        settings.compositionSettings.mediaLayers,
+        jobWorkDir,
+        size,
+      ),
+      coverFile
+        ? prepareCover(coverFile, jobWorkDir)
+        : metadata.useEmbeddedCover
+          ? prepareEmbeddedCover(audioPath, jobWorkDir)
+          : Promise.resolve(null),
+    ]);
+  assertNotCanceled(shouldCancel);
+  const duration = Math.max(
+    1,
+    audio.durationSeconds ?? Number(settings.durationFallback),
   );
   if (background.type !== "generated" && mediaLayers.length === 0) {
     mediaLayers.push({
@@ -89,11 +98,6 @@ export async function renderVideoJob({
       order: 0,
     });
   }
-  const cover = coverFile
-    ? await prepareCover(coverFile, jobWorkDir)
-    : metadata.useEmbeddedCover
-      ? await prepareEmbeddedCover(audioPath, jobWorkDir)
-      : null;
   const lyrics = parseLyrics(lyricsText);
   const subtitlePath =
     settings.includeLyrics && lyrics.lyricLines.length > 0
@@ -110,7 +114,6 @@ export async function renderVideoJob({
   assertNotCanceled(shouldCancel);
   stages.enter("webgl-render", { progress: 4, message: "Preparando cena" });
   const webglVideoPath = path.join(jobWorkDir, "webgl-background.webm");
-  const audioEnvelope = await sampleAudioEnvelope(audioPath);
   await renderWebglBackgroundVideo({
     outputPath: webglVideoPath,
     size,
@@ -213,9 +216,33 @@ export async function renderPublicationAssetJob({
   stages.enter("asset-prepare", {
     status: "running",
     progress: 1,
-    message: "Preparando asset",
+    message: "Preparando áudio e assets",
   });
-  const audio = await analyzeAudio(audioPath);
+  const outputSize = { width: preset.width, height: preset.height };
+  const size = renderCanvasSize(outputSize, settings);
+  const jobWorkDir = path.join(workDir, jobId);
+  await fs.mkdir(jobWorkDir, { recursive: true });
+
+  const [audio, audioEnvelope, background, mediaLayers, cover] =
+    await Promise.all([
+      analyzeAudio(audioPath),
+      sampleAudioEnvelope(audioPath),
+      backgroundFile
+        ? prepareBackground(backgroundFile, jobWorkDir, size)
+        : Promise.resolve({ type: "generated", path: null }),
+      prepareMediaLayers(
+        mediaLayerFiles,
+        settings.compositionSettings.mediaLayers,
+        jobWorkDir,
+        size,
+      ),
+      coverFile
+        ? prepareCover(coverFile, jobWorkDir)
+        : metadata.useEmbeddedCover
+          ? prepareEmbeddedCover(audioPath, jobWorkDir)
+          : Promise.resolve(null),
+    ]);
+  assertNotCanceled(shouldCancel);
   const duration =
     preset.kind === "clip"
       ? Math.min(
@@ -226,20 +253,6 @@ export async function renderPublicationAssetJob({
           ),
         )
       : 1;
-  const outputSize = { width: preset.width, height: preset.height };
-  const size = renderCanvasSize(outputSize, settings);
-  const jobWorkDir = path.join(workDir, jobId);
-  await fs.mkdir(jobWorkDir, { recursive: true });
-
-  const background = backgroundFile
-    ? await prepareBackground(backgroundFile, jobWorkDir, size)
-    : { type: "generated", path: null };
-  const mediaLayers = await prepareMediaLayers(
-    mediaLayerFiles,
-    settings.compositionSettings.mediaLayers,
-    jobWorkDir,
-    size,
-  );
   if (background.type !== "generated" && mediaLayers.length === 0) {
     mediaLayers.push({
       ...background,
@@ -256,18 +269,12 @@ export async function renderPublicationAssetJob({
       order: 0,
     });
   }
-  const cover = coverFile
-    ? await prepareCover(coverFile, jobWorkDir)
-    : metadata.useEmbeddedCover
-      ? await prepareEmbeddedCover(audioPath, jobWorkDir)
-      : null;
 
   assertNotCanceled(shouldCancel);
   stages.enter(preset.kind === "image" ? "poster-render" : "webgl-render", {
     progress: 4,
     message: "Renderizando divulgação",
   });
-  const audioEnvelope = await sampleAudioEnvelope(audioPath);
   const composition = {
     layers: mediaLayers.map(toCanvasLayer),
     coverSrc: cover?.path ? pathToFileURL(cover.path).href : "",

@@ -19,6 +19,14 @@ npm run format:check # prettier
 Importante: **`server/index.mjs` não tem hot-reload** — ao mexer no servidor,
 reinicie o `npm run dev` inteiro. O front (vite) tem HMR.
 
+## Meta de fechamento do backlog atual
+
+O ponto final deste ciclo é encerrar o backlog gerado pelo débito técnico e
+entregar os recursos solicitados de forma adequada: comportamento implementado,
+fluxos principais estáveis, paralelismo/carga do processamento documentados por
+testes ou benchmarks, UI coerente com a composição unificada e validação completa
+pelos gates aplicáveis antes de consolidar no `main`.
+
 ## Entregue recentemente (rounds de 06-09 a 06-11)
 
 - Divulgação: formatos agrupados, prévia fiel, clipes com áudio reativo, editor de tags.
