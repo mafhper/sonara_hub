@@ -14230,17 +14230,22 @@ async function createInternalPortableSnapshot(
   const assetsById = new Map<string, ProjectAssetManifestEntry>();
   const registerAsset = async (file: File | undefined) => {
     if (!file) return undefined;
-    const asset = await projectAssetManifestEntry(file);
-    if (!assetsById.has(asset.id)) {
+    const asset = await prepareProjectAsset(file);
+    if (!asset) return undefined;
+    if (!assetsById.has(asset.entry.id)) {
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append(
+        "file",
+        new Blob([asset.buffer], { type: file.type }),
+        file.name,
+      );
       await fetch(
-        `/api/internal-asset?project=${encodeURIComponent(projectId)}&fileName=${encodeURIComponent(asset.fileName)}`,
+        `/api/internal-asset?project=${encodeURIComponent(projectId)}&fileName=${encodeURIComponent(asset.entry.fileName)}`,
         { method: "POST", body: formData },
       );
-      assetsById.set(asset.id, asset);
+      assetsById.set(asset.entry.id, asset.entry);
     }
-    return asset.id;
+    return asset.entry.id;
   };
   const coverAssetId = await registerAsset(snapshot.coverFile);
   const tracks = [];
@@ -14249,9 +14254,11 @@ async function createInternalPortableSnapshot(
     const layers = [];
     for (const layer of track.layers) {
       const { file, ...serializableLayer } = layer;
+      const assetId = await registerAsset(file);
+      if (!assetId) continue;
       layers.push({
         ...serializableLayer,
-        assetId: await registerAsset(file),
+        assetId,
       });
     }
     tracks.push({
@@ -14331,12 +14338,17 @@ async function createPortableProjectSnapshot(
   const assetsById = new Map<string, ProjectAssetManifestEntry>();
   const registerAsset = async (file: File | undefined) => {
     if (!file) return undefined;
-    const asset = await projectAssetManifestEntry(file);
-    if (!assetsById.has(asset.id)) {
-      await writeProjectAssetFile(assetsDirectory, asset.fileName, file);
-      assetsById.set(asset.id, asset);
+    const asset = await prepareProjectAsset(file);
+    if (!asset) return undefined;
+    if (!assetsById.has(asset.entry.id)) {
+      await writeProjectAssetFile(
+        assetsDirectory,
+        asset.entry.fileName,
+        asset.buffer,
+      );
+      assetsById.set(asset.entry.id, asset.entry);
     }
-    return asset.id;
+    return asset.entry.id;
   };
   const coverAssetId = await registerAsset(snapshot.coverFile);
   const tracks = [];
@@ -14345,9 +14357,11 @@ async function createPortableProjectSnapshot(
     const layers = [];
     for (const layer of track.layers) {
       const { file, ...serializableLayer } = layer;
+      const assetId = await registerAsset(file);
+      if (!assetId) continue;
       layers.push({
         ...serializableLayer,
-        assetId: await registerAsset(file),
+        assetId,
       });
     }
     tracks.push({
@@ -14411,28 +14425,36 @@ async function hydrateProjectSnapshotAssets(
   };
 }
 
-async function projectAssetManifestEntry(
+async function prepareProjectAsset(
   file: File,
-): Promise<ProjectAssetManifestEntry> {
-  const hash = await hashFile(file);
+): Promise<
+  { entry: ProjectAssetManifestEntry; buffer: ArrayBuffer } | undefined
+> {
+  let buffer: ArrayBuffer;
+  try {
+    buffer = await file.arrayBuffer();
+  } catch {
+    return undefined;
+  }
+  const hash = await hashBuffer(buffer);
   const fileName = projectAssetFileName(hash, file.name);
   return {
-    id: hash,
-    fileName,
-    originalName: file.name,
-    path: `${PROJECT_ASSETS_DIRECTORY}/${fileName}`,
-    hash,
-    type: file.type,
-    size: file.size,
-    lastModified: file.lastModified,
+    entry: {
+      id: hash,
+      fileName,
+      originalName: file.name,
+      path: `${PROJECT_ASSETS_DIRECTORY}/${fileName}`,
+      hash,
+      type: file.type,
+      size: file.size,
+      lastModified: file.lastModified,
+    },
+    buffer,
   };
 }
 
-async function hashFile(file: File) {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    await file.arrayBuffer(),
-  );
+async function hashBuffer(buffer: ArrayBuffer) {
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
   return Array.from(new Uint8Array(digest))
     .map((value) => value.toString(16).padStart(2, "0"))
     .join("");
@@ -14452,11 +14474,11 @@ function projectAssetFileName(hash: string, fileName: string) {
 async function writeProjectAssetFile(
   handle: FileSystemDirectoryHandle,
   fileName: string,
-  file: File,
+  buffer: ArrayBuffer,
 ) {
   const output = await handle.getFileHandle(fileName, { create: true });
   const writable = await output.createWritable();
-  await writable.write(await file.arrayBuffer());
+  await writable.write(buffer);
   await writable.close();
 }
 

@@ -49,6 +49,7 @@ import { createTempFileRegistry } from "./temp-files.mjs";
 import { runRenderWorkerJob } from "./job-worker.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
+import { resolveServerPort } from "./server-port.mjs";
 import {
   BenchmarkBaselineError,
   cleanupRenderBenchmarkData,
@@ -123,7 +124,7 @@ const customPresetPath = path.join(
   "custom-presets.local.json",
 );
 const jobHistoryPath = path.join(rootDir, "data", "jobs.local.json");
-const port = Number(process.env.PORT ?? 4175);
+const port = resolveServerPort();
 
 await Promise.all([
   fs.mkdir(uploadDir, { recursive: true }),
