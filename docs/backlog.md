@@ -1,6 +1,6 @@
 # Backlog e estado do Sonara Hub
 
-> Atualizado em 2026-06-11. Este documento existe para que colaboradores externos
+> Atualizado em 2026-06-12. Este documento existe para que colaboradores externos
 > entendam o estado atual, as dívidas e as próximas etapas com contexto suficiente
 > para agir. Para o gate de validação antes de release, ver
 > [release-test-bench.md](release-test-bench.md).
@@ -32,6 +32,9 @@ reinicie o `npm run dev` inteiro. O front (vite) tem HMR.
   controles de pasta; sidebar vira perfil + lista ao abrir um projeto.
 - **Camadas unificadas / render stack (06-11, Steps 1-7):** `legacyRenderStack` +
   `composition.renderOrder` com fallback; seção "Composição" no inspetor visual.
+- **Workspace reliability (06-12):** fallback seguro para handles externos sem
+  permissão, autosave por projeto sem clobber no boot/troca rápida, e save de
+  snapshot tolerante a assets manuais ilegíveis/obsoletos.
 
 ## Dívida estrutural — PRIORIDADE
 
@@ -51,44 +54,43 @@ reinicie o `npm run dev` inteiro. O front (vite) tem HMR.
 
 ## Bugs conhecidos / em verificação
 
-### B1. Auto-save sobrescreve o `.sonara` ao carregar (perda de dados)
+### B1. Auto-save sobrescrevia o `.sonara` ao carregar — CORRIGIDO
 
-- Efeito de auto-save (`App.tsx`, debounce 250ms ao mudar `tracks`/settings)
-  dispara logo após um projeto carregar; se o restore ainda não aplicou tudo
-  (ex.: capa não reconstruída), grava o estado incompleto por cima do `.sonara`
-  bom → perde a capa/camadas (daí ter que deletar e re-adicionar a capa).
-- **Mitigação já no código (a verificar end-to-end):** `hydratingRef` setado por
-  `setWorkspaceTracks`; o auto-save pula exatamente o save disparado pelo load.
-- Pendente: confirmar em uso real que abrir projeto não sobrescreve mais.
+- O auto-save agora ignora apenas o array exato carregado por `setWorkspaceTracks`,
+  então abrir/restaurar um projeto não sobrescreve `.sonara` com estado ainda em
+  hidratação, mas a primeira edição real feita logo após trocar de projeto salva.
+- Coberto por `tests/project-folder-flow.mjs` (snapshot interno não é clobberado,
+  troca Alpha/Beta persiste edições e assets) e `tests/ui-smoke.mjs`.
 
-### B2. `NotReadableError` ao salvar ("The requested file could not be read…")
+### B2. `NotReadableError` ao salvar ("The requested file could not be read…") — CORRIGIDO
 
-- Vem de referência de `File` **obsoleta** — tipicamente camada com **arquivo
-  externo** (handle de pasta do File System Access API que expirou), não a capa
-  reconstruída do `.sonara`.
-- **Abordagem:** ao montar o snapshot para salvar, ler cada `File` com try/catch;
-  se ilegível, pular a camada (ou re-hidratar do asset salvo) em vez de quebrar o
-  save inteiro. Ver `createSnapshot`/`saveActiveProjectSnapshot` em `App.tsx`.
+- Vinha de referência de `File` **obsoleta** — tipicamente camada manual externa
+  cujo handle expirou.
+- A serialização de snapshot agora testa a legibilidade do `File`; se um asset
+  manual não puder ser lido, o save continua e a camada ilegível é omitida do
+  snapshot portátil em vez de quebrar o `.sonara` inteiro.
+- Coberto por `tests/project-folder-flow.mjs` com `File.arrayBuffer()` simulando
+  `NotReadableError`.
 
-### B3. Asset interno (capa/camada) não carregava — CORRIGIDO, a confirmar
+### B3. Asset interno (capa/camada) não carregava — CORRIGIDO
 
 - `/api/internal-asset` servia de `.sonara/assets/` (pasta dot) e o `send` do
   Express, com `dotfiles:"ignore"` padrão, devolvia 404 → camadas não
   reconstruíam. Fix: `res.sendFile(path, { dotfiles: "allow" })`
-  (`server/index.mjs`). Verificado HTTP 200; confirmar que a capa aparece após
-  reiniciar o server.
+  (`server/index.mjs`). Confirmado por fluxo Playwright de projeto interno com
+  snapshot `.sonara`.
 
 ### B4. "Composição: ocultar some pra sempre"
 
 - Na seção "Composição" do inspetor visual, ocultar um item o remove da lista sem
   como reexibir. Será absorvido pelo redesenho R1 (ver abaixo), mas é um bug.
 
-### B5. Conflito de porta só no preview embutido
+### B5. Conflito de porta só no preview embutido — CORRIGIDO
 
-- O launch config "dev" exporta `PORT=5173`, então `npm run dev` manda servidor e
-  cliente para 5173; o vite pega, o backend sai, e `/api` cai (ECONNREFUSED→500).
-  **Não afeta** o `npm run dev` em terminal normal (backend em :4175). Só afeta
-  ferramentas de preview que setam `PORT`.
+- O servidor agora resolve a porta por `SONARA_API_PORT` quando definido e, no
+  lifecycle `dev:server`, ignora `PORT=5173` injetado por preview tools para
+  manter a API em `:4175`. `PORT` continua respeitado fora do modo dev.
+- Coberto por `tests/server-port.test.mjs`.
 
 ## Próximas funcionalidades (pedidas)
 
@@ -116,11 +118,12 @@ Visão do dono do produto:
   excluir. Servidor: ampliar os handlers de `internal-snapshot` (`server/index.mjs`).
   Resolve a raiz de B1 (deixa de ser "sobrescreve" e vira "salva em slot").
 
-### R3. Setup: pastas antes dos projetos (em verificação)
+### R3. Setup: pastas antes dos projetos — CONFIRMADO
 
 - Já no código: o seletor de projetos só aparece após "Confirmar pastas e
   continuar" (`foldersReady` em `App.tsx`), para não carregar num workspace
-  indefinido. Confirmar UX e se elimina o "começa do zero em outro save".
+  indefinido. Coberto por `tests/project-folder-flow.mjs`, incluindo boot sem
+  auto-load, handles externos negados e fallback para `input/`/`outputs/`.
 
 ## Diferido — estética (precisa de revisão visual do dono)
 

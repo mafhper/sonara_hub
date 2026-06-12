@@ -10,6 +10,7 @@ const browser = await chromium.launch({ headless: true });
 try {
   await testStoredHandlePermissionFallback(browser);
   await testExternalProjectFolderFlow(browser);
+  await testUnreadableExternalAssetDoesNotBlockProjectSnapshot(browser);
   await testInternalProjectPrefersSonaraSnapshot(browser);
 } finally {
   await browser.close();
@@ -259,6 +260,64 @@ async function testExternalProjectFolderFlow(browser) {
   }
 }
 
+async function testUnreadableExternalAssetDoesNotBlockProjectSnapshot(browser) {
+  const scenario = await createScenarioPage(browser, {
+    routeApi: routeExternalAudioAnalyzeApi,
+    unreadableAssetNames: ["stale-layer.svg"],
+  });
+  const { page } = scenario;
+  try {
+    await page.goto(clientUrl, { waitUntil: "domcontentloaded" });
+    await page.locator(".studio-shell").waitFor();
+    await page
+      .getByRole("button", { name: "Confirmar pastas e continuar" })
+      .click();
+    await setupField(page, "Pasta de entrada").getByRole("button").click();
+    await page.locator(".track-row", { hasText: "alpha" }).waitFor();
+
+    await page.getByRole("button", { name: "Estúdio visual" }).click();
+    await page
+      .locator('input[type="file"][accept="image/*,video/*,.svg"]')
+      .setInputFiles({
+        name: "stale-layer.svg",
+        mimeType: "image/svg+xml",
+        buffer: Buffer.from(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#b44"/></svg>',
+        ),
+      });
+    await page.getByText("Camadas · 1/3").waitFor();
+    await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
+    await page.getByRole("tab", { name: "Dados" }).click();
+
+    await page
+      .locator(".inspector-scroll label.field", { hasText: "Título" })
+      .locator("input")
+      .first()
+      .fill("Stale Asset Editado");
+    await page.waitForFunction(
+      () =>
+        window.__sonaraMockFS.dump().alphaState.includes("Stale Asset Editado"),
+      null,
+      { timeout: 7_000 },
+    );
+    const snapshot = JSON.parse(
+      await page.evaluate(() => window.__sonaraMockFS.dump().alphaState),
+    );
+    assert.equal(
+      snapshot.tracks[0].layers.length,
+      0,
+      "unreadable manual layers must be omitted instead of blocking the project snapshot save",
+    );
+    assert.deepEqual(
+      await page.evaluate(() => window.__sonaraMockFS.dump().alphaAssets),
+      [],
+    );
+    await scenario.assertClean();
+  } finally {
+    await scenario.close();
+  }
+}
+
 async function testInternalProjectPrefersSonaraSnapshot(browser) {
   const internalSnapshotPuts = [];
   const scenario = await createScenarioPage(browser, {
@@ -291,15 +350,36 @@ async function testInternalProjectPrefersSonaraSnapshot(browser) {
 
 async function createScenarioPage(
   browser,
-  { storedDeniedHandles = false, globalSnapshot = null, routeApi = null } = {},
+  {
+    storedDeniedHandles = false,
+    globalSnapshot = null,
+    routeApi = null,
+    unreadableAssetNames = [],
+  } = {},
 ) {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 950 },
   });
   await context.addInitScript(
-    ({ alphaBytes, betaBytes, storedDeniedHandles, globalSnapshot }) => {
+    ({
+      alphaBytes,
+      betaBytes,
+      storedDeniedHandles,
+      globalSnapshot,
+      unreadableAssetNames,
+    }) => {
       const createdObjectUrls = [];
       const revokedObjectUrls = [];
+      const unreadableAssets = new Set(unreadableAssetNames);
+      const nativeFileArrayBuffer = File.prototype.arrayBuffer;
+      File.prototype.arrayBuffer = function arrayBuffer() {
+        if (unreadableAssets.has(this.name)) {
+          return Promise.reject(
+            new DOMException("Mock unreadable file", "NotReadableError"),
+          );
+        }
+        return nativeFileArrayBuffer.call(this);
+      };
       const nativeCreateObjectURL = URL.createObjectURL.bind(URL);
       const nativeRevokeObjectURL = URL.revokeObjectURL.bind(URL);
       URL.createObjectURL = (value) => {
@@ -518,6 +598,7 @@ async function createScenarioPage(
       betaBytes,
       storedDeniedHandles,
       globalSnapshot,
+      unreadableAssetNames,
     },
   );
   const page = await context.newPage();
