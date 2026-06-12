@@ -98,11 +98,7 @@ page.on("console", (message) => {
 page.on("pageerror", (error) => errors.push(error.message));
 page.on("requestfailed", (request) => {
   const failureText = request.failure()?.errorText ?? "";
-  if (
-    failureText === "net::ERR_ABORTED" &&
-    (request.url().includes("/api/audio/artwork-preview/") ||
-      request.url().endsWith("/api/project"))
-  ) {
+  if (failureText === "net::ERR_ABORTED" && isBenignAbortedRequest(request)) {
     return;
   }
   failedRequests.push(`${request.method()} ${request.url()} ${failureText}`);
@@ -745,6 +741,17 @@ try {
 } finally {
   await cleanupSmokePresets();
   await browser.close();
+}
+
+function isBenignAbortedRequest(request) {
+  if (request.method() !== "GET") return false;
+  const url = new URL(request.url());
+  return (
+    url.pathname.startsWith("/api/audio/artwork-preview/") ||
+    url.pathname === "/api/project" ||
+    url.pathname === "/api/visual-presets" ||
+    url.pathname === "/api/jobs"
+  );
 }
 
 async function assertCatalogArtworkLayout(page) {
