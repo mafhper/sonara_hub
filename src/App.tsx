@@ -962,6 +962,10 @@ function App() {
   const [audioStageView, setAudioStageView] = useState<AudioStageView>("edit");
   const [visualStageView, setVisualStageView] =
     useState<VisualStageView>("editor");
+  // Item ativo da pilha de composição (chaves de renderStackKey). Vive no App
+  // para futura sincronização com a seleção do canvas.
+  const [selectedStackKey, setSelectedStackKey] =
+    useState<string>("atmosphere");
   const [visualPresets, setVisualPresets] =
     useState<ScenePresetV3[]>(builtinVisualPresets);
   const [outputPreset, setOutputPreset] = useState("youtube-1080p");
@@ -3190,11 +3194,48 @@ function App() {
     return newStack;
   }
 
-  function moveSelectedRenderStackItem(index: number, direction: -1 | 1) {
-    const current = computeRenderStack();
-    updateScene({
-      ...selectedScene,
-      renderOrder: moveRenderStackItem(current, index, direction),
+  // Reordena o array layers para refletir a pilha: itens de mídia pintados por
+  // último (frente) ficam no índice 0, mantendo a convenção legada do array.
+  function syncLayersWithStack(
+    layers: MediaLayerV2[],
+    stack: RenderStackItem[],
+  ): MediaLayerV2[] {
+    const orderedIds = stack
+      .filter(
+        (item): item is Extract<RenderStackItem, { kind: "media" }> =>
+          item.kind === "media",
+      )
+      .map((item) => item.layerId)
+      .reverse();
+    const byId = new Map(layers.map((layer) => [layer.id, layer]));
+    const ordered = orderedIds.flatMap((id) => {
+      const layer = byId.get(id);
+      return layer ? [layer] : [];
+    });
+    const missing = layers.filter((layer) => !orderedIds.includes(layer.id));
+    return [...ordered, ...missing].map((layer, order) => ({
+      ...layer,
+      order,
+    }));
+  }
+
+  function moveCompositionItem(key: string, direction: "forward" | "backward") {
+    if (!selectedTrack) return;
+    const stack = computeRenderStack();
+    const index = stack.findIndex((item) => renderStackKey(item) === key);
+    if (index < 0) return;
+    // "forward" = pintado depois = mais à frente no vídeo.
+    const next = moveRenderStackItem(
+      stack,
+      index,
+      direction === "forward" ? 1 : -1,
+    );
+    if (next === stack) return;
+    // renderOrder e layers precisam mudar no MESMO update para o preview e a
+    // pilha nunca divergirem por um frame.
+    updateSelectedTrack({
+      scene: { ...selectedScene, renderOrder: next },
+      layers: syncLayersWithStack(selectedTrack.layers, next),
     });
   }
 
@@ -3499,18 +3540,6 @@ function App() {
       layers: selectedTrack.layers
         .filter((layer) => layer.id !== id)
         .map((layer, order) => ({ ...layer, order })),
-    });
-  }
-
-  function moveLayer(id: string, direction: -1 | 1) {
-    if (!selectedTrack) return;
-    const layers = [...selectedTrack.layers];
-    const index = layers.findIndex((layer) => layer.id === id);
-    const target = index + direction;
-    if (index < 0 || target < 0 || target >= layers.length) return;
-    [layers[index], layers[target]] = [layers[target], layers[index]];
-    updateSelectedTrack({
-      layers: layers.map((layer, order) => ({ ...layer, order })),
     });
   }
 
@@ -5494,8 +5523,7 @@ function App() {
                 onCommon={updateCommon}
                 onDeletePreset={() => void deletePreset()}
                 onDuplicatePreset={() => void duplicatePreset()}
-                onMoveLayer={moveLayer}
-                onMoveRenderStack={moveSelectedRenderStackItem}
+                onMoveRenderStack={moveCompositionItem}
                 onPalette={applyPalette}
                 onPlayful={updatePlayful}
                 onRemoveLayer={removeLayer}
@@ -10705,8 +10733,7 @@ function VisualInspector(props: {
   onCommon: (key: string, value: number) => void;
   onDeletePreset: () => void;
   onDuplicatePreset: () => void;
-  onMoveLayer: (id: string, direction: -1 | 1) => void;
-  onMoveRenderStack: (index: number, direction: -1 | 1) => void;
+  onMoveRenderStack: (key: string, direction: "forward" | "backward") => void;
   onPalette: (palette: VisualPalette) => void;
   onPlayful: (patch: PlayfulPatch) => void;
   onRemoveLayer: (id: string) => void;
@@ -10734,7 +10761,8 @@ function VisualInspector(props: {
         scope="series"
       >
         <div className="composition-stack-list">
-          {stackItems.map((item, index) => (
+          {/* Exibida invertida: topo da lista = pintado por último = frente. */}
+          {[...stackItems].reverse().map((item, displayIndex) => (
             <div
               key={item.key}
               className={`composition-stack-row ${
@@ -10744,22 +10772,22 @@ function VisualInspector(props: {
               <span className="composition-stack-label">{item.label}</span>
               <span className="composition-stack-actions">
                 <button
-                  aria-label={`Subir ${item.label}`}
+                  aria-label={`Trazer ${item.label} para frente`}
                   className="icon-button-sm"
-                  disabled={index === 0}
-                  title="Subir"
+                  disabled={displayIndex === 0}
+                  title="Trazer para frente"
                   type="button"
-                  onClick={() => props.onMoveRenderStack(index, -1)}
+                  onClick={() => props.onMoveRenderStack(item.key, "forward")}
                 >
                   <ChevronUp />
                 </button>
                 <button
-                  aria-label={`Descer ${item.label}`}
+                  aria-label={`Enviar ${item.label} para trás`}
                   className="icon-button-sm"
-                  disabled={index === stackItems.length - 1}
-                  title="Descer"
+                  disabled={displayIndex === stackItems.length - 1}
+                  title="Enviar para trás"
                   type="button"
-                  onClick={() => props.onMoveRenderStack(index, 1)}
+                  onClick={() => props.onMoveRenderStack(item.key, "backward")}
                 >
                   <ChevronDown />
                 </button>
@@ -11339,7 +11367,6 @@ function LayerEditor(props: {
   onApplyCoverLayerBatch?: (preset: CoverLayerPreset) => void;
   onApplyLayersBatch?: () => void;
   onApplyLayerSet: (layers: MediaLayerV2[]) => void;
-  onMoveLayer: (id: string, direction: -1 | 1) => void;
   onRemoveLayer: (id: string) => void;
   onUndoLayer: () => void;
   onUpdateLayer: (id: string, patch: Partial<MediaLayerV2>) => void;
@@ -11433,20 +11460,6 @@ function LayerEditor(props: {
                 }
               >
                 {layer.visible ? <Eye /> : <EyeOff />}
-              </IconButton>
-              <IconButton
-                disabled={index === 0}
-                label="Trazer camada para frente"
-                onClick={() => props.onMoveLayer(layer.id, -1)}
-              >
-                <ChevronUp />
-              </IconButton>
-              <IconButton
-                disabled={index === props.layers.length - 1}
-                label="Enviar camada para trás"
-                onClick={() => props.onMoveLayer(layer.id, 1)}
-              >
-                <ChevronDown />
               </IconButton>
               <IconButton
                 label="Remover camada"
