@@ -372,7 +372,7 @@ async function runWorkflowCase(source, inputConfig) {
     await page.getByRole("button", { name: "Divulgação" }).click();
     await page.getByText("Assets de publicação").waitFor({ timeout: 20_000 });
     await page
-      .getByLabel("Asset em foco")
+      .getByLabel("Formato base")
       .selectOption(prepared.publicationPresetId);
     await page.getByRole("button", { name: "Gerar assets" }).click();
     await waitForCondition(
