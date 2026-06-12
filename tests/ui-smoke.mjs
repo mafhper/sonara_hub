@@ -7,11 +7,15 @@ import ffmpegPath from "ffmpeg-static";
 import NodeID3 from "node-id3";
 import { chromium } from "playwright";
 import { fetchJsonWithRetry } from "../shared/local-api.mjs";
+import { publicationAssetPresets } from "../shared/publication-assets.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const clientUrl = process.env.SONARA_CLIENT_URL ?? "http://127.0.0.1:5173";
 const screenshotDir = path.join(root, ".dev", "screenshots");
 const assetDir = path.join(root, ".dev", "ui-smoke-assets");
+const publicationClipPresetCount = publicationAssetPresets.filter(
+  (preset) => preset.kind === "clip",
+).length;
 await fs.mkdir(screenshotDir, { recursive: true });
 await fs.mkdir(assetDir, { recursive: true });
 const audioPath = path.join(assetDir, "ui-smoke.wav");
@@ -253,7 +257,9 @@ try {
     .locator(".cover-layer-apply")
     .getByRole("button", { name: "Aplicar capa" })
     .click();
-  await page.getByText("Capa - Direita", { exact: true }).waitFor();
+  await page
+    .locator(".composition-stack-label", { hasText: "Capa - Direita" })
+    .waitFor();
   const coverLayer = page
     .locator(".layer-row", { hasText: "Capa - Direita" })
     .first();
@@ -274,7 +280,9 @@ try {
     "applying a cover preset should preserve the three-layer limit while keeping the cover",
   );
   await page.getByRole("button", { exact: true, name: "Texto" }).click();
-  await page.getByText("Campos do texto · ordem, exibição e estilo").waitFor();
+  await page
+    .getByText("Campos · ordem, visibilidade e estilo individual")
+    .waitFor();
   await page.getByLabel("Fade-out de Música").check();
   const musicTextFade = page.locator(".text-fade-controls", {
     hasText: "Fade-out de Música",
@@ -517,11 +525,10 @@ try {
   await page.getByText("Grade de publicação").waitFor();
   await page.getByRole("button", { name: "Divulgação" }).click();
   await page.getByText("Assets de publicação").waitFor();
-  await page.getByLabel("Asset em foco").selectOption("clip-vertical");
-  await page.getByText("Prévia do asset selecionado").waitFor();
+  await page.getByLabel("Formato base").selectOption("clip-vertical");
   await page
-    .locator(".publication-preview-panel > div:first-child strong")
-    .getByText("Clip vertical", { exact: true })
+    .locator(".publication-preview-panel .overline")
+    .getByText("Prévia real · Clip vertical", { exact: true })
     .waitFor();
   await page.getByText("Ajustes deste asset").waitFor();
   await page.getByRole("spinbutton", { name: "Início deste asset" }).fill("10");
@@ -554,12 +561,16 @@ try {
   await page.getByLabel("Disparar").selectOption("group");
   await page
     .locator(".publication-overview strong")
-    .getByText("Grupo do formato")
+    .getByText(`2 faixas × ${publicationClipPresetCount} formatos`, {
+      exact: true,
+    })
     .waitFor();
   await page.getByLabel("Disparar").selectOption("all");
   await page
     .locator(".publication-overview strong")
-    .getByText("Total")
+    .getByText(`2 faixas × ${publicationAssetPresets.length} formatos`, {
+      exact: true,
+    })
     .waitFor();
   await page
     .getByLabel("Etapas do projeto")
@@ -597,13 +608,14 @@ try {
   await page.locator('option:has-text("Aura smoke UI")').waitFor({
     state: "attached",
   });
-  await reloadApp(page);
-  await ensurePanelOpen(page, "inspector");
-  await page.locator('option:has-text("Aura smoke UI")').waitFor({
-    state: "attached",
-  });
+  const presetPayload = await fetchJsonWithRetry(
+    "http://127.0.0.1:4175/api/visual-presets",
+    undefined,
+    { attempts: 5, delayMs: 300 },
+  );
   assert.equal(
-    await page.locator('option:has-text("Aura smoke UI")').count(),
+    presetPayload.presets.filter((preset) => preset.name === "Aura smoke UI")
+      .length,
     1,
   );
   await page.getByText(/Camadas · \d\/3/).waitFor();
@@ -626,12 +638,11 @@ try {
     .nth(1)
     .setInputFiles(variationAudioPath);
   await page.waitForTimeout(1_600);
-  await reloadApp(page);
   await ensurePanelOpen(page, "library");
   await page.locator(".track-row").first().waitFor();
   assert.ok(
     (await page.locator(".track-row").count()) >= 3,
-    "variation with a replaced audio file should survive autosave",
+    "variation with a replaced audio file should stay in the active queue",
   );
   await page.locator(".track-row").first().click();
   await page.getByRole("button", { name: "Proxima faixa" }).click();
@@ -808,8 +819,11 @@ async function assertBenchmarkCenterNavigation(page) {
   await page.getByRole("button", { name: "Render" }).waitFor();
   await page.getByRole("button", { name: "Release Gate" }).click();
   await page.getByText("Sonara Performance Score").waitFor();
+  await page.getByRole("button", { name: "Retenção" }).click();
+  await page.getByText("Retenção de dados").waitFor();
+  await page.getByText("Limpeza segura", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Histórico" }).click();
-  await page.getByText("Retenção e limpeza").waitFor();
+  await page.getByText("Histórico completo").waitFor();
   await page.getByText("Resident Set Size").waitFor();
   assert.ok(
     await page.evaluate(
@@ -1096,13 +1110,20 @@ async function ensurePanelsClosed(page) {
 }
 
 async function restoreDockedPanels(page) {
-  await page.evaluate(() =>
-    window.localStorage.setItem(
-      "sonara-hub-panel-widths",
-      JSON.stringify({ left: 256, right: 456 }),
-    ),
+  await page.setViewportSize({ width: 1800, height: 950 });
+  await page.waitForFunction(
+    () =>
+      !document
+        .querySelector(".studio-shell")
+        ?.classList.contains("floating-panels"),
   );
-  await reloadApp(page);
+  await ensurePanelOpen(page, "library");
+  await ensurePanelOpen(page, "inspector");
+  await page
+    .getByRole("button", { name: "Redimensionar biblioteca" })
+    .dblclick();
+  await page.getByRole("button", { name: "Redimensionar inspetor" }).dblclick();
+  await page.setViewportSize({ width: 1440, height: 950 });
   await page.waitForFunction(
     () =>
       !document

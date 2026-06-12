@@ -476,11 +476,11 @@ svg {
 }
 
 .library-resize {
-  right: -7px;
+  right: 0;
 }
 
 .inspector-resize {
-  left: -7px;
+  left: 0;
 }
 
 .library-header {
@@ -3682,11 +3682,11 @@ svg {
 
 .panels-swapped .library-resize {
   right: auto;
-  left: -7px;
+  left: 0;
 }
 
 .panels-swapped .inspector-resize {
-  right: -7px;
+  right: 0;
   left: auto;
 }
 

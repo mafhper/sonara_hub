@@ -1456,19 +1456,20 @@ function App() {
     savePanelWidths({ left: leftRailWidth, right: rightRailWidth });
   }, [leftRailWidth, rightRailWidth]);
 
-  // Set true by setWorkspaceTracks on every project load. The auto-save below
-  // skips exactly the save that the load itself triggers, so opening a project
-  // never overwrites its saved .sonara with a still-hydrating state (e.g. before
-  // the cover/external layers have been rebuilt from .sonara/assets).
-  const hydratingRef = useRef(false);
+  // setWorkspaceTracks marks the exact tracks array created by a project load.
+  // The auto-save below skips only that loaded array, so a quick first edit made
+  // before the debounce fires is still persisted instead of being mistaken for
+  // hydration noise.
+  const hydratingTracksRef = useRef<TrackDraft[] | null>(null);
 
   useEffect(() => {
     if (!tracks.length) return;
     const timeout = window.setTimeout(() => {
-      if (hydratingRef.current) {
-        hydratingRef.current = false;
+      if (hydratingTracksRef.current === tracks) {
+        hydratingTracksRef.current = null;
         return;
       }
+      hydratingTracksRef.current = null;
       const snapshot = createSnapshot();
       void saveSnapshot(snapshot);
       void saveActiveProjectSnapshot(snapshot);
@@ -1531,7 +1532,7 @@ function App() {
           presetPayload.presets ?? builtinVisualPresets,
         ),
       );
-      applySnapshotSettings(snapshot);
+      applySnapshotSettings(snapshot, { includeCover: false });
       try {
         const project = await fetchJsonWithRetry<{
           inputProjects?: InternalInputProject[];
@@ -1541,6 +1542,7 @@ function App() {
         const projects = (project.inputProjects ?? []).map(
           (item): InputProjectOption => ({ ...item, source: "internal" }),
         );
+        if (inputDirectoryRef.current || musicDirectoryRef.current) return;
         setInputProjects(projects);
         setInputFolderName(project.inputDirectory ?? "input");
         setInputFolderKind("internal");
@@ -1585,17 +1587,23 @@ function App() {
       }
       const restored = await restoreMusicDirectory(snapshot);
       if (restored) return;
-      await loadInternalInputWorkspace(snapshot);
+      await loadInternalInputWorkspace();
     } catch (reason) {
       setError(messageOf(reason));
     }
   }
 
-  async function loadInternalInputWorkspace(
-    snapshot?: ProjectSnapshot,
-    notify = false,
+  async function loadInternalInputWorkspace({
     requestedProjectId = "",
-  ) {
+    notify = false,
+    snapshotOverride,
+    useSnapshotOverride = false,
+  }: {
+    requestedProjectId?: string;
+    notify?: boolean;
+    snapshotOverride?: ProjectSnapshot;
+    useSnapshotOverride?: boolean;
+  } = {}) {
     type InternalProjectPayload = {
       inputDirectory?: string;
       outputDirectory?: string;
@@ -1652,9 +1660,11 @@ function App() {
       ),
       lyricEntries,
     );
-    // If no snapshot was passed, try loading a persisted one from .sonara/.
+    // Prefer the project's own .sonara snapshot. A caller-provided snapshot is
+    // only allowed for explicit migration/import flows; boot and normal project
+    // selection must not let the global IndexedDB snapshot clobber project state.
     const activeSnapshot =
-      snapshot ??
+      (useSnapshotOverride ? snapshotOverride : undefined) ??
       (selectedProjectId && selectedProjectId !== "."
         ? await loadInternalProjectSnapshot(selectedProjectId)
         : undefined);
@@ -1733,9 +1743,17 @@ function App() {
 
   async function restoreInputDirectory() {
     const handle = await loadDirectoryHandle("input-directory");
-    if (!handle) return [];
+    if (!handle) {
+      useInternalInputDirectory();
+      return [];
+    }
     const permission = await handle.queryPermission?.({ mode: "readwrite" });
-    if (permission !== "granted") return [];
+    if (permission !== "granted") {
+      useInternalInputDirectory(
+        "A pasta de entrada externa precisa ser reautorizada. Voltando para input/ interno.",
+      );
+      return [];
+    }
     inputDirectoryRef.current = handle;
     setInputFolderName(handle.name);
     setInputFolderKind("external");
@@ -1747,8 +1765,16 @@ function App() {
   async function restoreOutputDirectory() {
     const handle = await loadDirectoryHandle("output-directory");
     if (!handle) {
-      setOutputFolderName("outputs");
-      setOutputFolderKind("internal");
+      useInternalOutputDirectory();
+      return;
+    }
+    const permission = await handle.queryPermission?.({ mode: "readwrite" });
+    if (permission !== "granted") {
+      useInternalOutputDirectory(true, {
+        message:
+          "A pasta de saída externa precisa ser reautorizada. Voltando para outputs/ interno.",
+        tone: "warning",
+      });
       return;
     }
     outputDirectoryRef.current = handle;
@@ -1949,9 +1975,8 @@ function App() {
   }
 
   async function chooseInputDirectory() {
-    const currentSnapshot = tracks.length ? createSnapshot() : undefined;
     if (!window.showDirectoryPicker) {
-      await loadInternalInputWorkspace(currentSnapshot, true);
+      await loadInternalInputWorkspace({ notify: true });
       return;
     }
     try {
@@ -1960,23 +1985,49 @@ function App() {
         mode: "readwrite",
         startIn: "music",
       });
+      let permission = await handle.queryPermission?.({ mode: "readwrite" });
+      if (permission !== "granted") {
+        permission = await handle.requestPermission?.({ mode: "readwrite" });
+      }
+      if (permission !== "granted") {
+        if (tracks.length) {
+          setBatchFeedback(
+            "A pasta de entrada externa precisa de permissão. Mantive o workspace atual.",
+            "warning",
+          );
+        } else {
+          await loadInternalInputWorkspace({ notify: true });
+        }
+        return;
+      }
+      const projects = await discoverInputProjects(handle);
+      if (!projects[0]) {
+        setBatchFeedback(
+          `${handle.name} não tem projetos com áudio carregável. Mantive o workspace atual.`,
+          "warning",
+        );
+        return;
+      }
       await saveDirectoryHandle("input-directory", handle);
       inputDirectoryRef.current = handle;
       setInputFolderName(handle.name);
       setInputFolderKind("external");
-      const projects = await discoverInputProjects(handle);
       setInputProjects(projects);
       setWorkspaceWriteEnabled(false);
+      setCleanupProjectIds([]);
       if (projects[0]) {
         await selectInputProject(projects[0].id, projects);
-      } else {
-        setFolderName("Nenhum projeto encontrado");
-        setTracks([]);
-        setSelectedTrackId("");
       }
     } catch (reason) {
       if ((reason as DOMException)?.name !== "AbortError") {
-        await loadInternalInputWorkspace(currentSnapshot, true);
+        if (tracks.length) {
+          setBatchFeedback(
+            `Não foi possível abrir a pasta externa: ${messageOf(reason)}. Mantive o workspace atual.`,
+            "warning",
+          );
+        } else {
+          await loadInternalInputWorkspace({ notify: true });
+        }
       }
     }
   }
@@ -1997,7 +2048,7 @@ function App() {
       setProjectStateStatus(
         `Carregando ${project.name} em input/ interno da raiz do projeto...`,
       );
-      await loadInternalInputWorkspace(undefined, false, project.id);
+      await loadInternalInputWorkspace({ requestedProjectId: project.id });
       return;
     }
     if (!project.handle) return;
@@ -2076,6 +2127,18 @@ function App() {
         mode: "readwrite",
         startIn: "videos",
       });
+      let permission = await handle.queryPermission?.({ mode: "readwrite" });
+      if (permission !== "granted") {
+        permission = await handle.requestPermission?.({ mode: "readwrite" });
+      }
+      if (permission !== "granted") {
+        useInternalOutputDirectory(true, {
+          message:
+            "A pasta de saída externa precisa de permissão. Usando outputs/ interno.",
+          tone: "warning",
+        });
+        return;
+      }
       await saveDirectoryHandle("output-directory", handle);
       outputDirectoryRef.current = handle;
       setOutputFolderName(handle.name);
@@ -2087,14 +2150,27 @@ function App() {
     }
   }
 
-  function useInternalOutputDirectory(notify = false) {
+  function useInternalInputDirectory(message?: string) {
+    inputDirectoryRef.current = null;
+    musicDirectoryRef.current = null;
+    setInputFolderName("input");
+    setInputFolderKind("internal");
+    setWorkspaceWriteEnabled(false);
+    if (message) setBatchFeedback(message, "warning");
+  }
+
+  function useInternalOutputDirectory(
+    notify = false,
+    options: { message?: string; tone?: ToastTone } = {},
+  ) {
     outputDirectoryRef.current = null;
     setOutputFolderName("outputs");
     setOutputFolderKind("internal");
     if (notify) {
       setBatchFeedback(
-        "Usando outputs/ interno da raiz do projeto. Para escolher outra pasta, abra em um navegador com suporte a seleção persistente.",
-        "info",
+        options.message ??
+          "Usando outputs/ interno da raiz do projeto. Para escolher outra pasta, abra em um navegador com suporte a seleção persistente.",
+        options.tone ?? "info",
       );
     }
   }
@@ -4116,6 +4192,7 @@ function App() {
   }
 
   function saveActiveProjectSnapshot(snapshot: ProjectSnapshot) {
+    if (!snapshot.tracks.length) return;
     const handle = musicDirectoryRef.current;
     const projectId = selectedInputProjectId;
     cancelPendingProjectSnapshotSave();
@@ -4156,8 +4233,12 @@ function App() {
     projectSaveTimerRef.current = null;
   }
 
-  function applySnapshotSettings(snapshot?: ProjectSnapshot) {
+  function applySnapshotSettings(
+    snapshot?: ProjectSnapshot,
+    options: { includeCover?: boolean } = {},
+  ) {
     if (!snapshot) return;
+    const includeCover = options.includeCover ?? true;
     // workflowMode is derived from the restored per-track selection, not set.
     setWorkspaceMode(snapshot.workspaceMode ?? "visual");
     setAudioStageView(snapshot.audioStageView ?? "edit");
@@ -4197,7 +4278,7 @@ function App() {
     setCoverSeriesSettings(
       normalizeCoverSeriesClient(snapshot.coverSeriesSettings),
     );
-    if (snapshot.coverFile) {
+    if (includeCover && snapshot.coverFile) {
       setCover({
         file: snapshot.coverFile,
         src: URL.createObjectURL(snapshot.coverFile),
@@ -4209,10 +4290,8 @@ function App() {
     baseTracks: TrackDraft[],
     snapshot?: ProjectSnapshot,
   ) {
-    // Suppress the immediate post-load auto-save (see hydratingRef) so restoring
-    // a project does not clobber its own .sonara before hydration completes.
-    hydratingRef.current = true;
     if (!snapshot) {
+      hydratingTracksRef.current = baseTracks;
       setTracks(baseTracks);
       setSelectedTrackId(baseTracks[0]?.id ?? "");
       return;
@@ -4243,6 +4322,7 @@ function App() {
         return source ? [restoreTrack(source, track)] : [];
       });
     const restored = [...bases, ...variations];
+    hydratingTracksRef.current = restored;
     setTracks(restored);
     setSelectedTrackId(
       restored.some((track) => track.id === snapshot.selectedTrackId)
@@ -5047,7 +5127,7 @@ function App() {
                 selectedCount={reviewTracks.length}
                 selectedPreset={selectedPublicationPreset}
                 onApplyTextToScope={applyPublicationTextToScope}
-                onAssetMode={setPublicationAssetMode}
+                onAssetMode={setPublicationPresetScope}
                 onAssetSettings={(patch) =>
                   updatePublicationAssetOverride(publicationPresetId, patch)
                 }
@@ -11008,6 +11088,7 @@ function LayerEditor(props: {
             />
             <CoverFadeOutFields
               settings={normalizeLayerCoverFadeOut(layer.coverFadeOut)}
+              label={isCoverLayer(layer) ? "capa" : "imagem"}
               onChange={(coverFadeOut) =>
                 props.onUpdateLayer(layer.id, {
                   coverFadeOut: normalizeLayerCoverFadeOut({
