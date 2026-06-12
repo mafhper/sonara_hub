@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   cleanupJobWorkDir,
   createCanceledJobError,
+  createJobQueue,
   createJobRunner,
   createJobStageTracker,
   isCanceledJobError,
@@ -64,6 +65,59 @@ test("job service records non-cancelled worker errors and releases resources", a
   assert.match(updates[0].patch.errorDetail, /Poster indisponivel/);
   assert.deepEqual(updates[1], { release: true });
   assert.deepEqual(cleanup, ["asset-job"]);
+});
+
+test("job queue respects concurrency and keeps draining after task errors", async () => {
+  const errors = [];
+  const starts = [];
+  const finishes = [];
+  const gates = new Map([
+    ["a", deferred()],
+    ["b", deferred()],
+    ["c", deferred()],
+  ]);
+  let active = 0;
+  let maxActive = 0;
+  const queue = createJobQueue({
+    concurrency: 2,
+    onError: (error) => errors.push(error.message),
+  });
+  const task = (id) => async () => {
+    starts.push(id);
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await gates.get(id).promise;
+    active -= 1;
+    finishes.push(id);
+    if (id === "b") throw new Error("boom-b");
+  };
+
+  queue.enqueue(task("a"));
+  queue.enqueue(task("b"));
+  queue.enqueue(task("c"));
+
+  await waitFor(() => starts.length === 2);
+  assert.deepEqual(starts, ["a", "b"]);
+  assert.equal(maxActive, 2);
+  assert.deepEqual(queue.snapshot(), {
+    active: 2,
+    concurrency: 2,
+    pending: 1,
+  });
+
+  gates.get("a").resolve();
+  await waitFor(() => starts.includes("c"));
+  assert.equal(maxActive, 2);
+
+  gates.get("b").resolve();
+  gates.get("c").resolve();
+  await waitFor(() => finishes.length === 3 && errors.length === 1);
+  assert.deepEqual(errors, ["boom-b"]);
+  assert.deepEqual(queue.snapshot(), {
+    active: 0,
+    concurrency: 2,
+    pending: 0,
+  });
 });
 
 test("job stage tracker records ordered timings", () => {
@@ -197,3 +251,21 @@ test("job retry does not repeat non-recoverable errors", async () => {
   assert.equal(calls, 1);
   assert.equal(job.retryHistory, undefined);
 });
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
+async function waitFor(predicate, timeoutMs = 1000) {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("Timed out waiting for condition.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}

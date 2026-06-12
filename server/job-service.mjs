@@ -134,6 +134,45 @@ export function createJobRunner({
   };
 }
 
+export function createJobQueue({ concurrency = 1, onError } = {}) {
+  const limit = Math.max(1, Math.floor(Number(concurrency) || 1));
+  const pending = [];
+  let active = 0;
+
+  function schedule() {
+    while (active < limit && pending.length > 0) {
+      const task = pending.shift();
+      active += 1;
+      Promise.resolve()
+        .then(task)
+        .catch((error) => {
+          onError?.(error);
+        })
+        .finally(() => {
+          active -= 1;
+          schedule();
+        });
+    }
+  }
+
+  return {
+    enqueue(task) {
+      if (typeof task !== "function") {
+        throw new TypeError("Job queue task must be a function.");
+      }
+      pending.push(task);
+      schedule();
+    },
+    snapshot() {
+      return {
+        active,
+        concurrency: limit,
+        pending: pending.length,
+      };
+    },
+  };
+}
+
 export function createJobStageTracker({
   clock = () => Date.now(),
   jobId,

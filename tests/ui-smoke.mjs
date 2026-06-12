@@ -239,19 +239,26 @@ try {
   await page
     .locator('input[type="file"][accept="image/*,video/*,.svg"]')
     .setInputFiles([pngPath, svgPath, videoPath]);
-  await page.getByText(/Camadas · \d\/3/).waitFor();
-  await page.locator(".layer-row summary").first().click();
-  await page.locator(".layer-row").first().getByText("Rotação").waitFor();
-  await page
-    .locator(".layer-row")
-    .first()
-    .getByText("Desfoque da sombra")
-    .waitFor();
-  await page.locator(".layer-row summary").last().click();
-  await page.locator(".layer-row").last().getByText("Repetir vídeo").waitFor();
-  await page.getByRole("button", { name: "Remover camada" }).first().click();
+  await page.getByText(/Pilha visual · \d+/).waitFor();
+  const imageStackRow = page
+    .locator(".composition-stack-row", { hasText: "layer.png" })
+    .first();
+  await imageStackRow.getByRole("option").click();
+  await page.locator(".stack-detail").getByText("Rotação").waitFor();
+  await page.locator(".stack-detail").getByText("Desfoque da sombra").waitFor();
+  const videoStackRow = page
+    .locator(".composition-stack-row", { hasText: "layer.webm" })
+    .first();
+  await videoStackRow.getByRole("option").click();
+  await page.locator(".stack-detail").getByText("Repetir vídeo").waitFor();
+  await imageStackRow
+    .getByRole("button", { name: "Remover layer.png" })
+    .click();
   await page.getByRole("button", { name: "Desfazer" }).click();
-  await page.getByText(/Camadas · \d\/3/).waitFor();
+  await page
+    .locator(".composition-stack-row", { hasText: "layer.png" })
+    .waitFor();
+  await page.locator(".stack-add-menu > summary").click();
   await page.locator(".cover-layer-apply select").selectOption("right");
   await page
     .locator(".cover-layer-apply")
@@ -282,10 +289,10 @@ try {
   await coverStackRow
     .getByRole("button", { name: "Ocultar Capa - Direita" })
     .waitFor();
-  const coverLayer = page
-    .locator(".layer-row", { hasText: "Capa - Direita" })
-    .first();
-  await coverLayer.locator("summary").click();
+  await coverStackRow.getByRole("option").click();
+  const coverLayer = page.locator(".stack-detail", {
+    hasText: "Capa - Direita",
+  });
   assert.equal(
     await page.getByLabel("Fade-out da capa").count(),
     1,
@@ -297,7 +304,7 @@ try {
   await coverLayer.getByText("Começa em").waitFor();
   await coverLayer.getByLabel("Duração", { exact: true }).waitFor();
   assert.equal(
-    await page.locator(".layer-row").count(),
+    await page.locator(".composition-stack-row", { hasText: "Mídia" }).count(),
     3,
     "applying a cover preset should preserve the three-layer limit while keeping the cover",
   );
@@ -329,18 +336,20 @@ try {
   await waveformStackRow
     .getByRole("button", { name: "Mostrar Waveform" })
     .waitFor();
-  const waveformGroup = page.locator(".inspector-group", {
-    has: page.locator(".inspector-group-label", { hasText: /^Waveform$/ }),
+  await waveformStackRow
+    .getByRole("button", { name: "Mostrar Waveform" })
+    .click();
+  await waveformStackRow.getByRole("option").click();
+  const waveformDetail = page.locator(".stack-detail", {
+    hasText: "Waveform",
   });
-  await waveformGroup.locator("summary").click();
-  await waveformGroup.getByText("Mostrar waveform").click();
-  const waveformSelect = page.locator(
+  const waveformSelect = waveformDetail.locator(
     'select:has(option[value="radial-ring"])',
   );
   assert.equal(await waveformSelect.locator("option").count(), 5);
-  await page.getByRole("button", { name: "Visor âmbar" }).click();
+  await waveformDetail.getByRole("button", { name: "Visor âmbar" }).click();
   assert.equal(await waveformSelect.inputValue(), "spectrum-bars");
-  await page.getByRole("button", { name: "Anel editorial" }).click();
+  await waveformDetail.getByRole("button", { name: "Anel editorial" }).click();
   assert.equal(await waveformSelect.inputValue(), "radial-ring");
   for (const type of [
     "single-line",
@@ -521,10 +530,11 @@ try {
     .filter({ hasText: "Visual" })
     .waitFor();
   await ensurePanelOpen(page, "inspector");
+  await page.locator(".stack-add-menu > summary").click();
   await page.locator(".cover-layer-apply select").selectOption("right");
   await page.getByRole("button", { name: "Aplicar capa ao lote" }).click();
   await page
-    .locator(".inspector-panel .layer-row", { hasText: "Capa" })
+    .locator(".inspector-panel .composition-stack-row", { hasText: "Capa" })
     .first()
     .waitFor();
   await ensurePanelsClosed(page);
@@ -635,6 +645,11 @@ try {
   });
   await ensurePanelOpen(page, "inspector");
 
+  await page
+    .locator(".composition-stack-row", { hasText: "Fundo visual" })
+    .first()
+    .getByRole("option")
+    .click();
   await page.getByRole("button", { name: "Duplicar" }).click();
   const duplicatePresetDialog = page.getByRole("dialog", {
     name: "Duplicar preset",
@@ -658,7 +673,7 @@ try {
       .length,
     1,
   );
-  await page.getByText(/Camadas · \d\/3/).waitFor();
+  await page.getByText(/Pilha visual · \d+/).waitFor();
   await page.screenshot({
     path: path.join(screenshotDir, "sonara-hub-studio.png"),
     fullPage: true,

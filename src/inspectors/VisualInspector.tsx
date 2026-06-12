@@ -572,7 +572,7 @@ export function VisualInspector(props: {
                   onChange={(value) => props.onCommon("audioReaction", value)}
                 />
               </InspectorGroup>
-              <InspectorGroup title="Ajustes do efeito">
+              <InspectorGroup title="Ajustes avançados">
                 {scene.controls.map((control) => (
                   <RangeField
                     key={control.key}

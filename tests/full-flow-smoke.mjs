@@ -74,9 +74,11 @@ page.on("console", (message) => {
 });
 page.on("pageerror", (error) => errors.push(error.message));
 page.on("requestfailed", (request) => {
-  failedRequests.push(
-    `${request.method()} ${request.url()} ${request.failure()?.errorText}`,
-  );
+  const failureText = request.failure()?.errorText ?? "";
+  if (failureText === "net::ERR_ABORTED" && request.url().startsWith("blob:")) {
+    return;
+  }
+  failedRequests.push(`${request.method()} ${request.url()} ${failureText}`);
 });
 
 try {
@@ -193,35 +195,56 @@ try {
   await page
     .locator('select:has(option[value="audio-dark"])')
     .selectOption("audio-dark");
-  await page.getByText("Waveform", { exact: true }).click();
-  await page.getByText("Mostrar waveform").click();
+  const waveformStackRow = page
+    .locator(".composition-stack-row", { hasText: "Waveform" })
+    .first();
+  await waveformStackRow.waitFor();
+  const showWaveform = waveformStackRow.getByRole("button", {
+    name: "Mostrar Waveform",
+  });
+  if ((await showWaveform.count()) > 0) await showWaveform.click();
+  await waveformStackRow.getByRole("option").click();
   await page
-    .locator('select:has(option[value="spectrum-bars"])')
+    .locator('.stack-detail select:has(option[value="spectrum-bars"])')
     .selectOption("spectrum-bars");
   await page
     .locator('input[type="file"][accept="image/*,video/*,.svg"]')
     .setInputFiles(layerPath);
-  await page.waitForFunction(
-    () => document.querySelectorAll(".layer-row").length >= 1,
-    undefined,
-    { timeout: 10_000 },
-  );
+  await page
+    .locator(".composition-stack-row", { hasText: "overlay-layer.png" })
+    .waitFor({ timeout: 10_000 });
+  await page.locator(".stack-add-menu > summary").click();
   await page.locator(".cover-layer-apply select").selectOption("right");
   await page
     .locator(".cover-layer-apply")
     .getByRole("button", { name: "Aplicar capa" })
     .click();
   const coverLayer = page
-    .locator(".layer-row", { hasText: "Capa - Direita" })
+    .locator(".composition-stack-row", { hasText: "Capa - Direita" })
     .first();
   await coverLayer.waitFor({ timeout: 10_000 });
-  await coverLayer.locator("summary").click();
-  await coverLayer.getByLabel("Fade-out da capa").check();
-  await coverLayer.getByLabel("Tipo de fade").selectOption("timed");
-  await page.getByRole("button", { name: "Aplicar visual ao lote" }).click();
+  await coverLayer.getByRole("option").click();
+  const coverDetail = page.locator(".stack-detail", {
+    hasText: "Capa - Direita",
+  });
+  await coverDetail.getByLabel("Fade-out da capa").check();
+  await coverDetail.getByLabel("Tipo de fade").selectOption("timed");
+  await page
+    .locator(".composition-stack-row", { hasText: "Fundo visual" })
+    .first()
+    .getByRole("option")
+    .click();
+  await page
+    .getByRole("button", { name: "Aplicar fundo visual ao lote" })
+    .click();
   await page
     .getByRole("status")
-    .getByText("Visual aplicado ao lote selecionado.")
+    .getByText("Fundo visual e cores aplicados ao lote.")
+    .waitFor();
+  await page.getByRole("button", { name: "Aplicar mídias ao lote" }).click();
+  await page
+    .getByRole("status")
+    .getByText("Camadas desta faixa copiadas", { exact: false })
     .waitFor();
   await page.locator(".steps button").filter({ hasText: "Texto" }).click();
   const showYear = page.getByRole("button", { name: "Mostrar Ano" });

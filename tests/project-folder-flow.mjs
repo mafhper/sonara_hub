@@ -153,7 +153,9 @@ async function testExternalProjectFolderFlow(browser) {
           '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#48a"/></svg>',
         ),
       });
-    await page.getByText("Camadas · 1/3").waitFor();
+    await page
+      .locator(".composition-stack-row", { hasText: "manual-layer.svg" })
+      .waitFor();
     await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
     await page.getByRole("tab", { name: "Dados" }).click();
 
@@ -266,7 +268,9 @@ async function testExternalProjectFolderFlow(browser) {
         ?.value.includes("Alpha Editado"),
     );
     await page.getByRole("button", { name: "Estúdio visual" }).click();
-    await page.getByText("Camadas · 1/3").waitFor();
+    await page
+      .locator(".composition-stack-row", { hasText: "manual-layer.svg" })
+      .waitFor();
     const restoredSnapshot = JSON.parse(
       await page.evaluate(() => window.__sonaraMockFS.dump().alphaState),
     );
@@ -339,7 +343,9 @@ async function testUnreadableExternalAssetDoesNotBlockProjectSnapshot(browser) {
           '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#b44"/></svg>',
         ),
       });
-    await page.getByText("Camadas · 1/3").waitFor();
+    await page
+      .locator(".composition-stack-row", { hasText: "stale-layer.svg" })
+      .waitFor();
     await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
     await page.getByRole("tab", { name: "Dados" }).click();
 
