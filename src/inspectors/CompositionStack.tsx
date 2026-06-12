@@ -7,7 +7,7 @@ import {
   EyeOff,
   Film,
   Image,
-  Sparkles,
+  Palette,
   Sun,
   Trash2,
 } from "lucide-react";
@@ -121,7 +121,7 @@ export function stackItemIcon(item: {
   kind: RenderStackItem["kind"];
   mediaKind?: MediaLayerV2["kind"];
 }) {
-  if (item.kind === "atmosphere") return <Sparkles />;
+  if (item.kind === "atmosphere") return <Palette />;
   if (item.kind === "sun-focus") return <Sun />;
   if (item.kind === "vinyl") return <Disc3 />;
   if (item.kind === "waveform") return <AudioWaveform />;
