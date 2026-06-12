@@ -96,6 +96,13 @@ import {
   jobStageLabel,
 } from "./jobs/BatchJobBoard";
 import {
+  AnalyticalWaveform,
+  Metric,
+  StaticWaveform,
+} from "./workspaces/AudioPreviewPrimitives";
+import { ProjectSaveControls } from "./workspaces/ProjectSaveControls";
+import { VideoExportWorkspace } from "./workspaces/VideoExportWorkspace";
+import {
   type CoverFadeOutSettings,
   type LayerFadeInSettings,
   type LayerZoomSettings,
@@ -5810,68 +5817,6 @@ function App() {
   );
 }
 
-function ProjectSaveControls({
-  busy,
-  compact = false,
-  onDelete,
-  onRename,
-  onSaveAs,
-  onSelect,
-  saves,
-  selectedSaveId,
-}: {
-  busy: boolean;
-  compact?: boolean;
-  onDelete: () => void;
-  onRename: () => void;
-  onSaveAs: () => void;
-  onSelect: (saveId: string) => void;
-  saves: ProjectSaveOption[];
-  selectedSaveId: string;
-}) {
-  const selectedSave = saves.find((save) => save.id === selectedSaveId);
-  const namedSaveSelected = Boolean(selectedSave && !selectedSave.isDefault);
-  return (
-    <div className={`project-save-controls ${compact ? "compact" : ""}`}>
-      <label className="project-save-picker">
-        <span>Save</span>
-        <select
-          className="project-save-select"
-          disabled={busy}
-          value={selectedSaveId}
-          onChange={(event) => onSelect(event.target.value)}
-        >
-          {saves.map((save) => (
-            <option key={save.id} value={save.id}>
-              {save.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="project-save-actions">
-        <button disabled={busy} type="button" onClick={onSaveAs}>
-          <Save /> Salvar como
-        </button>
-        <button
-          disabled={busy || !namedSaveSelected}
-          type="button"
-          onClick={onRename}
-        >
-          <RotateCcw /> Renomear
-        </button>
-        <button
-          className="danger-action"
-          disabled={busy || !namedSaveSelected}
-          type="button"
-          onClick={onDelete}
-        >
-          <Trash2 /> Excluir
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function AudioLibraryWorkspace({
   audioBands,
   batchApplyMode,
@@ -6636,165 +6581,6 @@ function AudioLibraryWorkspace({
           />
         </dl>
       </section>
-    </div>
-  );
-}
-
-function AnalyticalWaveform({ samples }: { samples: number[] }) {
-  const points = (
-    samples.length ? samples : Array.from({ length: 64 }, () => 0)
-  )
-    .map((sample, index, values) => {
-      const x = (index / Math.max(1, values.length - 1)) * 1000;
-      const y = 100 - sample * 62;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-  return (
-    <svg
-      className="analytic-waveform"
-      viewBox="0 0 1000 200"
-      preserveAspectRatio="none"
-    >
-      <line x1="0" x2="1000" y1="100" y2="100" />
-      <polyline points={points} />
-    </svg>
-  );
-}
-
-// Static full-track waveform (mirrored bars) decoded from the audio file, so the
-// technical preview is useful without pressing play.
-function StaticWaveform({ peaks }: { peaks: number[] }) {
-  const count = peaks.length || 1;
-  const slot = 1000 / count;
-  const barWidth = Math.max(0.8, slot * 0.62);
-  return (
-    <svg
-      className="analytic-waveform static"
-      viewBox="0 0 1000 200"
-      preserveAspectRatio="none"
-    >
-      {peaks.map((peak, index) => {
-        // Gentle gamma so quiet passages still read as small bars (SoundCloud
-        // look) instead of collapsing to the baseline.
-        const height = Math.max(2, Math.pow(peak, 0.7) * 94);
-        return (
-          <rect
-            height={(height * 2).toFixed(2)}
-            key={index}
-            rx={(barWidth / 2).toFixed(2)}
-            width={barWidth.toFixed(2)}
-            x={(index * slot + (slot - barWidth) / 2).toFixed(2)}
-            y={(100 - height).toFixed(2)}
-          />
-        );
-      })}
-    </svg>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </div>
-  );
-}
-
-function VideoExportWorkspace({
-  jobs,
-  outputLabel,
-  queuePaused,
-  selectedCount,
-  onCancelAllJobs,
-  onCancelJob,
-  onClearTerminalJobs,
-  onCopyJobError,
-  onPauseQueue,
-  onResumeQueue,
-  onReviewVideos,
-}: {
-  jobs: RenderJob[];
-  outputLabel: string;
-  queuePaused: boolean;
-  selectedCount: number;
-  onCancelAllJobs: () => void;
-  onCancelJob: (id: string) => void;
-  onClearTerminalJobs: () => void;
-  onCopyJobError: (job: RenderJob) => void;
-  onPauseQueue: () => void;
-  onResumeQueue: () => void;
-  onReviewVideos: () => void;
-}) {
-  const videoJobs = jobs.filter((job) => job.kind === "video-render");
-  const errorJobs = videoJobs.filter((job) => job.status === "error");
-  return (
-    <div className="review-stage video-export-stage">
-      <header className="review-stage-header">
-        <div>
-          <span className="overline">Exportação de vídeos</span>
-          <h1>Processamento de vídeos</h1>
-          <p>
-            Acompanhe renderização, mux de áudio, validação e arquivos finais em
-            uma área central.
-          </p>
-        </div>
-        <div className="stage-header-actions">
-          <strong>
-            {selectedCount} selecionada{selectedCount === 1 ? "" : "s"}
-          </strong>
-          <button type="button" onClick={onReviewVideos}>
-            <Video /> Conferir vídeos
-          </button>
-        </div>
-      </header>
-      <section className="stage-surface export-overview">
-        <div>
-          <span className="overline">Perfil atual</span>
-          <strong>{outputLabel}</strong>
-          <small>
-            O botão Exportar no inspetor inicia os jobs e traz você para esta
-            tela.
-          </small>
-        </div>
-        {errorJobs.length > 0 && (
-          <div className="export-error-callout">
-            <strong>
-              {errorJobs.length} exportação
-              {errorJobs.length === 1 ? " falhou" : " falharam"}
-            </strong>
-            <p>
-              Copie o diagnóstico do item com erro para analisar o renderer,
-              preset, resolução e mensagem original.
-            </p>
-            <div className="export-error-actions">
-              <button type="button" onClick={onReviewVideos}>
-                <Video /> Continuar conferindo
-              </button>
-              <button
-                type="button"
-                onClick={() => onCopyJobError(errorJobs[0])}
-              >
-                <Copy /> Analisar erro
-              </button>
-            </div>
-          </div>
-        )}
-      </section>
-      <BatchJobBoard
-        emptyCopy="Ao exportar, cada vídeo aparece aqui com etapa, progresso, cancelamento e links finais."
-        jobs={jobs}
-        kind="video-render"
-        queuePaused={queuePaused}
-        title="Processamento dos vídeos"
-        onCancelAll={onCancelAllJobs}
-        onCancelJob={onCancelJob}
-        onClearTerminal={onClearTerminalJobs}
-        onCopyJobError={onCopyJobError}
-        onPause={onPauseQueue}
-        onResume={onResumeQueue}
-      />
     </div>
   );
 }

@@ -43,6 +43,10 @@ pelos gates aplicáveis antes de consolidar no `main`.
 - **Workspace reliability (06-12):** fallback seguro para handles externos sem
   permissão, autosave por projeto sem clobber no boot/troca rápida, e save de
   snapshot tolerante a assets manuais ilegíveis/obsoletos.
+- **Split estrutural incremental (06-12):** extraídos `Feedback`,
+  `BatchJobBoard`, controles de save do projeto, workspace de exportação de
+  vídeo e primitivos de preview de áudio, mantendo o comportamento por props
+  explícitas e validando a cada passo.
 - **Saves múltiplos por projeto (06-12):** `project.json` segue como save padrão
   legado; saves nomeados ficam em `.sonara/saves/` com UI para salvar como,
   carregar, renomear e excluir.
@@ -53,7 +57,7 @@ pelos gates aplicáveis antes de consolidar no `main`.
 
 ## Dívida estrutural — PRIORIDADE
 
-### D1. `src/App.tsx` virou inviável (~15k linhas)
+### D1. `src/App.tsx` virou inviável (~13k linhas)
 
 - Sintoma: BABEL avisa "code generator deoptimised … exceeds the max of 500KB".
   Edições são lentas, difíceis e arriscadas; line numbers mudam a cada commit.
