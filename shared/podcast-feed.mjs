@@ -355,9 +355,19 @@ function dateToRssPubDate(value) {
 
 function joinUrl(baseUrl, path) {
   const base = firstText(baseUrl).replace(/\/+$/, "");
-  const value = firstText(path).replace(/^\/+/, "");
+  const value = encodeUrlPath(firstText(path));
   if (!base || !value) return "";
-  return `${base}/${encodeURI(value)}`;
+  return `${base}/${value}`;
+}
+
+function encodeUrlPath(path) {
+  return path
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
 }
 
 function ensureMp3FileName(value) {

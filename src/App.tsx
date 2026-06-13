@@ -294,6 +294,7 @@ type PreparedVideoOutputProject = {
 type PreparedPublicationOutputProject = PreparedVideoOutputProject & {
   clips: FileSystemDirectoryHandle;
   dados: FileSystemDirectoryHandle;
+  encartes: FileSystemDirectoryHandle;
   imagens: FileSystemDirectoryHandle;
   publicacao: FileSystemDirectoryHandle;
 };
@@ -2063,8 +2064,7 @@ function App() {
     quick = false,
     mode: "audio" | "podcast" = "audio",
   ) {
-    const metadataFile =
-      mode === "podcast" || quick ? podcastMetadataSlice(file) : file;
+    const metadataFile = mode === "podcast" ? podcastMetadataSlice(file) : file;
     const metadataIsPartial = metadataFile.size !== file.size;
     const formData = new FormData();
     formData.append("audio", metadataFile);
@@ -7448,7 +7448,10 @@ async function preparePublicationOutputProject(
   const dados = await publicacao.getDirectoryHandle("dados", {
     create: true,
   });
-  return { ...project, publicacao, imagens, clips, dados };
+  const encartes = await publicacao.getDirectoryHandle("encartes", {
+    create: true,
+  });
+  return { ...project, publicacao, imagens, clips, dados, encartes };
 }
 
 function publicationAssetDirectoryForUrl(
@@ -7457,6 +7460,7 @@ function publicationAssetDirectoryForUrl(
 ) {
   const fileName = decodeURIComponent(url.split("/").pop() ?? "").toLowerCase();
   if (fileName.endsWith(".mp4")) return target.clips;
+  if (fileName.endsWith(".html")) return target.encartes;
   if (fileName.endsWith(".json") || fileName.endsWith(".md"))
     return target.dados;
   return target.imagens;

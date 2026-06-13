@@ -177,7 +177,11 @@ const audioJobQueue = createJobQueue({
 const activeJobWorkers = new Map();
 const benchmarkExecutions = new Map();
 
-app.use(express.json({ limit: "5mb" }));
+const defaultJsonParser = express.json({ limit: "5mb" });
+app.use((req, res, next) => {
+  if (req.path === "/api/podcast-feeds") return next();
+  return defaultJsonParser(req, res, next);
+});
 app.use("/outputs", express.static(outputDir));
 
 app.get("/api/dev/benchmarks", async (req, res, next) => {
@@ -1067,81 +1071,87 @@ app.post(
   }),
 );
 
-app.post("/api/podcast-feeds", async (req, res, next) => {
-  let jobId = null;
-  try {
-    const { fileBaseName, sidecar } = parsePodcastFeedOutputRequest(req.body);
-    const title = sidecar.feed?.title || "Podcast";
-    const author = sidecar.feed?.author || "";
-    jobId = crypto.randomUUID();
-    setJob(jobId, {
-      id: jobId,
-      kind: "podcast-feed",
-      status: "running",
-      progress: 1,
-      message: "Preparando feed de podcast",
-      outputUrl: null,
-      sidecarUrl: null,
-      thumbnailUrl: null,
-      assetUrls: [],
-      metadata: {
-        title,
-        album: title,
-        artist: author,
-      },
-      createdAt: new Date().toISOString(),
-    });
-
-    const stages = createJobStageTracker({ jobId, updateJob });
-    stages.enter("feed-manifest", {
-      status: "running",
-      progress: 25,
-      message: "Gravando RSS e sidecar",
-    });
-    const result = await writePodcastFeedOutputs({
-      fileBaseName,
-      outputDir,
-      sidecar,
-    });
-    const rssUrl = outputUrl(result.rssFileName);
-    const sidecarUrl = outputUrl(result.sidecarFileName);
-    stages.finish({
-      status: "done",
-      progress: 100,
-      message: result.ready
-        ? "Feed de podcast gerado"
-        : `Feed gerado com ${result.findingCount} pendência${result.findingCount === 1 ? "" : "s"}`,
-      outputUrl: rssUrl,
-      sidecarUrl,
-      assetUrls: [rssUrl, sidecarUrl],
-      metadata: {
-        title: result.sidecar.feed.title,
-        album: result.sidecar.feed.title,
-        artist: result.sidecar.feed.author,
-      },
-    });
-    res.json({ jobId });
-  } catch (error) {
-    if (jobId) {
-      updateJob(jobId, {
-        status: "error",
-        progress: 0,
-        message: "Falha ao gerar feed de podcast",
-        errorCode:
-          error instanceof PodcastFeedOutputError
-            ? error.code
-            : "PODCAST_FEED_ERROR",
-        errorDetail:
-          error instanceof Error ? error.stack || error.message : String(error),
+app.post(
+  "/api/podcast-feeds",
+  express.json({ limit: "50mb" }),
+  async (req, res, next) => {
+    let jobId = null;
+    try {
+      const { fileBaseName, sidecar } = parsePodcastFeedOutputRequest(req.body);
+      const title = sidecar.feed?.title || "Podcast";
+      const author = sidecar.feed?.author || "";
+      jobId = crypto.randomUUID();
+      setJob(jobId, {
+        id: jobId,
+        kind: "podcast-feed",
+        status: "running",
+        progress: 1,
+        message: "Preparando feed de podcast",
+        outputUrl: null,
+        sidecarUrl: null,
+        thumbnailUrl: null,
+        assetUrls: [],
+        metadata: {
+          title,
+          album: title,
+          artist: author,
+        },
+        createdAt: new Date().toISOString(),
       });
+
+      const stages = createJobStageTracker({ jobId, updateJob });
+      stages.enter("feed-manifest", {
+        status: "running",
+        progress: 25,
+        message: "Gravando RSS e sidecar",
+      });
+      const result = await writePodcastFeedOutputs({
+        fileBaseName,
+        outputDir,
+        sidecar,
+      });
+      const rssUrl = outputUrl(result.rssFileName);
+      const sidecarUrl = outputUrl(result.sidecarFileName);
+      stages.finish({
+        status: "done",
+        progress: 100,
+        message: result.ready
+          ? "Feed de podcast gerado"
+          : `Feed gerado com ${result.findingCount} pendência${result.findingCount === 1 ? "" : "s"}`,
+        outputUrl: rssUrl,
+        sidecarUrl,
+        assetUrls: [rssUrl, sidecarUrl],
+        metadata: {
+          title: result.sidecar.feed.title,
+          album: result.sidecar.feed.title,
+          artist: result.sidecar.feed.author,
+        },
+      });
+      res.json({ jobId });
+    } catch (error) {
+      if (jobId) {
+        updateJob(jobId, {
+          status: "error",
+          progress: 0,
+          message: "Falha ao gerar feed de podcast",
+          errorCode:
+            error instanceof PodcastFeedOutputError
+              ? error.code
+              : "PODCAST_FEED_ERROR",
+          errorDetail:
+            error instanceof Error
+              ? error.stack || error.message
+              : String(error),
+        });
+      }
+      if (error instanceof PodcastFeedOutputError) {
+        res.status(400).json({ error: error.message, code: error.code });
+        return;
+      }
+      next(error);
     }
-    if (error instanceof PodcastFeedOutputError) {
-      res.status(400).json({ error: error.message, code: error.code });
-      return;
-    }
-    next(error);
-  }
-});
+  },
+);
 
 app.post(
   "/api/render-batch",
