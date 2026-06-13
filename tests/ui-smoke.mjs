@@ -611,6 +611,11 @@ try {
   await page.getByText("Grade de publicação").waitFor();
   await page.getByRole("button", { name: "Divulgação", exact: true }).click();
   await page.getByText("Assets de publicação").waitFor();
+  assert.equal(
+    await page.getByText("Faixas no escopo", { exact: true }).count(),
+    0,
+    "publication workspace should use the main library/sidebar selection as its only track scope",
+  );
   await page.getByLabel("Formato base").selectOption("clip-vertical");
   await ensurePanelsClosed(page);
   const publicationFormatGroups = page.locator(".publication-format-group");

@@ -3153,8 +3153,7 @@ svg {
   gap: var(--space-4);
 }
 
-.publication-overview > div,
-.publication-track-row {
+.publication-overview > div {
   display: grid;
   gap: var(--space-1);
   padding: var(--space-4);
@@ -3163,24 +3162,12 @@ svg {
   background: var(--stage-surface-low);
 }
 
-.publication-overview strong,
-.publication-track-row strong {
+.publication-overview strong {
   color: var(--text);
 }
 
-.publication-overview small,
-.publication-track-row small {
+.publication-overview small {
   color: var(--text-muted);
-}
-
-.publication-track-list {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.publication-track-list > div {
-  display: grid;
-  gap: var(--space-2);
 }
 
 .publication-focus {
@@ -3371,8 +3358,7 @@ svg {
   gap: var(--space-1);
 }
 
-.publication-scope-buttons button,
-.publication-track-actions button {
+.publication-scope-buttons button {
   padding: 0.3rem 0.6rem;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
@@ -3699,31 +3685,6 @@ svg {
 .publication-preview-empty svg {
   width: 22px;
   height: 22px;
-}
-
-.publication-track-list header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
-.publication-track-actions {
-  display: inline-flex;
-  gap: var(--space-1);
-}
-
-.publication-track-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  cursor: pointer;
-}
-
-.publication-track-row > span {
-  display: grid;
-  gap: 0.25rem;
-  min-width: 0;
 }
 
 .danger-action {
