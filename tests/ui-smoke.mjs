@@ -252,8 +252,16 @@ try {
     });
   assert.ok(centerPixel.slice(0, 3).some((value) => value > 10));
 
-  await page.getByText("Ajustes avançados").click();
+  await page.getByText("Controles", { exact: true }).waitFor();
   await page.getByText("Presença").waitFor();
+  await page.getByText("Escurecimento do fundo", { exact: true }).waitFor();
+  assert.equal(
+    await page
+      .locator(".stack-detail")
+      .getByText("Intensidade", { exact: true })
+      .count(),
+    0,
+  );
   await assertPortugueseLabels(page);
   await page.getByRole("button", { name: "Tocar prévia" }).click();
   await page.waitForTimeout(350);

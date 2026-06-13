@@ -5254,11 +5254,9 @@ function App() {
             ) : activeStep === "text" ? (
               <TextInspector
                 metadata={selectedTrack.metadata}
-                scene={selectedScene}
                 showMetadata={showMetadata}
                 textSettings={selectedTrack.textSettings}
                 onChange={updateMetadata}
-                onCommon={updateCommon}
                 onTextSettings={updateTextSettings}
                 onToggle={setShowMetadata}
                 versionSuggestions={versionSuggestions}

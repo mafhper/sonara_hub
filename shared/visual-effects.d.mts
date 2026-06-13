@@ -43,6 +43,14 @@ export type VisualControl = {
   unit: string;
 };
 
+export type VisualCommonControlKey =
+  | "intensity"
+  | "speed"
+  | "brightness"
+  | "direction"
+  | "audioReaction"
+  | "shade";
+
 export type PlayfulContent = {
   seed: number;
   motionMode: "calm" | "soft-rhythm" | "play";
@@ -110,6 +118,7 @@ export type ScenePresetV4 = {
   colors: { base: string; effect: string; light: string };
   palettes: VisualPalette[];
   common: Record<string, number>;
+  supportsCommon: VisualCommonControlKey[];
   advanced: Record<string, number>;
   controls: VisualControl[];
   waveform: WaveformV2;
@@ -121,6 +130,7 @@ export type ScenePresetV4 = {
 export type ScenePresetV3 = ScenePresetV4;
 
 export const VISUAL_SCHEMA_VERSION: number;
+export const visualCommonControlKeys: VisualCommonControlKey[];
 export const builtinVisualPresets: ScenePresetV4[];
 export const effectIds: string[];
 export const removedEffectIds: string[];
