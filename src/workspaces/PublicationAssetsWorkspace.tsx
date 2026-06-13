@@ -36,7 +36,6 @@ export function PublicationAssetsWorkspace({
   assetMode,
   exportCount,
   exporting,
-  excludedTrackIds,
   jobs,
   lyricsPreviewText,
   preset,
@@ -47,7 +46,6 @@ export function PublicationAssetsWorkspace({
   selectedPresetIds,
   selectedSettings,
   tracks,
-  onAllTracks,
   onCancelAllJobs,
   onCancelJob,
   onClearTerminalJobs,
@@ -60,14 +58,12 @@ export function PublicationAssetsWorkspace({
   onReviewVideos,
   onStopExport,
   onTogglePreset,
-  onToggleTrack,
   onAssetSettings,
   onUpdateLayer,
 }: {
   assetMode: PublicationAssetMode;
   exportCount: number;
   exporting: boolean;
-  excludedTrackIds: string[];
   jobs: RenderJob[];
   lyricsPreviewText: string;
   preset: PublicationAssetPreset;
@@ -85,7 +81,6 @@ export function PublicationAssetsWorkspace({
   selectedPresetIds: string[];
   selectedSettings: PublicationAssetSettings;
   tracks: TrackDraft[];
-  onAllTracks: (include: boolean) => void;
   onCancelAllJobs: () => void;
   onCancelJob: (id: string) => void;
   onClearTerminalJobs: () => void;
@@ -98,7 +93,6 @@ export function PublicationAssetsWorkspace({
   onReviewVideos: () => void;
   onStopExport: () => void;
   onTogglePreset: (presetId: string) => void;
-  onToggleTrack: (id: string) => void;
   onAssetSettings: (patch: Partial<PublicationAssetSettings>) => void;
   onUpdateLayer: (trackId: string, patch: { layers: MediaLayerV2[] }) => void;
 }) {
@@ -112,10 +106,7 @@ export function PublicationAssetsWorkspace({
     selectedPresetIds.length ? selectedPresetIds : [preset.id],
   );
   const selectedFormatCount = checkedPresetIds.size;
-  const selectedTracks = tracks.filter(
-    (track) => !excludedTrackIds.includes(track.id),
-  );
-  const selectedTrackCount = selectedTracks.length;
+  const selectedTrackCount = tracks.length;
   const selectedTypeLabel = publicationAssetKindLabel(preset.kind);
   const selectedBookletTheme = publicationBookletThemeById(
     selectedSettings.bookletTheme,
@@ -493,52 +484,6 @@ export function PublicationAssetsWorkspace({
             </p>
           )}
         </div>
-      </section>
-      <section className="stage-surface publication-track-list">
-        <header>
-          <div>
-            <span className="overline">Faixas no escopo</span>
-            <strong>
-              {selectedTrackCount} de {tracks.length} selecionada
-              {selectedTrackCount === 1 ? "" : "s"}
-            </strong>
-          </div>
-          {tracks.length > 0 && (
-            <div className="publication-track-actions">
-              <button type="button" onClick={() => onAllTracks(true)}>
-                Selecionar todas
-              </button>
-              <button type="button" onClick={() => onAllTracks(false)}>
-                Limpar
-              </button>
-            </div>
-          )}
-        </header>
-        {tracks.length ? (
-          <div>
-            {tracks.map((track) => (
-              <label className="publication-track-row" key={track.id}>
-                <input
-                  checked={!excludedTrackIds.includes(track.id)}
-                  type="checkbox"
-                  onChange={() => onToggleTrack(track.id)}
-                />
-                <span>
-                  <strong>{track.metadata.title || "Faixa sem título"}</strong>
-                  <small>
-                    {track.metadata.album || "Sem álbum"} ·{" "}
-                    {track.metadata.lyrics ? "com letra" : "sem letra"}
-                  </small>
-                </span>
-              </label>
-            ))}
-          </div>
-        ) : (
-          <p className="helper-copy">
-            Selecione uma faixa ou marque faixas na biblioteca para gerar em
-            lote.
-          </p>
-        )}
       </section>
       <BatchJobBoard
         emptyCopy="Ao gerar divulgação, cada imagem, clip e manifesto aparece aqui com progresso e links finais."

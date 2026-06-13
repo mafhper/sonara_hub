@@ -575,9 +575,6 @@ function App() {
   // preset, so "Gerar assets" never silently fans out to all 13 formats.
   const [publicationSelectedPresetIds, setPublicationSelectedPresetIds] =
     useState<string[]>([]);
-  // Track ids excluded from the in-scope review set for this export.
-  const [publicationExcludedTrackIds, setPublicationExcludedTrackIds] =
-    useState<string[]>([]);
   // Flipped by "Parar geração"/"Cancelar tudo" so the client-side export loop
   // stops enqueuing new jobs instead of running to completion.
   const publicationExportAbortRef = useRef(false);
@@ -835,11 +832,9 @@ function App() {
       : selectedTrack
         ? [selectedTrack]
         : [];
-  // Tracks actually targeted by a divulgação export: the in-scope review set
-  // minus any the user unchecked in the publication stage.
-  const effectivePublicationTracks = reviewTracks.filter(
-    (track) => !publicationExcludedTrackIds.includes(track.id),
-  );
+  // Divulgação exports use the same track scope as the main library/sidebar:
+  // batch checkboxes when in batch mode, otherwise the active track.
+  const effectivePublicationTracks = reviewTracks;
   const publicationExportCount =
     effectivePublicationTracks.length * effectivePublicationPresets.length;
   const treatedTrackCount = tracks.filter(
@@ -3421,20 +3416,6 @@ function App() {
     }
   }
 
-  function togglePublicationTrack(id: string) {
-    setPublicationExcludedTrackIds((current) =>
-      current.includes(id)
-        ? current.filter((value) => value !== id)
-        : [...current, id],
-    );
-  }
-
-  function setAllPublicationTracks(include: boolean) {
-    setPublicationExcludedTrackIds(
-      include ? [] : reviewTracks.map((track) => track.id),
-    );
-  }
-
   // Copy the focused asset's text override (scale/offset/hide) to every format
   // in the chosen scope, so "adjust one, a group, or all" is one click.
   function applyPublicationTextToScope(scope: "group" | "all") {
@@ -4940,7 +4921,6 @@ function App() {
             assetMode={publicationAssetMode}
             exportCount={publicationExportCount}
             exporting={publicationExporting}
-            excludedTrackIds={publicationExcludedTrackIds}
             jobs={jobs}
             preset={selectedPublicationPreset}
             previewAudioSrc={audioSrc}
@@ -4951,7 +4931,6 @@ function App() {
             selectedPresetIds={publicationSelectedPresetIds}
             selectedSettings={selectedPublicationSettings}
             tracks={reviewTracks}
-            onAllTracks={setAllPublicationTracks}
             onCancelAllJobs={() => void cancelAllJobs()}
             onCancelJob={(id) => void cancelJob(id)}
             onClearTerminalJobs={() =>
@@ -4966,7 +4945,6 @@ function App() {
             onReviewVideos={() => setVisualStageView("review")}
             onStopExport={() => stopPublicationExport()}
             onTogglePreset={togglePublicationPreset}
-            onToggleTrack={togglePublicationTrack}
             onAssetSettings={(patch) =>
               updatePublicationAssetOverride(publicationPresetId, patch)
             }
