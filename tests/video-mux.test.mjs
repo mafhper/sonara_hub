@@ -49,6 +49,30 @@ test("mux keeps subtitles after frame rate normalization", () => {
   );
 });
 
+test("mux uses constrained bitrate when platform size limit applies", () => {
+  const args = buildWebglMuxArgs({
+    audioPath: "input.wav",
+    duration: 30,
+    metadata: { title: "Teste", artist: "", genre: "", album: "" },
+    outputPath: "output.mp4",
+    outputSize: { width: 1080, height: 1920 },
+    settings: {
+      crf: 20,
+      encoderPreset: "veryfast",
+      outputFps: 24,
+      videoBitrateKbps: 2300,
+      webglFps: 24,
+    },
+    subtitlePath: null,
+    webglVideoPath: "scene.webm",
+  });
+
+  assert.equal(valueAfter(args, "-b:v"), "2300k");
+  assert.equal(valueAfter(args, "-maxrate"), "2300k");
+  assert.equal(valueAfter(args, "-bufsize"), "4600k");
+  assert.equal(args.includes("-crf"), false);
+});
+
 function valueAfter(args, flag) {
   return args[args.indexOf(flag) + 1];
 }

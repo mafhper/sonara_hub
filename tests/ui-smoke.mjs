@@ -87,9 +87,10 @@ await assertArtworkPreviewApi(audioPath, coveredAudioPath);
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
-await page.addInitScript(() =>
-  window.localStorage.removeItem("sonara-hub-panel-widths"),
-);
+await page.addInitScript(() => {
+  window.localStorage.removeItem("sonara-hub-panel-widths");
+  window.localStorage.removeItem("sonara-hub-podcast-enabled");
+});
 const errors = [];
 const failedRequests = [];
 page.on("console", (message) => {
@@ -113,14 +114,29 @@ try {
     .first()
     .setInputFiles(coveredAudioPath);
   await page.getByText("ui-smoke").first().waitFor();
-  await page.locator(".transport-artwork").getByText("Embutida").waitFor();
+  await page.locator(".transport-artwork-button img").waitFor();
   await page
     .locator('input[type="file"][accept="image/*,.svg"]')
     .setInputFiles(pngPath);
   await page.locator(".transport-artwork").getByText("Planejada").waitFor();
-  await page.getByRole("button", { name: "Mostrar capa embutida" }).click();
-  await page.locator(".transport-artwork").getByText("Embutida").waitFor();
-  await page.getByRole("button", { name: "Mostrar capa planejada" }).click();
+  await page.getByRole("button", { name: "Abrir ajustes de capa" }).click();
+  await page.getByText("Capa e série visual", { exact: true }).waitFor();
+  await page
+    .locator(".artwork-canvas")
+    .locator(".cover-series-overlay")
+    .first()
+    .waitFor();
+  assert.equal(
+    await page.locator(".transport-artwork-actions button").count(),
+    1,
+    "transport artwork popover should expose a single cover action",
+  );
+  await page.getByRole("button", { name: "Ver arte base" }).click();
+  await page.getByRole("button", { name: "Ver com série visual" }).waitFor();
+  await page
+    .locator(".stage-view-switch")
+    .getByRole("button", { name: "Editar" })
+    .click();
   await page.getByText("Biblioteca de áudio", { exact: true }).last().waitFor();
   await page.getByText("LUFS integrado").waitFor();
   await assertPortugueseLabels(page);
@@ -164,13 +180,15 @@ try {
     .locator(".catalog-tag-value", { hasText: "7/9" })
     .first()
     .waitFor();
-  await page.getByRole("button", { name: /^Inspecionar arte de / }).click();
-  await page.getByText("Prévia da capa tratada", { exact: true }).waitFor();
+  await page.getByRole("button", { name: /^Abrir Capas de / }).click();
+  await page.getByText("Capa e série visual", { exact: true }).waitFor();
   await page.getByText("Série numérica", { exact: false }).waitFor();
+  await page
+    .locator(".artwork-canvas")
+    .locator(".cover-series-overlay")
+    .first()
+    .waitFor();
   await page.getByRole("button", { name: "Trocar imagem" }).waitFor();
-  await page.getByRole("button", { name: "Ver arte base" }).click();
-  await page.getByRole("button", { name: "Ver com série visual" }).waitFor();
-  await page.getByRole("button", { name: "Fechar inspeção da capa" }).click();
   await page.getByRole("button", { name: "Estúdio visual" }).click();
   await ensurePanelOpen(page, "inspector");
 
@@ -187,6 +205,19 @@ try {
     await presetSelect.locator('option[value="piano-ribbons"]').count(),
     1,
   );
+  for (const cloudPresetId of [
+    "volumetric-clouds-dawn",
+    "volumetric-clouds-noon",
+    "volumetric-clouds-sunset",
+    "volumetric-clouds-dusk",
+    "volumetric-clouds-midnight",
+  ]) {
+    assert.equal(
+      await presetSelect.locator(`option[value="${cloudPresetId}"]`).count(),
+      1,
+      `${cloudPresetId} should be available in the atmosphere picker`,
+    );
+  }
   await presetSelect.selectOption("playful-shapes");
   await page.getByText("Conteúdo lúdico", { exact: true }).waitFor();
   await page.getByText("Retângulos", { exact: true }).waitFor();
@@ -202,7 +233,7 @@ try {
   await page.getByText("PALETAS", { exact: true }).waitFor();
   assert.equal(await page.locator(".palette-option-list button").count(), 4);
   await page.locator(".palette-option-list button").nth(1).click();
-  await presetSelect.selectOption("volumetric-clouds");
+  await presetSelect.selectOption("volumetric-clouds-sunset");
   await page.getByText("Foco solar", { exact: true }).click();
   await page
     .locator(".inspector-group", { hasText: "Foco solar" })
@@ -433,43 +464,45 @@ try {
     .locator(".catalog-artwork-button")
     .first()
     .click();
-  const artworkDialog = page.getByRole("dialog", { name: "Smoke Batch Title" });
-  await artworkDialog.getByText("Série numérica", { exact: false }).waitFor();
-  await artworkDialog.getByText("Estilo afeta", { exact: true }).waitFor();
+  const artworkWorkspace = page.locator(".artwork-review");
+  await artworkWorkspace
+    .getByText("Série numérica", { exact: false })
+    .waitFor();
+  await artworkWorkspace.getByText("Estilo afeta", { exact: true }).waitFor();
   await assertCatalogArtworkLayout(page);
-  await artworkDialog.getByRole("tab", { name: "Único" }).click();
-  await artworkDialog.getByText("estilo exclusivo", { exact: false }).waitFor();
+  await artworkWorkspace.getByRole("tab", { name: "Único" }).click();
+  await artworkWorkspace
+    .getByText("estilo exclusivo", { exact: false })
+    .waitFor();
   assert.equal(
-    await artworkDialog.getByRole("tab", { name: "Texto aberto" }).count(),
+    await artworkWorkspace.getByRole("tab", { name: "Texto aberto" }).count(),
     0,
     "cover-series style scope should no longer target every text field from an opened row",
   );
   assert.equal(
-    await artworkDialog.getByRole("tab", { name: "Todos" }).count(),
+    await artworkWorkspace.getByRole("tab", { name: "Todos" }).count(),
     0,
     "cover-series style scope should be track/series, not opened field/all fields",
   );
-  await artworkDialog.getByRole("tab", { name: "Série" }).click();
-  const overlay = artworkDialog
-    .locator(".catalog-artwork-expanded .cover-series-overlay")
+  await artworkWorkspace.getByRole("tab", { name: "Série" }).click();
+  const overlay = artworkWorkspace
+    .locator(".artwork-canvas .cover-series-overlay")
     .first();
   await overlay.waitFor();
-  await artworkDialog
+  await artworkWorkspace
     .locator('select:has(option[value="bottom-left"])')
     .selectOption("bottom-left");
   await page.waitForFunction(
     () =>
       document
-        .querySelector(
-          ".catalog-artwork-dialog .catalog-artwork-expanded .cover-series-overlay text",
-        )
+        .querySelector(".artwork-canvas .cover-series-overlay text")
         ?.getAttribute("text-anchor") === "start",
   );
   const initialNumberY = await overlay
     .locator("text")
     .first()
     .getAttribute("y");
-  await artworkDialog
+  await artworkWorkspace
     .getByLabel("Vertical", { exact: true })
     .first()
     .evaluate((input) => {
@@ -485,9 +518,7 @@ try {
   await page.waitForFunction(
     ({ previous }) =>
       document
-        .querySelector(
-          ".catalog-artwork-dialog .catalog-artwork-expanded .cover-series-overlay text",
-        )
+        .querySelector(".artwork-canvas .cover-series-overlay text")
         ?.getAttribute("y") !== previous,
     { previous: initialNumberY },
   );
@@ -495,10 +526,8 @@ try {
     path: path.join(screenshotDir, "sonara-hub-catalog-artwork-editor.png"),
     fullPage: true,
   });
-  await artworkDialog
-    .getByRole("button", { name: "Fechar inspeção da capa" })
-    .click();
-  await page.getByRole("button", { name: "Vídeos" }).click();
+  await page.getByRole("button", { name: "Estúdio visual" }).click();
+  await page.getByRole("button", { name: "Visualizar" }).click();
   await page.getByText("Grade de publicação").waitFor();
   await page.locator(".composition-thumbnail").first().waitFor();
   await page
@@ -535,7 +564,10 @@ try {
     .waitFor();
   await ensurePanelsClosed(page);
   await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
-  await page.getByRole("button", { name: "Editar" }).click();
+  await page
+    .locator(".stage-view-switch")
+    .getByRole("button", { name: "Editar", exact: true })
+    .click();
   assert.equal(
     await page.locator('input[type="file"][webkitdirectory]').count(),
     1,
@@ -566,10 +598,10 @@ try {
   await ensurePanelOpen(page, "inspector");
   await page
     .getByLabel("Etapas do projeto")
-    .getByRole("button", { name: "Conferir vídeos" })
+    .getByRole("button", { name: "Visualizar" })
     .click();
   await page.getByText("Grade de publicação").waitFor();
-  await page.getByRole("button", { name: "Divulgação" }).click();
+  await page.getByRole("button", { name: "Divulgação", exact: true }).click();
   await page.getByText("Assets de publicação").waitFor();
   await page.getByLabel("Formato base").selectOption("clip-vertical");
   await page
@@ -618,22 +650,80 @@ try {
       exact: true,
     })
     .waitFor();
+  await page.getByLabel("Formato base").selectOption("instagram-story-clip");
+  await page
+    .getByText("Limites do formato: até 15s · H.264/AAC · 9:16.", {
+      exact: true,
+    })
+    .waitFor();
+  await page
+    .getByRole("spinbutton", { name: "Duração deste asset" })
+    .fill("120");
+  assert.equal(
+    await page
+      .getByRole("spinbutton", { name: "Duração deste asset" })
+      .inputValue(),
+    "15",
+  );
+  await page
+    .getByLabel("Formato base")
+    .selectOption("digital-booklet-editorial");
+  await page
+    .locator(".publication-preview-panel .overline")
+    .getByText("Prévia real · Encarte digital editorial", { exact: true })
+    .waitFor();
+  await page.getByLabel("Tema do encarte").selectOption("contrast");
+  await page
+    .locator(".publication-booklet-preview")
+    .getByText("Alto contraste", { exact: true })
+    .waitFor();
+  assert.equal(
+    await page.locator(".publication-text-override").count(),
+    0,
+    "booklet preset should hide canvas text override controls",
+  );
   await page
     .getByLabel("Etapas do projeto")
-    .getByRole("button", { name: "Conferir vídeos" })
+    .getByRole("button", { name: "Visualizar" })
     .click();
   await page.getByRole("button", { name: "Revisar lote" }).click();
   await page.getByText("2 faixas selecionadas", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Exportar lote" }).waitFor();
-  await page.getByRole("button", { name: "Fila de vídeos" }).click();
-  await page.getByText("Processamento de vídeos").waitFor();
-  await page.locator(".video-export-stage .batch-job-board").waitFor();
+  await page.getByRole("button", { name: "Exportar Divulgação" }).click();
+  await page
+    .getByRole("heading", { name: "Fila de exportação", exact: true })
+    .waitFor();
+  assert.equal(
+    await page.locator(".video-export-stage .batch-job-board").count(),
+    2,
+    "export workspace should show video and publication asset queues",
+  );
+  assert.equal(
+    await page.locator(".video-export-stage .export-dashboard-metric").count(),
+    5,
+    "visual export workspace should show consolidated dashboard metrics",
+  );
+  await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
+  await page.getByRole("button", { name: "Exportar Áudio" }).click();
+  await page
+    .getByRole("heading", { name: "Fila de áudio tratado", exact: true })
+    .waitFor();
+  assert.equal(
+    await page.locator(".audio-export-stage .export-dashboard-metric").count(),
+    4,
+    "audio export workspace should show consolidated dashboard metrics",
+  );
+  await page.getByRole("button", { name: "Estúdio visual" }).click();
+  await page.getByRole("button", { name: "Exportar Divulgação" }).click();
   await ensurePanelOpen(page, "library");
   await ensureSingleMode(page);
   await ensurePanelOpen(page, "inspector");
   await page.getByText("Resumo da exportação").waitFor();
   await assertPortugueseLabels(page);
-  await page.locator(".steps button").filter({ hasText: "Visual" }).click();
+  await page
+    .getByLabel("Etapas do projeto")
+    .getByRole("button", { name: "Visual", exact: true })
+    .click();
   await ensurePanelsClosed(page);
   await page.screenshot({
     path: path.join(screenshotDir, "sonara-hub-fullscreen.png"),
@@ -674,7 +764,13 @@ try {
     path: path.join(screenshotDir, "sonara-hub-studio.png"),
     fullPage: true,
   });
-  await page.locator(".steps button").filter({ hasText: "Música" }).click();
+  await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
+  await page
+    .locator(".stage-view-switch")
+    .getByRole("button", { name: "Editar", exact: true })
+    .click();
+  await ensurePanelOpen(page, "inspector");
+  await page.getByRole("tab", { name: "Dados" }).click();
   await page
     .locator(".inspector-scroll label.field", { hasText: "Versão" })
     .locator("input")
@@ -756,12 +852,8 @@ function isBenignAbortedRequest(request) {
 
 async function assertCatalogArtworkLayout(page) {
   const layout = await page.evaluate(() => {
-    const preview = document.querySelector(
-      ".catalog-artwork-dialog .catalog-artwork-expanded",
-    );
-    const gallery = document.querySelector(
-      ".catalog-artwork-dialog .catalog-artwork-gallery",
-    );
+    const preview = document.querySelector(".artwork-canvas");
+    const gallery = document.querySelector(".artwork-album-strip");
     const previewBox = preview?.getBoundingClientRect();
     const galleryBox = gallery?.getBoundingClientRect();
     return {
@@ -774,7 +866,7 @@ async function assertCatalogArtworkLayout(page) {
   });
   assert.ok(
     layout.previewHeight >= 220,
-    `artwork preview should reserve visible square height, got ${layout.previewHeight}`,
+    `artwork canvas should reserve visible square height, got ${layout.previewHeight}`,
   );
   assert.ok(
     layout.gap !== null && layout.gap >= 8,
@@ -881,6 +973,9 @@ async function assertBenchmarkCenterNavigation(page) {
   await page.getByRole("button", { name: "Render" }).waitFor();
   await page.getByRole("button", { name: "Release Gate" }).click();
   await page.getByText("Sonara Performance Score").waitFor();
+  await page.getByRole("button", { name: "Baseline" }).click();
+  await page.getByText("Como funciona a baseline").waitFor();
+  await assertBenchmarkBaselineLayout(page);
   await page.getByRole("button", { name: "Retenção" }).click();
   await page.getByText("Retenção de dados").waitFor();
   await page.getByText("Limpeza segura", { exact: true }).waitFor();
@@ -893,6 +988,40 @@ async function assertBenchmarkCenterNavigation(page) {
     ),
     "benchmark center should not create document-level horizontal overflow",
   );
+}
+
+async function assertBenchmarkBaselineLayout(page) {
+  const result = await page.evaluate(() => {
+    const panel = document.querySelector(".bench-baseline-panel");
+    const layout = panel?.querySelector(".bench-baseline-layout");
+    const control = panel?.querySelector(".bench-baseline-control");
+    const grid = panel?.querySelector(".bench-baseline-status-grid");
+    const details = panel?.querySelector(".bench-baseline-details");
+    const controlBox = control?.getBoundingClientRect();
+    const gridBox = grid?.getBoundingClientRect();
+    const intersects =
+      controlBox && gridBox
+        ? !(
+            controlBox.right <= gridBox.left ||
+            gridBox.right <= controlBox.left ||
+            controlBox.bottom <= gridBox.top ||
+            gridBox.bottom <= controlBox.top
+          )
+        : true;
+    return {
+      cardCount: panel?.querySelectorAll(".bench-baseline-status-card").length,
+      detailsClosed:
+        details instanceof HTMLDetailsElement ? !details.open : false,
+      hasLayout: Boolean(layout),
+      intersects,
+      overflow: document.documentElement.scrollWidth > window.innerWidth,
+    };
+  });
+  assert.equal(result.hasLayout, true);
+  assert.equal(result.cardCount, 4);
+  assert.equal(result.detailsClosed, true);
+  assert.equal(result.intersects, false);
+  assert.equal(result.overflow, false);
 }
 
 function makeWave(frequency = 220) {
@@ -970,6 +1099,29 @@ async function assertLocalSettings(page) {
 
   await page.getByRole("button", { name: "Configurações locais" }).click();
   await page.getByRole("dialog", { name: "Armazenamento e sessão" }).waitFor();
+  assert.equal(
+    await page
+      .locator(".stage-view-switch")
+      .getByRole("button", { name: "Podcast", exact: true })
+      .count(),
+    0,
+    "Podcast should stay hidden by default",
+  );
+  const podcastToggle = page.getByLabel("Habilitar Podcast");
+  assert.equal(await podcastToggle.isChecked(), false);
+  await podcastToggle.check();
+  await page
+    .getByText("Guia Podcast habilitada neste workspace.", { exact: true })
+    .waitFor();
+  await page.getByRole("button", { name: "Fechar configurações" }).click();
+  await page
+    .locator(".stage-view-switch")
+    .getByRole("button", { name: "Podcast", exact: true })
+    .click();
+  await page.getByRole("heading", { name: "Podcast", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Configurações locais" }).click();
+  await page.getByLabel("Habilitar Podcast").uncheck();
+  await page.getByText("Desabilitado por padrão", { exact: false }).waitFor();
   await page.getByText("Arquivos temporários", { exact: true }).waitFor();
   await page.getByText("Arquivos gerados locais", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Limpar temporários" }).click();
@@ -980,6 +1132,22 @@ async function assertLocalSettings(page) {
     .getByRole("button", { name: "Excluir temporários" })
     .click();
   await page.getByRole("button", { name: "Fechar configurações" }).click();
+  assert.equal(
+    await page
+      .locator(".stage-view-switch")
+      .getByRole("button", { name: "Podcast", exact: true })
+      .count(),
+    0,
+    "Disabling Podcast should remove the stage tab",
+  );
+  assert.equal(
+    await page
+      .locator(".stage-view-switch")
+      .getByRole("button", { name: "Editar", exact: true })
+      .evaluate((button) => button.classList.contains("active")),
+    true,
+    "Disabling Podcast while active should return to Editar",
+  );
 }
 
 async function assertArtworkPreviewApi(noCoverPath, coverPath) {

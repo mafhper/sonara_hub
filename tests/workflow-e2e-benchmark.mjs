@@ -263,7 +263,10 @@ async function runWorkflowCase(source, inputConfig) {
     });
 
     await page.getByRole("button", { name: "Estúdio visual" }).click();
-    await page.locator(".steps button").filter({ hasText: "Visual" }).click();
+    await page
+      .getByLabel("Etapas do projeto")
+      .getByRole("button", { name: "Visual", exact: true })
+      .click();
     await page
       .locator('select:has(option[value="audio-dark"])')
       .selectOption("audio-dark");
@@ -327,7 +330,10 @@ async function runWorkflowCase(source, inputConfig) {
       "/api/render",
       renderResponses,
     );
-    await page.locator(".steps button").filter({ hasText: "Fila" }).click();
+    await page
+      .locator(".steps button")
+      .filter({ hasText: "Exportar Divulgação" })
+      .click();
     await page.getByLabel("Resolução").selectOption(prepared.resolution);
     await page
       .getByLabel("Perfil de qualidade")
@@ -338,7 +344,7 @@ async function runWorkflowCase(source, inputConfig) {
       })
       .click();
     await page
-      .getByText("Processamento de vídeos", { exact: true })
+      .getByText("Fila de exportação", { exact: true })
       .waitFor({ timeout: 20_000 });
     await waitForCondition(
       () => renderResponses.length >= prepared.tracks.length,

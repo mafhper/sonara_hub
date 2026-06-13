@@ -480,6 +480,12 @@ export function createSceneRuntime(
     // Text and global shade always render last — they are not part of the
     // reorderable stack because text overlay is conceptually always on top.
     if (composition.showMetadata !== false) {
+      const textAvoidanceBounds = mediaTextAvoidanceBounds(
+        width,
+        height,
+        composition.layers ?? [],
+        composition.durationSeconds,
+      );
       drawMetadata(
         context,
         width,
@@ -488,6 +494,7 @@ export function createSceneRuntime(
         composition.textSettings ?? {},
         time,
         composition.durationSeconds,
+        { blockingRects: textAvoidanceBounds },
       );
     }
     if (scene.common?.shade) {
@@ -1176,19 +1183,12 @@ function drawMediaLayer(
   if (!element) return;
   const opacity = effectiveLayerOpacity(layer, time, durationSeconds);
   if (opacity <= 0) return;
-  const naturalWidth = element.videoWidth || element.naturalWidth || width;
-  const naturalHeight = element.videoHeight || element.naturalHeight || height;
-  const zoom = effectiveZoomScale(layer.zoom, time, durationSeconds);
-  const targetWidth = width * ((layer.scale ?? 100) / 100) * zoom;
-  const targetHeight = height * ((layer.scale ?? 100) / 100) * zoom;
-  const factor =
-    layer.fit === "cover"
-      ? Math.max(targetWidth / naturalWidth, targetHeight / naturalHeight)
-      : Math.min(targetWidth / naturalWidth, targetHeight / naturalHeight);
-  const drawWidth = naturalWidth * factor;
-  const drawHeight = naturalHeight * factor;
-  const x = (width - drawWidth) * ((layer.x ?? 50) / 100);
-  const y = (height - drawHeight) * ((layer.y ?? 50) / 100);
+  const bounds = mediaLayerBounds(width, height, layer, time, durationSeconds);
+  if (!bounds) return;
+  const drawWidth = bounds.drawWidth;
+  const drawHeight = bounds.drawHeight;
+  const x = bounds.x;
+  const y = bounds.y;
   const shadow = layer.shadow ?? {};
   context.save();
   context.globalCompositeOperation =
@@ -1214,6 +1214,72 @@ function drawMediaLayer(
     context.fillRect(-drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
   }
   context.restore();
+}
+
+export function mediaLayerBounds(
+  width,
+  height,
+  layer,
+  time = 0,
+  durationSeconds = null,
+) {
+  const element = layer?.element;
+  if (!element || layer.visible === false) return null;
+  const opacity = effectiveLayerOpacity(layer, time, durationSeconds);
+  if (opacity <= 0) return null;
+  const naturalWidth = element.videoWidth || element.naturalWidth || width;
+  const naturalHeight = element.videoHeight || element.naturalHeight || height;
+  const zoom = effectiveZoomScale(layer.zoom, time, durationSeconds);
+  const targetWidth = width * ((layer.scale ?? 100) / 100) * zoom;
+  const targetHeight = height * ((layer.scale ?? 100) / 100) * zoom;
+  const factor =
+    layer.fit === "cover"
+      ? Math.max(targetWidth / naturalWidth, targetHeight / naturalHeight)
+      : Math.min(targetWidth / naturalWidth, targetHeight / naturalHeight);
+  const drawWidth = naturalWidth * factor;
+  const drawHeight = naturalHeight * factor;
+  const x = (width - drawWidth) * ((layer.x ?? 50) / 100);
+  const y = (height - drawHeight) * ((layer.y ?? 50) / 100);
+  const rotation = (((layer.rotation ?? 0) * Math.PI) / 180) % (Math.PI * 2);
+  if (!rotation) {
+    return {
+      x,
+      y,
+      drawWidth,
+      drawHeight,
+      left: x,
+      top: y,
+      right: x + drawWidth,
+      bottom: y + drawHeight,
+    };
+  }
+  const cx = x + drawWidth / 2;
+  const cy = y + drawHeight / 2;
+  const cos = Math.abs(Math.cos(rotation));
+  const sin = Math.abs(Math.sin(rotation));
+  const boxWidth = drawWidth * cos + drawHeight * sin;
+  const boxHeight = drawWidth * sin + drawHeight * cos;
+  return {
+    x,
+    y,
+    drawWidth,
+    drawHeight,
+    left: cx - boxWidth / 2,
+    top: cy - boxHeight / 2,
+    right: cx + boxWidth / 2,
+    bottom: cy + boxHeight / 2,
+  };
+}
+
+export function mediaTextAvoidanceBounds(
+  width,
+  height,
+  layers = [],
+  durationSeconds = null,
+) {
+  return layers
+    .map((layer) => mediaLayerBounds(width, height, layer, 0, durationSeconds))
+    .filter(Boolean);
 }
 
 // Generic, renderer-agnostic sun/light overlay. Drawn after the base scene so
@@ -1834,6 +1900,7 @@ function drawMetadata(
   settings = {},
   time = 0,
   durationSeconds = null,
+  options = {},
 ) {
   const textSettings = {
     ...defaultTextSettings,
@@ -1853,7 +1920,10 @@ function drawMetadata(
     year: String(metadata.year ?? "").trim(),
   };
   const scale = Math.max(0.2, width / 1920);
-  const lines = textSettings.order
+  // Position is needed before measuring so each line can be shrunk to fit the
+  // safe width that its alignment leaves between the anchor and the frame edge.
+  const x = (width * textSettings.x) / 100;
+  const baseLines = textSettings.order
     .filter((field) => textSettings.fields[field] && values[field])
     .map((field) => {
       const fieldStyle = textSettings.fieldStyles[field];
@@ -1863,20 +1933,57 @@ function drawMetadata(
           fieldStyle?.align ??
           (textSettings.align === "justify" ? "left" : textSettings.align),
       };
-      const fontSize = Math.max(9, style.fontSize * scale);
-      const lineHeight = fontSize * ((style.lineHeight ?? 118) / 100);
+      const requestedSize = Math.max(9, style.fontSize * scale);
+      const text = applyTextTransform(values[field], style.textTransform);
+      const requestedLineHeight =
+        requestedSize * ((style.lineHeight ?? 118) / 100);
       return {
         field,
-        text: applyTextTransform(values[field], style.textTransform),
+        text,
         style,
-        fontSize,
-        lineHeight,
+        requestedSize,
+        requestedLineHeight,
       };
     });
-  if (!lines.length) return;
-  const x = (width * textSettings.x) / 100;
+  if (!baseLines.length) return;
   let y = (height * textSettings.y) / 100;
+  const requestedBlockHeight = baseLines.reduce(
+    (sum, line) => sum + line.requestedLineHeight,
+    0,
+  );
+  if (textSettings.verticalAnchor === "middle") y -= requestedBlockHeight / 2;
+  if (textSettings.verticalAnchor === "bottom") y -= requestedBlockHeight;
+  let measureY = y;
+  const lines = baseLines.map((line) => {
+    const lineTop = measureY;
+    const lineBottom = measureY + line.requestedLineHeight;
+    measureY = lineBottom;
+    const maxWidth = metadataSafeWidth(width, x, line.style.align, {
+      blockingRects: options.blockingRects,
+      lineTop,
+      lineBottom,
+    });
+    // Auto-fit: never let an oversized title spill past the safe area —
+    // shrink the font instead of relying on fillText's horizontal squash.
+    const fontSize = fitMetadataFontSize(
+      context,
+      line.text,
+      line.style,
+      line.requestedSize,
+      maxWidth,
+    );
+    const lineHeight = fontSize * ((line.style.lineHeight ?? 118) / 100);
+    return {
+      field: line.field,
+      text: line.text,
+      style: line.style,
+      fontSize,
+      maxWidth,
+      lineHeight,
+    };
+  });
   const blockHeight = lines.reduce((sum, line) => sum + line.lineHeight, 0);
+  y = (height * textSettings.y) / 100;
   if (textSettings.verticalAnchor === "middle") y -= blockHeight / 2;
   if (textSettings.verticalAnchor === "bottom") y -= blockHeight;
   context.save();
@@ -1893,8 +2000,8 @@ function drawMetadata(
     context.fillStyle = hexToRgba(line.style.color, opacity);
     context.textAlign =
       line.style.align === "justify" ? "left" : line.style.align;
-    context.font = `${line.style.fontStyle === "italic" ? "italic " : ""}${Math.round(line.style.fontWeight)} ${line.fontSize}px ${fontFamilyStack(line.style.fontFamily)}`;
-    drawMetadataLine(context, line.text, x, cursorY, width * 0.7, line.style);
+    context.font = metadataFont(line.style, line.fontSize);
+    drawMetadataLine(context, line.text, x, cursorY, line.maxWidth, line.style);
     cursorY += line.lineHeight;
   }
   context.restore();
@@ -2020,13 +2127,78 @@ function clampValue(value, fallback, min, max) {
   return Math.min(max, Math.max(min, numeric));
 }
 
+// Builds the canvas font shorthand for a metadata line at a given size. Shared
+// by the draw loop and the fit measurement so both agree on metrics.
+function metadataFont(style, fontSize) {
+  return `${style.fontStyle === "italic" ? "italic " : ""}${Math.round(
+    style.fontWeight,
+  )} ${fontSize}px ${fontFamilyStack(style.fontFamily)}`;
+}
+
+// Horizontal room a line has before it touches the frame edge or a media layer
+// that intersects the same vertical band. A small margin keeps text off hard
+// borders; media bounds are sampled at t=0 so animated layers do not make text
+// pulse during export.
+const METADATA_SAFE_MARGIN = 0.045;
+const METADATA_OBSTACLE_PADDING = 0.012;
+export function metadataSafeWidth(width, xPx, align, options = {}) {
+  const margin = width * METADATA_SAFE_MARGIN;
+  const obstaclePadding = Math.max(8, width * METADATA_OBSTACLE_PADDING);
+  let leftLimit = margin;
+  let rightLimit = width - margin;
+  const lineTop = Number(options.lineTop);
+  const lineBottom = Number(options.lineBottom);
+  const blockers = Array.isArray(options.blockingRects)
+    ? options.blockingRects
+    : [];
+  for (const rect of blockers) {
+    if (!rect) continue;
+    const overlapsVertically =
+      Number.isFinite(lineTop) && Number.isFinite(lineBottom)
+        ? rect.bottom > lineTop && rect.top < lineBottom
+        : true;
+    if (!overlapsVertically) continue;
+    if (rect.left <= xPx && rect.right >= xPx) {
+      return 0;
+    }
+    if (rect.right < xPx) {
+      leftLimit = Math.max(leftLimit, rect.right + obstaclePadding);
+    } else if (rect.left > xPx) {
+      rightLimit = Math.min(rightLimit, rect.left - obstaclePadding);
+    }
+  }
+  if (align === "center") {
+    return Math.max(0, 2 * Math.min(xPx - leftLimit, rightLimit - xPx));
+  }
+  if (align === "right") return Math.max(0, xPx - leftLimit);
+  return Math.max(0, rightLimit - xPx);
+}
+
+// Shrinks fontSize until the (letter-spacing-aware) text fits maxWidth. Pure
+// reduction — never enlarges, never wraps — with a 9px floor. Returns the
+// original size when it already fits or when there is no width budget.
+export function fitMetadataFontSize(context, text, style, fontSize, maxWidth) {
+  if (!(maxWidth > 0)) return fontSize;
+  const spaced = applyLetterSpacing(text, style.letterSpacing);
+  let size = fontSize;
+  for (let pass = 0; pass < 4; pass += 1) {
+    context.font = metadataFont(style, size);
+    const measured = context.measureText(spaced).width;
+    if (measured <= maxWidth || size <= 9) break;
+    const next = Math.max(9, Math.floor(size * (maxWidth / measured)));
+    size = next >= size ? Math.max(9, size - 1) : next;
+  }
+  return size;
+}
+
 function drawMetadataLine(context, line, x, y, maxWidth, textSettings) {
   if (textSettings.align !== "justify") {
+    // No maxWidth cap: the font was already fit to the safe width, so passing a
+    // cap here would horizontally squash glyphs instead of preserving the fit.
     context.fillText(
       applyLetterSpacing(line, textSettings.letterSpacing),
       x,
       y,
-      maxWidth,
     );
     return;
   }
@@ -2036,7 +2208,6 @@ function drawMetadataLine(context, line, x, y, maxWidth, textSettings) {
       applyLetterSpacing(line, textSettings.letterSpacing),
       x,
       y,
-      maxWidth,
     );
     return;
   }

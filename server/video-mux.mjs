@@ -39,8 +39,7 @@ export function buildWebglMuxArgs({
     "libx264",
     "-preset",
     settings.encoderPreset ?? "veryfast",
-    "-crf",
-    String(settings.crf),
+    ...videoRateArgs(settings),
     "-pix_fmt",
     "yuv420p",
     "-c:a",
@@ -60,6 +59,22 @@ export function buildWebglMuxArgs({
     `album=${metadata.album}`,
     outputPath,
   ];
+}
+
+function videoRateArgs(settings) {
+  const bitrate = Number(settings.videoBitrateKbps);
+  if (Number.isFinite(bitrate) && bitrate > 0) {
+    const safeBitrate = Math.max(250, Math.round(bitrate));
+    return [
+      "-b:v",
+      `${safeBitrate}k`,
+      "-maxrate",
+      `${safeBitrate}k`,
+      "-bufsize",
+      `${safeBitrate * 2}k`,
+    ];
+  }
+  return ["-crf", String(settings.crf)];
 }
 
 function escapeFilterPath(filePath) {

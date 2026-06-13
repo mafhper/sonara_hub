@@ -1,4 +1,14 @@
-export type PublicationAssetKind = "image" | "clip";
+export type PublicationAssetKind = "image" | "clip" | "booklet";
+
+export type PublicationBookletTheme = {
+  id: string;
+  label: string;
+  background: string;
+  surface: string;
+  text: string;
+  muted: string;
+  accent: string;
+};
 
 export type PublicationAssetPreset = {
   id: string;
@@ -7,9 +17,16 @@ export type PublicationAssetPreset = {
   platform: string;
   width: number;
   height: number;
-  directory: "imagens" | "clips";
-  extension: "jpg" | "mp4";
+  directory: "imagens" | "clips" | "encartes";
+  extension: "jpg" | "mp4" | "html";
   maxDurationSeconds?: number;
+  bookletTheme?: string;
+  constraints?: {
+    maxDurationSeconds?: number;
+    maxFileSizeBytes?: number;
+    codec?: string;
+    aspectRatio?: string;
+  };
 };
 
 export type PublicationAssetManifest = {
@@ -37,6 +54,7 @@ export type PublicationAssetSettings = {
   hideText: boolean;
   lyricsPosition: PublicationLyricsPosition;
   lyricsStyle: PublicationLyricsStyle;
+  bookletTheme: string;
 };
 
 export type PublicationLyricsPosition = "top" | "center" | "bottom";
@@ -49,10 +67,25 @@ export type PublicationAssetOverrideMap = Record<
 >;
 
 export const publicationAssetKinds: PublicationAssetKind[];
+export const publicationBookletThemes: PublicationBookletTheme[];
+export function normalizePublicationBookletTheme(value: unknown): string;
+export function publicationBookletThemeById(
+  id: unknown,
+): PublicationBookletTheme;
 export const publicationAssetPresets: PublicationAssetPreset[];
 export function publicationAssetPresetById(id: string): PublicationAssetPreset;
 export function publicationAssetPresetLabel(id: string): string;
 export function clampPublicationClipDuration(value: unknown): number;
+export function publicationPresetMaxDurationSeconds(
+  idOrPreset: string | PublicationAssetPreset,
+): number;
+export function clampPublicationClipDurationForPreset(
+  value: unknown,
+  idOrPreset: string | PublicationAssetPreset,
+): number;
+export function publicationConstraintSummary(
+  idOrPreset: string | PublicationAssetPreset,
+): string;
 export function clampPublicationClipStart(value: unknown): number;
 export function normalizePublicationLyricsMode(
   value: unknown,

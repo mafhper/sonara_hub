@@ -4,6 +4,7 @@ import type { PublicationAssetOverrideMap } from "../shared/publication-assets.m
 
 export type AudioInfo = {
   fileName: string;
+  sizeBytes?: number | null;
   durationSeconds: number | null;
   bitrate: number | null;
   codec: string | null;
@@ -12,9 +13,12 @@ export type AudioInfo = {
   album?: string | null;
   albumArtist?: string | null;
   genre?: string | null;
+  description?: string | null;
   comment?: string | null;
   composer?: string | null;
   year?: string | number | null;
+  date?: string | number | null;
+  lyrics?: string | null;
   track?: number | null;
   trackTotal?: number | null;
   disk?: number | null;
@@ -24,6 +28,7 @@ export type AudioInfo = {
   channels?: number | null;
   analysis?: AudioTechnicalAnalysis;
   suggestions?: Partial<AudioTagDraft>;
+  metadataPartial?: boolean;
 };
 
 export type AudioTechnicalAnalysis = {
@@ -52,6 +57,13 @@ export type AudioTagDraft = {
   lyrics: string;
   lyricsLanguage: string;
   normalizationEnabled: boolean;
+  podcastVoiceProfile?: string;
+  podcastTrimSilence?: boolean;
+  podcastVoiceBoost?: boolean;
+  podcastPlaybackSpeed?: number;
+  podcastIntroInsert?: string;
+  podcastOutroInsert?: string;
+  podcastAdInsert?: string;
   cleanPackage: true;
 };
 
@@ -83,6 +95,17 @@ export type TrackMetadata = {
   lyrics: string;
   lyricsLanguage: string;
   normalizationEnabled: boolean;
+  podcastVoiceProfile: string;
+  podcastTrimSilence: boolean;
+  podcastVoiceBoost: boolean;
+  podcastPlaybackSpeed: number;
+  podcastIntroInsert: string;
+  podcastOutroInsert: string;
+  podcastAdInsert: string;
+  podcastEpisodeArtworkUrl: string;
+  podcastEpisodeLink: string;
+  podcastEpisodeLinks: string;
+  podcastDonationUrl: string;
 };
 
 export type MediaLayerV2 = {
@@ -305,7 +328,11 @@ export type TrackDraft = {
 
 export type RenderJob = {
   id: string;
-  kind?: "audio-process" | "video-render" | "publication-asset";
+  kind?:
+    | "audio-process"
+    | "video-render"
+    | "publication-asset"
+    | "podcast-feed";
   status: "queued" | "paused" | "running" | "done" | "error" | "canceled";
   progress: number;
   message: string;
@@ -375,12 +402,26 @@ export type ProjectSnapshot = {
   workspaceMode: "audio" | "visual";
   workflowMode: "single" | "batch";
   activeStep: "music" | "visual" | "text" | "export";
-  audioStageView?: "edit" | "catalog" | "videos";
-  visualStageView?: "editor" | "videos" | "promotion" | "queue";
+  podcastEnabled?: boolean;
+  audioStageView?:
+    | "edit"
+    | "artwork"
+    | "podcast"
+    | "catalog"
+    | "audio-export"
+    | "videos";
+  visualStageView?:
+    | "editor"
+    | "review"
+    | "promotion"
+    | "publication-export"
+    | "videos"
+    | "queue";
   publicationPresetId?: string;
   publicationClipStart?: number;
   publicationClipDuration?: number;
   publicationIncludeLyrics?: boolean;
+  publicationGenerateDataFiles?: boolean;
   publicationAssetMode?: "single" | "group" | "all";
   publicationAssetOverrides?: PublicationAssetOverrideMap;
   assetManifest?: ProjectAssetManifest;

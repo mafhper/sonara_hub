@@ -4,8 +4,158 @@ import {
   effectiveLayerOpacity,
   effectiveTextOpacity,
   effectiveZoomScale,
+  fitMetadataFontSize,
   legacyRenderStack,
+  mediaLayerBounds,
+  mediaTextAvoidanceBounds,
+  metadataSafeWidth,
 } from "../shared/canvas-scene-runtime.mjs";
+
+// Minimal 2D context stand-in: width proportional to char count and font px so
+// fontSize scaling is observable without a real canvas.
+function fakeContext() {
+  return {
+    font: "",
+    measureText(text) {
+      const match = /(\d+(?:\.\d+)?)px/u.exec(this.font);
+      const size = match ? Number(match[1]) : 10;
+      return { width: String(text).length * size * 0.5 };
+    },
+  };
+}
+
+const plainStyle = {
+  fontFamily: "Inter",
+  fontWeight: 600,
+  fontStyle: "normal",
+  letterSpacing: 0,
+};
+
+test("metadataSafeWidth respects alignment and the edge margin", () => {
+  const width = 1000;
+  const margin = width * 0.045;
+  assert.equal(metadataSafeWidth(width, 50, "left"), width - 50 - margin);
+  assert.equal(metadataSafeWidth(width, 800, "right"), 800 - margin);
+  assert.equal(
+    metadataSafeWidth(width, 600, "center"),
+    2 * Math.min(600 - margin, width - 600 - margin),
+  );
+  assert.equal(metadataSafeWidth(width, 50, "justify"), width - 50 - margin);
+  assert.equal(metadataSafeWidth(width, 0, "right"), 0);
+});
+
+test("metadataSafeWidth avoids media bounds intersecting the text band", () => {
+  const width = 1000;
+  const blocker = { left: 500, top: 20, right: 700, bottom: 120 };
+  assert.equal(
+    metadataSafeWidth(width, 100, "left", {
+      blockingRects: [blocker],
+      lineTop: 40,
+      lineBottom: 80,
+    }),
+    388,
+  );
+  assert.equal(
+    metadataSafeWidth(width, 900, "right", {
+      blockingRects: [blocker],
+      lineTop: 40,
+      lineBottom: 80,
+    }),
+    188,
+  );
+  assert.equal(
+    metadataSafeWidth(width, 100, "left", {
+      blockingRects: [blocker],
+      lineTop: 140,
+      lineBottom: 180,
+    }),
+    width - 100 - width * 0.045,
+  );
+});
+
+test("mediaLayerBounds mirrors drawMediaLayer geometry", () => {
+  const bounds = mediaLayerBounds(1000, 500, {
+    element: { naturalWidth: 400, naturalHeight: 200 },
+    fit: "contain",
+    scale: 50,
+    x: 50,
+    y: 50,
+    opacity: 100,
+  });
+
+  assert.deepEqual(
+    {
+      x: bounds.x,
+      y: bounds.y,
+      drawWidth: bounds.drawWidth,
+      drawHeight: bounds.drawHeight,
+      left: bounds.left,
+      top: bounds.top,
+      right: bounds.right,
+      bottom: bounds.bottom,
+    },
+    {
+      x: 250,
+      y: 125,
+      drawWidth: 500,
+      drawHeight: 250,
+      left: 250,
+      top: 125,
+      right: 750,
+      bottom: 375,
+    },
+  );
+});
+
+test("mediaTextAvoidanceBounds skips hidden and transparent layers", () => {
+  const layers = [
+    {
+      element: { naturalWidth: 100, naturalHeight: 100 },
+      opacity: 100,
+      visible: true,
+    },
+    {
+      element: { naturalWidth: 100, naturalHeight: 100 },
+      opacity: 0,
+      visible: true,
+    },
+    {
+      element: { naturalWidth: 100, naturalHeight: 100 },
+      opacity: 100,
+      visible: false,
+    },
+  ];
+
+  assert.equal(mediaTextAvoidanceBounds(200, 200, layers).length, 1);
+});
+
+test("fitMetadataFontSize shrinks an oversized title to the safe width", () => {
+  const context = fakeContext();
+  // 20 chars * 0.5 * size must fit 200px -> size <= 20. Requested 60 shrinks.
+  const fitted = fitMetadataFontSize(
+    context,
+    "TWENTY-CHARACTERS!!!",
+    plainStyle,
+    60,
+    200,
+  );
+  assert.ok(fitted < 60, "font should shrink");
+  assert.ok(fitted * 20 * 0.5 <= 200 + 0.5, "fitted text fits the width");
+});
+
+test("fitMetadataFontSize leaves a title that already fits untouched", () => {
+  const context = fakeContext();
+  assert.equal(fitMetadataFontSize(context, "Short", plainStyle, 30, 400), 30);
+});
+
+test("fitMetadataFontSize honors the 9px floor and ignores a zero budget", () => {
+  const context = fakeContext();
+  assert.equal(
+    fitMetadataFontSize(context, "A very very long line", plainStyle, 80, 1),
+    9,
+  );
+  assert.equal(fitMetadataFontSize(context, "Anything", plainStyle, 42, 0), 42);
+});
 
 test("cover layer fade-out is proportional to video duration", () => {
   const layer = {

@@ -26,7 +26,9 @@ import {
 } from "./ffmpeg-tool.mjs";
 import {
   clampPublicationLyricsLineSpacing,
+  normalizePublicationBookletTheme,
   normalizePublicationLyricsMode,
+  publicationBookletThemeById,
   publicationLyricsTextForSettings,
 } from "../shared/publication-assets.mjs";
 
@@ -204,6 +206,7 @@ export async function renderPublicationAssetJob({
   lyricsLineSpacing,
   lyricsPosition = "bottom",
   lyricsStyle = "minimal",
+  bookletTheme = preset.bookletTheme,
   generateDataFiles = true,
   outputPath,
   outputName,
@@ -243,6 +246,9 @@ export async function renderPublicationAssetJob({
           : Promise.resolve(null),
     ]);
   assertNotCanceled(shouldCancel);
+  const normalizedBookletTheme = normalizePublicationBookletTheme(
+    bookletTheme ?? preset.bookletTheme,
+  );
   const duration =
     preset.kind === "clip"
       ? Math.min(
@@ -252,7 +258,9 @@ export async function renderPublicationAssetJob({
             Number(audio.durationSeconds ?? clipDuration) - clipStart,
           ),
         )
-      : 1;
+      : preset.kind === "booklet"
+        ? Math.max(0, Number(audio.durationSeconds ?? 0))
+        : 1;
   if (background.type !== "generated" && mediaLayers.length === 0) {
     mediaLayers.push({
       ...background,
@@ -271,10 +279,20 @@ export async function renderPublicationAssetJob({
   }
 
   assertNotCanceled(shouldCancel);
-  stages.enter(preset.kind === "image" ? "poster-render" : "webgl-render", {
-    progress: 4,
-    message: "Renderizando divulgação",
-  });
+  stages.enter(
+    preset.kind === "image"
+      ? "poster-render"
+      : preset.kind === "booklet"
+        ? "booklet-render"
+        : "webgl-render",
+    {
+      progress: 4,
+      message:
+        preset.kind === "booklet"
+          ? "Preparando encarte digital"
+          : "Renderizando divulgação",
+    },
+  );
   const composition = {
     layers: mediaLayers.map(toCanvasLayer),
     coverSrc: cover?.path ? pathToFileURL(cover.path).href : "",
@@ -287,7 +305,24 @@ export async function renderPublicationAssetJob({
     textSettings: settings.compositionSettings.textSettings,
   };
 
-  if (preset.kind === "image") {
+  if (preset.kind === "booklet") {
+    stages.enter("booklet-render", {
+      progress: 90,
+      message: "Gerando encarte digital",
+    });
+    await writeDigitalBookletHtml({
+      outputPath,
+      metadata,
+      preset,
+      coverPath: cover?.path ?? null,
+      duration,
+      lyricsMode,
+      lyricsExcerpt,
+      lyricsHideTags,
+      lyricsLineSpacing,
+      bookletTheme: normalizedBookletTheme,
+    });
+  } else if (preset.kind === "image") {
     await renderWebglScenePoster({
       outputPath,
       size,
@@ -348,7 +383,7 @@ export async function renderPublicationAssetJob({
       metadata,
       outputPath,
       outputSize,
-      settings,
+      settings: publicationConstrainedMuxSettings(settings, preset, duration),
       subtitlePath,
       webglVideoPath,
     });
@@ -389,6 +424,7 @@ export async function renderPublicationAssetJob({
       lyricsExcerpt,
       lyricsHideTags,
       lyricsLineSpacing,
+      bookletTheme: normalizedBookletTheme,
     });
   }
   stages.finish({
@@ -413,6 +449,28 @@ function assertNotCanceled(shouldCancel) {
   if (typeof shouldCancel === "function" && shouldCancel()) {
     throw createCanceledJobError();
   }
+}
+
+function publicationConstrainedMuxSettings(settings, preset, duration) {
+  const maxFileSizeBytes = Number(preset?.constraints?.maxFileSizeBytes);
+  if (
+    preset?.kind !== "clip" ||
+    !Number.isFinite(maxFileSizeBytes) ||
+    maxFileSizeBytes <= 0 ||
+    !Number.isFinite(Number(duration)) ||
+    Number(duration) <= 0
+  ) {
+    return settings;
+  }
+  // Reserve room for audio, container overhead, and faststart metadata. This is
+  // intentionally conservative; exact file-size targeting would need multi-pass
+  // encoding, which is too slow for the local queue.
+  const totalKbps = (maxFileSizeBytes * 8) / Number(duration) / 1000;
+  const videoBitrateKbps = Math.max(250, Math.floor(totalKbps * 0.86 - 192));
+  return {
+    ...settings,
+    videoBitrateKbps,
+  };
 }
 
 async function analyzeAudio(filePath) {
@@ -470,6 +528,7 @@ async function writePublicationManifest({
   lyricsExcerpt,
   lyricsHideTags,
   lyricsLineSpacing,
+  bookletTheme,
 }) {
   const normalizedLyricsMode = normalizePublicationLyricsMode(
     lyricsMode,
@@ -484,6 +543,11 @@ async function writePublicationManifest({
     lyricsLineSpacing: normalizedLyricsLineSpacing,
     lyricsMode: normalizedLyricsMode,
   });
+  const normalizedBookletTheme = normalizePublicationBookletTheme(bookletTheme);
+  const theme =
+    preset.kind === "booklet"
+      ? publicationBookletThemeById(normalizedBookletTheme)
+      : null;
   const manifest = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
@@ -513,6 +577,7 @@ async function writePublicationManifest({
       lyricsLineSpacing: normalizedLyricsLineSpacing,
       lyrics: includedLyrics || undefined,
     },
+    theme,
     includeFullLyrics: normalizedLyricsMode === "full",
     files: [
       {
@@ -565,11 +630,238 @@ function publicationManifestMarkdown(manifest) {
     `- Letra incluída: ${lyricsModeLabel}`,
     `- Tags ocultas: ${metadata.lyricsHideTags ? "sim" : "não"}`,
     `- Espaçamento da letra: ${metadata.lyricsLineSpacing}%`,
+    manifest.theme ? `- Tema: ${manifest.theme.label}` : "",
     metadata.lyrics ? `\n## Letra\n\n${metadata.lyrics}` : "",
     "",
   ]
     .filter((line) => line !== "")
     .join("\n");
+}
+
+async function writeDigitalBookletHtml({
+  outputPath,
+  metadata,
+  preset,
+  coverPath,
+  duration,
+  lyricsMode,
+  lyricsExcerpt,
+  lyricsHideTags,
+  lyricsLineSpacing,
+  bookletTheme,
+}) {
+  const theme = publicationBookletThemeById(bookletTheme);
+  const includedLyrics = publicationLyricsTextForSettings(metadata.lyrics, {
+    includeLyrics: lyricsMode !== "none",
+    lyricsExcerpt,
+    lyricsHideTags,
+    lyricsLineSpacing,
+    lyricsMode,
+  });
+  const coverDataUri = coverPath ? await fileDataUri(coverPath) : "";
+  const tags = metadata.tags
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+  const title = metadata.title || "Faixa sem título";
+  const artist = metadata.artist || metadata.albumArtist || "";
+  const album = metadata.album || title;
+  const description = metadata.description || "";
+  const html = `<!doctype html>
+<html lang="${escapeHtml(metadata.language || "pt-BR")}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(album)} · Encarte digital</title>
+  <style>
+    :root {
+      color-scheme: ${theme.id === "studio" ? "light" : "dark"};
+      --booklet-bg: ${theme.background};
+      --booklet-surface: ${theme.surface};
+      --booklet-text: ${theme.text};
+      --booklet-muted: ${theme.muted};
+      --booklet-accent: ${theme.accent};
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--booklet-bg);
+      color: var(--booklet-text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+    main {
+      width: min(960px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 40px 0 56px;
+    }
+    header {
+      display: grid;
+      grid-template-columns: minmax(220px, 360px) 1fr;
+      gap: 32px;
+      align-items: end;
+      min-height: 56vh;
+      border-bottom: 1px solid color-mix(in srgb, var(--booklet-text), transparent 78%);
+      padding-bottom: 32px;
+    }
+    .cover {
+      width: 100%;
+      aspect-ratio: 1;
+      background: var(--booklet-surface);
+      border: 1px solid color-mix(in srgb, var(--booklet-text), transparent 82%);
+      object-fit: cover;
+    }
+    .cover.empty {
+      display: grid;
+      place-items: center;
+      color: var(--booklet-muted);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: .14em;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(42px, 8vw, 96px);
+      line-height: .92;
+      letter-spacing: 0;
+    }
+    .artist {
+      color: var(--booklet-muted);
+      font-size: clamp(18px, 2vw, 28px);
+      margin: 18px 0 0;
+    }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+      margin: 32px 0;
+    }
+    .meta div,
+    section {
+      background: var(--booklet-surface);
+      border: 1px solid color-mix(in srgb, var(--booklet-text), transparent 84%);
+      padding: 18px;
+    }
+    dt {
+      color: var(--booklet-muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+    }
+    dd {
+      margin: 8px 0 0;
+      font-weight: 700;
+    }
+    h2 {
+      color: var(--booklet-accent);
+      font-size: 13px;
+      margin: 0 0 14px;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+    }
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .tags span {
+      border: 1px solid color-mix(in srgb, var(--booklet-accent), transparent 45%);
+      color: var(--booklet-accent);
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+    .lyrics {
+      white-space: pre-wrap;
+      line-height: ${clampPublicationLyricsLineSpacing(lyricsLineSpacing) / 100};
+    }
+    @media (max-width: 720px) {
+      header,
+      .meta {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      ${
+        coverDataUri
+          ? `<img class="cover" src="${coverDataUri}" alt="">`
+          : `<div class="cover empty">Sem capa</div>`
+      }
+      <div>
+        <h1>${escapeHtml(album)}</h1>
+        <p class="artist">${escapeHtml(artist || "Artista")}</p>
+      </div>
+    </header>
+    <dl class="meta">
+      ${metadataBlock("Faixa", title)}
+      ${metadataBlock("Ano", metadata.year || "-")}
+      ${metadataBlock("Gênero", metadata.genre || "-")}
+      ${metadataBlock("Duração", formatDuration(duration))}
+    </dl>
+    ${
+      description
+        ? `<section><h2>Notas</h2><p>${escapeHtml(description)}</p></section>`
+        : ""
+    }
+    <section>
+      <h2>Créditos</h2>
+      <p>${escapeHtml(artist || metadata.albumArtist || "-")}</p>
+      ${
+        tags.length
+          ? `<div class="tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>`
+          : ""
+      }
+    </section>
+    ${
+      includedLyrics
+        ? `<section><h2>Letra</h2><div class="lyrics">${escapeHtml(includedLyrics)}</div></section>`
+        : ""
+    }
+    <section>
+      <h2>Arquivo</h2>
+      <p>${escapeHtml(preset.label)} · ${escapeHtml(theme.label)}</p>
+    </section>
+  </main>
+</body>
+</html>`;
+  await fs.writeFile(outputPath, html, "utf8");
+}
+
+function metadataBlock(label, value) {
+  return `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`;
+}
+
+async function fileDataUri(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  const mime =
+    extension === ".png"
+      ? "image/png"
+      : extension === ".webp"
+        ? "image/webp"
+        : "image/jpeg";
+  const data = await fs.readFile(filePath);
+  return `data:${mime};base64,${data.toString("base64")}`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatDuration(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value <= 0) return "-";
+  const minutes = Math.floor(value / 60);
+  const rest = Math.round(value % 60);
+  return `${minutes}:${String(rest).padStart(2, "0")}`;
 }
 
 async function writeYoutubeSidecar(

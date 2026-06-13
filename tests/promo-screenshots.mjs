@@ -80,9 +80,8 @@ try {
   await ensurePanelOpen(page, "library");
   await ensurePanelOpen(page, "inspector");
   await page
-    .locator(".steps button")
-    .filter({ hasText: "Visual" })
-    .first()
+    .getByLabel("Etapas do projeto")
+    .getByRole("button", { name: "Visual", exact: true })
     .click();
   const presetSelect = page.locator(
     'select:has(option[value="volumetric-clouds"])',
@@ -128,9 +127,10 @@ try {
   await shot(page, "shot-catalog.webp");
 
   // --- 4) Video grid (publication thumbnails, cover mode) ---
+  await page.getByRole("button", { name: "Estúdio visual" }).click();
   await page
-    .locator(".stage-view-switch")
-    .getByRole("button", { name: "Vídeos" })
+    .getByLabel("Etapas do projeto")
+    .getByRole("button", { name: "Visualizar" })
     .click();
   await page.getByText("Grade de publicação").first().waitFor();
   await page

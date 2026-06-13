@@ -1,8 +1,7 @@
 # Debitos tecnicos
 
-> Para o estado atual completo, bugs conhecidos e próximas etapas (incluindo o
-> redesenho da barra de camadas, saves múltiplos por projeto e o split do
-> `App.tsx`), ver [backlog.md](backlog.md).
+> O backlog completo do projeto é um documento privado de trabalho e não fica no
+> Git. Este arquivo público registra apenas dívidas técnicas estáveis.
 
 ## Benchmark de render longo
 

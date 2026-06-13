@@ -32,6 +32,25 @@ for (const preset of builtinVisualPresets) {
   });
 }
 
+const cloudTimelineIds = [
+  "volumetric-clouds-dawn",
+  "volumetric-clouds-noon",
+  "volumetric-clouds-sunset",
+  "volumetric-clouds-dusk",
+  "volumetric-clouds-midnight",
+];
+const cloudTimelineHashes = [];
+for (const id of cloudTimelineIds) {
+  cloudTimelineHashes.push(
+    await firstFrameHash(path.join(outputDir, `${id}-720p.webm`)),
+  );
+}
+assert.equal(
+  new Set(cloudTimelineHashes).size,
+  cloudTimelineIds.length,
+  "cloud timeline presets should render visibly distinct first frames",
+);
+
 for (const type of [
   "mirror-line",
   "single-line",

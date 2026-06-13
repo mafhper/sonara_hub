@@ -13,6 +13,11 @@ import {
 const expectedIds = [
   "liquid-mesh",
   "volumetric-clouds",
+  "volumetric-clouds-dawn",
+  "volumetric-clouds-noon",
+  "volumetric-clouds-sunset",
+  "volumetric-clouds-dusk",
+  "volumetric-clouds-midnight",
   "aurora-ribbons",
   "vector-aura",
   "playful-shapes",
@@ -101,6 +106,68 @@ test("ported shader presets normalize to their fullscreen renderers", () => {
     ["arms", "twist", "zoom", "glow"],
   );
   assert.equal(galaxy.advanced.arms, 57);
+});
+
+test("cloud timeline presets use stable ids and fall back through broad clouds", () => {
+  const cloudTimelineIds = [
+    "volumetric-clouds-dawn",
+    "volumetric-clouds-noon",
+    "volumetric-clouds-sunset",
+    "volumetric-clouds-dusk",
+    "volumetric-clouds-midnight",
+  ];
+  const base = normalizeVisualSettings({ id: "volumetric-clouds" });
+  const variants = cloudTimelineIds.map((id) =>
+    normalizeVisualSettings({ id }),
+  );
+
+  assert.deepEqual(
+    variants.map((preset) => preset.name),
+    [
+      "Nuvens amplas · Amanhecer",
+      "Nuvens amplas · Meio-dia",
+      "Nuvens amplas · Entardecer",
+      "Nuvens amplas · Anoitecer",
+      "Nuvens amplas · Noite alta",
+    ],
+  );
+
+  for (const variant of variants) {
+    assert.equal(variant.rendererId, "volumetric-clouds");
+    assert.equal(variant.category, "Atmosferas");
+    assert.equal(variant.source, "builtin");
+    assert.deepEqual(
+      variant.controls.map((entry) => entry.key),
+      base.controls.map((entry) => entry.key),
+      variant.id,
+    );
+    assert.deepEqual(
+      Object.keys(variant.advanced),
+      Object.keys(base.advanced),
+      variant.id,
+    );
+  }
+
+  assert.equal(
+    new Set(
+      variants.map((variant) =>
+        JSON.stringify({
+          colors: variant.colors,
+          common: variant.common,
+          advanced: variant.advanced,
+          cloudLight: variant.cloudLight,
+        }),
+      ),
+    ).size,
+    variants.length,
+  );
+
+  const missingVariant = normalizeVisualSettings({
+    id: "volumetric-clouds-future",
+    rendererId: "volumetric-clouds",
+  });
+  assert.equal(missingVariant.id, "volumetric-clouds");
+  assert.equal(missingVariant.rendererId, "volumetric-clouds");
 });
 
 test("starfield uses one preset with parameterized palettes", () => {

@@ -95,6 +95,67 @@ export function validateNormalizedAnalysis(analysis) {
   }
 }
 
+export function normalizePodcastAudioProcessing(value = {}) {
+  const voiceProfile = normalizePodcastVoiceProfile(
+    firstText(value.voiceProfile, value.podcastVoiceProfile),
+  );
+  const playbackSpeed = clampNumber(
+    Number(value.playbackSpeed ?? value.podcastPlaybackSpeed ?? 1),
+    0.8,
+    1.2,
+    1,
+  );
+  const trimSilence = booleanValue(
+    value.trimSilence ?? value.podcastTrimSilence,
+  );
+  const voiceBoost = booleanValue(value.voiceBoost ?? value.podcastVoiceBoost);
+  return {
+    voiceProfile,
+    trimSilence,
+    voiceBoost,
+    playbackSpeed,
+    enabled:
+      trimSilence ||
+      voiceBoost ||
+      voiceProfile !== "natural" ||
+      playbackSpeed !== 1,
+  };
+}
+
+export function buildPodcastAudioFilters(value = {}) {
+  const processing = normalizePodcastAudioProcessing(value);
+  const filters = [];
+  if (processing.trimSilence) {
+    filters.push(
+      "silenceremove=start_periods=1:start_silence=0.15:start_threshold=-50dB:stop_periods=1:stop_silence=0.3:stop_threshold=-50dB",
+    );
+  }
+  filters.push(...voiceProfileFilters(processing.voiceProfile));
+  if (processing.voiceBoost) {
+    filters.push(
+      processing.voiceProfile === "natural"
+        ? "acompressor=threshold=-18dB:ratio=2:attack=5:release=100:makeup=2"
+        : "volume=1.5dB",
+    );
+  }
+  if (processing.playbackSpeed !== 1) {
+    filters.push(`atempo=${formatFilterNumber(processing.playbackSpeed)}`);
+  }
+  return filters;
+}
+
+export function normalizePodcastAudioInserts(value = {}) {
+  const intro = firstText(value.intro, value.podcastIntroInsert);
+  const ad = firstText(value.ad, value.midroll, value.podcastAdInsert);
+  const outro = firstText(value.outro, value.podcastOutroInsert);
+  return {
+    intro,
+    ad,
+    outro,
+    enabled: Boolean(intro || ad || outro),
+  };
+}
+
 export async function writeCleanMp3Tags(filePath, draft, coverBuffer) {
   const tags = {
     title: String(draft.title ?? ""),
@@ -395,6 +456,14 @@ export async function processMp3Copy({
     path.dirname(outputPath),
     `.${path.basename(outputPath)}.${crypto.randomUUID()}.tmp.mp3`,
   );
+  const mainTemporaryPath = path.join(
+    path.dirname(outputPath),
+    `.${path.basename(outputPath)}.${crypto.randomUUID()}.main.mp3`,
+  );
+  const mixedTemporaryPath = path.join(
+    path.dirname(outputPath),
+    `.${path.basename(outputPath)}.${crypto.randomUUID()}.mixed.mp3`,
+  );
   try {
     const coverBuffer = coverPath
       ? await sharp(coverPath)
@@ -405,12 +474,48 @@ export async function processMp3Copy({
     let analysis;
     let tags;
     const attempts = normalizationEnabled ? 2 : 1;
+    const podcastAudioFilters = buildPodcastAudioFilters(draft);
+    const podcastAudioInserts = await resolvePodcastAudioInserts(
+      draft,
+      inputPath,
+    );
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-      if (normalizationEnabled) {
+      if (podcastAudioInserts.enabled) {
+        if (podcastAudioFilters.length) {
+          await processMp3WithAudioFilters(
+            inputPath,
+            mainTemporaryPath,
+            podcastAudioFilters,
+          );
+        } else {
+          await fs.copyFile(inputPath, mainTemporaryPath);
+        }
+        await mixPodcastAudioInserts(
+          mainTemporaryPath,
+          mixedTemporaryPath,
+          podcastAudioInserts,
+        );
+        if (normalizationEnabled) {
+          await normalizeMp3(
+            mixedTemporaryPath,
+            temporaryPath,
+            normalizedMp3TruePeakTarget(attempt),
+          );
+        } else {
+          await fs.copyFile(mixedTemporaryPath, temporaryPath);
+        }
+      } else if (normalizationEnabled) {
         await normalizeMp3(
           inputPath,
           temporaryPath,
           normalizedMp3TruePeakTarget(attempt),
+          podcastAudioFilters,
+        );
+      } else if (podcastAudioFilters.length) {
+        await processMp3WithAudioFilters(
+          inputPath,
+          temporaryPath,
+          podcastAudioFilters,
         );
       } else {
         await fs.copyFile(inputPath, temporaryPath);
@@ -431,6 +536,11 @@ export async function processMp3Copy({
   } catch (error) {
     await fs.rm(temporaryPath, { force: true });
     throw error;
+  } finally {
+    await Promise.all([
+      fs.rm(mainTemporaryPath, { force: true }).catch(() => {}),
+      fs.rm(mixedTemporaryPath, { force: true }).catch(() => {}),
+    ]);
   }
 }
 
@@ -438,19 +548,27 @@ export function isEditableMp3(inputName) {
   return path.extname(inputName).toLowerCase() === ".mp3";
 }
 
-export async function normalizeMp3(inputPath, outputPath, truePeakDbtp = -2) {
+export async function normalizeMp3(
+  inputPath,
+  outputPath,
+  truePeakDbtp = -2,
+  preFilters = [],
+) {
   const firstPass = await runFfmpeg([
     "-hide_banner",
     "-i",
     inputPath,
     "-af",
-    `loudnorm=I=-14:TP=${truePeakDbtp}:LRA=11:print_format=json`,
+    audioFilterArgument([
+      ...preFilters,
+      `loudnorm=I=-14:TP=${truePeakDbtp}:LRA=11:print_format=json`,
+    ]),
     "-f",
     "null",
     "-",
   ]);
   const report = parseLoudnormJson(firstPass.stderr);
-  const filter = [
+  const loudnormFilter = [
     `loudnorm=I=-14:TP=${truePeakDbtp}:LRA=11`,
     `measured_I=${report.input_i}`,
     `measured_LRA=${report.input_lra}`,
@@ -460,6 +578,7 @@ export async function normalizeMp3(inputPath, outputPath, truePeakDbtp = -2) {
     "linear=true",
     "print_format=summary",
   ].join(":");
+  const filter = audioFilterArgument([...preFilters, loudnormFilter]);
   await runFfmpeg([
     "-y",
     "-hide_banner",
@@ -475,6 +594,270 @@ export async function normalizeMp3(inputPath, outputPath, truePeakDbtp = -2) {
     "0",
     outputPath,
   ]);
+}
+
+async function processMp3WithAudioFilters(inputPath, outputPath, filters) {
+  await runFfmpeg([
+    "-y",
+    "-hide_banner",
+    "-i",
+    inputPath,
+    "-map_metadata",
+    "-1",
+    "-af",
+    audioFilterArgument(filters),
+    "-codec:a",
+    "libmp3lame",
+    "-q:a",
+    "0",
+    outputPath,
+  ]);
+}
+
+async function resolvePodcastAudioInserts(draft, inputPath) {
+  const inserts = normalizePodcastAudioInserts(draft);
+  if (!inserts.enabled) return inserts;
+  const baseDirectory = path.dirname(inputPath);
+  return {
+    intro: await resolvePodcastInsertPath(
+      inserts.intro,
+      baseDirectory,
+      "Insert de abertura",
+    ),
+    ad: await resolvePodcastInsertPath(
+      inserts.ad,
+      baseDirectory,
+      "Insert de intervalo",
+    ),
+    outro: await resolvePodcastInsertPath(
+      inserts.outro,
+      baseDirectory,
+      "Insert de encerramento",
+    ),
+    enabled: true,
+  };
+}
+
+async function resolvePodcastInsertPath(source, baseDirectory, label) {
+  const value = firstText(source);
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) {
+    throw new Error(`${label} precisa apontar para um arquivo de audio local.`);
+  }
+  const candidates = path.isAbsolute(value)
+    ? [value]
+    : [path.resolve(baseDirectory, value), path.resolve(process.cwd(), value)];
+  for (const candidate of candidates) {
+    if (await isReadableAudioInsert(candidate)) return candidate;
+  }
+  throw new Error(`${label} nao encontrado: ${value}`);
+}
+
+async function isReadableAudioInsert(filePath) {
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.isFile() && isPodcastInsertAudioFile(filePath);
+  } catch {
+    return false;
+  }
+}
+
+function isPodcastInsertAudioFile(filePath) {
+  return [".aac", ".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav"].includes(
+    path.extname(filePath).toLowerCase(),
+  );
+}
+
+async function mixPodcastAudioInserts(mainPath, outputPath, inserts) {
+  const inputs = [];
+  let introIndex = -1;
+  let mainIndex = -1;
+  let adIndex = -1;
+  let outroIndex = -1;
+  if (inserts.intro) {
+    introIndex = inputs.push(inserts.intro) - 1;
+  }
+  mainIndex = inputs.push(mainPath) - 1;
+  if (inserts.ad) {
+    adIndex = inputs.push(inserts.ad) - 1;
+  }
+  if (inserts.outro) {
+    outroIndex = inputs.push(inserts.outro) - 1;
+  }
+
+  const filter =
+    adIndex >= 0
+      ? await podcastMidrollFilter({
+          adIndex,
+          introIndex,
+          mainIndex,
+          mainPath,
+          outroIndex,
+        })
+      : podcastConcatFilter({ introIndex, mainIndex, outroIndex });
+  const args = ["-y", "-hide_banner"];
+  for (const input of inputs) {
+    args.push("-i", input);
+  }
+  await runFfmpeg([
+    ...args,
+    "-filter_complex",
+    filter,
+    "-map",
+    "[out]",
+    "-map_metadata",
+    "-1",
+    "-codec:a",
+    "libmp3lame",
+    "-q:a",
+    "0",
+    outputPath,
+  ]);
+}
+
+function podcastConcatFilter({
+  adIndex = -1,
+  introIndex,
+  mainIndex,
+  outroIndex,
+}) {
+  const filters = [];
+  const labels = [];
+  if (introIndex >= 0) {
+    filters.push(podcastSegmentFilter(introIndex, "intro"));
+    labels.push("[intro]");
+  }
+  filters.push(podcastSegmentFilter(mainIndex, "main"));
+  labels.push("[main]");
+  if (adIndex >= 0) {
+    filters.push(podcastSegmentFilter(adIndex, "ad"));
+    labels.push("[ad]");
+  }
+  if (outroIndex >= 0) {
+    filters.push(podcastSegmentFilter(outroIndex, "outro"));
+    labels.push("[outro]");
+  }
+  filters.push(`${labels.join("")}concat=n=${labels.length}:v=0:a=1[out]`);
+  return filters.join(";");
+}
+
+async function podcastMidrollFilter({
+  adIndex,
+  introIndex,
+  mainIndex,
+  mainPath,
+  outroIndex,
+}) {
+  const duration = await audioDurationSeconds(mainPath);
+  if (!Number.isFinite(duration) || duration <= 0.25) {
+    return podcastConcatFilter({ adIndex, introIndex, mainIndex, outroIndex });
+  }
+  const midpoint = formatFilterNumber(duration / 2);
+  const filters = [];
+  const labels = [];
+  if (introIndex >= 0) {
+    filters.push(podcastSegmentFilter(introIndex, "intro"));
+    labels.push("[intro]");
+  }
+  filters.push(
+    `[${mainIndex}:a]${podcastSegmentFormat()},asplit=2[main_before][main_after]`,
+  );
+  filters.push(
+    `[main_before]atrim=start=0:end=${midpoint},asetpts=PTS-STARTPTS[main_pre]`,
+  );
+  filters.push(
+    `[main_after]atrim=start=${midpoint},asetpts=PTS-STARTPTS[main_post]`,
+  );
+  filters.push(podcastSegmentFilter(adIndex, "ad"));
+  labels.push("[main_pre]", "[ad]", "[main_post]");
+  if (outroIndex >= 0) {
+    filters.push(podcastSegmentFilter(outroIndex, "outro"));
+    labels.push("[outro]");
+  }
+  filters.push(`${labels.join("")}concat=n=${labels.length}:v=0:a=1[out]`);
+  return filters.join(";");
+}
+
+async function audioDurationSeconds(filePath) {
+  const result = await runFfmpeg([
+    "-hide_banner",
+    "-i",
+    filePath,
+    "-f",
+    "null",
+    "-",
+  ]);
+  const match = result.stderr.match(
+    /Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/,
+  );
+  if (!match) return Number.NaN;
+  return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+}
+
+function podcastSegmentFilter(index, label) {
+  return `[${index}:a]${podcastSegmentFormat()}[${label}]`;
+}
+
+function podcastSegmentFormat() {
+  return "aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo";
+}
+
+function audioFilterArgument(filters) {
+  return filters.filter(Boolean).join(",");
+}
+
+function normalizePodcastVoiceProfile(value) {
+  const id = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return ["broadcast", "warm", "clear"].includes(id) ? id : "natural";
+}
+
+function voiceProfileFilters(profile) {
+  return (
+    {
+      broadcast: [
+        "highpass=f=80",
+        "lowpass=f=14000",
+        "acompressor=threshold=-20dB:ratio=2.5:attack=8:release=120:makeup=2",
+      ],
+      warm: [
+        "highpass=f=65",
+        "lowpass=f=12000",
+        "bass=g=2:f=160:w=0.8",
+        "acompressor=threshold=-20dB:ratio=1.8:attack=12:release=160:makeup=1.5",
+      ],
+      clear: [
+        "highpass=f=95",
+        "lowpass=f=15000",
+        "equalizer=f=3200:t=q:w=1.1:g=2",
+        "acompressor=threshold=-19dB:ratio=2:attack=6:release=100:makeup=1.5",
+      ],
+    }[profile] ?? []
+  );
+}
+
+function booleanValue(value) {
+  return value === true || String(value ?? "").toLowerCase() === "true";
+}
+
+function clampNumber(value, min, max, fallback) {
+  return Number.isFinite(value)
+    ? Math.min(max, Math.max(min, value))
+    : fallback;
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
+}
+
+function formatFilterNumber(value) {
+  return String(Math.round(Number(value) * 1000) / 1000);
 }
 
 async function assertDecodedAudio(filePath) {

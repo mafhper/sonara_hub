@@ -1,21 +1,27 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import ffmpegPath from "ffmpeg-static";
 import NodeID3 from "node-id3";
 import sharp from "sharp";
 import {
   buildTreatedFileName,
   buildTreatedAlbumDirectoryName,
+  buildPodcastAudioFilters,
   classifyAudioRisk,
   createAlbumFolderCover,
   createNumberedCover,
   inferAudioTags,
   isEditableMp3,
+  normalizePodcastAudioInserts,
+  normalizePodcastAudioProcessing,
   normalizedMp3TruePeakTarget,
   parseLoudnormReport,
   parseSamplePeakReport,
+  processMp3Copy,
   romanNumeral,
   validateNormalizedAnalysis,
   writeCleanMp3Tags,
@@ -121,6 +127,145 @@ test("normalized MP3 validation rejects a package that still has reduced headroo
   );
   assert.doesNotThrow(() => validateNormalizedAnalysis({ risk: "safe" }));
 });
+
+test("podcast processing normalizes voice profile, speed and toggles", () => {
+  assert.deepEqual(
+    normalizePodcastAudioProcessing({
+      podcastVoiceProfile: "broadcast",
+      podcastTrimSilence: true,
+      podcastVoiceBoost: "true",
+      podcastPlaybackSpeed: 1.32,
+    }),
+    {
+      voiceProfile: "broadcast",
+      trimSilence: true,
+      voiceBoost: true,
+      playbackSpeed: 1.2,
+      enabled: true,
+    },
+  );
+  assert.deepEqual(normalizePodcastAudioProcessing({}), {
+    voiceProfile: "natural",
+    trimSilence: false,
+    voiceBoost: false,
+    playbackSpeed: 1,
+    enabled: false,
+  });
+  assert.deepEqual(
+    normalizePodcastAudioInserts({
+      podcastIntroInsert: " intro.mp3 ",
+      podcastAdInsert: "",
+      podcastOutroInsert: "outro.wav",
+    }),
+    {
+      intro: "intro.mp3",
+      ad: "",
+      outro: "outro.wav",
+      enabled: true,
+    },
+  );
+});
+
+test("podcast audio filters map acabamento settings to ffmpeg chain", () => {
+  assert.deepEqual(
+    buildPodcastAudioFilters({
+      podcastVoiceProfile: "clear",
+      podcastTrimSilence: true,
+      podcastVoiceBoost: true,
+      podcastPlaybackSpeed: 0.92,
+    }),
+    [
+      "silenceremove=start_periods=1:start_silence=0.15:start_threshold=-50dB:stop_periods=1:stop_silence=0.3:stop_threshold=-50dB",
+      "highpass=f=95",
+      "lowpass=f=15000",
+      "equalizer=f=3200:t=q:w=1.1:g=2",
+      "acompressor=threshold=-19dB:ratio=2:attack=6:release=100:makeup=1.5",
+      "volume=1.5dB",
+      "atempo=0.92",
+    ],
+  );
+  assert.deepEqual(buildPodcastAudioFilters({}), []);
+});
+
+test("podcast inserts are mixed into the treated MP3 package", async () => {
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "sonara-podcast-inserts-"),
+  );
+  const inputPath = path.join(directory, "episode.mp3");
+  const introPath = path.join(directory, "intro.mp3");
+  const adPath = path.join(directory, "ad.mp3");
+  const outroPath = path.join(directory, "outro.mp3");
+  const outputPath = path.join(directory, "treated.mp3");
+  writeToneMp3(inputPath, 2, 220);
+  writeToneMp3(introPath, 0.3, 330);
+  writeToneMp3(adPath, 0.3, 440);
+  writeToneMp3(outroPath, 0.3, 550);
+
+  const beforeSeconds = readAudioDurationSeconds(inputPath);
+  const result = await processMp3Copy({
+    inputPath,
+    inputName: "episode.mp3",
+    outputPath,
+    draft: {
+      title: "Episode With Inserts",
+      artist: "Host",
+      album: "Podcast",
+      albumArtist: "Host",
+      genre: "Podcast",
+      podcastIntroInsert: "intro.mp3",
+      podcastAdInsert: "ad.mp3",
+      podcastOutroInsert: "outro.mp3",
+    },
+    normalizationEnabled: false,
+  });
+  const afterSeconds = readAudioDurationSeconds(outputPath);
+
+  assert.equal(result.tags.title, "Episode With Inserts");
+  assert.ok(
+    afterSeconds > beforeSeconds + 0.7,
+    `expected inserts to increase duration: before=${beforeSeconds}, after=${afterSeconds}`,
+  );
+  assert.ok(
+    afterSeconds < beforeSeconds + 1.4,
+    `expected inserts to avoid duplicating the episode: before=${beforeSeconds}, after=${afterSeconds}`,
+  );
+});
+
+function writeToneMp3(filePath, durationSeconds, frequency) {
+  const result = spawnSync(
+    ffmpegPath,
+    [
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      `sine=frequency=${frequency}:duration=${durationSeconds}`,
+      "-q:a",
+      "4",
+      filePath,
+    ],
+    { windowsHide: true },
+  );
+  if (result.status !== 0) {
+    throw new Error(result.stderr.toString());
+  }
+}
+
+function readAudioDurationSeconds(filePath) {
+  const result = spawnSync(
+    ffmpegPath,
+    ["-hide_banner", "-i", filePath, "-f", "null", "-"],
+    { windowsHide: true },
+  );
+  if (result.status !== 0) {
+    throw new Error(result.stderr.toString());
+  }
+  const match = result.stderr
+    .toString()
+    .match(/Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/);
+  if (!match) return Number.NaN;
+  return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+}
 
 test("clean MP3 package replaces old tags and writes cover plus unsynchronised lyrics", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-id3-"));

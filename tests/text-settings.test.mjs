@@ -18,7 +18,8 @@ test("normalizeTextSettings preserves per-field styles, order and vertical ancho
     },
     verticalAnchor: "middle",
     align: "justify",
-    preset: "side-right",
+    preset: "minimal-grotesk",
+    fontFamily: "Space Grotesk",
   };
   const out = normalizeTextSettings(input);
 
@@ -32,7 +33,8 @@ test("normalizeTextSettings preserves per-field styles, order and vertical ancho
 
   // The full alignment + preset vocabularies must not collapse to defaults.
   assert.equal(out.align, "justify");
-  assert.equal(out.preset, "side-right");
+  assert.equal(out.preset, "minimal-grotesk");
+  assert.equal(out.fontFamily, "Space Grotesk");
 });
 
 test("normalizeTextSettings still rejects invalid enums and omits absent rich fields", () => {
