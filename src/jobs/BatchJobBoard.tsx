@@ -113,6 +113,11 @@ export function BatchJobBoard({
                       Tempos: {formatJobStageTimings(job.stageTimings)}
                     </small>
                   ) : null}
+                  {job.warnings?.slice(0, 2).map((warning) => (
+                    <small className="job-warning-line" key={warning}>
+                      Alerta: {warning}
+                    </small>
+                  ))}
                 </div>
                 <progress max={100} value={job.progress} />
                 <span>{job.progress}%</span>
