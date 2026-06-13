@@ -612,6 +612,35 @@ try {
   await page.getByRole("button", { name: "Divulgação", exact: true }).click();
   await page.getByText("Assets de publicação").waitFor();
   await page.getByLabel("Formato base").selectOption("clip-vertical");
+  await ensurePanelsClosed(page);
+  const publicationFormatGroups = page.locator(".publication-format-group");
+  assert.ok(
+    (await publicationFormatGroups.count()) >= 5,
+    "publication presets should be grouped into platform accordions",
+  );
+  const defaultFormatGroup = publicationFormatGroups.filter({
+    has: page.locator(".publication-format-group-label", {
+      hasText: "Padrões",
+    }),
+  });
+  assert.equal(
+    await defaultFormatGroup.evaluate((node) => node.open),
+    true,
+    "focused publication format group should be open",
+  );
+  await defaultFormatGroup
+    .locator(".publication-format-row", { hasText: "Clip vertical" })
+    .waitFor();
+  const instagramFormatGroup = publicationFormatGroups.filter({
+    has: page.locator(".publication-format-group-label", {
+      hasText: "Instagram",
+    }),
+  });
+  await instagramFormatGroup.locator("summary").click();
+  await instagramFormatGroup
+    .locator(".publication-format-row", { hasText: "Instagram story clip" })
+    .waitFor();
+  await ensurePanelOpen(page, "inspector");
   await page
     .locator(".publication-preview-panel .overline")
     .getByText("Prévia real · Clip vertical", { exact: true })

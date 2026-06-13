@@ -108,7 +108,7 @@ const commonSupportsByRenderer = new Map([
   ["vector-aura", ["speed", "direction", "audioReaction", "shade"]],
   ["playful-shapes", ["speed", "direction", "audioReaction", "shade"]],
   ["piano-ribbons", ["speed", "direction", "audioReaction", "shade"]],
-  ["vinyl", ["audioReaction", "shade"]],
+  ["vinyl", ["speed", "shade"]],
   ["audio-dark", ["speed", "shade"]],
 ]);
 
@@ -802,7 +802,7 @@ export function normalizeVisualSettings(input = {}) {
       shade: number(incomingCommon.shade, base.common.shade),
     },
     supportsCommon: normalizeSupportsCommon(
-      source.supportsCommon ?? base.supportsCommon,
+      base.supportsCommon,
       base.rendererId,
     ),
     advanced: Object.fromEntries(
