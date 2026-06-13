@@ -857,6 +857,11 @@ async function routeMinimalApi(page) {
 async function routeExternalAudioAnalyzeApi(page) {
   await page.route("**/api/audio/analyze", async (route) => {
     const body = route.request().postData() ?? "";
+    assert.equal(
+      body.includes('name="partial"'),
+      false,
+      "normal music folder metadata import must not send a partial audio slice",
+    );
     const isBeta = body.includes("beta.wav");
     await json(route, {
       metadata: {

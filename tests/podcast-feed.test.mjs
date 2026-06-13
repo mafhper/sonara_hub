@@ -168,6 +168,33 @@ test("podcast feed sidecar reports publication gaps without hiding the export", 
   assert.match(buildPodcastRssXml(sidecar), /<rss version="2.0"/);
 });
 
+test("podcast feed encodes media URL path segments component-wise", () => {
+  const [group] = buildPodcastFeedGroups([
+    podcastTrack("Temporada 1/Ep #1? abertura.mp3", {
+      title: "Abertura",
+      album: "Feed reservado",
+      albumArtist: "Host",
+      durationSeconds: 600,
+      sizeBytes: 2048,
+    }),
+  ]);
+
+  const sidecar = buildPodcastFeedSidecar(group, {
+    feedDescription: "Feed com caracteres reservados.",
+    feedLink: "https://example.com/feed",
+    audioBaseUrl: "https://cdn.example.com/audio",
+  });
+
+  assert.equal(
+    sidecar.episodes[0].enclosureUrl,
+    "https://cdn.example.com/audio/Temporada%201/Ep%20%231%3F%20abertura.mp3",
+  );
+  assert.equal(
+    buildPodcastRssXml(sidecar).includes("Ep%20%231%3F%20abertura.mp3"),
+    true,
+  );
+});
+
 function podcastTrack(sourceKey, values) {
   const {
     album = "",
