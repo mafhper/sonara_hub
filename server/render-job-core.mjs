@@ -400,6 +400,18 @@ export async function renderPublicationAssetJob({
     await assertPlayableOutput(outputPath);
   }
 
+  if (preset.kind !== "clip") {
+    stages.enter("output-validation", {
+      progress: 97,
+      message: "Medindo asset final",
+    });
+  }
+  const fileSizeValidation = await validatePublicationFileSize(
+    outputPath,
+    preset,
+  );
+  const warnings = publicationFileSizeWarnings(fileSizeValidation, preset);
+
   // Data files (json/markdown manifest) are optional — sometimes the user only
   // wants the clip/image itself.
   let manifestPath = null;
@@ -425,12 +437,16 @@ export async function renderPublicationAssetJob({
       lyricsHideTags,
       lyricsLineSpacing,
       bookletTheme: normalizedBookletTheme,
+      fileSizeValidation,
+      warnings,
     });
   }
   stages.finish({
     status: "done",
     progress: 100,
-    message: "Asset de divulgação concluído",
+    message: warnings.length
+      ? "Asset concluído com alerta de tamanho"
+      : "Asset de divulgação concluído",
     outputUrl: `/outputs/${outputName}`,
     sidecarUrl: manifestPath ? `/outputs/${path.basename(manifestPath)}` : null,
     markdownUrl: markdownPath
@@ -442,6 +458,10 @@ export async function renderPublicationAssetJob({
       ...(manifestPath ? [`/outputs/${path.basename(manifestPath)}`] : []),
       ...(markdownPath ? [`/outputs/${path.basename(markdownPath)}`] : []),
     ],
+    publicationValidation: {
+      fileSize: fileSizeValidation,
+    },
+    warnings,
   });
 }
 
@@ -471,6 +491,37 @@ function publicationConstrainedMuxSettings(settings, preset, duration) {
     ...settings,
     videoBitrateKbps,
   };
+}
+
+async function validatePublicationFileSize(outputPath, preset) {
+  const stat = await fs.stat(outputPath);
+  const actualBytes = stat.size;
+  const maxBytes = Number(preset?.constraints?.maxFileSizeBytes);
+  const hasLimit = Number.isFinite(maxBytes) && maxBytes > 0;
+  const overBytes = hasLimit ? Math.max(0, actualBytes - maxBytes) : 0;
+  return {
+    status: hasLimit ? (overBytes > 0 ? "exceeded" : "ok") : "unbounded",
+    actualBytes,
+    actualLabel: formatPublicationBytes(actualBytes),
+    maxBytes: hasLimit ? maxBytes : null,
+    maxLabel: hasLimit ? formatPublicationBytes(maxBytes) : null,
+    overBytes,
+    overLabel: overBytes > 0 ? formatPublicationBytes(overBytes) : null,
+  };
+}
+
+function publicationFileSizeWarnings(validation, preset) {
+  if (validation.status !== "exceeded") return [];
+  return [
+    `Tamanho final acima do limite de ${preset.label}: ${validation.actualLabel} de ${validation.maxLabel} (+${validation.overLabel}).`,
+  ];
+}
+
+function formatPublicationBytes(value) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 async function analyzeAudio(filePath) {
@@ -529,6 +580,8 @@ async function writePublicationManifest({
   lyricsHideTags,
   lyricsLineSpacing,
   bookletTheme,
+  fileSizeValidation,
+  warnings = [],
 }) {
   const normalizedLyricsMode = normalizePublicationLyricsMode(
     lyricsMode,
@@ -579,11 +632,16 @@ async function writePublicationManifest({
     },
     theme,
     includeFullLyrics: normalizedLyricsMode === "full",
+    validation: {
+      fileSize: fileSizeValidation,
+      warnings,
+    },
     files: [
       {
         kind: preset.kind,
         path: `${preset.directory}/${outputName}`,
         url: `/outputs/${outputName}`,
+        sizeBytes: fileSizeValidation.actualBytes,
       },
       {
         kind: "manifest-json",
@@ -607,6 +665,7 @@ async function writePublicationManifest({
 
 function publicationManifestMarkdown(manifest) {
   const metadata = manifest.metadata;
+  const fileSize = manifest.validation?.fileSize;
   const tags = metadata.tags.length ? metadata.tags.join(", ") : "-";
   const lyricsModeLabel =
     {
@@ -620,6 +679,10 @@ function publicationManifestMarkdown(manifest) {
     `- Preset: ${manifest.preset.label}`,
     `- Formato: ${manifest.preset.width}x${manifest.preset.height}`,
     `- Arquivo: ${manifest.files[0].path}`,
+    fileSize ? `- Tamanho final: ${fileSize.actualLabel}` : "",
+    fileSize?.maxBytes
+      ? `- Limite de tamanho: ${fileSize.maxLabel} (${fileSize.status === "ok" ? "dentro" : "excedido"})`
+      : "",
     `- Trecho: ${manifest.timing.startSeconds}s + ${manifest.timing.durationSeconds}s`,
     `- Faixa: ${metadata.title || "-"}`,
     `- Artista: ${metadata.artist || metadata.albumArtist || "-"}`,
@@ -630,6 +693,9 @@ function publicationManifestMarkdown(manifest) {
     `- Letra incluída: ${lyricsModeLabel}`,
     `- Tags ocultas: ${metadata.lyricsHideTags ? "sim" : "não"}`,
     `- Espaçamento da letra: ${metadata.lyricsLineSpacing}%`,
+    ...(manifest.validation?.warnings ?? []).map(
+      (warning) => `- Alerta: ${warning}`,
+    ),
     manifest.theme ? `- Tema: ${manifest.theme.label}` : "",
     metadata.lyrics ? `\n## Letra\n\n${metadata.lyrics}` : "",
     "",

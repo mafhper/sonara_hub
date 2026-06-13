@@ -366,6 +366,18 @@ export type RenderJob = {
   thumbnailUrl: string | null;
   markdownUrl?: string | null;
   assetUrls?: string[];
+  publicationValidation?: {
+    fileSize?: {
+      status: "ok" | "exceeded" | "unbounded";
+      actualBytes: number;
+      actualLabel: string;
+      maxBytes: number | null;
+      maxLabel: string | null;
+      overBytes: number;
+      overLabel: string | null;
+    };
+  };
+  warnings?: string[];
   albumArtworkUrl?: string | null;
   analysis?: AudioTechnicalAnalysis;
   metadata?: Partial<AudioTagDraft & TrackMetadata>;

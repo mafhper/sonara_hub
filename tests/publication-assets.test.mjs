@@ -311,7 +311,7 @@ test("publication lyrics text can hide bracket tags", () => {
   );
 });
 
-test("publication booklet job writes static HTML and manifest", async () => {
+test("publication booklet job writes static HTML, manifest, and size validation", async () => {
   const tempDir = await fs.mkdtemp(
     path.join(os.tmpdir(), "sonara-booklet-test-"),
   );
@@ -321,6 +321,10 @@ test("publication booklet job writes static HTML and manifest", async () => {
     const outputName = "booklet-test.html";
     const outputPath = path.join(tempDir, outputName);
     const updates = [];
+    const preset = {
+      ...publicationAssetPresetById("digital-booklet-editorial"),
+      constraints: { maxFileSizeBytes: 1 },
+    };
     await renderPublicationAssetJob({
       jobId: "booklet-test",
       audioPath,
@@ -350,7 +354,7 @@ test("publication booklet job writes static HTML and manifest", async () => {
         lyrics: "[Intro]\nLinha removida\nLinha final",
         useEmbeddedCover: false,
       },
-      preset: publicationAssetPresetById("digital-booklet-editorial"),
+      preset,
       clipStart: 0,
       clipDuration: 15,
       includeFullLyrics: false,
@@ -377,10 +381,25 @@ test("publication booklet job writes static HTML and manifest", async () => {
     const manifest = JSON.parse(
       await fs.readFile(`${outputPath}.manifest.json`, "utf8"),
     );
+    const outputStat = await fs.stat(outputPath);
     assert.equal(manifest.preset.kind, "booklet");
     assert.equal(manifest.files[0].path, `encartes/${outputName}`);
+    assert.equal(manifest.files[0].sizeBytes, outputStat.size);
+    assert.equal(manifest.validation.fileSize.actualBytes, outputStat.size);
+    assert.equal(manifest.validation.fileSize.maxBytes, 1);
+    assert.equal(manifest.validation.fileSize.status, "exceeded");
+    assert.equal(manifest.validation.warnings.length, 1);
     assert.equal(manifest.theme.id, "contrast");
+    const markdown = await fs.readFile(`${outputPath}.manifest.md`, "utf8");
+    assert.match(markdown, /Tamanho final:/);
+    assert.match(markdown, /Limite de tamanho: 1 B \(excedido\)/);
+    assert.match(markdown, /Alerta: Tamanho final acima do limite/);
     assert.equal(updates.at(-1).status, "done");
+    assert.equal(
+      updates.at(-1).publicationValidation.fileSize.status,
+      "exceeded",
+    );
+    assert.equal(updates.at(-1).warnings.length, 1);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

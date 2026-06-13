@@ -4843,6 +4843,13 @@ button:disabled {
   margin-top: var(--space-1);
 }
 
+.batch-job-row .job-warning-line {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--warning);
+  font-weight: 650;
+}
+
 .batch-job-row progress {
   appearance: none;
   height: 4px;
