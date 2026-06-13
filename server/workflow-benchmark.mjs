@@ -118,6 +118,7 @@ function workflowKindDomain(kind) {
   return (
     {
       "audio-process": "audio",
+      "podcast-feed": "podcast",
       "publication-asset": "asset",
       "video-render": "video",
     }[kind] ?? "system"
@@ -128,6 +129,7 @@ function workflowKindPipeline(kind) {
   return (
     {
       "audio-process": "audio-processing",
+      "podcast-feed": "podcast-feed",
       "publication-asset": "publication-assets",
       "video-render": "render-export",
     }[kind] ?? "workflow"
@@ -138,6 +140,7 @@ function workflowPipelineLabel(pipeline) {
   return (
     {
       "audio-processing": "Processamento de audio",
+      "podcast-feed": "Feeds de podcast",
       "publication-assets": "Assets de publicacao",
       "render-export": "Exportacao de video",
       workflow: "Workflow",
@@ -147,6 +150,7 @@ function workflowPipelineLabel(pipeline) {
 
 function workflowStageDomain(stage, fallback) {
   if (/^audio-|audio/iu.test(stage)) return "audio";
+  if (/podcast|feed|rss/iu.test(stage)) return "podcast";
   if (/asset|manifest|poster|cover|artwork/iu.test(stage)) return "asset";
   if (/webgl|ffmpeg|mux|validation|render/iu.test(stage)) return "video";
   return fallback || "system";
@@ -160,6 +164,7 @@ function jobStageLabelForBenchmark(stage) {
       "audio-assets": "Assets de audio",
       "audio-prepare": "Preparar audio",
       "audio-tags": "Tags de audio",
+      "feed-manifest": "Feed RSS",
       "ffmpeg-mux": "Mux FFmpeg",
       manifest: "Manifesto",
       "output-validation": "Validacao de saida",

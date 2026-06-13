@@ -173,6 +173,26 @@ export function createJobQueue({ concurrency = 1, onError } = {}) {
   };
 }
 
+export function resolveJobConcurrency({
+  configured,
+  defaultConcurrency = 1,
+  max = 4,
+  min = 1,
+} = {}) {
+  const lower = Math.max(1, Math.floor(Number(min) || 1));
+  const upper = Math.max(lower, Math.floor(Number(max) || lower));
+  const configuredValue = Number(configured);
+  if (Number.isFinite(configuredValue) && configuredValue > 0) {
+    return clampConcurrency(configuredValue, lower, upper);
+  }
+  return clampConcurrency(defaultConcurrency, lower, upper);
+}
+
+function clampConcurrency(value, min, max) {
+  const normalized = Math.floor(Number(value) || min);
+  return Math.min(max, Math.max(min, normalized));
+}
+
 export function createJobStageTracker({
   clock = () => Date.now(),
   jobId,

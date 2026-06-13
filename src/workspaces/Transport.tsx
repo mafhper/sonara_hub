@@ -5,7 +5,6 @@ import {
   Play,
   SkipBack,
   SkipForward,
-  SlidersHorizontal,
 } from "lucide-react";
 import { type RefObject, useEffect, useState } from "react";
 
@@ -18,16 +17,13 @@ export function Transport({
   artworkSrc,
   canNext,
   canPrevious,
-  canToggleArtwork,
   trackArtist,
   trackCount,
   trackIndex,
   trackTitle,
   onEditArtwork,
-  onEditVisual,
   onNext,
   onPrevious,
-  onToggleArtwork,
   onToggle,
 }: {
   audioRef: RefObject<HTMLAudioElement | null>;
@@ -36,16 +32,13 @@ export function Transport({
   artworkSrc: string;
   canNext: boolean;
   canPrevious: boolean;
-  canToggleArtwork: boolean;
   trackArtist: string;
   trackCount: number;
   trackIndex: number;
   trackTitle: string;
   onEditArtwork: () => void;
-  onEditVisual: () => void;
   onNext: () => void;
   onPrevious: () => void;
-  onToggleArtwork: () => void;
   onToggle: () => void;
 }) {
   const [playing, setPlaying] = useState(false);
@@ -94,24 +87,11 @@ export function Transport({
       </div>
       <div className="transport-artwork">
         <button
-          aria-label={
-            canToggleArtwork
-              ? artworkLabel === "Planejada"
-                ? "Mostrar capa embutida"
-                : "Mostrar capa planejada"
-              : "Capa da faixa"
-          }
+          aria-label="Abrir ajustes de capa"
           className="transport-artwork-button"
-          disabled={!canToggleArtwork}
-          title={
-            canToggleArtwork
-              ? artworkLabel === "Planejada"
-                ? "Mostrar capa embutida"
-                : "Mostrar capa planejada"
-              : artworkLabel || "Sem capa"
-          }
+          title="Abrir ajustes de capa"
           type="button"
-          onClick={onToggleArtwork}
+          onClick={onEditArtwork}
         >
           {artworkSrc ? <img alt="" src={artworkSrc} /> : <Music2 />}
         </button>
@@ -124,10 +104,7 @@ export function Transport({
           <span>Prévia ampliada da arte atual</span>
           <div className="transport-artwork-actions">
             <button type="button" onClick={onEditArtwork}>
-              <Image /> Ajustar capa
-            </button>
-            <button type="button" onClick={onEditVisual}>
-              <SlidersHorizontal /> Visual
+              <Image /> Abrir Capas
             </button>
           </div>
         </div>

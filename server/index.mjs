@@ -21,6 +21,7 @@ import {
   createAlbumFolderCover,
   createNumberedCover,
   inferAudioTags,
+  normalizePodcastAudioProcessing,
   processMp3Copy,
   romanNumeral,
 } from "./audio-library.mjs";
@@ -40,6 +41,7 @@ import {
   createJobRunner,
   createJobStageTracker,
   isCanceledJobError,
+  resolveJobConcurrency,
   runJobWithRetry,
 } from "./job-service.mjs";
 import {
@@ -74,9 +76,10 @@ import {
 import { isLyricsTextPath } from "../shared/lyrics-convention.mjs";
 import { buildNameFromPattern } from "../shared/file-naming.mjs";
 import {
-  clampPublicationClipDuration,
+  clampPublicationClipDurationForPreset,
   clampPublicationClipStart,
   clampPublicationLyricsLineSpacing,
+  normalizePublicationBookletTheme,
   normalizePublicationLyricsMode,
   normalizePublicationLyricsPosition,
   normalizePublicationLyricsStyle,
@@ -85,6 +88,11 @@ import {
   sanitizePublicationLyricsExcerpt,
   sanitizePublicationFilePart,
 } from "../shared/publication-assets.mjs";
+import {
+  parsePodcastFeedOutputRequest,
+  PodcastFeedOutputError,
+  writePodcastFeedOutputs,
+} from "./podcast-feed-output.mjs";
 import {
   createFfmpegProcessError,
   normalizeFfmpegSpawnError,
@@ -101,6 +109,7 @@ const artworkPreviewDir = path.join(rootDir, ".dev", "artwork-previews");
 const outputDir = path.join(rootDir, "outputs");
 const treatedOutputDir = path.join(outputDir, "audio");
 const audioFilePattern = /\.(mp3|wav|m4a|flac|aac)$/i;
+const lightweightAudioMetadataBytes = 8 * 1024 * 1024;
 const benchmarkHistoryPath = path.join(
   rootDir,
   ".dev",
@@ -127,7 +136,9 @@ const customPresetPath = path.join(
 );
 const jobHistoryPath = path.join(rootDir, "data", "jobs.local.json");
 const port = resolveServerPort();
-const audioJobConcurrency = resolveAudioJobConcurrency();
+const systemParallelism = Math.max(1, availableParallelism());
+const audioJobConcurrency = resolveAudioJobConcurrency(systemParallelism);
+const renderJobConcurrency = resolveRenderJobConcurrency(systemParallelism);
 
 await Promise.all([
   fs.mkdir(uploadDir, { recursive: true }),
@@ -156,7 +167,7 @@ let queuePaused = false;
 const queueWaiters = new Set();
 const presetStore = createPresetStore(customPresetPath);
 const renderJobQueue = createJobQueue({
-  concurrency: 1,
+  concurrency: renderJobConcurrency,
   onError: (error) => logUnexpectedError("render job queue", error),
 });
 const audioJobQueue = createJobQueue({
@@ -397,7 +408,9 @@ app.get("/api/project", async (req, res) => {
   const lyricsPath = path.join(rootDir, "lyrics.txt");
   const lyricsText = await readTextIfExists(lyricsPath);
   const parsedLyrics = parseLyrics(lyricsText);
-  const audio = audioPath ? await analyzeAudio(audioPath) : null;
+  const audio = audioPath
+    ? await readInputAudioMetadataSummary(audioPath)
+    : null;
 
   res.json({
     projectRoot: rootDir,
@@ -663,6 +676,13 @@ app.post("/api/audio/analyze", upload.single("audio"), async (req, res) => {
   }
   try {
     const metadata = await readAudioMetadataSummary(audioPath);
+    if (String(req.body.partial ?? "false") === "true") {
+      const originalSizeBytes = Number(req.body.originalSizeBytes);
+      if (Number.isFinite(originalSizeBytes) && originalSizeBytes > 0) {
+        metadata.sizeBytes = originalSizeBytes;
+        metadata.metadataPartial = true;
+      }
+    }
     const suggestions = inferAudioTags(
       req.body.relativePath || req.file?.originalname || audioPath,
     );
@@ -967,7 +987,10 @@ app.post(
     const metadata = normalizeMetadata(req.body);
     const preset = publicationAssetPresetById(req.body.publicationPresetId);
     const clipStart = clampPublicationClipStart(req.body.clipStart);
-    const clipDuration = clampPublicationClipDuration(req.body.clipDuration);
+    const clipDuration = clampPublicationClipDurationForPreset(
+      req.body.clipDuration,
+      preset,
+    );
     const includeFullLyrics =
       String(req.body.includeFullLyrics ?? "false") === "true";
     const lyricsMode = normalizePublicationLyricsMode(
@@ -981,6 +1004,9 @@ app.post(
       String(req.body.lyricsHideTags ?? "false") === "true";
     const lyricsLineSpacing = clampPublicationLyricsLineSpacing(
       req.body.lyricsLineSpacing,
+    );
+    const bookletTheme = normalizePublicationBookletTheme(
+      req.body.bookletTheme ?? preset.bookletTheme,
     );
     // Optional json/markdown data files; sometimes the user only wants the clip.
     const generateDataFiles =
@@ -1010,6 +1036,7 @@ app.post(
       lyricsLineSpacing,
       lyricsPosition,
       lyricsStyle,
+      bookletTheme,
       generateDataFiles,
       outputPath,
       outputName,
@@ -1039,6 +1066,82 @@ app.post(
     res.json({ jobId });
   }),
 );
+
+app.post("/api/podcast-feeds", async (req, res, next) => {
+  let jobId = null;
+  try {
+    const { fileBaseName, sidecar } = parsePodcastFeedOutputRequest(req.body);
+    const title = sidecar.feed?.title || "Podcast";
+    const author = sidecar.feed?.author || "";
+    jobId = crypto.randomUUID();
+    setJob(jobId, {
+      id: jobId,
+      kind: "podcast-feed",
+      status: "running",
+      progress: 1,
+      message: "Preparando feed de podcast",
+      outputUrl: null,
+      sidecarUrl: null,
+      thumbnailUrl: null,
+      assetUrls: [],
+      metadata: {
+        title,
+        album: title,
+        artist: author,
+      },
+      createdAt: new Date().toISOString(),
+    });
+
+    const stages = createJobStageTracker({ jobId, updateJob });
+    stages.enter("feed-manifest", {
+      status: "running",
+      progress: 25,
+      message: "Gravando RSS e sidecar",
+    });
+    const result = await writePodcastFeedOutputs({
+      fileBaseName,
+      outputDir,
+      sidecar,
+    });
+    const rssUrl = outputUrl(result.rssFileName);
+    const sidecarUrl = outputUrl(result.sidecarFileName);
+    stages.finish({
+      status: "done",
+      progress: 100,
+      message: result.ready
+        ? "Feed de podcast gerado"
+        : `Feed gerado com ${result.findingCount} pendência${result.findingCount === 1 ? "" : "s"}`,
+      outputUrl: rssUrl,
+      sidecarUrl,
+      assetUrls: [rssUrl, sidecarUrl],
+      metadata: {
+        title: result.sidecar.feed.title,
+        album: result.sidecar.feed.title,
+        artist: result.sidecar.feed.author,
+      },
+    });
+    res.json({ jobId });
+  } catch (error) {
+    if (jobId) {
+      updateJob(jobId, {
+        status: "error",
+        progress: 0,
+        message: "Falha ao gerar feed de podcast",
+        errorCode:
+          error instanceof PodcastFeedOutputError
+            ? error.code
+            : "PODCAST_FEED_ERROR",
+        errorDetail:
+          error instanceof Error ? error.stack || error.message : String(error),
+      });
+    }
+    if (error instanceof PodcastFeedOutputError) {
+      res.status(400).json({ error: error.message, code: error.code });
+      return;
+    }
+    next(error);
+  }
+});
 
 app.post(
   "/api/render-batch",
@@ -1175,7 +1278,11 @@ app.get("/api/jobs", (_req, res) => {
 
 app.delete("/api/jobs", async (req, res) => {
   const scope = String(req.query.scope ?? "terminal");
-  if (!["terminal", "video-render", "publication-asset"].includes(scope)) {
+  if (
+    !["terminal", "video-render", "publication-asset", "podcast-feed"].includes(
+      scope,
+    )
+  ) {
     res.status(400).json({ error: "Escopo de histórico inválido." });
     return;
   }
@@ -1185,6 +1292,7 @@ app.delete("/api/jobs", async (req, res) => {
     if (scope === "video-render" && job.kind !== "video-render") continue;
     if (scope === "publication-asset" && job.kind !== "publication-asset")
       continue;
+    if (scope === "podcast-feed" && job.kind !== "podcast-feed") continue;
     jobs.delete(jobId);
     removed += 1;
   }
@@ -2058,7 +2166,7 @@ async function listInputAudios(scope = { directory: inputDir, prefix: "" }) {
     )) {
       const filePath = path.join(inputDir, ...entry.split("/"));
       const stat = await fs.stat(filePath);
-      const metadata = await readAudioMetadataSummary(filePath);
+      const metadata = await readInputAudioMetadataSummary(filePath);
       audios.push({
         name: entry,
         sizeBytes: stat.size,
@@ -2236,14 +2344,22 @@ async function readAudioMetadataSummary(filePath) {
       duration: true,
       skipCovers: false,
     });
+    const stat = await fs.stat(filePath);
     const common = metadata.common;
+    const comment = metadataText(common.comment);
+    const lyrics = metadataText(common.lyrics);
+    const description =
+      firstMetadataText(common.description, common.subtitle, comment) || "";
     return {
+      fileName: path.basename(filePath),
+      sizeBytes: stat.size,
       title: common.title ?? "",
       artist: common.artist ?? "",
       album: common.album ?? "",
       albumArtist: common.albumartist ?? "",
       genre: common.genre?.join(", ") ?? "",
-      comment: common.comment?.map((item) => item.text).join("\n") ?? "",
+      description,
+      comment,
       year: common.year ?? "",
       date: common.date ?? "",
       track: common.track?.no ?? "",
@@ -2251,6 +2367,7 @@ async function readAudioMetadataSummary(filePath) {
       disk: common.disk?.no ?? "",
       diskTotal: common.disk?.of ?? "",
       composer: common.composer?.join(", ") ?? "",
+      lyrics,
       hasEmbeddedCover: Boolean(common.picture?.length),
       durationSeconds: metadata.format.duration ?? null,
       bitrate: metadata.format.bitrate ?? null,
@@ -2258,11 +2375,14 @@ async function readAudioMetadataSummary(filePath) {
     };
   } catch {
     return {
+      fileName: path.basename(filePath),
+      sizeBytes: null,
       title: "",
       artist: "",
       album: "",
       albumArtist: "",
       genre: "",
+      description: "",
       comment: "",
       year: "",
       date: "",
@@ -2271,12 +2391,98 @@ async function readAudioMetadataSummary(filePath) {
       disk: "",
       diskTotal: "",
       composer: "",
+      lyrics: "",
       hasEmbeddedCover: false,
       durationSeconds: null,
       bitrate: null,
       codec: "",
     };
   }
+}
+
+async function readInputAudioMetadataSummary(filePath) {
+  const stat = await fs.stat(filePath);
+  if (stat.size <= lightweightAudioMetadataBytes) {
+    return readAudioMetadataSummary(filePath);
+  }
+  await fs.mkdir(uploadDir, { recursive: true });
+  const tempPath = path.join(
+    uploadDir,
+    `metadata-${crypto.randomUUID()}${path.extname(filePath) || ".audio"}`,
+  );
+  const readHandle = await fs.open(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(lightweightAudioMetadataBytes);
+    const { bytesRead } = await readHandle.read(
+      buffer,
+      0,
+      lightweightAudioMetadataBytes,
+      0,
+    );
+    await fs.writeFile(tempPath, buffer.subarray(0, bytesRead));
+  } finally {
+    await readHandle.close();
+  }
+  try {
+    const metadata = await readAudioMetadataSummary(tempPath);
+    const estimatedDurationSeconds = estimateDurationFromBitrate(
+      stat.size,
+      metadata.bitrate,
+    );
+    return {
+      ...metadata,
+      fileName: path.basename(filePath),
+      sizeBytes: stat.size,
+      durationSeconds:
+        estimatedDurationSeconds ?? metadata.durationSeconds ?? null,
+      metadataPartial: true,
+    };
+  } finally {
+    await fs.rm(tempPath, { force: true });
+  }
+}
+
+function estimateDurationFromBitrate(sizeBytes, bitrate) {
+  const safeSizeBytes = Number(sizeBytes);
+  const safeBitrate = Number(bitrate);
+  if (
+    !Number.isFinite(safeSizeBytes) ||
+    safeSizeBytes <= 0 ||
+    !Number.isFinite(safeBitrate) ||
+    safeBitrate <= 0
+  ) {
+    return null;
+  }
+  return (safeSizeBytes * 8) / safeBitrate;
+}
+
+function firstMetadataText(...values) {
+  for (const value of values) {
+    const text = metadataText(value);
+    if (text) return text;
+  }
+  return "";
+}
+
+function metadataText(value) {
+  if (value == null) return "";
+  const items = Array.isArray(value) ? value : [value];
+  return items
+    .map((item) => {
+      if (item == null) return "";
+      if (typeof item === "string" || typeof item === "number") {
+        return String(item);
+      }
+      if (typeof item === "object") {
+        return String(
+          item.text ?? item.description ?? item.value ?? item.url ?? "",
+        );
+      }
+      return "";
+    })
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .join("\n");
 }
 
 function parseLyrics(text) {
@@ -2721,8 +2927,29 @@ function normalizeAudioDraft(value, audioPath) {
       : "und",
     normalizationEnabled:
       String(raw.normalizationEnabled ?? "false") === "true",
+    podcastVoiceProfile: normalizePodcastVoiceProfile(raw.podcastVoiceProfile),
+    podcastTrimSilence: String(raw.podcastTrimSilence ?? "false") === "true",
+    podcastVoiceBoost: String(raw.podcastVoiceBoost ?? "false") === "true",
+    podcastPlaybackSpeed: normalizePodcastPlaybackSpeed(
+      raw.podcastPlaybackSpeed,
+    ),
+    podcastIntroInsert: String(raw.podcastIntroInsert ?? "").trim(),
+    podcastOutroInsert: String(raw.podcastOutroInsert ?? "").trim(),
+    podcastAdInsert: String(raw.podcastAdInsert ?? "").trim(),
     cleanPackage: true,
   };
+}
+
+function normalizePodcastVoiceProfile(value) {
+  const id = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return ["broadcast", "warm", "clear"].includes(id) ? id : "natural";
+}
+
+function normalizePodcastPlaybackSpeed(value) {
+  const speed = Number(value ?? 1);
+  return Number.isFinite(speed) ? clampNumber(speed, 0.8, 1.2) : 1;
 }
 
 function buildOutputFileName(metadata, index = null, fileNamePattern = null) {
@@ -2925,13 +3152,22 @@ function clampNumber(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function resolveAudioJobConcurrency() {
-  const configured = Number(process.env.SONARA_AUDIO_JOB_CONCURRENCY);
-  if (Number.isFinite(configured) && configured > 0) {
-    return clampNumber(Math.floor(configured), 1, 4);
-  }
-  const cores = Math.max(1, availableParallelism());
-  return clampNumber(cores - 1, 1, 2);
+function resolveAudioJobConcurrency(cores) {
+  return resolveJobConcurrency({
+    configured: process.env.SONARA_AUDIO_JOB_CONCURRENCY,
+    defaultConcurrency: clampNumber(cores - 1, 1, 4),
+    max: 4,
+  });
+}
+
+function resolveRenderJobConcurrency(cores) {
+  return resolveJobConcurrency({
+    configured:
+      process.env.SONARA_RENDER_JOB_CONCURRENCY ??
+      process.env.SONARA_VISUAL_JOB_CONCURRENCY,
+    defaultConcurrency: cores >= 4 ? 2 : 1,
+    max: 4,
+  });
 }
 
 function normalizeHexColor(value, fallback) {
@@ -3182,6 +3418,7 @@ async function writeSoundCloudSidecar(
       headroomTarget:
         "Keep roughly -0.5 to -1 dBFS peak headroom before upload.",
       analysis: outputAnalysis,
+      podcastProcessing: normalizePodcastAudioProcessing(draft),
     },
     artwork: {
       fileName: artworkPath ? path.basename(artworkPath) : null,

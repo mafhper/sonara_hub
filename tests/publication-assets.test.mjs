@@ -1,20 +1,31 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
+import ffmpegPath from "ffmpeg-static";
+import { renderPublicationAssetJob } from "../server/render-job-core.mjs";
 import {
   applyPublicationTextOverride,
   clampPublicationClipDuration,
+  clampPublicationClipDurationForPreset,
   clampPublicationTextOffset,
   clampPublicationTextScale,
-  publicationLyricsTextForSettings,
   normalizePublicationAssetOverrides,
+  normalizePublicationBookletTheme,
+  publicationConstraintSummary,
+  publicationBookletThemeById,
+  publicationBookletThemes,
   publicationAssetSettingsForPreset,
   publicationAssetPresetById,
   publicationAssetPresets,
+  publicationLyricsTextForSettings,
   sanitizePublicationFilePart,
 } from "../shared/publication-assets.mjs";
 
 test("publication presets cover social images and short clips", () => {
-  assert.equal(publicationAssetPresets.length, 13);
+  assert.equal(publicationAssetPresets.length, 18);
   assert.equal(publicationAssetPresetById("youtube-thumbnail").width, 1280);
   assert.equal(publicationAssetPresetById("soundcloud-banner").height, 520);
   assert.equal(publicationAssetPresetById("clip-vertical").kind, "clip");
@@ -29,6 +40,33 @@ test("publication presets cover social images and short clips", () => {
     "WhatsApp",
   );
   assert.equal(publicationAssetPresetById("whatsapp-status-clip").kind, "clip");
+  assert.equal(
+    publicationAssetPresetById("instagram-story-clip").maxDurationSeconds,
+    15,
+  );
+  assert.equal(
+    publicationAssetPresetById("youtube-shorts").platform,
+    "YouTube",
+  );
+  assert.equal(
+    publicationAssetPresetById("tiktok-vertical").platform,
+    "TikTok",
+  );
+  assert.equal(
+    publicationAssetPresetById("digital-booklet-editorial").kind,
+    "booklet",
+  );
+  assert.equal(
+    publicationAssetPresetById("digital-booklet-profile").extension,
+    "html",
+  );
+});
+
+test("publication booklet themes are normalized for static HTML", () => {
+  assert.equal(publicationBookletThemes.length, 3);
+  assert.equal(normalizePublicationBookletTheme("studio"), "studio");
+  assert.equal(normalizePublicationBookletTheme("missing"), "midnight");
+  assert.equal(publicationBookletThemeById("contrast").label, "Alto contraste");
 });
 
 test("publication text scale and offset are clamped", () => {
@@ -82,11 +120,35 @@ test("publication text override scales, offsets, and hides text", () => {
   assert.equal(applyPublicationTextOverride(base, {}), base);
 });
 
-test("publication clip duration is clamped to 1-30 seconds", () => {
+test("publication clip duration is clamped globally and by preset", () => {
   assert.equal(clampPublicationClipDuration(-5), 1);
   assert.equal(clampPublicationClipDuration(12), 12);
-  assert.equal(clampPublicationClipDuration(120), 30);
+  assert.equal(clampPublicationClipDuration(120), 120);
+  assert.equal(clampPublicationClipDuration(900), 600);
   assert.equal(clampPublicationClipDuration("x"), 15);
+  assert.equal(
+    clampPublicationClipDurationForPreset(120, "instagram-story-clip"),
+    15,
+  );
+  assert.equal(
+    clampPublicationClipDurationForPreset(120, "instagram-reel"),
+    90,
+  );
+  assert.equal(
+    clampPublicationClipDurationForPreset(120, "youtube-shorts"),
+    60,
+  );
+});
+
+test("publication constraint summaries describe platform limits", () => {
+  assert.equal(
+    publicationConstraintSummary("whatsapp-status-clip"),
+    "até 30s · até 10 MB · H.264/AAC · 9:16",
+  );
+  assert.equal(
+    publicationConstraintSummary("youtube-thumbnail"),
+    "JPEG · 16:9",
+  );
 });
 
 test("publication file parts are safe for local output", () => {
@@ -107,6 +169,7 @@ test("publication asset overrides are normalized by known preset", () => {
         lyricsExcerpt: "  first line\n\nsecond line  ",
         lyricsHideTags: true,
         lyricsLineSpacing: 280,
+        bookletTheme: "contrast",
       },
       "unknown-preset": {
         clipStart: 10,
@@ -121,6 +184,7 @@ test("publication asset overrides are normalized by known preset", () => {
         lyricsExcerpt: "first line\n\nsecond line",
         lyricsHideTags: true,
         lyricsLineSpacing: 220,
+        bookletTheme: "contrast",
       },
     },
   );
@@ -155,7 +219,16 @@ test("publication asset settings merge global defaults with per asset overrides"
       hideText: false,
       lyricsPosition: "bottom",
       lyricsStyle: "minimal",
+      bookletTheme: "midnight",
     },
+  );
+  assert.equal(
+    publicationAssetSettingsForPreset(
+      "instagram-story-clip",
+      { clipDuration: 120 },
+      {},
+    ).clipDuration,
+    15,
   );
   assert.deepEqual(
     publicationAssetSettingsForPreset("youtube-thumbnail", defaults, overrides),
@@ -173,7 +246,23 @@ test("publication asset settings merge global defaults with per asset overrides"
       hideText: false,
       lyricsPosition: "bottom",
       lyricsStyle: "minimal",
+      bookletTheme: "midnight",
     },
+  );
+});
+
+test("publication booklet settings inherit preset theme and accept overrides", () => {
+  assert.equal(
+    publicationAssetSettingsForPreset("digital-booklet-profile").bookletTheme,
+    "studio",
+  );
+  assert.equal(
+    publicationAssetSettingsForPreset(
+      "digital-booklet-profile",
+      {},
+      { "digital-booklet-profile": { bookletTheme: "contrast" } },
+    ).bookletTheme,
+    "contrast",
   );
 });
 
@@ -198,6 +287,7 @@ test("publication asset settings keep legacy full lyrics semantics", () => {
       hideText: false,
       lyricsPosition: "bottom",
       lyricsStyle: "minimal",
+      bookletTheme: "midnight",
     },
   );
 });
@@ -220,3 +310,101 @@ test("publication lyrics text can hide bracket tags", () => {
     "[Ponte]\nSó esse trecho",
   );
 });
+
+test("publication booklet job writes static HTML and manifest", async () => {
+  const tempDir = await fs.mkdtemp(
+    path.join(os.tmpdir(), "sonara-booklet-test-"),
+  );
+  try {
+    const audioPath = path.join(tempDir, "audio.mp3");
+    createSyntheticAudio(audioPath);
+    const outputName = "booklet-test.html";
+    const outputPath = path.join(tempDir, outputName);
+    const updates = [];
+    await renderPublicationAssetJob({
+      jobId: "booklet-test",
+      audioPath,
+      backgroundFile: null,
+      mediaLayerFiles: [],
+      coverFile: null,
+      settings: {
+        qualityProfile: "fast",
+        renderMode: "single",
+        showMetadata: true,
+        compositionSettings: {
+          durationSeconds: 1,
+          mediaLayers: [],
+          textSettings: {},
+        },
+      },
+      metadata: {
+        title: "Abertura",
+        artist: "Sonara",
+        album: "Caderno de Campo",
+        albumArtist: "Sonara",
+        year: "2026",
+        genre: "Podcast",
+        language: "pt-BR",
+        description: "Notas do episódio",
+        tags: "podcast, bastidores",
+        lyrics: "[Intro]\nLinha removida\nLinha final",
+        useEmbeddedCover: false,
+      },
+      preset: publicationAssetPresetById("digital-booklet-editorial"),
+      clipStart: 0,
+      clipDuration: 15,
+      includeFullLyrics: false,
+      lyricsMode: "excerpt",
+      lyricsExcerpt: "[Intro]\nLinha final",
+      lyricsHideTags: true,
+      lyricsLineSpacing: 160,
+      lyricsPosition: "bottom",
+      lyricsStyle: "minimal",
+      bookletTheme: "contrast",
+      generateDataFiles: true,
+      outputPath,
+      outputName,
+      workDir: tempDir,
+      updateJob: (_jobId, patch) => updates.push(patch),
+      shouldCancel: () => false,
+    });
+    const html = await fs.readFile(outputPath, "utf8");
+    assert.match(html, /Caderno de Campo/);
+    assert.match(html, /Notas do episódio/);
+    assert.match(html, /Linha final/);
+    assert.doesNotMatch(html, /\[Intro\]/);
+
+    const manifest = JSON.parse(
+      await fs.readFile(`${outputPath}.manifest.json`, "utf8"),
+    );
+    assert.equal(manifest.preset.kind, "booklet");
+    assert.equal(manifest.files[0].path, `encartes/${outputName}`);
+    assert.equal(manifest.theme.id, "contrast");
+    assert.equal(updates.at(-1).status, "done");
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+function createSyntheticAudio(filePath) {
+  const result = spawnSync(
+    ffmpegPath,
+    [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=220:duration=1",
+      "-c:a",
+      "libmp3lame",
+      filePath,
+    ],
+    { windowsHide: true },
+  );
+  if (result.status !== 0) {
+    throw new Error(result.stderr.toString() || "ffmpeg audio fixture failed");
+  }
+}

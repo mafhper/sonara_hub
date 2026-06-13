@@ -16,9 +16,28 @@ export const textPresets = [
   "side-right",
   "editorial-stack",
   "quiet-album",
+  "jazz-serif",
+  "bold-impact",
+  "cinzel-caps",
+  "ambient-light",
+  "minimal-grotesk",
 ];
 export const textAligns = ["left", "center", "right", "justify"];
 export const textVerticalAnchors = ["top", "middle", "bottom"];
+export const textFontFamilies = [
+  "Inter",
+  "Georgia",
+  "Arial",
+  "Playfair Display",
+  "Cormorant Garamond",
+  "DM Serif Display",
+  "Cinzel",
+  "Montserrat",
+  "Oswald",
+  "Raleway",
+  "Space Grotesk",
+  "Bebas Neue",
+];
 
 export function normalizeTextSettings(value = {}) {
   const fields = value.fields ?? {};
@@ -35,7 +54,7 @@ export function normalizeTextSettings(value = {}) {
       ? { fieldStyles: value.fieldStyles }
       : {}),
     preset: textPresets.includes(value.preset) ? value.preset : "top-left",
-    fontFamily: ["Inter", "Georgia", "Arial"].includes(value.fontFamily)
+    fontFamily: textFontFamilies.includes(value.fontFamily)
       ? value.fontFamily
       : "Inter",
     fontSize: clampNumber(Number(value.fontSize ?? 42), 18, 96),

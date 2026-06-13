@@ -10,8 +10,6 @@ import {
   Check,
   ChevronDown,
   ChevronLeft,
-  ChevronRight,
-  ChevronUp,
   Columns2,
   Copy,
   Disc3,
@@ -21,21 +19,15 @@ import {
   FileAudio,
   FileText,
   FolderOpen,
-  Gauge,
-  GripVertical,
   Image,
   Italic,
   Layers3,
-  Loader2,
-  Maximize2,
   Minimize2,
   Music2,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
-  Pause,
-  Play,
   Plus,
   RotateCcw,
   Save,
@@ -47,10 +39,8 @@ import {
   X,
 } from "lucide-react";
 import {
-  Fragment,
   type CSSProperties,
   type ChangeEvent,
-  type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -58,10 +48,8 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import {
-  CheckField,
   ColorInput,
   IconButton,
   InspectorGroup,
@@ -71,14 +59,33 @@ import {
   TextArea,
   TextField,
   clampNumber,
-  safeHex,
 } from "./inspectors/fields";
+import { AudioLibraryInspector } from "./inspectors/AudioLibraryInspector";
 import { ExportInspector, outputPresets } from "./inspectors/ExportInspector";
 import {
   type FileNamePattern,
   FileNamePatternSection,
 } from "./inspectors/FileNamePattern";
 import { FadeInFields, LayerControls } from "./inspectors/LayerControls";
+import { MusicInspector } from "./inspectors/MusicInspector";
+import { PodcastInspector } from "./inspectors/PodcastInspector";
+import { PublicationInspector } from "./inspectors/PublicationInspector";
+import { TextInspector } from "./inspectors/TextInspector";
+import { TextProfiles } from "./inspectors/TextProfiles";
+import {
+  type PositionPresetId,
+  cloneTextSettings,
+  defaultTextSettings,
+  mergeTextSettings,
+  normalizeTextFadeOut,
+  normalizeTextOrder,
+  positionPresetOptions,
+  textFieldLabels,
+  textFontOptions,
+  textPositionPresets,
+  textStylePresetLabels,
+  textStylePresetPatch,
+} from "./inspectors/text-presets";
 import {
   InteractionDialog,
   type InteractionDialogState,
@@ -92,24 +99,26 @@ import {
   formatDurationMs,
   jobStageLabel,
 } from "./jobs/BatchJobBoard";
+import { AudioExportWorkspace } from "./workspaces/AudioExportWorkspace";
+import { AudioLibraryWorkspace } from "./workspaces/AudioLibraryWorkspace";
+import { CatalogPreview } from "./workspaces/CatalogPreview";
+import { ScenePreview } from "./workspaces/CompositionPreview";
+import { CoverArtworkWorkspace } from "./workspaces/CoverArtworkWorkspace";
 import {
-  AnalyticalWaveform,
-  Metric,
-  StaticWaveform,
-} from "./workspaces/AudioPreviewPrimitives";
-import {
-  CompositionLivePreview,
-  CompositionThumbnail,
-  ScenePreview,
-} from "./workspaces/CompositionPreview";
+  coverSeriesMetaOrder,
+  coverSeriesMetaStyleForKey,
+  coverSeriesPreviewLines,
+  defaultCoverSeriesSettings,
+} from "./workspaces/CoverSeries";
+import { PodcastWorkspace } from "./workspaces/PodcastWorkspace";
+import { PublicationAssetsWorkspace } from "./workspaces/PublicationAssetsWorkspace";
 import { ProjectSaveControls } from "./workspaces/ProjectSaveControls";
-import {
-  ArtworkFrame,
-  EmptyReviewState,
-  PanelResizeHandle,
-} from "./workspaces/ReviewPrimitives";
+import { ProjectSwitcher } from "./workspaces/ProjectSwitcher";
+import { PanelResizeHandle } from "./workspaces/ReviewPrimitives";
 import { Transport } from "./workspaces/Transport";
 import { VideoExportWorkspace } from "./workspaces/VideoExportWorkspace";
+import { VideoReviewGrid } from "./workspaces/VideoReviewGrid";
+import { usePageStatus } from "./lib/page-status";
 import {
   type CoverFadeOutSettings,
   type LayerFadeInSettings,
@@ -119,6 +128,10 @@ import {
   normalizeLayerCoverFadeOut,
 } from "./inspectors/layer-normalizers";
 import { renderStackKey } from "./inspectors/CompositionStack";
+import {
+  publicationPresetsForMode,
+  type PublicationAssetMode,
+} from "./publication";
 import {
   type CoverLayerPreset,
   type PlayfulPatch,
@@ -142,30 +155,27 @@ import {
   applyCoverSeriesScopePatch,
   applySelectedTextSettingsToBatch,
   clearCoverSeriesScopeOverride,
+  mergeTextSettingsByMode,
   resolveAlbumArtwork,
   resolveCoverSeriesSettings,
   resolveEffectiveComposition,
   resolveTrackArtwork,
 } from "../shared/composition-scope.mjs";
+import type { TextBatchApplyMode } from "../shared/composition-scope.mjs";
 import {
   fetchJson,
   fetchJsonWithRetry,
   fetchOptional,
   localApiMessage,
 } from "../shared/local-api.mjs";
-import {
-  applyCommonMetadata,
-  groupAudioTracks,
-} from "../shared/audio-batch.mjs";
+import { applyCommonMetadata } from "../shared/audio-batch.mjs";
 import type { BatchApplyMode } from "../shared/audio-batch.mjs";
-import { groupCatalogTracks } from "../shared/catalog-tracks.mjs";
 import {
   resolveDestructiveBatchState,
   writeReplacementsWithRollback,
 } from "../shared/destructive-audio-batch.mjs";
 import { directoryImportPrefix } from "../shared/audio-import.mjs";
 import {
-  buildNameFromPattern,
   defaultFileNamePattern,
   normalizeFileNamePattern,
 } from "../shared/file-naming.mjs";
@@ -197,13 +207,13 @@ import type {
   PublicationAssetPreset,
   PublicationAssetSettings,
 } from "../shared/publication-assets.mjs";
+import type { PodcastFeedSidecar } from "../shared/podcast-feed.mjs";
 import {
   albumArtworkDirectoryPaths,
   chooseAlbumArtworkForTrack,
   chooseArtworkForTrack,
   isArtworkName,
   listArtworkOptionsForTrack,
-  singleTrackArtworkFileName,
   treatedAlbumArtworkFileName,
 } from "../shared/artwork-convention.mjs";
 import {
@@ -218,7 +228,6 @@ import type {
   AudioTagDraft,
   AudioTechnicalAnalysis,
   ArtworkSuggestion,
-  CoverSeriesMetaKey,
   CoverSeriesMetaStyle,
   CoverSeriesSettings,
   LyricsSuggestion,
@@ -266,9 +275,13 @@ declare global {
 type ActiveStep = "music" | "visual" | "text" | "export";
 type WorkspaceMode = "audio" | "visual";
 type WorkspaceFolderKind = "internal" | "external";
-type AudioStageView = "edit" | "catalog" | "videos";
-type VisualStageView = "editor" | "videos" | "promotion" | "queue";
-type PublicationAssetMode = "single" | "group" | "all";
+type AudioStageView =
+  | "edit"
+  | "artwork"
+  | "podcast"
+  | "catalog"
+  | "audio-export";
+type VisualStageView = "editor" | "review" | "promotion" | "publication-export";
 type TextFadeOutSettings = NonNullable<TextFieldStyle["fadeOut"]>;
 type TextFadeInSettings = NonNullable<TextFieldStyle["fadeIn"]>;
 type PreparedVideoOutputProject = {
@@ -352,38 +365,6 @@ const emptyBands: AudioBands = {
   spectrum: [],
 };
 // ISO 639-2 codes the server accepts for the ID3 lyrics/language frame.
-const lyricsLanguages: Array<[string, string]> = [
-  ["und", "Indefinido"],
-  ["por", "Português"],
-  ["eng", "Inglês"],
-  ["spa", "Espanhol"],
-  ["fra", "Francês"],
-  ["ita", "Italiano"],
-  ["deu", "Alemão"],
-  ["jpn", "Japonês"],
-  ["kor", "Coreano"],
-  ["zho", "Chinês"],
-  ["rus", "Russo"],
-  ["ara", "Árabe"],
-];
-
-// BCP-47 tags for the YouTube defaultLanguage/defaultAudioLanguage fields.
-const youtubeLanguages: Array<[string, string]> = [
-  ["pt-BR", "Português (Brasil)"],
-  ["pt-PT", "Português (Portugal)"],
-  ["en-US", "Inglês (EUA)"],
-  ["en-GB", "Inglês (Reino Unido)"],
-  ["es-ES", "Espanhol (Espanha)"],
-  ["es-419", "Espanhol (Latam)"],
-  ["fr-FR", "Francês"],
-  ["it-IT", "Italiano"],
-  ["de-DE", "Alemão"],
-  ["ja-JP", "Japonês"],
-  ["ko-KR", "Coreano"],
-  ["zh-CN", "Chinês (Simplificado)"],
-  ["ru-RU", "Russo"],
-];
-
 // Suggested track "version" labels (free text — users can type their own).
 const versionSuggestions = [
   "Original",
@@ -402,6 +383,8 @@ const PANEL_WIDTH_STORAGE_KEY = "sonara-hub-panel-widths";
 const COVER_SERIES_STORAGE_KEY = "sonara-hub-cover-series-settings";
 const FILE_NAME_PATTERN_STORAGE_KEY = "sonara-hub-file-name-pattern";
 const INPUT_PROJECT_STORAGE_KEY = "sonara-hub-input-project";
+const PODCAST_ENABLED_STORAGE_KEY = "sonara-hub-podcast-enabled";
+const PODCAST_METADATA_SLICE_BYTES = 8 * 1024 * 1024;
 const PROJECT_STATE_DIRECTORY = ".sonara";
 const PROJECT_STATE_FILE = "project.json";
 const PROJECT_ASSETS_DIRECTORY = "assets";
@@ -447,294 +430,18 @@ const defaultMetadata: TrackMetadata = {
   lyrics: "",
   lyricsLanguage: "und",
   normalizationEnabled: false,
+  podcastVoiceProfile: "natural",
+  podcastTrimSilence: false,
+  podcastVoiceBoost: false,
+  podcastPlaybackSpeed: 1,
+  podcastIntroInsert: "",
+  podcastOutroInsert: "",
+  podcastAdInsert: "",
+  podcastEpisodeArtworkUrl: "",
+  podcastEpisodeLink: "",
+  podcastEpisodeLinks: "",
+  podcastDonationUrl: "",
 };
-const textFieldOrder: TextFieldKey[] = [
-  "title",
-  "version",
-  "artist",
-  "album",
-  "year",
-];
-const textFieldLabels: Record<TextFieldKey, string> = {
-  title: "Música",
-  version: "Versão",
-  artist: "Autor",
-  album: "Álbum",
-  year: "Ano",
-};
-const defaultTextFieldStyles: Record<TextFieldKey, TextFieldStyle> = {
-  title: {
-    fontFamily: "Inter",
-    fontSize: 42,
-    fontWeight: 720,
-    fontStyle: "normal",
-    letterSpacing: 0,
-    lineHeight: 116,
-    color: "#f7f8fb",
-    opacity: 96,
-    align: "left",
-  },
-  version: {
-    fontFamily: "Inter",
-    fontSize: 25,
-    fontWeight: 620,
-    fontStyle: "normal",
-    letterSpacing: 1,
-    lineHeight: 118,
-    color: "#cbd2dc",
-    opacity: 72,
-    align: "left",
-  },
-  artist: {
-    fontFamily: "Inter",
-    fontSize: 28,
-    fontWeight: 620,
-    fontStyle: "normal",
-    letterSpacing: 0,
-    lineHeight: 120,
-    color: "#cbd2dc",
-    opacity: 82,
-    align: "left",
-  },
-  album: {
-    fontFamily: "Georgia",
-    fontSize: 26,
-    fontWeight: 560,
-    fontStyle: "normal",
-    letterSpacing: 0,
-    lineHeight: 122,
-    color: "#d6c7a4",
-    opacity: 72,
-    align: "left",
-  },
-  year: {
-    fontFamily: "Inter",
-    fontSize: 21,
-    fontWeight: 620,
-    fontStyle: "normal",
-    letterSpacing: 4,
-    lineHeight: 116,
-    color: "#a5afbc",
-    opacity: 62,
-    align: "left",
-  },
-};
-const defaultTextSettings: TextOverlaySettings = {
-  fields: {
-    title: true,
-    artist: true,
-    album: false,
-    year: false,
-    version: false,
-  },
-  order: textFieldOrder,
-  fieldStyles: defaultTextFieldStyles,
-  preset: "top-left",
-  fontFamily: "Inter",
-  fontSize: 42,
-  fontWeight: 650,
-  letterSpacing: 0,
-  lineHeight: 118,
-  color: "#f7f8fb",
-  opacity: 94,
-  x: 5,
-  y: 7,
-  align: "left",
-  verticalAnchor: "top",
-  shadow: 48,
-};
-type PositionPresetId =
-  | "top-left"
-  | "top-center"
-  | "top-right"
-  | "middle-left"
-  | "center"
-  | "middle-right"
-  | "bottom-left"
-  | "bottom-center"
-  | "bottom-right";
-const positionPresetOptions: Array<[PositionPresetId, string]> = [
-  ["top-left", "Canto superior esquerdo"],
-  ["top-center", "Topo · centro"],
-  ["top-right", "Canto superior direito"],
-  ["middle-left", "Esquerda · centro"],
-  ["center", "Centro"],
-  ["middle-right", "Direita · centro"],
-  ["bottom-left", "Canto inferior esquerdo"],
-  ["bottom-center", "Base · centro"],
-  ["bottom-right", "Canto inferior direito"],
-];
-const textPositionPresets: Record<
-  PositionPresetId,
-  Partial<TextOverlaySettings>
-> = {
-  "top-left": { x: 5, y: 7, verticalAnchor: "top", align: "left" },
-  "top-center": { x: 50, y: 7, verticalAnchor: "top", align: "center" },
-  "top-right": { x: 95, y: 7, verticalAnchor: "top", align: "right" },
-  "middle-left": { x: 5, y: 50, verticalAnchor: "middle", align: "left" },
-  center: { x: 50, y: 50, verticalAnchor: "middle", align: "center" },
-  "middle-right": { x: 95, y: 50, verticalAnchor: "middle", align: "right" },
-  "bottom-left": { x: 5, y: 93, verticalAnchor: "bottom", align: "left" },
-  "bottom-center": { x: 50, y: 93, verticalAnchor: "bottom", align: "center" },
-  "bottom-right": { x: 95, y: 93, verticalAnchor: "bottom", align: "right" },
-};
-const coverSeriesPositionPresets: Record<
-  PositionPresetId,
-  Pick<CoverSeriesSettings, "x" | "y">
-> = Object.fromEntries(
-  Object.entries(textPositionPresets).map(([id, preset]) => [
-    id,
-    { x: preset.x ?? 50, y: preset.y ?? 50 },
-  ]),
-) as Record<PositionPresetId, Pick<CoverSeriesSettings, "x" | "y">>;
-const textFontOptions: Array<{
-  value: TextFieldStyle["fontFamily"];
-  label: string;
-  category: string;
-}> = [
-  { value: "Inter", label: "Inter", category: "Sans-serif" },
-  { value: "Montserrat", label: "Montserrat", category: "Sans-serif" },
-  { value: "Oswald", label: "Oswald", category: "Sans-serif" },
-  { value: "Raleway", label: "Raleway", category: "Sans-serif" },
-  { value: "Space Grotesk", label: "Space Grotesk", category: "Sans-serif" },
-  { value: "Arial", label: "Arial", category: "Sans-serif" },
-  { value: "Playfair Display", label: "Playfair Display", category: "Serif" },
-  {
-    value: "Cormorant Garamond",
-    label: "Cormorant Garamond",
-    category: "Serif",
-  },
-  { value: "DM Serif Display", label: "DM Serif Display", category: "Serif" },
-  { value: "Cinzel", label: "Cinzel", category: "Serif" },
-  { value: "Georgia", label: "Georgia", category: "Serif" },
-  { value: "Bebas Neue", label: "Bebas Neue", category: "Display" },
-];
-const textStylePresetLabels: Record<TextOverlaySettings["preset"], string> = {
-  "top-left": "Topo esquerdo",
-  "bottom-center": "Base central",
-  "cover-left": "Capa à esquerda",
-  "side-left": "Lado a lado · esquerda",
-  "side-right": "Lado a lado · direita",
-  "editorial-stack": "Editorial",
-  "quiet-album": "Álbum discreto",
-  "jazz-serif": "Jazz · Playfair",
-  "bold-impact": "Impacto · Oswald",
-  "cinzel-caps": "Épico · Cinzel",
-  "ambient-light": "Ambiental · Cormorant",
-  "minimal-grotesk": "Minimal · Space Grotesk",
-};
-const defaultCoverSeriesSettings: CoverSeriesSettings = {
-  enabled: true,
-  style: "roman",
-  sequence: "I, II, III, IV, V",
-  fontSize: 112,
-  color: "#fffaf1",
-  opacity: 92,
-  x: 50,
-  y: 89,
-  letterSpacing: 18,
-  includeNumber: true,
-  includeTitle: false,
-  includeAlbum: false,
-  includeArtist: false,
-  includeYear: false,
-  embedAlbumCover: false,
-  metaOrder: "series, title, album, artist, year",
-  metaFontSize: 34,
-  metaGap: 10,
-  metaStyles: {
-    series: {
-      fontSize: 112,
-      fontWeight: 400,
-      fontStyle: "normal",
-      align: "center",
-      color: "#fffaf1",
-      opacity: 92,
-      offsetX: 0,
-      offsetY: 0,
-    },
-    title: {
-      fontSize: 38,
-      fontWeight: 720,
-      fontStyle: "normal",
-      align: "center",
-      color: "#fffaf1",
-      opacity: 88,
-      offsetX: 0,
-      offsetY: 0,
-    },
-    album: {
-      fontSize: 34,
-      fontWeight: 560,
-      fontStyle: "normal",
-      align: "center",
-      color: "#fffaf1",
-      opacity: 76,
-      offsetX: 0,
-      offsetY: 0,
-    },
-    artist: {
-      fontSize: 32,
-      fontWeight: 620,
-      fontStyle: "normal",
-      align: "center",
-      color: "#fffaf1",
-      opacity: 72,
-      offsetX: 0,
-      offsetY: 0,
-    },
-    year: {
-      fontSize: 28,
-      fontWeight: 640,
-      fontStyle: "normal",
-      align: "center",
-      color: "#fffaf1",
-      opacity: 68,
-      offsetX: 0,
-      offsetY: 0,
-    },
-  },
-};
-const coverSeriesMetaKeys: CoverSeriesMetaKey[] = [
-  "series",
-  "title",
-  "album",
-  "artist",
-  "year",
-];
-
-function coverSeriesMetaStyleForKey(
-  settings: CoverSeriesSettings,
-  key: CoverSeriesMetaKey,
-): CoverSeriesMetaStyle {
-  return (
-    settings.metaStyles?.[key] ?? defaultCoverSeriesSettings.metaStyles[key]
-  );
-}
-
-function coverSeriesAlignForPositionPreset(
-  preset: PositionPresetId,
-): CoverSeriesMetaStyle["align"] {
-  if (preset.includes("left")) return "left";
-  if (preset.includes("right")) return "right";
-  return "center";
-}
-
-function coverSeriesAlignedMetaStyles(
-  settings: CoverSeriesSettings,
-  align: CoverSeriesMetaStyle["align"],
-): CoverSeriesSettings["metaStyles"] {
-  return Object.fromEntries(
-    coverSeriesMetaKeys.map((key) => [
-      key,
-      {
-        ...coverSeriesMetaStyleForKey(settings, key),
-        align,
-      },
-    ]),
-  ) as CoverSeriesSettings["metaStyles"];
-}
-
 function revokeObjectUrl(url: string) {
   try {
     URL.revokeObjectURL(url);
@@ -743,13 +450,6 @@ function revokeObjectUrl(url: string) {
     // not break the editing session.
   }
 }
-const defaultTextFadeOut: TextFadeOutSettings = {
-  enabled: false,
-  mode: "tail",
-  endPercent: 70,
-  startPercent: 10,
-  durationSeconds: 2,
-};
 const defaultFadeIn: LayerFadeInSettings = {
   enabled: false,
   startPercent: 0,
@@ -849,6 +549,9 @@ function App() {
   const [audioStageView, setAudioStageView] = useState<AudioStageView>("edit");
   const [visualStageView, setVisualStageView] =
     useState<VisualStageView>("editor");
+  const [podcastEnabled, setPodcastEnabled] = useState(() =>
+    loadPodcastEnabled(),
+  );
   // Item ativo da pilha de composição (chaves de renderStackKey). Vive no App
   // para futura sincronização com a seleção do canvas.
   const [selectedStackKey, setSelectedStackKey] =
@@ -949,6 +652,10 @@ function App() {
     name: string;
   } | null>(null);
   const [queuePaused, setQueuePaused] = useState(false);
+  // Cover artwork is edited in a first-class audio workspace, so every shortcut
+  // can route to the same surface without duplicating sidebar controls.
+  // Drive the favicon + tab title from the active step and the render queue.
+  usePageStatus(activeStep, jobs);
   const [batchApplyMode, setBatchApplyMode] =
     useState<BatchApplyMode>("fill-empty");
   const [batchCommon, setBatchCommon] = useState({
@@ -983,9 +690,6 @@ function App() {
   const [embeddedArtworkByTrackId, setEmbeddedArtworkByTrackId] = useState<
     Record<string, string | null>
   >({});
-  const [playerArtworkSource, setPlayerArtworkSource] = useState<
-    "planned" | "embedded"
-  >("planned");
   const audioBandsRef = useRef(audioBands);
   const audioRef = useRef<HTMLAudioElement>(null);
   const layerInputRef = useRef<HTMLInputElement>(null);
@@ -1052,16 +756,11 @@ function App() {
     ? (embeddedArtworkByTrackId[selectedTrack.id] ?? "")
     : "";
   const plannedArtworkSrc = selectedCover?.src ?? "";
-  const playerArtworkSrc =
-    playerArtworkSource === "embedded" && embeddedArtworkSrc
-      ? embeddedArtworkSrc
-      : plannedArtworkSrc || embeddedArtworkSrc;
+  const playerArtworkSrc = plannedArtworkSrc || embeddedArtworkSrc;
   const playerArtworkLabel = playerArtworkSrc
-    ? playerArtworkSrc === embeddedArtworkSrc && !plannedArtworkSrc
-      ? "Embutida"
-      : playerArtworkSource === "embedded" && embeddedArtworkSrc
-        ? "Embutida"
-        : "Planejada"
+    ? plannedArtworkSrc
+      ? "Planejada"
+      : "Embutida"
     : "";
   const selectedScene = selectedTrack?.scene ?? builtinVisualPresets[0];
   // The preview reads the exact same effective composition the export encodes,
@@ -1094,6 +793,7 @@ function App() {
     hideText: false,
     lyricsPosition: "bottom",
     lyricsStyle: "minimal",
+    bookletTheme: selectedPublicationPreset.bookletTheme ?? "midnight",
   };
   const selectedPublicationSettings = publicationAssetSettingsForPreset(
     publicationPresetId,
@@ -1358,21 +1058,21 @@ function App() {
   }, [audioBands]);
 
   useEffect(() => {
-    setPlayerArtworkSource("planned");
     if (selectedTrack?.audioInfo?.hasEmbeddedCover) {
       void loadEmbeddedArtwork(selectedTrack);
     }
   }, [selectedTrack?.id]);
 
   useEffect(() => {
-    if (plannedArtworkSrc) {
-      setPlayerArtworkSource("planned");
-    }
-  }, [plannedArtworkSrc]);
-
-  useEffect(() => {
     savePanelWidths({ left: leftRailWidth, right: rightRailWidth });
   }, [leftRailWidth, rightRailWidth]);
+
+  useEffect(() => {
+    savePodcastEnabled(podcastEnabled);
+    if (!podcastEnabled && audioStageView === "podcast") {
+      setAudioStageView("edit");
+    }
+  }, [podcastEnabled, audioStageView]);
 
   // setWorkspaceTracks marks the exact tracks array created by a project load.
   // The auto-save below skips only that loaded array, so a quick first edit made
@@ -1404,6 +1104,7 @@ function App() {
     publicationClipStart,
     publicationClipDuration,
     publicationIncludeLyrics,
+    publicationGenerateDataFiles,
     publicationAssetMode,
     publicationAssetOverrides,
     showMetadata,
@@ -1412,6 +1113,7 @@ function App() {
     workspaceMode,
     audioStageView,
     visualStageView,
+    podcastEnabled,
     selectedInputProjectId,
   ]);
 
@@ -1740,7 +1442,7 @@ function App() {
   }
 
   async function clearCompletedJobs(
-    scope: "terminal" | "video-render" | "publication-asset",
+    scope: "terminal" | "video-render" | "publication-asset" | "podcast-feed",
   ) {
     try {
       const payload = await fetchJson<{
@@ -2304,6 +2006,7 @@ function App() {
     const { audioEntries, artworkEntries, lyricEntries } =
       await collectDirectoryAssets(handle, directoryImportPrefix(handle.name));
     const next: TrackDraft[] = [];
+    const metadataMode = podcastEnabled ? "podcast" : "audio";
     setFolderImportProgress({
       current: 0,
       total: audioEntries.length,
@@ -2319,6 +2022,7 @@ function App() {
         entry.file,
         entry.relativePath,
         true,
+        metadataMode,
       );
       next.push(trackFromFile(entry.file, info, entry.relativePath));
     }
@@ -2330,7 +2034,6 @@ function App() {
     // otherwise the manual cover override and embedded-art cache keep showing
     // the old image (coverForTrack returns the global `cover` first).
     setCover(null);
-    setPlayerArtworkSource("planned");
     setEmbeddedArtworkByTrackId({});
     embeddedArtworkRequestsRef.current.clear();
     const withArtwork = attachSuggestedArtwork(
@@ -2358,14 +2061,22 @@ function App() {
     file: File,
     relativePath?: string,
     quick = false,
+    mode: "audio" | "podcast" = "audio",
   ) {
+    const metadataFile =
+      mode === "podcast" || quick ? podcastMetadataSlice(file) : file;
+    const metadataIsPartial = metadataFile.size !== file.size;
     const formData = new FormData();
-    formData.append("audio", file);
+    formData.append("audio", metadataFile);
     formData.append(
       "relativePath",
       relativePath || file.webkitRelativePath || file.name,
     );
     formData.append("quick", String(quick));
+    if (metadataIsPartial) {
+      formData.append("partial", "true");
+      formData.append("originalSizeBytes", String(file.size));
+    }
     try {
       const payload = await fetchJsonWithRetry<{
         metadata: AudioInfo;
@@ -2381,6 +2092,12 @@ function App() {
       );
       return {
         ...payload.metadata,
+        sizeBytes: metadataIsPartial ? file.size : payload.metadata.sizeBytes,
+        durationSeconds: metadataIsPartial
+          ? (estimateDurationFromBitrate(file.size, payload.metadata.bitrate) ??
+            payload.metadata.durationSeconds)
+          : payload.metadata.durationSeconds,
+        metadataPartial: metadataIsPartial,
         analysis: payload.analysis ?? undefined,
         suggestions: payload.suggestions,
       };
@@ -2388,6 +2105,46 @@ function App() {
       setError(localApiMessage(reason, "ler os metadados do áudio"));
       return undefined;
     }
+  }
+
+  function podcastMetadataSlice(file: File) {
+    if (file.size <= PODCAST_METADATA_SLICE_BYTES) return file;
+    const chunk = file.slice(0, PODCAST_METADATA_SLICE_BYTES, file.type);
+    return new File([chunk], file.name, {
+      lastModified: file.lastModified,
+      type: file.type,
+    });
+  }
+
+  function estimateDurationFromBitrate(
+    sizeBytes: number,
+    bitrate?: number | null,
+  ) {
+    const safeSizeBytes = Number(sizeBytes);
+    const safeBitrate = Number(bitrate);
+    if (
+      !Number.isFinite(safeSizeBytes) ||
+      safeSizeBytes <= 0 ||
+      !Number.isFinite(safeBitrate) ||
+      safeBitrate <= 0
+    ) {
+      return null;
+    }
+    return (safeSizeBytes * 8) / safeBitrate;
+  }
+
+  function appendTrackAudioSource(formData: FormData, track: TrackDraft) {
+    if (track.source === "input") {
+      formData.append("inputAudio", track.sourceKey);
+      return true;
+    }
+    if (!track.sourceFile) return false;
+    formData.append("audio", track.sourceFile);
+    formData.append(
+      "relativePath",
+      track.sourceFile.webkitRelativePath || track.sourceKey,
+    );
+    return true;
   }
 
   async function loadEmbeddedArtwork(track: TrackDraft) {
@@ -2400,11 +2157,7 @@ function App() {
     }
     embeddedArtworkRequestsRef.current.add(track.id);
     const formData = new FormData();
-    if (track.sourceFile) {
-      formData.append("audio", track.sourceFile);
-    } else if (track.source === "input") {
-      formData.append("inputAudio", track.sourceKey);
-    } else {
+    if (!appendTrackAudioSource(formData, track)) {
       embeddedArtworkRequestsRef.current.delete(track.id);
       return;
     }
@@ -2522,10 +2275,6 @@ function App() {
     return resolveAlbumArtwork(track, cover);
   }
 
-  function updateCoverSeriesSettingsPatch(patch: Partial<CoverSeriesSettings>) {
-    setCoverSeriesSettings((current) => ({ ...current, ...patch }));
-  }
-
   // Effective series settings for a track: its own override wins, otherwise the
   // shared album-wide defaults.
   function seriesSettingsForTrack(track?: TrackDraft): CoverSeriesSettings {
@@ -2596,15 +2345,22 @@ function App() {
     );
   }
 
-  function applyTextToBatch() {
+  function applyTextToBatch(mode: TextBatchApplyMode = "all") {
     setTracks((current) =>
       applySelectedTextSettingsToBatch(
         current,
         selectedTrackId,
         cloneTextSettings,
+        mode,
       ),
     );
-    setBatchFeedback("Texto do vídeo aplicado ao lote selecionado.");
+    const label =
+      mode === "position"
+        ? "Posição do texto aplicada ao lote selecionado."
+        : mode === "style"
+          ? "Estilo do texto aplicado ao lote (posição preservada)."
+          : "Texto do vídeo aplicado ao lote selecionado.";
+    setBatchFeedback(label);
   }
 
   function captureLayersUndo(label: string) {
@@ -2697,7 +2453,6 @@ function App() {
   function restoreSuggestedCover(trackId = selectedTrack?.id) {
     const track = tracks.find((item) => item.id === trackId);
     if (!track?.suggestedCover) return;
-    setPlayerArtworkSource("planned");
     updateTrackDraft(track.id, {
       coverOverride: { ...track.suggestedCover, source: "manual" },
       useSuggestedCover: true,
@@ -2710,7 +2465,6 @@ function App() {
       (option) => option.relativePath === relativePath,
     );
     if (!track || !suggestedCover) return;
-    setPlayerArtworkSource("planned");
     updateTrackDraft(track.id, {
       suggestedCover,
       coverOverride: { ...suggestedCover, source: "manual" },
@@ -2739,7 +2493,6 @@ function App() {
         },
         useSuggestedCover: true,
       });
-      setPlayerArtworkSource("planned");
       return;
     }
     setCover({ file, src });
@@ -2921,7 +2674,7 @@ function App() {
   function openArtworkEditor(trackId = selectedTrack?.id) {
     if (trackId) setSelectedTrackId(trackId);
     setWorkspaceMode("audio");
-    setAudioStageView("edit");
+    setAudioStageView("artwork");
   }
 
   function openVisualEditor(trackId = selectedTrack?.id) {
@@ -3144,14 +2897,12 @@ function App() {
       current.includes(trackId) ? current : [...current, trackId],
     );
     const formData = new FormData();
-    if (selectedTrack.sourceFile) {
-      formData.append("audio", selectedTrack.sourceFile);
-      formData.append(
-        "relativePath",
-        selectedTrack.sourceFile.webkitRelativePath || selectedTrack.sourceKey,
+    if (!appendTrackAudioSource(formData, selectedTrack)) {
+      setAnalyzingTrackIds((current) =>
+        current.filter((item) => item !== trackId),
       );
-    } else {
-      formData.append("inputAudio", selectedTrack.sourceKey);
+      setError("Fonte de áudio indisponível para análise.");
+      return;
     }
     try {
       const payload = await fetchJson<{
@@ -3219,8 +2970,10 @@ function App() {
 
   async function submitAudioProcess(track: TrackDraft) {
     const formData = new FormData();
-    if (track.sourceFile) formData.append("audio", track.sourceFile);
-    else formData.append("inputAudio", track.sourceKey);
+    if (!appendTrackAudioSource(formData, track)) {
+      setError("Fonte de áudio indisponível para tratamento.");
+      return null;
+    }
     const trackCover = coverForTrack(track);
     if (trackCover) formData.append("cover", trackCover.file);
     const albumCover = albumCoverForTrack(track);
@@ -3573,7 +3326,7 @@ function App() {
     };
     setWorkspaceMode("visual");
     setActiveStep("export");
-    setVisualStageView("queue");
+    setVisualStageView("publication-export");
     if (workflowMode === "batch") {
       const selected = tracks.filter((track) => track.selectedForBatch);
       for (const track of selected) await submitRender(track);
@@ -3601,7 +3354,7 @@ function App() {
       stamp: videoOutputBackupStamp(),
     };
     setWorkspaceMode("visual");
-    setVisualStageView("promotion");
+    setVisualStageView("publication-export");
     // Reset the abort latch for this run; "Parar geração"/"Cancelar tudo" flip
     // it so the loop stops enqueuing instead of pushing every track × format.
     publicationExportAbortRef.current = false;
@@ -3773,8 +3526,10 @@ function App() {
       showMetadata,
     });
     const formData = new FormData();
-    if (track.sourceFile) formData.append("audio", track.sourceFile);
-    else formData.append("inputAudio", track.sourceKey);
+    if (!appendTrackAudioSource(formData, track)) {
+      setError("Fonte de áudio indisponível para exportação.");
+      return;
+    }
     for (const layer of composition.layers)
       formData.append("mediaLayers", layer.file);
     if (composition.cover) formData.append("cover", composition.cover.file);
@@ -3830,8 +3585,10 @@ function App() {
       showMetadata,
     });
     const formData = new FormData();
-    if (track.sourceFile) formData.append("audio", track.sourceFile);
-    else formData.append("inputAudio", track.sourceKey);
+    if (!appendTrackAudioSource(formData, track)) {
+      setError("Fonte de áudio indisponível para exportação do asset.");
+      return;
+    }
     for (const layer of composition.layers)
       formData.append("mediaLayers", layer.file);
     if (composition.cover) formData.append("cover", composition.cover.file);
@@ -3870,6 +3627,7 @@ function App() {
     formData.append("generateDataFiles", String(publicationGenerateDataFiles));
     formData.append("lyricsPosition", assetSettings.lyricsPosition);
     formData.append("lyricsStyle", assetSettings.lyricsStyle);
+    formData.append("bookletTheme", assetSettings.bookletTheme);
     if (composition.metadata) {
       for (const [key, value] of Object.entries(composition.metadata)) {
         formData.append(key, String(value));
@@ -3900,6 +3658,40 @@ function App() {
       pollJob(job.id);
     } catch (reason) {
       setError(localApiMessage(reason, "iniciar a divulgação"));
+    }
+  }
+
+  async function submitPodcastFeed(sidecar: PodcastFeedSidecar) {
+    const title = sidecar.feed.title || "Podcast";
+    try {
+      const data = await fetchJson<{ jobId: string }>("/api/podcast-feeds", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          fileBaseName: sidecar.rss.fileName,
+          sidecar,
+        }),
+      });
+      const job: RenderJob = {
+        id: data.jobId,
+        kind: "podcast-feed",
+        status: "queued",
+        progress: 0,
+        message: `Podcast: ${title}`,
+        outputUrl: null,
+        sidecarUrl: null,
+        thumbnailUrl: null,
+        assetUrls: [],
+        metadata: {
+          title,
+          album: title,
+          artist: sidecar.feed.author,
+        },
+      };
+      setJobs((current) => [job, ...current]);
+      pollJob(job.id);
+    } catch (reason) {
+      setError(localApiMessage(reason, "gerar o feed de podcast"));
     }
   }
 
@@ -3944,6 +3736,11 @@ function App() {
               setError(
                 localApiMessage(reason, "copiar os assets de divulgação"),
               ),
+            );
+          } else if (job.kind === "podcast-feed") {
+            setBatchFeedback(
+              "Feed de podcast gerado com links RSS e JSON no histórico.",
+              "info",
             );
           } else {
             void copyOutput(job).catch((reason) =>
@@ -4328,6 +4125,7 @@ function App() {
       workflowMode,
       audioStageView,
       visualStageView,
+      podcastEnabled,
       activeStep,
       selectedTrackId,
       outputPreset,
@@ -4336,6 +4134,7 @@ function App() {
       publicationClipStart,
       publicationClipDuration,
       publicationIncludeLyrics,
+      publicationGenerateDataFiles,
       publicationAssetMode,
       publicationAssetOverrides,
       showMetadata,
@@ -4416,11 +4215,13 @@ function App() {
   ) {
     if (!snapshot) return;
     const includeCover = options.includeCover ?? true;
+    const navigation = normalizeSnapshotNavigation(snapshot);
     // workflowMode is derived from the restored per-track selection, not set.
-    setWorkspaceMode(snapshot.workspaceMode ?? "visual");
-    setAudioStageView(snapshot.audioStageView ?? "edit");
-    setVisualStageView(snapshot.visualStageView ?? "editor");
-    setActiveStep(snapshot.activeStep);
+    setPodcastEnabled(Boolean(snapshot.podcastEnabled));
+    setWorkspaceMode(navigation.workspaceMode);
+    setAudioStageView(navigation.audioStageView);
+    setVisualStageView(navigation.visualStageView);
+    setActiveStep(navigation.activeStep);
     // Old sessions may carry a now-removed preset (youtube-2k/4k) — fall back to
     // 1080p so we never re-submit an unsupported resolution.
     setOutputPreset(
@@ -4443,6 +4244,9 @@ function App() {
       clampPublicationClipDuration(snapshot.publicationClipDuration ?? 15),
     );
     setPublicationIncludeLyrics(Boolean(snapshot.publicationIncludeLyrics));
+    setPublicationGenerateDataFiles(
+      snapshot.publicationGenerateDataFiles ?? true,
+    );
     setPublicationAssetMode(
       ["single", "group", "all"].includes(String(snapshot.publicationAssetMode))
         ? snapshot.publicationAssetMode!
@@ -4507,6 +4311,25 @@ function App() {
         : (restored[0]?.id ?? ""),
     );
   }
+
+  const exportJobCount = jobs.filter(
+    (job) => job.kind === "video-render" || job.kind === "publication-asset",
+  ).length;
+  const audioItemLabel = podcastEnabled ? "episódio" : "música";
+  const audioItemPluralLabel = podcastEnabled ? "episódios" : "músicas";
+  const audioItemsPossessiveLabel = podcastEnabled
+    ? "seus episódios"
+    : "suas músicas";
+  const selectedAudioItemLabel =
+    selectedForBatchCount === 1
+      ? `1 ${audioItemLabel} selecionad${podcastEnabled ? "o" : "a"}`
+      : `${selectedForBatchCount} ${audioItemPluralLabel} selecionad${podcastEnabled ? "os" : "as"}`;
+  const inspectorContextLabel =
+    workspaceMode === "audio"
+      ? audioStageView === "podcast"
+        ? "Podcast"
+        : "Biblioteca"
+      : visualStageLabel(visualStageView, activeStep);
 
   return (
     <main
@@ -4742,14 +4565,14 @@ function App() {
                           <option value="">Escolha um projeto…</option>
                           {inputProjects.map((project) => (
                             <option key={project.id} value={project.id}>
-                              {projectOptionLabel(project)}
+                              {projectOptionLabel(project, audioItemLabel)}
                             </option>
                           ))}
                         </select>
                       </div>
                       <p className="helper-copy">
-                        Abrir um projeto carrega suas músicas e os ajustes
-                        salvos no .sonara dele.
+                        Abrir um projeto carrega {audioItemsPossessiveLabel} e
+                        os ajustes salvos no .sonara dele.
                       </p>
                     </>
                   ) : (
@@ -4834,52 +4657,22 @@ function App() {
           </div>
         ) : (
           <>
-            <div className="project-profile">
-              <span className="project-profile-cover">
-                {coverForTrack(selectedTrack ?? tracks[0])?.src ? (
-                  <img
-                    alt=""
-                    src={coverForTrack(selectedTrack ?? tracks[0])?.src}
-                  />
-                ) : (
-                  <Music2 />
-                )}
-              </span>
-              <div className="project-profile-copy">
-                <strong>{folderName}</strong>
-                <small>
-                  {(selectedTrack ?? tracks[0])?.metadata.album ||
-                    (selectedTrack ?? tracks[0])?.metadata.artist ||
-                    "espaço de trabalho"}
-                </small>
-              </div>
-              <button
-                aria-label="Abrir Setup"
-                className="icon-button"
-                title="Trocar pastas / projeto (Setup)"
-                type="button"
-                onClick={() => setSetupPanelOpen(true)}
-              >
-                <FolderOpen />
-              </button>
-            </div>
-            {inputProjects.length > 1 && (
-              <label className="library-project-picker">
-                <span>Projeto</span>
-                <select
-                  value={selectedInputProjectId}
-                  onChange={(event) =>
-                    void selectInputProject(event.target.value)
-                  }
-                >
-                  {inputProjects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {projectOptionLabel(project)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
+            <ProjectSwitcher
+              coverSrc={coverForTrack(selectedTrack ?? tracks[0])?.src}
+              folderName={folderName}
+              onOpenSetup={() => setSetupPanelOpen(true)}
+              onSelect={(projectId) => void selectInputProject(projectId)}
+              projectLabel={(project) =>
+                projectOptionLabel(project, audioItemLabel)
+              }
+              projects={inputProjects}
+              selectedProjectId={selectedInputProjectId}
+              subtitle={
+                (selectedTrack ?? tracks[0])?.metadata.album ||
+                (selectedTrack ?? tracks[0])?.metadata.artist ||
+                "espaço de trabalho"
+              }
+            />
             {selectedInputProjectId && (
               <ProjectSaveControls
                 busy={projectSavesBusy}
@@ -4896,15 +4689,13 @@ function App() {
               <div className="library-caption">
                 <span>
                   {tracks.length === 1
-                    ? "1 música"
-                    : `${tracks.length} músicas`}
+                    ? `1 ${audioItemLabel}`
+                    : `${tracks.length} ${audioItemPluralLabel}`}
                 </span>
                 <span>
                   {selectedForBatchCount === 0
                     ? "fluxo individual"
-                    : selectedForBatchCount === 1
-                      ? "1 selecionada"
-                      : `${selectedForBatchCount} selecionadas · lote`}
+                    : `${selectedAudioItemLabel} · lote`}
                 </span>
               </div>
               <div className="track-list">
@@ -5078,11 +4869,21 @@ function App() {
           />
         ) : workspaceMode === "audio" && audioStageView === "catalog" ? (
           <CatalogPreview
+            coverForTrack={coverForTrack}
+            seriesSettingsForTrack={seriesSettingsForTrack}
+            onInspectArtwork={openArtworkEditor}
+            onSelectTrack={setSelectedTrackId}
+            tracks={reviewTracks}
+          />
+        ) : workspaceMode === "audio" && audioStageView === "artwork" ? (
+          <CoverArtworkWorkspace
             albumCoverForTrack={albumCoverForTrack}
             coverForTrack={coverForTrack}
             coverSeriesSettings={coverSeriesSettings}
+            selectedTrackId={selectedTrackId}
             seriesSettingsForTrack={seriesSettingsForTrack}
             onChooseCover={chooseCatalogCover}
+            onClearCover={clearSelectedCover}
             onClearCoverSeriesOverride={clearCoverSeriesOverride}
             onCoverSeriesPatch={applyCoverSeriesPatch}
             onRestoreSuggestedCover={restoreSuggestedCover}
@@ -5091,8 +4892,34 @@ function App() {
             onSelectSuggestedCover={selectSuggestedCover}
             tracks={reviewTracks}
           />
-        ) : (workspaceMode === "audio" && audioStageView === "videos") ||
-          (workspaceMode === "visual" && visualStageView === "videos") ? (
+        ) : workspaceMode === "audio" && audioStageView === "podcast" ? (
+          <PodcastWorkspace
+            jobs={jobs}
+            projectName={selectedInputProjectName()}
+            queuePaused={queuePaused}
+            selectedTrackId={selectedTrackId}
+            tracks={tracks}
+            onCancelAllJobs={() => void cancelAllJobs()}
+            onCancelJob={(id) => void cancelJob(id)}
+            onClearTerminalJobs={() => void clearCompletedJobs("podcast-feed")}
+            onCreateFeed={(sidecar) => void submitPodcastFeed(sidecar)}
+            onPauseQueue={() => void pauseQueue()}
+            onResumeQueue={() => void resumeQueue()}
+            onSelectTrack={setSelectedTrackId}
+          />
+        ) : workspaceMode === "audio" && audioStageView === "audio-export" ? (
+          <AudioExportWorkspace
+            jobs={jobs}
+            queuePaused={queuePaused}
+            selectedCount={reviewTracks.length}
+            treatedCount={treatedTrackCount}
+            onCancelAllJobs={() => void cancelAllJobs()}
+            onCancelJob={(id) => void cancelJob(id)}
+            onClearTerminalJobs={() => void clearCompletedJobs("terminal")}
+            onPauseQueue={() => void pauseQueue()}
+            onResumeQueue={() => void resumeQueue()}
+          />
+        ) : workspaceMode === "visual" && visualStageView === "review" ? (
           <VideoReviewGrid
             coverForTrack={coverForTrack}
             selectedTrackId={selectedTrackId}
@@ -5136,7 +4963,7 @@ function App() {
             onPreset={setPublicationPresetId}
             onPresetScope={setPublicationPresetScope}
             onResumeQueue={() => void resumeQueue()}
-            onReviewVideos={() => setVisualStageView("videos")}
+            onReviewVideos={() => setVisualStageView("review")}
             onStopExport={() => stopPublicationExport()}
             onTogglePreset={togglePublicationPreset}
             onToggleTrack={togglePublicationTrack}
@@ -5145,7 +4972,8 @@ function App() {
             }
             onUpdateLayer={(trackId, patch) => updateTrackDraft(trackId, patch)}
           />
-        ) : workspaceMode === "visual" && visualStageView === "queue" ? (
+        ) : workspaceMode === "visual" &&
+          visualStageView === "publication-export" ? (
           <VideoExportWorkspace
             jobs={jobs}
             outputLabel={selectedOutput[1]}
@@ -5153,11 +4981,14 @@ function App() {
             selectedCount={reviewTracks.length}
             onCancelAllJobs={() => void cancelAllJobs()}
             onCancelJob={(id) => void cancelJob(id)}
-            onClearTerminalJobs={() => void clearCompletedJobs("video-render")}
+            onClearPublicationJobs={() =>
+              void clearCompletedJobs("publication-asset")
+            }
+            onClearVideoJobs={() => void clearCompletedJobs("video-render")}
             onCopyJobError={(job) => void copyJobError(job)}
             onPauseQueue={() => void pauseQueue()}
             onResumeQueue={() => void resumeQueue()}
-            onReviewVideos={() => setVisualStageView("videos")}
+            onVisualize={() => setVisualStageView("review")}
           />
         ) : (
           <div className="canvas-table">
@@ -5238,16 +5069,9 @@ function App() {
           trackTitle={selectedTrack?.metadata.title ?? ""}
           artworkLabel={playerArtworkLabel}
           artworkSrc={playerArtworkSrc}
-          canToggleArtwork={Boolean(plannedArtworkSrc && embeddedArtworkSrc)}
           onNext={() => selectAdjacentTrack(1)}
           onPrevious={() => selectAdjacentTrack(-1)}
-          onToggleArtwork={() =>
-            setPlayerArtworkSource((current) =>
-              current === "planned" ? "embedded" : "planned",
-            )
-          }
           onEditArtwork={() => openArtworkEditor()}
-          onEditVisual={() => openVisualEditor()}
           onToggle={() => void togglePlayback()}
         />
       </div>
@@ -5264,51 +5088,58 @@ function App() {
         />
         <div className="inspector-header">
           <strong>Ajustes</strong>
-          <span>
-            {workspaceMode === "audio" ? "Biblioteca" : stepLabel(activeStep)}
-          </span>
+          <span>{inspectorContextLabel}</span>
         </div>
         {selectedTrack ? (
           <div className="inspector-scroll">
             {workspaceMode === "audio" ? (
-              <AudioLibraryInspector
-                analysis={selectedTrack.audioInfo?.analysis}
-                artworkHint={artworkConventionHint(selectedTrack)}
-                cover={selectedCover}
-                coverSeriesSettings={coverSeriesSettings}
-                fileNamePattern={fileNamePattern}
-                lyricsOptions={selectedTrack.lyricsOptions ?? []}
-                lyricsSourcePath={selectedTrack.lyricsSourcePath}
-                metadata={selectedTrack.metadata}
-                suggestedCover={selectedTrack.suggestedCover}
-                workflowMode={workflowMode}
-                onAnalyze={() => void analyzeSelectedAudio()}
-                onApplyPublicationBatch={
-                  workflowMode === "batch" ? applyPublicationToBatch : undefined
-                }
-                onApplySuggestions={() =>
-                  updateMetadata(
-                    metadataFromAudio(
-                      selectedTrack.audioInfo,
-                      selectedTrack.metadata,
-                      true,
-                    ),
-                  )
-                }
-                onChange={updateMetadata}
-                onChooseCover={() => coverInputRef.current?.click()}
-                onClearCover={clearSelectedCover}
-                onCoverSeriesSettings={updateCoverSeriesSettingsPatch}
-                onFileNamePattern={updateFileNamePattern}
-                onApplyLyricsSuggestion={(suggestion) =>
-                  void applyLyricsSuggestion(suggestion)
-                }
-                onIgnoreLyricsSuggestions={ignoreLyricsSuggestions}
-                onRestoreSuggestedCover={restoreSuggestedCover}
-                onSaveCoverSeriesDefault={saveCoverSeriesDefault}
-                onProcess={() => void processReviewedAudio()}
-                isAnalyzing={analyzingTrackIds.includes(selectedTrack.id)}
-              />
+              audioStageView === "podcast" ? (
+                <PodcastInspector
+                  selectedTrack={selectedTrack}
+                  tracks={tracks}
+                  onChange={updateMetadata}
+                  onSelectTrack={setSelectedTrackId}
+                />
+              ) : (
+                <AudioLibraryInspector
+                  analysis={selectedTrack.audioInfo?.analysis}
+                  fileNamePattern={fileNamePattern}
+                  lyricsOptions={selectedTrack.lyricsOptions ?? []}
+                  lyricsSourcePath={selectedTrack.lyricsSourcePath}
+                  metadata={selectedTrack.metadata}
+                  workflowMode={workflowMode}
+                  onAnalyze={() => void analyzeSelectedAudio()}
+                  onApplyPublicationBatch={
+                    workflowMode === "batch"
+                      ? applyPublicationToBatch
+                      : undefined
+                  }
+                  onApplySuggestions={() =>
+                    updateMetadata(
+                      metadataFromAudio(
+                        selectedTrack.audioInfo,
+                        selectedTrack.metadata,
+                        true,
+                      ),
+                    )
+                  }
+                  onChange={updateMetadata}
+                  onFileNamePattern={updateFileNamePattern}
+                  onCreateVariation={createVariation}
+                  onApplyLyricsSuggestion={(suggestion) =>
+                    void applyLyricsSuggestion(suggestion)
+                  }
+                  onIgnoreLyricsSuggestions={ignoreLyricsSuggestions}
+                  onProcess={() => void processReviewedAudio()}
+                  onReplaceAudio={
+                    selectedTrack.variantOf
+                      ? () => variationAudioInputRef.current?.click()
+                      : undefined
+                  }
+                  isAnalyzing={analyzingTrackIds.includes(selectedTrack.id)}
+                  versionSuggestions={versionSuggestions}
+                />
+              )
             ) : visualStageView === "promotion" ? (
               <PublicationInspector
                 assetMode={publicationAssetMode}
@@ -5355,9 +5186,6 @@ function App() {
               />
             ) : activeStep === "music" ? (
               <MusicInspector
-                artworkHint={artworkConventionHint(selectedTrack)}
-                cover={selectedCover}
-                suggestedCover={selectedTrack.suggestedCover}
                 metadata={selectedTrack.metadata}
                 onApplySuggestions={() =>
                   updateMetadata(
@@ -5369,10 +5197,7 @@ function App() {
                   )
                 }
                 onChange={updateMetadata}
-                onChooseCover={() => coverInputRef.current?.click()}
-                onClearCover={clearSelectedCover}
                 onCreateVariation={createVariation}
-                onRestoreSuggestedCover={restoreSuggestedCover}
                 onApplyCommonBatch={
                   workflowMode === "batch" ? applyMusicToBatch : undefined
                 }
@@ -5381,6 +5206,7 @@ function App() {
                     ? () => variationAudioInputRef.current?.click()
                     : undefined
                 }
+                versionSuggestions={versionSuggestions}
               />
             ) : activeStep === "visual" ? (
               <VisualInspector
@@ -5435,6 +5261,7 @@ function App() {
                 onCommon={updateCommon}
                 onTextSettings={updateTextSettings}
                 onToggle={setShowMetadata}
+                versionSuggestions={versionSuggestions}
                 onApplyBatch={
                   workflowMode === "batch" ? applyTextToBatch : undefined
                 }
@@ -5483,7 +5310,7 @@ function App() {
         </span>
         {workspaceMode === "visual" ? (
           <nav className="steps" aria-label="Etapas do projeto">
-            {(["music", "visual", "text"] as ActiveStep[]).map((step) => {
+            {(["visual", "text"] as ActiveStep[]).map((step) => {
               const StepIcon = {
                 music: Music2,
                 visual: Image,
@@ -5510,14 +5337,6 @@ function App() {
               );
             })}
             <button
-              className={visualStageView === "videos" ? "active" : ""}
-              type="button"
-              onClick={() => setVisualStageView("videos")}
-            >
-              <Video />
-              Conferir vídeos
-            </button>
-            <button
               className={visualStageView === "promotion" ? "active" : ""}
               type="button"
               onClick={() => {
@@ -5529,15 +5348,25 @@ function App() {
               Divulgação
             </button>
             <button
-              className={visualStageView === "queue" ? "active" : ""}
+              className={visualStageView === "review" ? "active" : ""}
+              type="button"
+              onClick={() => setVisualStageView("review")}
+            >
+              <Video />
+              Visualizar
+            </button>
+            <button
+              className={
+                visualStageView === "publication-export" ? "active" : ""
+              }
               type="button"
               onClick={() => {
-                setVisualStageView("queue");
+                setVisualStageView("publication-export");
                 setActiveStep("export");
               }}
             >
               <Download />
-              Fila de vídeos
+              Exportar Divulgação
             </button>
           </nav>
         ) : (
@@ -5553,6 +5382,22 @@ function App() {
               <SlidersHorizontal /> Editar
             </button>
             <button
+              className={audioStageView === "artwork" ? "active" : ""}
+              type="button"
+              onClick={() => openArtworkEditor()}
+            >
+              <Image /> Capas
+            </button>
+            {podcastEnabled && (
+              <button
+                className={audioStageView === "podcast" ? "active" : ""}
+                type="button"
+                onClick={() => setAudioStageView("podcast")}
+              >
+                <FileAudio /> Podcast
+              </button>
+            )}
+            <button
               className={audioStageView === "catalog" ? "active" : ""}
               type="button"
               onClick={() => setAudioStageView("catalog")}
@@ -5560,11 +5405,11 @@ function App() {
               <Disc3 /> Catálogo
             </button>
             <button
-              className={audioStageView === "videos" ? "active" : ""}
+              className={audioStageView === "audio-export" ? "active" : ""}
               type="button"
-              onClick={() => setAudioStageView("videos")}
+              onClick={() => setAudioStageView("audio-export")}
             >
-              <Video /> Vídeos
+              <Download /> Exportar Áudio
             </button>
           </nav>
         )}
@@ -5573,7 +5418,9 @@ function App() {
             ? `${reviewTracks.length} selecionada${reviewTracks.length === 1 ? "" : "s"} · ${treatedTrackCount} tratada${treatedTrackCount === 1 ? "" : "s"} · ${audioWarningCount} alerta${audioWarningCount === 1 ? "" : "s"}`
             : visualStageView === "promotion"
               ? `${publicationAssetPresetLabel(publicationPresetId)} · ${publicationPresetSelection.length} preset${publicationPresetSelection.length === 1 ? "" : "s"}`
-              : `${selectedOutput[1]} · ${selectedTrack?.layers.length ?? 0}/3 camadas · waveform ${selectedScene.waveform.visible ? "ativa" : "desligada"}`}
+              : visualStageView === "publication-export"
+                ? `${exportJobCount} job${exportJobCount === 1 ? "" : "s"} · fila de exportação`
+                : `${selectedOutput[1]} · ${selectedTrack?.layers.length ?? 0}/3 camadas · waveform ${selectedScene.waveform.visible ? "ativa" : "desligada"}`}
         </span>
       </footer>
 
@@ -5663,6 +5510,31 @@ function App() {
                 </div>
               </section>
               <section className="settings-section">
+                <div>
+                  <h3>Podcast</h3>
+                  <p>
+                    Mostra uma guia dedicada na Biblioteca de Áudio para
+                    episódios, temporadas, feed RSS, perfis de voz e inserts.
+                  </p>
+                  <small>
+                    {podcastEnabled
+                      ? "Guia Podcast habilitada neste workspace."
+                      : "Desabilitado por padrão; projetos de música não migram automaticamente."}
+                  </small>
+                </div>
+                <label className="check-field settings-toggle">
+                  <input
+                    aria-label="Habilitar Podcast"
+                    checked={podcastEnabled}
+                    type="checkbox"
+                    onChange={(event) =>
+                      setPodcastEnabled(event.target.checked)
+                    }
+                  />
+                  <span>Habilitar guia Podcast</span>
+                </label>
+              </section>
+              <section className="settings-section">
                 <div className="settings-project-cleanup">
                   <div>
                     <h3>Dados dos projetos</h3>
@@ -5700,8 +5572,10 @@ function App() {
                           <span className="settings-project-copy">
                             <strong>{project.name}</strong>
                             <small>
-                              {project.trackCount} música
-                              {project.trackCount === 1 ? "" : "s"}
+                              {project.trackCount}{" "}
+                              {project.trackCount === 1
+                                ? audioItemLabel
+                                : audioItemPluralLabel}
                             </small>
                           </span>
                         </label>
@@ -5818,4614 +5692,6 @@ function App() {
   );
 }
 
-function AudioLibraryWorkspace({
-  audioBands,
-  batchApplyMode,
-  batchCommon,
-  fileNamePattern,
-  folderImportProgress,
-  jobs,
-  onApplyBatchCommon,
-  onBatchApplyMode,
-  onBatchCommon,
-  onCancelAllJobs,
-  onCancelJob,
-  onClearTerminalJobs,
-  onPauseQueue,
-  onResumeQueue,
-  onReorderTrack,
-  onSelectTrack,
-  onToggleTrack,
-  onToggleTracks,
-  onTrackMetadata,
-  queuePaused,
-  selectedTrack,
-  selectedTrackId,
-  staticWaveformPeaks,
-  tracks,
-  workflowMode,
-}: {
-  audioBands: AudioBands;
-  fileNamePattern: FileNamePattern;
-  staticWaveformPeaks?: number[];
-  batchApplyMode: BatchApplyMode;
-  batchCommon: BatchCommonDraft;
-  folderImportProgress: { current: number; total: number; name: string } | null;
-  jobs: RenderJob[];
-  onApplyBatchCommon: () => void;
-  onBatchApplyMode: (mode: BatchApplyMode) => void;
-  onBatchCommon: (patch: BatchCommonDraft) => void;
-  onCancelAllJobs: () => void;
-  onCancelJob: (id: string) => void;
-  onClearTerminalJobs: () => void;
-  onPauseQueue: () => void;
-  onResumeQueue: () => void;
-  onReorderTrack: (sourceId: string, targetId: string) => void;
-  onSelectTrack: (id: string) => void;
-  onToggleTrack: (id: string, selected: boolean) => void;
-  onToggleTracks: (ids: string[], selected: boolean) => void;
-  onTrackMetadata: (id: string, patch: Partial<TrackMetadata>) => void;
-  queuePaused: boolean;
-  selectedTrack?: TrackDraft;
-  selectedTrackId: string;
-  tracks: TrackDraft[];
-  workflowMode: "single" | "batch";
-}) {
-  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
-  const [expandedRows, setExpandedRows] = useState<string[]>([]);
-  const [draggedTrackId, setDraggedTrackId] = useState("");
-  const [dragOverTrackId, setDragOverTrackId] = useState("");
-  if (workflowMode === "batch") {
-    const selectedCount = tracks.filter(
-      (track) => track.selectedForBatch,
-    ).length;
-    const groups = groupAudioTracks(tracks);
-    const toggleGroup = (id: string) =>
-      setCollapsedGroups((current) =>
-        current.includes(id)
-          ? current.filter((groupId) => groupId !== id)
-          : [...current, id],
-      );
-    const toggleRow = (id: string) =>
-      setExpandedRows((current) =>
-        current.includes(id)
-          ? current.filter((trackId) => trackId !== id)
-          : [...current, id],
-      );
-    const startTrackDrag = (
-      event: ReactDragEvent<HTMLButtonElement>,
-      trackId: string,
-    ) => {
-      event.stopPropagation();
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", trackId);
-      setDraggedTrackId(trackId);
-      setDragOverTrackId("");
-    };
-    const dropTrackOn = (
-      event: ReactDragEvent<HTMLTableRowElement>,
-      targetId: string,
-    ) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const sourceId =
-        event.dataTransfer.getData("text/plain") || draggedTrackId;
-      setDraggedTrackId("");
-      setDragOverTrackId("");
-      onReorderTrack(sourceId, targetId);
-    };
-    const finishTrackDrag = () => {
-      setDraggedTrackId("");
-      setDragOverTrackId("");
-    };
-    return (
-      <div className="audio-library batch-library">
-        <header className="audio-library-heading">
-          <div>
-            <span className="overline">Biblioteca de áudio</span>
-            <h1>Revisão e tratamento do lote</h1>
-          </div>
-          <strong>{selectedCount} selecionadas</strong>
-        </header>
-        {folderImportProgress && (
-          <div className="batch-progress-note">
-            <span>
-              Importando {folderImportProgress.current}/
-              {folderImportProgress.total || "--"}
-            </span>
-            <strong>{folderImportProgress.name}</strong>
-          </div>
-        )}
-        <details
-          className="batch-toolbar"
-          aria-label="Dados comuns do lote"
-          open
-        >
-          <summary className="batch-toolbar-head">
-            <div>
-              <span className="overline">Dados comuns do lote</span>
-              <strong>
-                Preencha uma vez e aplique nas linhas selecionadas
-              </strong>
-            </div>
-            <ChevronDown />
-          </summary>
-          <div className="batch-toolbar-body">
-            <div className="batch-apply-mode" aria-label="Modo de aplicação">
-              <button
-                className={batchApplyMode === "fill-empty" ? "active" : ""}
-                type="button"
-                onClick={() => onBatchApplyMode("fill-empty")}
-              >
-                Preencher vazios
-              </button>
-              <button
-                className={batchApplyMode === "overwrite" ? "active" : ""}
-                type="button"
-                onClick={() => onBatchApplyMode("overwrite")}
-              >
-                Sobrescrever informados
-              </button>
-            </div>
-            <p className="batch-mode-note">
-              {batchApplyMode === "fill-empty"
-                ? "Mantém valores já revisados em cada linha e completa somente lacunas."
-                : "Substitui os campos preenchidos abaixo nos arquivos selecionados."}
-            </p>
-            <div className="batch-toolbar-grid">
-              <TextField
-                label="Artista principal"
-                value={batchCommon.artist}
-                onChange={(artist) => onBatchCommon({ ...batchCommon, artist })}
-              />
-              <TextField
-                label="Álbum"
-                value={batchCommon.album}
-                onChange={(album) => onBatchCommon({ ...batchCommon, album })}
-              />
-              <TextField
-                label="Artista do álbum"
-                value={batchCommon.albumArtist}
-                onChange={(albumArtist) =>
-                  onBatchCommon({ ...batchCommon, albumArtist })
-                }
-              />
-              <TextField
-                label="Compositor"
-                value={batchCommon.composer}
-                onChange={(composer) =>
-                  onBatchCommon({ ...batchCommon, composer })
-                }
-              />
-              <TextField
-                label="Ano"
-                value={batchCommon.year}
-                onChange={(year) => onBatchCommon({ ...batchCommon, year })}
-              />
-              <TextField
-                label="Copyright"
-                value={batchCommon.copyright}
-                onChange={(copyright) =>
-                  onBatchCommon({ ...batchCommon, copyright })
-                }
-              />
-              <TagSelectField
-                label="Gênero"
-                value={batchCommon.genre}
-                suggestions={genreSuggestions}
-                storageKey="sonara.customGenres"
-                placeholder="Buscar ou adicionar gênero…"
-                onChange={(genre) => onBatchCommon({ ...batchCommon, genre })}
-              />
-              <TextArea
-                label="Comentário ID3"
-                rows={2}
-                value={batchCommon.comment}
-                onChange={(comment) =>
-                  onBatchCommon({ ...batchCommon, comment })
-                }
-              />
-            </div>
-            <div className="batch-toolbar-actions">
-              <TextField
-                label="Total de faixas"
-                value={
-                  batchCommon.trackTotal ? String(batchCommon.trackTotal) : ""
-                }
-                onChange={(value) =>
-                  onBatchCommon({
-                    ...batchCommon,
-                    trackTotal: Math.max(0, Number(value) || 0),
-                  })
-                }
-              />
-              <button
-                className="primary-action"
-                disabled={selectedCount === 0}
-                type="button"
-                onClick={onApplyBatchCommon}
-              >
-                <Check /> Aplicar aos selecionados
-              </button>
-            </div>
-          </div>
-        </details>
-        <BatchJobBoard
-          jobs={jobs}
-          onCancelAll={onCancelAllJobs}
-          onCancelJob={onCancelJob}
-          onClearTerminal={onClearTerminalJobs}
-          onPause={onPauseQueue}
-          onResume={onResumeQueue}
-          queuePaused={queuePaused}
-        />
-        <div className="batch-table-wrap">
-          <div className="batch-table-toolbar">
-            <div>
-              <span className="overline">Arquivos revisáveis</span>
-              <strong>
-                {tracks.length} arquivo{tracks.length === 1 ? "" : "s"} em{" "}
-                {groups.length} grupo{groups.length === 1 ? "" : "s"}
-              </strong>
-            </div>
-            <div className="batch-table-actions">
-              <button
-                type="button"
-                onClick={() =>
-                  onToggleTracks(
-                    tracks.map((track) => track.id),
-                    true,
-                  )
-                }
-              >
-                <Check /> Selecionar todos
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  onToggleTracks(
-                    tracks.map((track) => track.id),
-                    false,
-                  )
-                }
-              >
-                <X /> Limpar seleção
-              </button>
-            </div>
-          </div>
-          <table className="batch-table">
-            <thead>
-              <tr>
-                <th className="batch-col-drag" aria-label="Ordem"></th>
-                <th className="batch-col-select"></th>
-                <th className="batch-col-expand"></th>
-                <th className="batch-col-track">Faixa</th>
-                <th className="batch-col-disk">Disco</th>
-                <th className="batch-col-title">Título</th>
-                <th className="batch-col-artist">Artista</th>
-                <th className="batch-col-album">Álbum</th>
-                <th className="batch-col-package">Pacote</th>
-                <th className="batch-col-lufs">LUFS</th>
-                <th className="batch-col-tp">TP</th>
-                <th className="batch-col-normalize">Normalizar</th>
-              </tr>
-            </thead>
-            {groups.map((group) => {
-              const collapsed = collapsedGroups.includes(group.id);
-              return (
-                <tbody className="batch-table-group" key={group.id}>
-                  <tr className="batch-group-row">
-                    <td colSpan={12}>
-                      <button
-                        type="button"
-                        onClick={() => toggleGroup(group.id)}
-                      >
-                        {collapsed ? <ChevronRight /> : <ChevronDown />}
-                        <strong>{group.label}</strong>
-                        <span>
-                          {group.selectedCount}/{group.trackCount} selecionadas
-                        </span>
-                      </button>
-                    </td>
-                  </tr>
-                  {!collapsed &&
-                    group.tracks.map((track) => {
-                      const expanded = expandedRows.includes(track.id);
-                      return (
-                        <Fragment key={track.id}>
-                          <tr
-                            className={`batch-main-row ${track.id === selectedTrackId ? "selected" : ""} ${expanded ? "is-expanded" : ""} ${draggedTrackId === track.id ? "is-dragging" : ""} ${dragOverTrackId === track.id ? "is-drag-over" : ""}`}
-                            onDragLeave={() => {
-                              if (dragOverTrackId === track.id) {
-                                setDragOverTrackId("");
-                              }
-                            }}
-                            onDragOver={(event) => {
-                              if (
-                                draggedTrackId &&
-                                draggedTrackId !== track.id
-                              ) {
-                                event.preventDefault();
-                                event.dataTransfer.dropEffect = "move";
-                                setDragOverTrackId(track.id);
-                              }
-                            }}
-                            onDrop={(event) => dropTrackOn(event, track.id)}
-                            onClick={() => onSelectTrack(track.id)}
-                          >
-                            <td className="batch-col-drag">
-                              <button
-                                aria-label={`Arrastar ${track.metadata.title} para reordenar`}
-                                className="batch-row-drag"
-                                draggable
-                                type="button"
-                                onClick={(event) => event.stopPropagation()}
-                                onDragEnd={finishTrackDrag}
-                                onDragStart={(event) =>
-                                  startTrackDrag(event, track.id)
-                                }
-                              >
-                                <GripVertical />
-                              </button>
-                            </td>
-                            <td className="batch-col-select">
-                              <input
-                                aria-label={`Selecionar ${track.metadata.title}`}
-                                checked={track.selectedForBatch}
-                                type="checkbox"
-                                onChange={(event) =>
-                                  onToggleTrack(track.id, event.target.checked)
-                                }
-                                onClick={(event) => event.stopPropagation()}
-                              />
-                            </td>
-                            <td className="batch-col-expand">
-                              <button
-                                aria-label={
-                                  expanded
-                                    ? `Recolher detalhes de ${track.metadata.title}`
-                                    : `Expandir detalhes de ${track.metadata.title}`
-                                }
-                                className="batch-row-expand"
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  onSelectTrack(track.id);
-                                  toggleRow(track.id);
-                                }}
-                              >
-                                <ChevronDown className="expand-closed-icon" />
-                                <ChevronUp className="expand-open-icon" />
-                              </button>
-                            </td>
-                            <td className="batch-col-track">
-                              <input
-                                aria-label="Faixa"
-                                className="batch-wide-field"
-                                value={String(track.metadata.trackNumber)}
-                                onChange={(event) =>
-                                  onTrackMetadata(track.id, {
-                                    trackNumber: Math.max(
-                                      1,
-                                      Number(event.target.value) || 1,
-                                    ),
-                                  })
-                                }
-                              />
-                              <span className="batch-compact-value">
-                                {track.metadata.trackNumber}
-                              </span>
-                            </td>
-                            <td className="batch-col-disk">
-                              <input
-                                aria-label="Disco"
-                                value={String(track.metadata.diskNumber)}
-                                onChange={(event) =>
-                                  onTrackMetadata(track.id, {
-                                    diskNumber: Math.max(
-                                      1,
-                                      Number(event.target.value) || 1,
-                                    ),
-                                  })
-                                }
-                              />
-                            </td>
-                            <td className="batch-col-title">
-                              <input
-                                aria-label="Título"
-                                className="batch-wide-field"
-                                value={track.metadata.title}
-                                onChange={(event) =>
-                                  onTrackMetadata(track.id, {
-                                    title: event.target.value,
-                                  })
-                                }
-                              />
-                              <strong className="batch-compact-value">
-                                {track.metadata.title || "Título ausente"}
-                              </strong>
-                            </td>
-                            <td className="batch-col-artist">
-                              <input
-                                aria-label="Artista"
-                                value={track.metadata.artist}
-                                onChange={(event) =>
-                                  onTrackMetadata(track.id, {
-                                    artist: event.target.value,
-                                  })
-                                }
-                              />
-                            </td>
-                            <td className="batch-col-album">
-                              <input
-                                aria-label="Álbum"
-                                value={track.metadata.album}
-                                onChange={(event) =>
-                                  onTrackMetadata(track.id, {
-                                    album: event.target.value,
-                                  })
-                                }
-                              />
-                            </td>
-                            <td className="batch-col-package">
-                              <span
-                                className={`quality-badge ${track.packageStatus ?? "original"}`}
-                              >
-                                {track.packageStatus === "treated"
-                                  ? "Tratado"
-                                  : "Original"}
-                              </span>
-                            </td>
-                            <td className="batch-col-lufs">
-                              {formatMetric(
-                                track.audioInfo?.analysis?.integratedLufs,
-                                " LUFS",
-                              )}
-                            </td>
-                            <td className="batch-col-tp">
-                              {formatMetric(
-                                track.audioInfo?.analysis?.truePeakDbtp,
-                                " dBTP",
-                              )}
-                            </td>
-                            <td className="batch-col-normalize">
-                              <input
-                                aria-label="Normalizar"
-                                checked={track.metadata.normalizationEnabled}
-                                type="checkbox"
-                                onChange={(event) =>
-                                  onTrackMetadata(track.id, {
-                                    normalizationEnabled: event.target.checked,
-                                  })
-                                }
-                                onClick={(event) => event.stopPropagation()}
-                              />
-                            </td>
-                          </tr>
-                          <tr
-                            className={`batch-detail-row ${expanded ? "is-expanded" : ""} ${track.id === selectedTrackId ? "is-focused" : ""}`}
-                          >
-                            <td colSpan={12}>
-                              <div className="batch-row-details">
-                                <label className="batch-detail-edit batch-detail-track">
-                                  <span>Faixa</span>
-                                  <input
-                                    aria-label="Faixa detalhada"
-                                    value={String(track.metadata.trackNumber)}
-                                    onChange={(event) =>
-                                      onTrackMetadata(track.id, {
-                                        trackNumber: Math.max(
-                                          1,
-                                          Number(event.target.value) || 1,
-                                        ),
-                                      })
-                                    }
-                                  />
-                                </label>
-                                <label className="batch-detail-edit batch-detail-title">
-                                  <span>Título</span>
-                                  <input
-                                    aria-label="Título detalhado"
-                                    value={track.metadata.title}
-                                    onChange={(event) =>
-                                      onTrackMetadata(track.id, {
-                                        title: event.target.value,
-                                      })
-                                    }
-                                  />
-                                </label>
-                                <label className="batch-detail-edit batch-detail-disk">
-                                  <span>Disco</span>
-                                  <input
-                                    aria-label="Disco detalhado"
-                                    value={String(track.metadata.diskNumber)}
-                                    onChange={(event) =>
-                                      onTrackMetadata(track.id, {
-                                        diskNumber: Math.max(
-                                          1,
-                                          Number(event.target.value) || 1,
-                                        ),
-                                      })
-                                    }
-                                  />
-                                </label>
-                                <label className="batch-detail-edit batch-detail-artist">
-                                  <span>Artista</span>
-                                  <input
-                                    aria-label="Artista detalhado"
-                                    value={track.metadata.artist}
-                                    onChange={(event) =>
-                                      onTrackMetadata(track.id, {
-                                        artist: event.target.value,
-                                      })
-                                    }
-                                  />
-                                </label>
-                                <label className="batch-detail-edit batch-detail-album">
-                                  <span>Álbum</span>
-                                  <input
-                                    aria-label="Álbum detalhado"
-                                    value={track.metadata.album}
-                                    onChange={(event) =>
-                                      onTrackMetadata(track.id, {
-                                        album: event.target.value,
-                                      })
-                                    }
-                                  />
-                                </label>
-                                <div className="batch-detail-tags">
-                                  <label className="batch-detail-tag">
-                                    <span>Artista do álbum</span>
-                                    <input
-                                      aria-label="Artista do álbum"
-                                      value={track.metadata.albumArtist}
-                                      onChange={(event) =>
-                                        onTrackMetadata(track.id, {
-                                          albumArtist: event.target.value,
-                                        })
-                                      }
-                                    />
-                                  </label>
-                                  <label className="batch-detail-tag">
-                                    <span>Compositor</span>
-                                    <input
-                                      aria-label="Compositor"
-                                      value={track.metadata.composer}
-                                      onChange={(event) =>
-                                        onTrackMetadata(track.id, {
-                                          composer: event.target.value,
-                                        })
-                                      }
-                                    />
-                                  </label>
-                                  <label className="batch-detail-tag">
-                                    <span>Gênero</span>
-                                    <input
-                                      aria-label="Gênero"
-                                      value={track.metadata.genre}
-                                      onChange={(event) =>
-                                        onTrackMetadata(track.id, {
-                                          genre: event.target.value,
-                                        })
-                                      }
-                                    />
-                                  </label>
-                                  <label className="batch-detail-tag">
-                                    <span>Ano</span>
-                                    <input
-                                      aria-label="Ano"
-                                      value={track.metadata.year}
-                                      onChange={(event) =>
-                                        onTrackMetadata(track.id, {
-                                          year: event.target.value,
-                                        })
-                                      }
-                                    />
-                                  </label>
-                                  <label className="batch-detail-tag">
-                                    <span>Versão</span>
-                                    <input
-                                      aria-label="Versão"
-                                      value={track.metadata.version}
-                                      onChange={(event) =>
-                                        onTrackMetadata(track.id, {
-                                          version: event.target.value,
-                                        })
-                                      }
-                                    />
-                                  </label>
-                                  <label className="batch-detail-tag">
-                                    <span>Copyright</span>
-                                    <input
-                                      aria-label="Copyright"
-                                      value={track.metadata.copyright}
-                                      onChange={(event) =>
-                                        onTrackMetadata(track.id, {
-                                          copyright: event.target.value,
-                                        })
-                                      }
-                                    />
-                                  </label>
-                                  <label className="batch-detail-tag batch-detail-tag-wide">
-                                    <span>Comentário</span>
-                                    <input
-                                      aria-label="Comentário"
-                                      value={track.metadata.comment}
-                                      onChange={(event) =>
-                                        onTrackMetadata(track.id, {
-                                          comment: event.target.value,
-                                        })
-                                      }
-                                    />
-                                  </label>
-                                </div>
-                                <div className="batch-detail-file">
-                                  <span>Arquivo tratado</span>
-                                  <strong>
-                                    {previewTreatedFileName(
-                                      track.metadata,
-                                      fileNamePattern,
-                                    )}
-                                  </strong>
-                                </div>
-                                <div className="batch-detail-metric">
-                                  <span>LUFS</span>
-                                  <strong>
-                                    {formatMetric(
-                                      track.audioInfo?.analysis?.integratedLufs,
-                                      " LUFS",
-                                    )}
-                                  </strong>
-                                </div>
-                                <div className="batch-detail-metric">
-                                  <span>TP</span>
-                                  <strong>
-                                    {formatMetric(
-                                      track.audioInfo?.analysis?.truePeakDbtp,
-                                      " dBTP",
-                                    )}
-                                  </strong>
-                                </div>
-                                <CheckField
-                                  label="Normalizar cópia"
-                                  checked={track.metadata.normalizationEnabled}
-                                  onChange={(normalizationEnabled) =>
-                                    onTrackMetadata(track.id, {
-                                      normalizationEnabled,
-                                    })
-                                  }
-                                />
-                              </div>
-                            </td>
-                          </tr>
-                        </Fragment>
-                      );
-                    })}
-                </tbody>
-              );
-            })}
-          </table>
-        </div>
-      </div>
-    );
-  }
-  const analysis = selectedTrack?.audioInfo?.analysis;
-  return (
-    <div className="audio-library">
-      <header className="audio-library-heading">
-        <div>
-          <span className="overline">Biblioteca de áudio</span>
-          <h1>{selectedTrack?.metadata.title || "Selecione uma faixa"}</h1>
-        </div>
-        {analysis && (
-          <span className={`quality-badge ${analysis.risk}`}>
-            {riskLabel(analysis.risk)}
-          </span>
-        )}
-      </header>
-      {jobs.some((job) => job.kind === "audio-process") && (
-        <BatchJobBoard
-          jobs={jobs}
-          title="Historico de processamento"
-          onCancelAll={onCancelAllJobs}
-          onCancelJob={onCancelJob}
-          onClearTerminal={onClearTerminalJobs}
-          onPause={onPauseQueue}
-          onResume={onResumeQueue}
-          queuePaused={queuePaused}
-        />
-      )}
-      <section className="audio-stage-section waveform-section">
-        <div className="audio-stage-title">
-          <div>
-            <span className="overline">Forma de onda</span>
-            <strong>Preview técnico da faixa</strong>
-          </div>
-          <small>{selectedTrack?.metadata.artist || "Sem artista"}</small>
-        </div>
-        <div className="analytic-stage">
-          {staticWaveformPeaks?.length ? (
-            <StaticWaveform peaks={staticWaveformPeaks} />
-          ) : (
-            <AnalyticalWaveform samples={audioBands.samples} />
-          )}
-        </div>
-      </section>
-      <section className="audio-stage-section metrics-section">
-        <div className="audio-stage-title">
-          <div>
-            <span className="overline">Qualidade</span>
-            <strong>Leitura técnica antes do tratamento</strong>
-          </div>
-          {analysis && <small>{riskLabel(analysis.risk)}</small>}
-        </div>
-        <dl className="metric-strip">
-          <Metric
-            label="LUFS integrado"
-            value={formatMetric(analysis?.integratedLufs, " LUFS")}
-          />
-          <Metric
-            label="True peak"
-            value={formatMetric(analysis?.truePeakDbtp, " dBTP")}
-          />
-          <Metric
-            label="Faixa dinamica"
-            value={formatMetric(analysis?.loudnessRangeLu, " LU")}
-          />
-          <Metric
-            label="Codec"
-            value={selectedTrack?.audioInfo?.codec || "--"}
-          />
-          <Metric
-            label="Duracao"
-            value={formatDuration(selectedTrack?.audioInfo?.durationSeconds)}
-          />
-        </dl>
-      </section>
-    </div>
-  );
-}
-
-function PublicationAssetsWorkspace({
-  assetMode,
-  exportCount,
-  exporting,
-  excludedTrackIds,
-  jobs,
-  lyricsPreviewText,
-  preset,
-  previewAudioSrc,
-  previewComposition,
-  previewTrack,
-  queuePaused,
-  selectedPresetIds,
-  selectedSettings,
-  tracks,
-  onAllTracks,
-  onCancelAllJobs,
-  onCancelJob,
-  onClearTerminalJobs,
-  onCopyJobError,
-  onExport,
-  onPauseQueue,
-  onPreset,
-  onPresetScope,
-  onResumeQueue,
-  onReviewVideos,
-  onStopExport,
-  onTogglePreset,
-  onToggleTrack,
-  onAssetSettings,
-  onUpdateLayer,
-}: {
-  assetMode: PublicationAssetMode;
-  exportCount: number;
-  exporting: boolean;
-  excludedTrackIds: string[];
-  jobs: RenderJob[];
-  lyricsPreviewText: string;
-  preset: PublicationAssetPreset;
-  previewAudioSrc: string;
-  // Effective composition from the same resolver the export uses, so the
-  // preview shows exactly what the visual/text steps configured.
-  previewComposition: {
-    scene: ScenePresetV3 | null;
-    textSettings: TextOverlaySettings | null;
-    layers: MediaLayerV2[];
-    metadata: TrackMetadata | null;
-    cover: { file: File; src: string } | null;
-    showMetadata: boolean;
-  } | null;
-  previewTrack: TrackDraft | null;
-  queuePaused: boolean;
-  selectedPresetIds: string[];
-  selectedSettings: PublicationAssetSettings;
-  tracks: TrackDraft[];
-  onAllTracks: (include: boolean) => void;
-  onCancelAllJobs: () => void;
-  onCancelJob: (id: string) => void;
-  onClearTerminalJobs: () => void;
-  onCopyJobError: (job: RenderJob) => void;
-  onExport: () => void;
-  onPauseQueue: () => void;
-  onPreset: (presetId: string) => void;
-  onPresetScope: (scope: PublicationAssetMode) => void;
-  onResumeQueue: () => void;
-  onReviewVideos: () => void;
-  onStopExport: () => void;
-  onTogglePreset: (presetId: string) => void;
-  onToggleTrack: (id: string) => void;
-  onAssetSettings: (patch: Partial<PublicationAssetSettings>) => void;
-  onUpdateLayer: (trackId: string, patch: { layers: MediaLayerV2[] }) => void;
-}) {
-  const publicationJobs = jobs.filter(
-    (job) => job.kind === "publication-asset",
-  );
-  // Empty selection means "just the focused preset", mirroring the parent's
-  // effectivePublicationPresets, so the checklist and export stay in sync.
-  const checkedPresetIds = new Set(
-    selectedPresetIds.length ? selectedPresetIds : [preset.id],
-  );
-  const selectedFormatCount = checkedPresetIds.size;
-  const selectedTracks = tracks.filter(
-    (track) => !excludedTrackIds.includes(track.id),
-  );
-  const selectedTrackCount = selectedTracks.length;
-  const selectedTypeLabel = preset.kind === "clip" ? "clip" : "imagem";
-  // Size the real preview canvas from the focused asset's aspect ratio,
-  // capping the longest side so vertical/wide formats stay legible.
-  const previewLongest = 360;
-  const previewWidth =
-    preset.width >= preset.height
-      ? previewLongest
-      : Math.max(
-          1,
-          Math.round((preset.width / preset.height) * previewLongest),
-        );
-  const previewHeight =
-    preset.height > preset.width
-      ? previewLongest
-      : Math.max(
-          1,
-          Math.round((preset.height / preset.width) * previewLongest),
-        );
-  return (
-    <div className="review-stage publication-stage">
-      <header className="review-stage-header">
-        <div>
-          <span className="overline">Divulgação</span>
-          <h1>Assets de publicação</h1>
-          <p>
-            Escolha os formatos e as faixas, confira a prévia real e gere
-            exatamente o que precisa.
-          </p>
-        </div>
-        <div className="stage-header-actions">
-          <strong>
-            {exportCount} asset{exportCount === 1 ? "" : "s"}
-          </strong>
-          <button type="button" onClick={onReviewVideos}>
-            <Video /> Conferir vídeos
-          </button>
-          {exporting ? (
-            <button
-              className="danger-action"
-              type="button"
-              onClick={onStopExport}
-            >
-              <X /> Parar geração
-            </button>
-          ) : (
-            <button
-              className="primary-action"
-              disabled={exportCount === 0}
-              type="button"
-              onClick={onExport}
-            >
-              <Download /> Gerar {exportCount || ""} asset
-              {exportCount === 1 ? "" : "s"}
-            </button>
-          )}
-        </div>
-      </header>
-      <section className="stage-surface publication-overview">
-        <div>
-          <span className="overline">Em foco</span>
-          <strong>{preset.label}</strong>
-          <small>
-            {preset.width}x{preset.height} ·{" "}
-            {preset.kind === "clip" ? "clip curto" : "imagem"}
-          </small>
-        </div>
-        <div>
-          <span className="overline">Disparo</span>
-          <strong>
-            {selectedTrackCount} faixa{selectedTrackCount === 1 ? "" : "s"} ×{" "}
-            {selectedFormatCount} formato{selectedFormatCount === 1 ? "" : "s"}
-          </strong>
-          <small>
-            {exportCount} arquivo{exportCount === 1 ? "" : "s"} no total
-          </small>
-        </div>
-        <div>
-          <span className="overline">Ajuste efetivo</span>
-          <strong>
-            {preset.kind === "clip"
-              ? `${selectedSettings.clipStart}s · ${selectedSettings.clipDuration}s`
-              : `${preset.width}x${preset.height}`}
-          </strong>
-          <small>{publicationLyricsSettingLabel(selectedSettings)}</small>
-        </div>
-      </section>
-      <section className="stage-surface publication-focus">
-        <div className="publication-format-picker">
-          <div className="publication-format-head">
-            <div>
-              <span className="overline">Formatos a exportar</span>
-              <strong>
-                {selectedFormatCount} de {publicationAssetPresets.length}{" "}
-                marcados
-              </strong>
-            </div>
-            <div className="publication-scope-buttons">
-              <button
-                className={assetMode === "single" ? "is-active" : ""}
-                type="button"
-                onClick={() => onPresetScope("single")}
-              >
-                Em foco
-              </button>
-              <button
-                className={assetMode === "group" ? "is-active" : ""}
-                type="button"
-                onClick={() => onPresetScope("group")}
-              >
-                Grupo {selectedTypeLabel}
-              </button>
-              <button
-                className={assetMode === "all" ? "is-active" : ""}
-                type="button"
-                onClick={() => onPresetScope("all")}
-              >
-                Todos
-              </button>
-            </div>
-          </div>
-          <div className="publication-format-list">
-            {publicationFormatGroups().map((group) => (
-              <div className="publication-format-group" key={group.label}>
-                <span className="publication-format-group-label">
-                  {group.label}
-                </span>
-                <ul>
-                  {group.presets.map((option) => {
-                    const checked = checkedPresetIds.has(option.id);
-                    const focused = option.id === preset.id;
-                    return (
-                      <li
-                        className={`publication-format-row${focused ? " is-focused" : ""}`}
-                        key={option.id}
-                      >
-                        <input
-                          aria-label={`Incluir ${option.label} na exportação`}
-                          checked={checked}
-                          type="checkbox"
-                          onChange={() => onTogglePreset(option.id)}
-                        />
-                        <button
-                          className="publication-format-select"
-                          type="button"
-                          onClick={() => onPreset(option.id)}
-                        >
-                          <span className="publication-format-name">
-                            {option.label}
-                          </span>
-                          <small>
-                            {option.kind === "clip" ? "clip" : "imagem"} ·{" "}
-                            {option.width}x{option.height}
-                          </small>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="publication-preview-panel">
-          <div>
-            <span className="overline">Prévia real · {preset.label}</span>
-            <small>
-              {preset.extension.toUpperCase()} · {preset.directory} ·{" "}
-              {previewTrack?.metadata.title || "sem faixa em foco"}
-            </small>
-          </div>
-          <div
-            className="publication-preview-stage"
-            style={{ aspectRatio: `${preset.width} / ${preset.height}` }}
-          >
-            {previewTrack && previewComposition?.scene ? (
-              <>
-                {preset.kind === "clip" && previewAudioSrc ? (
-                  <CompositionLivePreview
-                    className="publication-preview-render publication-live-preview"
-                    audioSrc={previewAudioSrc}
-                    clipDuration={selectedSettings.clipDuration}
-                    clipStart={selectedSettings.clipStart}
-                    coverSrc={previewComposition.cover?.src}
-                    durationSeconds={previewTrack.audioInfo?.durationSeconds}
-                    layers={previewComposition.layers}
-                    metadata={
-                      previewComposition.metadata ?? previewTrack.metadata
-                    }
-                    scene={previewComposition.scene}
-                    showMetadata={previewComposition.showMetadata}
-                    textSettings={applyPublicationTextOverride(
-                      previewComposition.textSettings ??
-                        previewTrack.textSettings,
-                      selectedSettings,
-                    )}
-                  />
-                ) : (
-                  <CompositionThumbnail
-                    className="publication-preview-render"
-                    coverSrc={previewComposition.cover?.src}
-                    durationSeconds={previewTrack.audioInfo?.durationSeconds}
-                    fingerprint={`${thumbnailFingerprint(
-                      previewTrack,
-                      previewComposition.cover?.src,
-                      previewComposition.showMetadata,
-                    )}:txt${selectedSettings.textScale},${selectedSettings.textOffsetX},${selectedSettings.textOffsetY},${selectedSettings.hideText ? 1 : 0}`}
-                    frameTime={
-                      preset.kind === "image" ? selectedSettings.clipStart : 7.5
-                    }
-                    height={previewHeight}
-                    layers={previewComposition.layers}
-                    metadata={
-                      previewComposition.metadata ?? previewTrack.metadata
-                    }
-                    scene={previewComposition.scene}
-                    showMetadata={previewComposition.showMetadata}
-                    textSettings={applyPublicationTextOverride(
-                      previewComposition.textSettings ??
-                        previewTrack.textSettings,
-                      selectedSettings,
-                    )}
-                    width={previewWidth}
-                  />
-                )}
-                <CanvasInteractionOverlay
-                  layers={previewComposition.layers ?? []}
-                  showMetadata={previewComposition.showMetadata ?? true}
-                  textSettings={{
-                    ...(previewComposition.textSettings ??
-                      previewTrack.textSettings),
-                    x:
-                      (previewComposition.textSettings?.x ??
-                        previewTrack.textSettings.x) +
-                      selectedSettings.textOffsetX,
-                    y:
-                      (previewComposition.textSettings?.y ??
-                        previewTrack.textSettings.y) +
-                      selectedSettings.textOffsetY,
-                  }}
-                  onUpdateLayer={(id, patch) =>
-                    onUpdateLayer(previewTrack!.id, {
-                      layers: previewTrack.layers.map((l) =>
-                        l.id === id ? { ...l, ...patch } : l,
-                      ),
-                    })
-                  }
-                  onUpdateTextSettings={(patch) => {
-                    if (!previewTrack) return;
-                    if ("x" in patch) {
-                      onAssetSettings({
-                        textOffsetX:
-                          (patch.x ?? 50) -
-                          (previewComposition.textSettings?.x ??
-                            previewTrack.textSettings.x),
-                      });
-                    }
-                    if ("y" in patch) {
-                      onAssetSettings({
-                        textOffsetY:
-                          (patch.y ?? 50) -
-                          (previewComposition.textSettings?.y ??
-                            previewTrack.textSettings.y),
-                      });
-                    }
-                    if ("fontSize" in patch) {
-                      const baseFontSize =
-                        previewComposition.textSettings?.fontSize ??
-                        previewTrack.textSettings.fontSize;
-                      if (baseFontSize > 0) {
-                        onAssetSettings({
-                          textScale:
-                            Math.round((patch.fontSize! / baseFontSize) * 100) /
-                            100,
-                        });
-                      }
-                    }
-                  }}
-                />
-              </>
-            ) : (
-              <span className="publication-preview-empty">
-                {preset.kind === "clip" ? <Video /> : <Image />}
-                Selecione uma faixa para ver a prévia
-              </span>
-            )}
-          </div>
-          <p className="publication-preview-settings">
-            {preset.kind === "clip"
-              ? `${selectedSettings.clipStart}s · ${selectedSettings.clipDuration}s`
-              : `${preset.width}x${preset.height}`}{" "}
-            · {publicationLyricsSettingLabel(selectedSettings)}
-          </p>
-          {lyricsPreviewText && (
-            <p
-              className="publication-lyrics-preview"
-              style={{
-                lineHeight: `${selectedSettings.lyricsLineSpacing}%`,
-              }}
-            >
-              {lyricsPreviewText}
-            </p>
-          )}
-        </div>
-      </section>
-      <section className="stage-surface publication-track-list">
-        <header>
-          <div>
-            <span className="overline">Faixas no escopo</span>
-            <strong>
-              {selectedTrackCount} de {tracks.length} selecionada
-              {selectedTrackCount === 1 ? "" : "s"}
-            </strong>
-          </div>
-          {tracks.length > 0 && (
-            <div className="publication-track-actions">
-              <button type="button" onClick={() => onAllTracks(true)}>
-                Selecionar todas
-              </button>
-              <button type="button" onClick={() => onAllTracks(false)}>
-                Limpar
-              </button>
-            </div>
-          )}
-        </header>
-        {tracks.length ? (
-          <div>
-            {tracks.map((track) => (
-              <label className="publication-track-row" key={track.id}>
-                <input
-                  checked={!excludedTrackIds.includes(track.id)}
-                  type="checkbox"
-                  onChange={() => onToggleTrack(track.id)}
-                />
-                <span>
-                  <strong>{track.metadata.title || "Faixa sem título"}</strong>
-                  <small>
-                    {track.metadata.album || "Sem álbum"} ·{" "}
-                    {track.metadata.lyrics ? "com letra" : "sem letra"}
-                  </small>
-                </span>
-              </label>
-            ))}
-          </div>
-        ) : (
-          <p className="helper-copy">
-            Selecione uma faixa ou marque faixas na biblioteca para gerar em
-            lote.
-          </p>
-        )}
-      </section>
-      <BatchJobBoard
-        emptyCopy="Ao gerar divulgação, cada imagem, clip e manifesto aparece aqui com progresso e links finais."
-        jobs={publicationJobs}
-        kind="publication-asset"
-        queuePaused={queuePaused}
-        title="Geração de divulgação"
-        onCancelAll={onCancelAllJobs}
-        onCancelJob={onCancelJob}
-        onClearTerminal={onClearTerminalJobs}
-        onCopyJobError={onCopyJobError}
-        onPause={onPauseQueue}
-        onResume={onResumeQueue}
-      />
-    </div>
-  );
-}
-
-const genreSuggestions = [
-  "Pop",
-  "Rock",
-  "Hip-Hop",
-  "Trap",
-  "R&B",
-  "Soul",
-  "Funk",
-  "Eletrônica",
-  "House",
-  "Techno",
-  "Drum & Bass",
-  "Dubstep",
-  "Synthwave",
-  "Phonk",
-  "Lo-fi",
-  "Ambient",
-  "Experimental",
-  "Hyperpop",
-  "Dance",
-  "Jazz",
-  "Blues",
-  "Clássica",
-  "Country",
-  "Folk",
-  "Indie",
-  "Metal",
-  "Punk",
-  "Reggae",
-  "Gospel",
-  "MPB",
-  "Samba",
-  "Pagode",
-  "Sertanejo",
-  "Forró",
-  "Bossa Nova",
-  "Axé",
-  "Afrobeat",
-  "K-pop",
-  "Latin",
-  "Reggaeton",
-  "Drill",
-];
-
-function parseTagList(value: string) {
-  return value
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter(Boolean);
-}
-
-function loadCustomTags(key: string): string[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(key) ?? "[]");
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string")
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveCustomTags(key: string, tags: string[]) {
-  try {
-    localStorage.setItem(key, JSON.stringify(tags));
-  } catch {
-    /* storage unavailable — keep the in-session list only */
-  }
-}
-
-// Chip multi-select with a curated suggestion list plus the user's own saved
-// additions (persisted in localStorage, deletable). The value stays a single
-// comma-separated string so it drops straight into metadata fields like genre.
-function TagSelectField({
-  label,
-  value,
-  onChange,
-  suggestions,
-  storageKey,
-  placeholder = "Adicionar…",
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  suggestions: string[];
-  storageKey: string;
-  placeholder?: string;
-}) {
-  const [custom, setCustom] = useState<string[]>(() =>
-    loadCustomTags(storageKey),
-  );
-  const [draft, setDraft] = useState("");
-  const [open, setOpen] = useState(false);
-
-  const selected = parseTagList(value);
-  const known = [...suggestions, ...custom];
-  const available = known.filter(
-    (tag) => !selected.some((item) => item.toLowerCase() === tag.toLowerCase()),
-  );
-  const filtered = (
-    draft
-      ? available.filter((tag) =>
-          tag.toLowerCase().includes(draft.trim().toLowerCase()),
-        )
-      : available
-  ).slice(0, 14);
-
-  const commit = (next: string[]) =>
-    onChange(
-      [...new Set(next.map((tag) => tag.trim()).filter(Boolean))].join(", "),
-    );
-
-  const addTag = (tag: string) => {
-    commit([...selected, tag]);
-    setDraft("");
-  };
-  const removeTag = (tag: string) =>
-    commit(selected.filter((item) => item !== tag));
-
-  const addDraftAsCustom = () => {
-    const clean = draft.trim();
-    if (!clean) return;
-    if (!known.some((tag) => tag.toLowerCase() === clean.toLowerCase())) {
-      const next = [...custom, clean];
-      setCustom(next);
-      saveCustomTags(storageKey, next);
-    }
-    addTag(clean);
-  };
-
-  const deleteCustom = (tag: string) => {
-    const next = custom.filter((item) => item !== tag);
-    setCustom(next);
-    saveCustomTags(storageKey, next);
-  };
-
-  return (
-    <div className="tag-select-field">
-      <span className="tag-select-label">{label}</span>
-      {selected.length > 0 && (
-        <div className="tag-select-chips">
-          {selected.map((tag) => (
-            <span className="tag-chip" key={tag}>
-              {tag}
-              <button
-                aria-label={`Remover ${tag}`}
-                type="button"
-                onClick={() => removeTag(tag)}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      <div className="tag-select-input">
-        <input
-          aria-label={`${label} — adicionar`}
-          placeholder={placeholder}
-          value={draft}
-          onBlur={() => window.setTimeout(() => setOpen(false), 150)}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            setOpen(true);
-          }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              addDraftAsCustom();
-            }
-          }}
-        />
-        {open && (filtered.length > 0 || draft.trim()) && (
-          <ul className="tag-select-menu">
-            {draft.trim() &&
-              !known.some(
-                (tag) => tag.toLowerCase() === draft.trim().toLowerCase(),
-              ) && (
-                <li>
-                  <button type="button" onClick={addDraftAsCustom}>
-                    <Plus /> Adicionar “{draft.trim()}” e salvar
-                  </button>
-                </li>
-              )}
-            {filtered.map((tag) => (
-              <li key={tag}>
-                <button type="button" onClick={() => addTag(tag)}>
-                  {tag}
-                  {custom.includes(tag) && (
-                    <em className="tag-select-saved">salvo</em>
-                  )}
-                </button>
-                {custom.includes(tag) && (
-                  <button
-                    aria-label={`Apagar tag salva ${tag}`}
-                    className="tag-select-delete"
-                    type="button"
-                    onClick={() => deleteCustom(tag)}
-                  >
-                    <Trash2 />
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function AudioLibraryInspector({
-  analysis,
-  artworkHint,
-  cover,
-  coverSeriesSettings,
-  fileNamePattern,
-  lyricsOptions,
-  lyricsSourcePath,
-  metadata,
-  workflowMode,
-  onAnalyze,
-  onApplyLyricsSuggestion,
-  onApplyPublicationBatch,
-  onApplySuggestions,
-  onChange,
-  onChooseCover,
-  onClearCover,
-  onCoverSeriesSettings,
-  onFileNamePattern,
-  onIgnoreLyricsSuggestions,
-  isAnalyzing,
-  onProcess,
-  onRestoreSuggestedCover,
-  onSaveCoverSeriesDefault,
-  suggestedCover,
-}: {
-  analysis?: AudioTechnicalAnalysis;
-  artworkHint: string;
-  cover: { file: File; src: string } | null;
-  coverSeriesSettings: CoverSeriesSettings;
-  fileNamePattern: FileNamePattern;
-  lyricsOptions: LyricsSuggestion[];
-  lyricsSourcePath?: string;
-  metadata: TrackMetadata;
-  workflowMode: "single" | "batch";
-  onAnalyze: () => void;
-  onApplyLyricsSuggestion: (suggestion: LyricsSuggestion) => void;
-  onApplyPublicationBatch?: () => void;
-  onApplySuggestions: () => void;
-  onChange: (patch: Partial<TrackMetadata>) => void;
-  onChooseCover: () => void;
-  onClearCover: () => void;
-  onCoverSeriesSettings: (patch: Partial<CoverSeriesSettings>) => void;
-  onFileNamePattern: (next: FileNamePattern) => void;
-  onIgnoreLyricsSuggestions: () => void;
-  isAnalyzing: boolean;
-  onProcess: () => void;
-  onRestoreSuggestedCover: () => void;
-  onSaveCoverSeriesDefault: (settings?: CoverSeriesSettings) => void;
-  suggestedCover?: ArtworkSuggestion;
-}) {
-  const [activeInspectorTab, setActiveInspectorTab] = useState<
-    "data" | "art" | "lyrics" | "quality"
-  >("data");
-  const tabs = [
-    ["data", "Dados", FileAudio],
-    ["art", "Arte", Image],
-    ["lyrics", "Letra", FileText],
-    ["quality", "Qualidade", Gauge],
-  ] as const;
-  return (
-    <div className="audio-inspector-tabbed">
-      <div className="audio-inspector-tab-content">
-        {activeInspectorTab === "data" && (
-          <>
-            <InspectorGroup title="Dados" open scope="track">
-              <div className="inspector-subsection">
-                <p className="inspector-kicker">Identidade</p>
-                <TextField
-                  label="Título"
-                  value={metadata.title}
-                  onChange={(title) => onChange({ title })}
-                />
-                <TextField
-                  label="Artista"
-                  value={metadata.artist}
-                  onChange={(artist) => onChange({ artist })}
-                />
-                <TextField
-                  label="Álbum"
-                  value={metadata.album}
-                  onChange={(album) => onChange({ album })}
-                />
-                <TextField
-                  label="Artista do álbum"
-                  value={metadata.albumArtist}
-                  onChange={(albumArtist) => onChange({ albumArtist })}
-                />
-              </div>
-              <div className="inspector-subsection">
-                <p className="inspector-kicker">Catálogo e ID3</p>
-                <TagSelectField
-                  label="Gênero"
-                  value={metadata.genre}
-                  suggestions={genreSuggestions}
-                  storageKey="sonara.customGenres"
-                  placeholder="Buscar ou adicionar gênero…"
-                  onChange={(genre) => onChange({ genre })}
-                />
-                <TextField
-                  label="Compositor"
-                  value={metadata.composer}
-                  onChange={(composer) => onChange({ composer })}
-                />
-                <TextArea
-                  label="Comentário ID3"
-                  rows={3}
-                  value={metadata.comment}
-                  onChange={(comment) => onChange({ comment })}
-                />
-                <TextField
-                  label="Ano"
-                  value={metadata.year}
-                  onChange={(year) => onChange({ year })}
-                />
-                <div className="two-columns">
-                  <TextField
-                    label="Faixa"
-                    value={String(metadata.trackNumber)}
-                    onChange={(value) =>
-                      onChange({ trackNumber: Math.max(1, Number(value) || 1) })
-                    }
-                  />
-                  <TextField
-                    label="Total"
-                    value={String(metadata.trackTotal)}
-                    onChange={(value) =>
-                      onChange({ trackTotal: Math.max(1, Number(value) || 1) })
-                    }
-                  />
-                </div>
-              </div>
-              <div className="inspector-subsection">
-                <p className="inspector-kicker">Ações</p>
-                <button
-                  className="quiet-action"
-                  title="Preenche os campos acima com as tags ID3 embutidas no arquivo e o que dá para inferir do nome/pasta."
-                  type="button"
-                  onClick={onApplySuggestions}
-                >
-                  <RotateCcw /> Preencher com tags do arquivo
-                </button>
-              </div>
-            </InspectorGroup>
-            <InspectorGroup
-              title="Nomenclatura dos arquivos tratados"
-              scope="series"
-            >
-              <div className="inspector-subsection">
-                <p className="inspector-kicker">Padrão de arquivo</p>
-                <FileNamePatternSection
-                  pattern={fileNamePattern}
-                  sampleTags={metadata}
-                  onChange={onFileNamePattern}
-                />
-              </div>
-            </InspectorGroup>
-            <InspectorGroup title="Publicação YouTube" scope="track">
-              <div className="inspector-subsection">
-                <p className="inspector-kicker">Canal</p>
-                <p className="helper-copy">
-                  Defina aqui, junto com os dados da faixa, para não passar
-                  despercebido na exportação. A saída inclui um `.youtube.json`.
-                </p>
-                <SelectField
-                  label="Privacidade"
-                  value={metadata.visibility}
-                  onChange={(visibility) => onChange({ visibility })}
-                >
-                  <option value="private">Privado</option>
-                  <option value="unlisted">Não listado</option>
-                  <option value="public">Público</option>
-                </SelectField>
-                <SelectField
-                  label="Idioma"
-                  value={metadata.language}
-                  onChange={(language) => onChange({ language })}
-                >
-                  {youtubeLanguages.map(([code, label]) => (
-                    <option key={code} value={code}>
-                      {label}
-                    </option>
-                  ))}
-                </SelectField>
-              </div>
-              <div className="inspector-subsection">
-                <p className="inspector-kicker">Conteúdo</p>
-                <TextArea
-                  label="Descrição"
-                  value={metadata.description}
-                  onChange={(description) => onChange({ description })}
-                />
-                <TagSelectField
-                  label="Tags"
-                  value={metadata.tags}
-                  suggestions={[]}
-                  storageKey="sonara.customTags"
-                  placeholder="Adicionar tag…"
-                  onChange={(tags) => onChange({ tags })}
-                />
-              </div>
-              <div className="inspector-subsection">
-                <p className="inspector-kicker">Declarações</p>
-                <CheckField
-                  label="Declarar mídia sintética / IA"
-                  checked={metadata.containsSyntheticMedia}
-                  onChange={(containsSyntheticMedia) =>
-                    onChange({ containsSyntheticMedia })
-                  }
-                />
-                {onApplyPublicationBatch && (
-                  <button
-                    className="upload-action"
-                    type="button"
-                    onClick={onApplyPublicationBatch}
-                  >
-                    <Layers3 /> Aplicar publicação ao lote
-                  </button>
-                )}
-              </div>
-            </InspectorGroup>
-          </>
-        )}
-        {activeInspectorTab === "art" && (
-          <InspectorGroup title="Arte" open>
-            <p className="inspector-kicker">Arte da capa</p>
-            {cover ? (
-              <div className="cover-preview">
-                <img alt="" src={cover.src} />
-                <div>
-                  <small>{cover.file.name}</small>
-                  <button type="button" onClick={onClearCover}>
-                    <Trash2 /> Remover
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                className="upload-action"
-                type="button"
-                onClick={onChooseCover}
-              >
-                <Image /> Escolher arte
-              </button>
-            )}
-            {suggestedCover && (
-              <p className="helper-copy">
-                Arte oferecida pela pasta: {suggestedCover.relativePath}
-              </p>
-            )}
-            {suggestedCover && cover?.file !== suggestedCover.file && (
-              <button
-                className="quiet-action"
-                type="button"
-                onClick={() => onRestoreSuggestedCover()}
-              >
-                <RotateCcw /> Usar arte oferecida
-              </button>
-            )}
-            {!suggestedCover && <p className="helper-copy">{artworkHint}</p>}
-            <div className="inspector-subsection">
-              <p className="inspector-kicker">Série visual</p>
-              <CoverSeriesEditor
-                compact
-                settings={coverSeriesSettings}
-                onChange={onCoverSeriesSettings}
-                onSaveDefault={onSaveCoverSeriesDefault}
-              />
-            </div>
-          </InspectorGroup>
-        )}
-        {activeInspectorTab === "lyrics" && (
-          <InspectorGroup title="Letra" open>
-            {lyricsOptions.length > 0 && (
-              <div className="lyrics-suggestion-panel">
-                <div className="lyrics-suggestion-head">
-                  <div>
-                    <p className="inspector-kicker">Letras detectadas</p>
-                    <small>
-                      {lyricsSourcePath
-                        ? `Aplicada de ${lyricsSourcePath}`
-                        : "Escolha uma letra detectada na Pasta de Entrada."}
-                    </small>
-                  </div>
-                  <button
-                    className="quiet-action"
-                    type="button"
-                    onClick={onIgnoreLyricsSuggestions}
-                  >
-                    <X /> Ignorar
-                  </button>
-                </div>
-                <div className="lyrics-suggestion-list">
-                  {lyricsOptions.map((suggestion) => (
-                    <button
-                      className={
-                        suggestion.relativePath === lyricsSourcePath
-                          ? "active"
-                          : ""
-                      }
-                      key={suggestion.relativePath}
-                      type="button"
-                      onClick={() => onApplyLyricsSuggestion(suggestion)}
-                    >
-                      <strong>{suggestion.fileName}</strong>
-                      <span>
-                        {lyricsMatchLabel(suggestion)} ·{" "}
-                        {suggestion.relativePath}
-                      </span>
-                      {suggestion.preview && (
-                        <small>{suggestion.preview}</small>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            <TextArea
-              label="Letra manual sem sincronizacao"
-              value={metadata.lyrics}
-              onChange={(lyrics) => onChange({ lyrics })}
-            />
-            <SelectField
-              label="Idioma da letra (ID3)"
-              value={metadata.lyricsLanguage}
-              onChange={(lyricsLanguage) => onChange({ lyricsLanguage })}
-            >
-              {lyricsLanguages.map(([code, label]) => (
-                <option key={code} value={code}>
-                  {label}
-                </option>
-              ))}
-            </SelectField>
-          </InspectorGroup>
-        )}
-        {activeInspectorTab === "quality" && (
-          <InspectorGroup title="Qualidade" open>
-            {analysis ? (
-              <p className={`quality-callout ${analysis.risk}`}>
-                {riskDescription(analysis)}
-              </p>
-            ) : (
-              <p className="helper-copy">
-                Analise a faixa para medir loudness e margem de pico.
-              </p>
-            )}
-            <CheckField
-              label="Normalizar cópia tratada para -14 LUFS / -1 dBTP"
-              checked={metadata.normalizationEnabled}
-              onChange={(normalizationEnabled) =>
-                onChange({ normalizationEnabled })
-              }
-            />
-            <button
-              className="quiet-action"
-              disabled={isAnalyzing}
-              type="button"
-              onClick={onAnalyze}
-            >
-              {isAnalyzing ? (
-                <Loader2 className="spin-icon" />
-              ) : (
-                <SlidersHorizontal />
-              )}{" "}
-              {isAnalyzing ? "Analisando qualidade..." : "Analisar qualidade"}
-            </button>
-            <button
-              className="primary-action wide"
-              type="button"
-              onClick={onProcess}
-            >
-              <Check />{" "}
-              {workflowMode === "batch"
-                ? "Processar selecionados"
-                : "Processar cópia"}
-            </button>
-          </InspectorGroup>
-        )}
-      </div>
-      <div className="audio-inspector-tabbar" role="tablist">
-        {tabs.map(([value, label, Icon]) => (
-          <button
-            aria-selected={activeInspectorTab === value}
-            className={activeInspectorTab === value ? "active" : ""}
-            key={value}
-            role="tab"
-            type="button"
-            onClick={() => setActiveInspectorTab(value)}
-          >
-            <Icon />
-            <span>{label}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function CatalogPreview({
-  albumCoverForTrack,
-  coverForTrack,
-  coverSeriesSettings,
-  seriesSettingsForTrack,
-  onChooseCover,
-  onClearCoverSeriesOverride,
-  onCoverSeriesPatch,
-  onRestoreSuggestedCover,
-  onSaveCoverSeriesDefault,
-  onSelectTrack,
-  onSelectSuggestedCover,
-  tracks,
-}: {
-  albumCoverForTrack: (
-    track?: TrackDraft,
-  ) => { file: File; src: string } | null;
-  coverForTrack: (track?: TrackDraft) => { file: File; src: string } | null;
-  coverSeriesSettings: CoverSeriesSettings;
-  seriesSettingsForTrack: (track?: TrackDraft) => CoverSeriesSettings;
-  onChooseCover: (trackId: string) => void;
-  onClearCoverSeriesOverride: (trackId: string) => void;
-  onCoverSeriesPatch: (
-    patch: Partial<CoverSeriesSettings>,
-    scope: "all" | "current",
-    trackId?: string,
-  ) => void;
-  onRestoreSuggestedCover: (trackId?: string) => void;
-  onSaveCoverSeriesDefault: (settings?: CoverSeriesSettings) => void;
-  onSelectTrack: (trackId: string) => void;
-  onSelectSuggestedCover: (trackId: string, relativePath: string) => void;
-  tracks: TrackDraft[];
-}) {
-  const [artworkTrackId, setArtworkTrackId] = useState("");
-  const [showSeries, setShowSeries] = useState(true);
-  const [seriesScope, setSeriesScope] = useState<"all" | "current">("all");
-  // Per-track tag disclosure: 0 = primary line only, 1 = every filled tag,
-  // 2 = everything including empty fields.
-  const [tagLevels, setTagLevels] = useState<Record<string, number>>({});
-  const albums = groupCatalogTracks(tracks);
-  const artworkTrack = tracks.find((track) => track.id === artworkTrackId);
-  const artworkAlbum = artworkTrack
-    ? albums.find((album) =>
-        album.tracks.some((track) => track.id === artworkTrack.id),
-      )
-    : undefined;
-  const albumTracks = artworkAlbum?.tracks ?? [];
-  const hasOverride = Boolean(artworkTrack?.coverSeriesOverride);
-  // While editing a single track we work on its override; the global defaults
-  // stay untouched until the user switches the scope back to "all".
-  const editingScope = seriesScope === "current" ? "current" : "all";
-  const editingSettings = artworkTrack
-    ? editingScope === "current"
-      ? seriesSettingsForTrack(artworkTrack)
-      : coverSeriesSettings
-    : coverSeriesSettings;
-
-  function inspectArtwork(track: TrackDraft) {
-    onSelectTrack(track.id);
-    setArtworkTrackId(track.id);
-    setShowSeries(true);
-  }
-
-  return (
-    <div className="review-stage catalog-review">
-      <header className="review-stage-header">
-        <div>
-          <span className="overline">Conferência musical</span>
-          <h1>Catálogo planejado</h1>
-          <p>Visualize as tags como uma página de álbum antes do tratamento.</p>
-        </div>
-        <strong>
-          {tracks.length} faixa{tracks.length === 1 ? "" : "s"}
-        </strong>
-      </header>
-      <div className="catalog-scroll">
-        {albums.length ? (
-          albums.map((album) => {
-            const leadTrack = album.tracks[0];
-            const artwork = coverForTrack(leadTrack)?.src;
-            return (
-              <section className="catalog-album" key={album.id}>
-                <header className="catalog-album-header">
-                  <CatalogArtworkButton
-                    artworkSrc={artwork}
-                    coverSeriesSettings={seriesSettingsForTrack(leadTrack)}
-                    onClick={() => inspectArtwork(leadTrack)}
-                    track={leadTrack}
-                  />
-                  <div>
-                    <span className="overline">Álbum</span>
-                    <h2>{album.album || "Álbum não informado"}</h2>
-                    <p>{album.artist || "Artista não informado"}</p>
-                    <small>
-                      {[
-                        album.year || "Ano ausente",
-                        album.genre || "Gênero ausente",
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                      {" · "}
-                      {album.tracks.length} faixa
-                      {album.tracks.length === 1 ? "" : "s"}
-                    </small>
-                  </div>
-                </header>
-                <div className="catalog-track-list">
-                  {album.tracks.map((track) => {
-                    const m = track.metadata;
-                    const trackLabel = m.trackNumber
-                      ? m.trackTotal
-                        ? `${m.trackNumber}/${m.trackTotal}`
-                        : `${m.trackNumber}`
-                      : "";
-                    const diskLabel =
-                      m.diskNumber > 1 || m.diskTotal > 1
-                        ? `${m.diskNumber}/${m.diskTotal || 1}`
-                        : "";
-                    const flag = (
-                      on: boolean,
-                      onLabel: string,
-                      offLabel: string,
-                    ) => ({ value: on ? onLabel : offLabel, hasData: on });
-                    // Fixed order so equal values render as identical chips
-                    // across tracks. `primary` = the core tags media players and
-                    // SoundCloud surface (shown on the first line); the rest
-                    // expand on demand. `hasData` decides the disclosure level.
-                    const rows: Array<{
-                      label: string;
-                      value: string;
-                      primary: boolean;
-                      hasData: boolean;
-                    }> = [
-                      {
-                        label: "Artista",
-                        value: m.artist,
-                        primary: true,
-                        hasData: !!m.artist,
-                      },
-                      {
-                        label: "Álbum",
-                        value: m.album,
-                        primary: true,
-                        hasData: !!m.album,
-                      },
-                      {
-                        label: "Gênero",
-                        value: m.genre,
-                        primary: true,
-                        hasData: !!m.genre,
-                      },
-                      {
-                        label: "Ano",
-                        value: m.year,
-                        primary: true,
-                        hasData: !!m.year,
-                      },
-                      {
-                        label: "Faixa",
-                        value: trackLabel,
-                        primary: true,
-                        hasData: !!trackLabel,
-                      },
-                      {
-                        label: "Artista do álbum",
-                        value: m.albumArtist,
-                        primary: false,
-                        hasData: !!m.albumArtist,
-                      },
-                      {
-                        label: "Compositor",
-                        value: m.composer,
-                        primary: false,
-                        hasData: !!m.composer,
-                      },
-                      {
-                        label: "Disco",
-                        value: diskLabel,
-                        primary: false,
-                        hasData: !!diskLabel,
-                      },
-                      {
-                        label: "Idioma",
-                        value: m.language,
-                        primary: false,
-                        hasData: !!m.language,
-                      },
-                      {
-                        label: "Data de gravação",
-                        value: m.recordingDate,
-                        primary: false,
-                        hasData: !!m.recordingDate,
-                      },
-                      {
-                        label: "Copyright",
-                        value: m.copyright,
-                        primary: false,
-                        hasData: !!m.copyright,
-                      },
-                      {
-                        label: "Categoria",
-                        value: m.categoryId,
-                        primary: false,
-                        hasData: !!m.categoryId,
-                      },
-                      {
-                        label: "Visibilidade",
-                        value: m.visibility,
-                        primary: false,
-                        hasData: !!m.visibility,
-                      },
-                      {
-                        label: "Tags",
-                        value: m.tags,
-                        primary: false,
-                        hasData: !!m.tags,
-                      },
-                      {
-                        label: "Comentário",
-                        value: m.comment,
-                        primary: false,
-                        hasData: !!m.comment,
-                      },
-                      {
-                        label: "Descrição",
-                        value: m.description,
-                        primary: false,
-                        hasData: !!m.description,
-                      },
-                      {
-                        label: "Idioma da letra",
-                        value: m.lyricsLanguage,
-                        primary: false,
-                        hasData: !!m.lyricsLanguage,
-                      },
-                      {
-                        label: "Para crianças",
-                        primary: false,
-                        ...flag(m.madeForKids, "Sim", "Não"),
-                      },
-                      {
-                        label: "Mídia sintética",
-                        primary: false,
-                        ...flag(m.containsSyntheticMedia, "Sim", "Não"),
-                      },
-                      {
-                        label: "Normalização",
-                        primary: false,
-                        ...flag(m.normalizationEnabled, "Ativa", "Inativa"),
-                      },
-                    ];
-                    const level = tagLevels[track.id] ?? 0;
-                    const visibleRows = rows.filter((row) =>
-                      level >= 2
-                        ? true
-                        : row.hasData && (level >= 1 || row.primary),
-                    );
-                    const hasExtra = rows.some(
-                      (row) => row.hasData && !row.primary,
-                    );
-                    const hasEmpty = rows.some((row) => !row.hasData);
-                    const setLevel = (next: number) =>
-                      setTagLevels((current) => ({
-                        ...current,
-                        [track.id]: next,
-                      }));
-                    return (
-                      <div className="catalog-track-row" key={track.id}>
-                        <button
-                          className="catalog-track"
-                          type="button"
-                          onClick={() => onSelectTrack(track.id)}
-                        >
-                          <span className="catalog-track-number">
-                            {m.diskNumber > 1 ? `${m.diskNumber}.` : ""}
-                            {m.trackNumber || "–"}
-                          </span>
-                          <span>
-                            <strong>{m.title || "Título ausente"}</strong>
-                            <small>
-                              {m.version ||
-                                (track.packageStatus === "treated"
-                                  ? "Cópia tratada"
-                                  : "Arquivo original")}
-                            </small>
-                          </span>
-                          <span className="catalog-track-duration">
-                            {formatDuration(track.audioInfo?.durationSeconds)}
-                          </span>
-                          <em>
-                            {track.packageStatus === "treated"
-                              ? "Tratado"
-                              : "Original"}
-                          </em>
-                        </button>
-                        <div className="catalog-track-tags">
-                          {visibleRows.map((row) => (
-                            <span
-                              className={`catalog-tag${row.hasData ? "" : " is-empty"}`}
-                              key={row.label}
-                            >
-                              <span className="catalog-tag-key">
-                                {row.label}
-                              </span>
-                              <span className="catalog-tag-value">
-                                {row.value || "—"}
-                              </span>
-                            </span>
-                          ))}
-                          {level === 0 && (hasExtra || hasEmpty) && (
-                            <button
-                              className="catalog-tag-toggle"
-                              type="button"
-                              onClick={() => setLevel(hasExtra ? 1 : 2)}
-                            >
-                              ▾ mais
-                            </button>
-                          )}
-                          {level === 1 && hasEmpty && (
-                            <button
-                              className="catalog-tag-toggle"
-                              type="button"
-                              onClick={() => setLevel(2)}
-                            >
-                              ▾ vazias
-                            </button>
-                          )}
-                          {level >= 1 && (
-                            <button
-                              className="catalog-tag-toggle"
-                              type="button"
-                              onClick={() => setLevel(0)}
-                            >
-                              ▴ recolher
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            );
-          })
-        ) : (
-          <EmptyReviewState />
-        )}
-      </div>
-      {artworkTrack && (
-        <div
-          className="catalog-artwork-overlay"
-          role="presentation"
-          onMouseDown={() => setArtworkTrackId("")}
-        >
-          <section
-            aria-labelledby="catalog-artwork-title"
-            aria-modal="true"
-            className="catalog-artwork-dialog"
-            role="dialog"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <header>
-              <div>
-                <span className="overline">Prévia da capa tratada</span>
-                <h2 id="catalog-artwork-title">
-                  {artworkTrack.metadata.title || "Faixa sem título"}
-                </h2>
-              </div>
-              <button
-                aria-label="Fechar inspeção da capa"
-                className="icon-button"
-                type="button"
-                onClick={() => setArtworkTrackId("")}
-              >
-                <X />
-              </button>
-            </header>
-            <div className="catalog-artwork-dialog-layout">
-              <div className="catalog-artwork-preview-panel">
-                <CoverSeriesArtwork
-                  artworkSrc={coverForTrack(artworkTrack)?.src}
-                  className="catalog-artwork-expanded"
-                  coverSeriesSettings={seriesSettingsForTrack(artworkTrack)}
-                  showSeries={showSeries}
-                  track={artworkTrack}
-                />
-                <div className="catalog-artwork-gallery">
-                  <div className="catalog-artwork-gallery-head">
-                    <span className="overline">Capas do álbum</span>
-                    <span className="catalog-artwork-gallery-hint">
-                      {albumTracks.length} faixa
-                      {albumTracks.length === 1 ? "" : "s"}
-                    </span>
-                  </div>
-                  <div className="catalog-artwork-gallery-grid">
-                    {albumCoverForTrack(artworkTrack)?.src && (
-                      <div className="catalog-artwork-gallery-item is-album">
-                        <CoverSeriesArtwork
-                          artworkSrc={albumCoverForTrack(artworkTrack)?.src}
-                          className="catalog-artwork-series-thumb"
-                          showSeries={false}
-                          track={artworkTrack}
-                        />
-                        <span>Capa do álbum</span>
-                      </div>
-                    )}
-                    {albumTracks.map((track) => (
-                      <button
-                        aria-label={`Conferir ${track.metadata.title || "faixa"}`}
-                        className={`catalog-artwork-gallery-item ${
-                          track.id === artworkTrack.id ? "active" : ""
-                        }`}
-                        key={track.id}
-                        type="button"
-                        onClick={() => {
-                          onSelectTrack(track.id);
-                          setArtworkTrackId(track.id);
-                        }}
-                      >
-                        <CoverSeriesArtwork
-                          artworkSrc={coverForTrack(track)?.src}
-                          className="catalog-artwork-series-thumb"
-                          coverSeriesSettings={seriesSettingsForTrack(track)}
-                          showSeries={showSeries}
-                          track={track}
-                        />
-                        <span>
-                          {track.metadata.trackNumber
-                            ? `${String(track.metadata.trackNumber).padStart(2, "0")} · `
-                            : ""}
-                          {track.metadata.title || "Faixa sem título"}
-                        </span>
-                        {track.coverOverride && (
-                          <em className="catalog-artwork-gallery-badge">
-                            capa própria
-                          </em>
-                        )}
-                        {track.coverSeriesOverride && (
-                          <em className="catalog-artwork-gallery-badge">
-                            ajuste próprio
-                          </em>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {(artworkTrack.artworkOptions?.length ?? 0) > 1 && (
-                  <div className="catalog-artwork-variants">
-                    <span className="overline">Fontes disponíveis</span>
-                    <div>
-                      {artworkTrack.artworkOptions?.map((option) => (
-                        <button
-                          className={
-                            option.relativePath ===
-                            (artworkTrack.coverOverride?.relativePath ??
-                              artworkTrack.suggestedCover?.relativePath)
-                              ? "active"
-                              : ""
-                          }
-                          key={option.relativePath}
-                          type="button"
-                          onClick={() =>
-                            onSelectSuggestedCover(
-                              artworkTrack.id,
-                              option.relativePath,
-                            )
-                          }
-                        >
-                          <strong>{artworkVariantLabel(option)}</strong>
-                          <small>{formatBytes(option.file.size)}</small>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <aside>
-                <div className="catalog-artwork-actions">
-                  <button
-                    className="upload-action"
-                    type="button"
-                    onClick={() => onChooseCover(artworkTrack.id)}
-                  >
-                    <Image /> Trocar imagem
-                  </button>
-                  {artworkTrack.suggestedCover && (
-                    <button
-                      className="quiet-action"
-                      type="button"
-                      onClick={() => onRestoreSuggestedCover(artworkTrack.id)}
-                    >
-                      <RotateCcw /> Usar arte oferecida
-                    </button>
-                  )}
-                  <button
-                    className="quiet-action"
-                    type="button"
-                    onClick={() => setShowSeries((current) => !current)}
-                  >
-                    {showSeries ? <EyeOff /> : <Eye />}
-                    {showSeries ? "Ver arte base" : "Ver com série visual"}
-                  </button>
-                </div>
-                <div className="cover-series-scope">
-                  <span className="cover-series-scope-label">Estilo afeta</span>
-                  <div
-                    className="segmented"
-                    role="tablist"
-                    aria-label="Escopo dos ajustes da série"
-                  >
-                    <button
-                      aria-selected={seriesScope === "all"}
-                      className={seriesScope === "all" ? "active" : ""}
-                      role="tab"
-                      type="button"
-                      onClick={() => setSeriesScope("all")}
-                    >
-                      Série
-                    </button>
-                    <button
-                      aria-selected={seriesScope === "current"}
-                      className={seriesScope === "current" ? "active" : ""}
-                      role="tab"
-                      type="button"
-                      onClick={() => setSeriesScope("current")}
-                    >
-                      Único
-                    </button>
-                  </div>
-                  {seriesScope === "current" && hasOverride && (
-                    <button
-                      className="quiet-action cover-series-scope-reset"
-                      type="button"
-                      onClick={() =>
-                        onClearCoverSeriesOverride(artworkTrack.id)
-                      }
-                    >
-                      <RotateCcw /> Reverter ao padrão do álbum
-                    </button>
-                  )}
-                  {seriesScope === "current" && !hasOverride && (
-                    <p className="cover-series-scope-hint">
-                      A capa selecionada segue o padrão da série. Qualquer
-                      ajuste cria um estilo exclusivo só para ela.
-                    </p>
-                  )}
-                </div>
-                <CoverSeriesEditor
-                  compact
-                  settings={editingSettings}
-                  onChange={(patch) =>
-                    onCoverSeriesPatch(patch, editingScope, artworkTrack.id)
-                  }
-                  onSaveDefault={onSaveCoverSeriesDefault}
-                />
-              </aside>
-            </div>
-          </section>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CatalogArtworkButton({
-  artworkSrc,
-  coverSeriesSettings,
-  onClick,
-  track,
-}: {
-  artworkSrc?: string;
-  coverSeriesSettings: CoverSeriesSettings;
-  onClick: () => void;
-  track: TrackDraft;
-}) {
-  return (
-    <button
-      aria-label={`Inspecionar arte de ${track.metadata.album || track.metadata.title || "álbum"}`}
-      className="catalog-artwork-button"
-      type="button"
-      onClick={onClick}
-    >
-      <span aria-hidden="true" className="catalog-artwork-vinyl" />
-      <ArtworkSquare
-        artworkSrc={artworkSrc}
-        coverSeriesSettings={coverSeriesSettings}
-        track={track}
-      />
-      <span className="catalog-artwork-edit">
-        <Maximize2 /> Conferir
-      </span>
-    </button>
-  );
-}
-
-function VideoReviewGrid({
-  coverForTrack,
-  selectedTrackId,
-  onEditVisual,
-  onSelectTrack,
-  onThumbnailMode,
-  onThumbnailTime,
-  outputLabel,
-  showMetadata,
-  tracks,
-}: {
-  coverForTrack: (track?: TrackDraft) => { file: File; src: string } | null;
-  selectedTrackId: string;
-  onEditVisual: (trackId: string) => void;
-  onSelectTrack: (trackId: string) => void;
-  onThumbnailMode: (
-    trackId: string,
-    mode: TrackDraft["thumbnailPreviewMode"],
-  ) => void;
-  onThumbnailTime: (trackId: string, seconds: number) => void;
-  outputLabel: string;
-  showMetadata: boolean;
-  tracks: TrackDraft[];
-}) {
-  // Which card is playing live: hover gives a muted animated preview, the
-  // overlay button switches to persistent playback with audio (one at a time).
-  const [livePreview, setLivePreview] = useState<{
-    trackId: string;
-    withAudio: boolean;
-  } | null>(null);
-  return (
-    <div className="review-stage video-review">
-      <header className="review-stage-header">
-        <div>
-          <span className="overline">Conferência de vídeos</span>
-          <h1>Grade de publicação</h1>
-          <p>Confira títulos, capas e frames antes de exportar.</p>
-        </div>
-        <strong>
-          {tracks.length} vídeo{tracks.length === 1 ? "" : "s"}
-        </strong>
-      </header>
-      {tracks.length ? (
-        <div className="youtube-grid">
-          {tracks.map((track) => {
-            const coverSrc = coverForTrack(track)?.src;
-            const selected = track.id === selectedTrackId;
-            const audioSrc = trackAudioSrc(track);
-            const live =
-              livePreview?.trackId === track.id &&
-              track.thumbnailPreviewMode === "composition" &&
-              Boolean(audioSrc);
-            return (
-              <article
-                className={`youtube-card ${selected ? "selected" : ""}`}
-                key={track.id}
-              >
-                <div
-                  className="youtube-thumbnail-shell"
-                  onMouseEnter={() =>
-                    setLivePreview((current) =>
-                      current?.withAudio
-                        ? current
-                        : { trackId: track.id, withAudio: false },
-                    )
-                  }
-                  onMouseLeave={() =>
-                    setLivePreview((current) =>
-                      current &&
-                      current.trackId === track.id &&
-                      !current.withAudio
-                        ? null
-                        : current,
-                    )
-                  }
-                >
-                  <div
-                    className="youtube-thumbnail"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => onSelectTrack(track.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        onSelectTrack(track.id);
-                      }
-                    }}
-                  >
-                    {live ? (
-                      <CompositionLivePreview
-                        autoPlay
-                        className="composition-live-preview youtube-live-preview"
-                        audioSrc={audioSrc}
-                        durationSeconds={track.audioInfo?.durationSeconds}
-                        coverSrc={coverSrc}
-                        layers={track.layers}
-                        metadata={track.metadata}
-                        muted={!livePreview?.withAudio}
-                        scene={track.scene}
-                        showMetadata={showMetadata}
-                        textSettings={track.textSettings}
-                      />
-                    ) : track.thumbnailPreviewMode === "composition" ? (
-                      <CompositionThumbnail
-                        coverSrc={coverSrc}
-                        durationSeconds={track.audioInfo?.durationSeconds}
-                        fingerprint={thumbnailFingerprint(
-                          track,
-                          coverSrc,
-                          showMetadata,
-                        )}
-                        frameTime={track.thumbnailTime ?? 7.5}
-                        layers={track.layers}
-                        metadata={track.metadata}
-                        scene={track.scene}
-                        showMetadata={showMetadata}
-                        textSettings={track.textSettings}
-                      />
-                    ) : (
-                      <ArtworkFrame artworkSrc={coverSrc} />
-                    )}
-                    <span className="youtube-duration">
-                      {formatDuration(track.audioInfo?.durationSeconds)}
-                    </span>
-                  </div>
-                  {track.thumbnailPreviewMode === "composition" &&
-                    Boolean(audioSrc) && (
-                      <button
-                        aria-label={
-                          live && livePreview?.withAudio
-                            ? "Parar reprodução"
-                            : "Tocar com áudio"
-                        }
-                        className="youtube-live-toggle"
-                        type="button"
-                        onClick={() =>
-                          setLivePreview((current) =>
-                            current?.trackId === track.id && current.withAudio
-                              ? null
-                              : { trackId: track.id, withAudio: true },
-                          )
-                        }
-                      >
-                        {live && livePreview?.withAudio ? <Pause /> : <Play />}
-                      </button>
-                    )}
-                </div>
-                <div className="youtube-card-copy">
-                  <strong>
-                    {track.metadata.title || "Título não informado"}
-                  </strong>
-                  <span>
-                    {track.metadata.artist || "Artista não informado"}
-                  </span>
-                  <small>
-                    {outputLabel} ·{" "}
-                    {track.metadata.visibility === "public"
-                      ? "Público"
-                      : track.metadata.visibility === "private"
-                        ? "Privado"
-                        : "Não listado"}
-                  </small>
-                </div>
-                <ul className="video-card-data">
-                  <li>
-                    <span>Efeito</span>
-                    <strong>{track.scene?.name ?? "—"}</strong>
-                  </li>
-                  <li>
-                    <span>Waveform</span>
-                    <strong>
-                      {track.scene?.waveform?.visible ? "Ligada" : "Desligada"}
-                    </strong>
-                  </li>
-                  <li>
-                    <span>Camadas</span>
-                    <strong>{track.layers.length}/3</strong>
-                  </li>
-                  <li>
-                    <span>Texto</span>
-                    <strong>
-                      {showMetadata
-                        ? `${
-                            Object.values(
-                              track.textSettings?.fields ?? {},
-                            ).filter(Boolean).length
-                          } campos`
-                        : "Oculto"}
-                    </strong>
-                  </li>
-                  <li>
-                    <span>Álbum</span>
-                    <strong>{track.metadata.album || "—"}</strong>
-                  </li>
-                  <li>
-                    <span>Ano · Versão</span>
-                    <strong>
-                      {[track.metadata.year, track.metadata.version]
-                        .filter(Boolean)
-                        .join(" · ") || "—"}
-                    </strong>
-                  </li>
-                </ul>
-                <div
-                  className="thumbnail-mode-switch"
-                  role="group"
-                  aria-label={`Miniatura de ${track.metadata.title}`}
-                >
-                  <button
-                    className={
-                      track.thumbnailPreviewMode === "composition"
-                        ? "active"
-                        : ""
-                    }
-                    type="button"
-                    onClick={() => onThumbnailMode(track.id, "composition")}
-                  >
-                    Frame
-                  </button>
-                  <button
-                    className={
-                      track.thumbnailPreviewMode === "cover" ? "active" : ""
-                    }
-                    type="button"
-                    onClick={() => onThumbnailMode(track.id, "cover")}
-                  >
-                    Capa
-                  </button>
-                </div>
-                {selected &&
-                  track.thumbnailPreviewMode === "composition" &&
-                  !live && (
-                    <label className="thumbnail-frame-picker">
-                      <span>
-                        Frame da miniatura ·{" "}
-                        {formatDuration(track.thumbnailTime ?? 7.5)}
-                      </span>
-                      <input
-                        max={Math.max(
-                          10,
-                          Math.floor(track.audioInfo?.durationSeconds ?? 60),
-                        )}
-                        min={0}
-                        step={1}
-                        type="range"
-                        value={track.thumbnailTime ?? 7.5}
-                        onChange={(event) =>
-                          onThumbnailTime(track.id, Number(event.target.value))
-                        }
-                      />
-                    </label>
-                  )}
-                {selected && (
-                  <div className="video-card-options">
-                    <button
-                      aria-label="Ajustar visual"
-                      className="primary-action"
-                      type="button"
-                      onClick={() => onEditVisual(track.id)}
-                    >
-                      <SlidersHorizontal />
-                      <span>
-                        <strong>Configurar frame</strong>
-                        <small>Abrir Estúdio visual</small>
-                      </span>
-                    </button>
-                  </div>
-                )}
-              </article>
-            );
-          })}
-        </div>
-      ) : (
-        <EmptyReviewState />
-      )}
-    </div>
-  );
-}
-
-function ArtworkSquare({
-  artworkSrc,
-  coverSeriesSettings,
-  track,
-}: {
-  artworkSrc?: string;
-  coverSeriesSettings?: CoverSeriesSettings;
-  track?: TrackDraft;
-}) {
-  return (
-    <CoverSeriesArtwork
-      artworkSrc={artworkSrc}
-      className="artwork-square"
-      coverSeriesSettings={coverSeriesSettings}
-      track={track}
-    />
-  );
-}
-
-function CoverSeriesArtwork({
-  artworkSrc,
-  className,
-  coverSeriesSettings,
-  showSeries = true,
-  track,
-}: {
-  artworkSrc?: string;
-  className: string;
-  coverSeriesSettings?: CoverSeriesSettings;
-  showSeries?: boolean;
-  track?: TrackDraft;
-}) {
-  const hasSeries =
-    showSeries && track && coverSeriesSettings
-      ? coverSeriesPreviewLines(track, coverSeriesSettings).length > 0
-      : false;
-  return (
-    <span className={`cover-series-artwork ${className}`}>
-      {artworkSrc ? <img alt="" src={artworkSrc} /> : <Disc3 />}
-      {hasSeries && track && coverSeriesSettings && (
-        <CoverSeriesOverlay settings={coverSeriesSettings} track={track} />
-      )}
-    </span>
-  );
-}
-
-function CoverSeriesOverlay({
-  settings,
-  track,
-}: {
-  settings: CoverSeriesSettings;
-  track: TrackDraft;
-}) {
-  const lines = coverSeriesPreviewLines(track, settings);
-  let lineY = coverSeriesAxis(settings.y, 8, 94);
-  return (
-    <svg
-      aria-hidden="true"
-      className="cover-series-overlay"
-      viewBox="0 0 1600 1600"
-    >
-      {lines.map((line) => {
-        const y = lineY + line.style.offsetY;
-        lineY +=
-          line.key === "series"
-            ? line.style.fontSize * 0.48 + settings.metaGap
-            : line.style.fontSize + settings.metaGap;
-        return (
-          <text
-            fill={line.style.color}
-            fillOpacity={line.style.opacity / 100}
-            fontFamily={
-              line.key === "series"
-                ? "Georgia, Times New Roman, serif"
-                : "Inter, Arial, sans-serif"
-            }
-            fontSize={line.style.fontSize}
-            fontStyle={line.style.fontStyle}
-            fontWeight={line.style.fontWeight}
-            key={line.key}
-            letterSpacing={line.key === "series" ? settings.letterSpacing : 5}
-            textAnchor={coverSeriesTextAnchor(line.style.align)}
-            x={coverSeriesAxis(settings.x, 8, 92) + line.style.offsetX}
-            y={y}
-          >
-            {line.text}
-          </text>
-        );
-      })}
-    </svg>
-  );
-}
-
-function coverSeriesPreviewLabel(
-  track: TrackDraft,
-  settings: CoverSeriesSettings,
-) {
-  if (settings.style === "arabic") {
-    return String(track.metadata.trackNumber || 1);
-  }
-  if (settings.style === "roman") {
-    return romanNumeral(track.metadata.trackNumber || 1);
-  }
-  const entries = settings.sequence
-    .split(/[\n,;|]+/)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  return (
-    entries[Math.max(0, Number(track.metadata.trackNumber || 1) - 1)] ??
-    entries[0] ??
-    ""
-  );
-}
-
-function coverSeriesPreviewLines(
-  track: TrackDraft,
-  settings: CoverSeriesSettings,
-) {
-  const metadata: Record<CoverSeriesMetaKey, string> = {
-    series: coverSeriesPreviewLabel(track, settings),
-    title: track.metadata.title,
-    album: track.metadata.album,
-    artist: track.metadata.albumArtist || track.metadata.artist,
-    year: track.metadata.year,
-  };
-  const visibility: Record<CoverSeriesMetaKey, boolean> = {
-    series: settings.includeNumber !== false,
-    title: settings.includeTitle,
-    album: settings.includeAlbum,
-    artist: settings.includeArtist,
-    year: settings.includeYear,
-  };
-  return coverSeriesMetaOrder(settings.metaOrder)
-    .filter((key) => visibility[key] && metadata[key])
-    .map((key) => ({
-      key,
-      text: metadata[key],
-      style: coverSeriesMetaStyleForKey(settings, key),
-    }));
-}
-
-function coverSeriesMetaOrder(value: string): CoverSeriesMetaKey[] {
-  const allowed = new Set<CoverSeriesMetaKey>(coverSeriesMetaKeys);
-  const parsed = String(value ?? "")
-    .split(/[\n,;|]+/)
-    .map((entry) => entry.trim().toLowerCase())
-    .filter((entry): entry is CoverSeriesMetaKey =>
-      allowed.has(entry as CoverSeriesMetaKey),
-    );
-  const promoted: CoverSeriesMetaKey[] = parsed.includes("series")
-    ? parsed
-    : ["series", ...parsed];
-  return [
-    ...new Set<CoverSeriesMetaKey>([...promoted, ...coverSeriesMetaKeys]),
-  ];
-}
-
-function coverSeriesAxis(value: number, min: number, max: number) {
-  return (Math.max(min, Math.min(max, Number(value) || min)) / 100) * 1600;
-}
-
-function coverSeriesTextAnchor(align: CoverSeriesMetaStyle["align"]) {
-  return align === "left" ? "start" : align === "right" ? "end" : "middle";
-}
-
-function romanNumeral(value: number) {
-  let remaining = Math.max(0, Math.floor(Number(value) || 0));
-  const pairs: Array<[number, string]> = [
-    [1000, "M"],
-    [900, "CM"],
-    [500, "D"],
-    [400, "CD"],
-    [100, "C"],
-    [90, "XC"],
-    [50, "L"],
-    [40, "XL"],
-    [10, "X"],
-    [9, "IX"],
-    [5, "V"],
-    [4, "IV"],
-    [1, "I"],
-  ];
-  let output = "";
-  for (const [number, numeral] of pairs) {
-    while (remaining >= number) {
-      output += numeral;
-      remaining -= number;
-    }
-  }
-  return output;
-}
-
-function CoverSeriesMetaControls({
-  children,
-  enabled,
-  index,
-  isFirst,
-  isLast,
-  label,
-  onMove,
-  onStyle,
-  onToggle,
-  sizeMax = 72,
-  style,
-}: {
-  children?: ReactNode;
-  enabled: boolean;
-  index: number;
-  isFirst: boolean;
-  isLast: boolean;
-  label: string;
-  onMove: (direction: -1 | 1) => void;
-  onStyle: (patch: Partial<CoverSeriesMetaStyle>) => void;
-  onToggle: () => void;
-  sizeMax?: number;
-  style: CoverSeriesMetaStyle;
-}) {
-  const stop = (event: ReactMouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-  };
-  return (
-    <details
-      className={`text-field-style ${enabled ? "" : "is-hidden-field"}`}
-      open={enabled}
-    >
-      <summary>
-        <span>
-          {index + 1}. {label}
-        </span>
-        <span className="text-field-style-actions">
-          <button
-            aria-label={enabled ? `Ocultar ${label}` : `Mostrar ${label}`}
-            aria-pressed={enabled}
-            title={enabled ? "Visível na capa" : "Oculto"}
-            type="button"
-            onClick={(event) => {
-              stop(event);
-              onToggle();
-            }}
-          >
-            {enabled ? <Eye /> : <EyeOff />}
-          </button>
-          <button
-            aria-label={`Mover ${label} para cima`}
-            disabled={isFirst}
-            type="button"
-            onClick={(event) => {
-              stop(event);
-              onMove(-1);
-            }}
-          >
-            <ChevronUp />
-          </button>
-          <button
-            aria-label={`Mover ${label} para baixo`}
-            disabled={isLast}
-            type="button"
-            onClick={(event) => {
-              stop(event);
-              onMove(1);
-            }}
-          >
-            <ChevronDown />
-          </button>
-        </span>
-      </summary>
-      <div className="text-field-style-body">
-        {enabled ? (
-          <>
-            <div className="icon-toggle-row" aria-label={`Estilo de ${label}`}>
-              <button
-                className={style.fontWeight >= 700 ? "active" : ""}
-                title="Negrito"
-                type="button"
-                onClick={() =>
-                  onStyle({
-                    fontWeight: style.fontWeight >= 700 ? 560 : 760,
-                  })
-                }
-              >
-                <Bold />
-              </button>
-              <button
-                className={style.fontStyle === "italic" ? "active" : ""}
-                title="Itálico"
-                type="button"
-                onClick={() =>
-                  onStyle({
-                    fontStyle:
-                      style.fontStyle === "italic" ? "normal" : "italic",
-                  })
-                }
-              >
-                <Italic />
-              </button>
-              <span aria-hidden="true" />
-              <button
-                className={style.align === "left" ? "active" : ""}
-                title="Alinhar à esquerda"
-                type="button"
-                onClick={() => onStyle({ align: "left" })}
-              >
-                <AlignLeft />
-              </button>
-              <button
-                className={style.align === "center" ? "active" : ""}
-                title="Centralizar"
-                type="button"
-                onClick={() => onStyle({ align: "center" })}
-              >
-                <AlignCenter />
-              </button>
-              <button
-                className={style.align === "right" ? "active" : ""}
-                title="Alinhar à direita"
-                type="button"
-                onClick={() => onStyle({ align: "right" })}
-              >
-                <AlignRight />
-              </button>
-            </div>
-            <div className="two-columns">
-              <NumberStepField
-                label="Tamanho"
-                max={sizeMax}
-                min={18}
-                unit="px"
-                value={style.fontSize}
-                onChange={(fontSize) => onStyle({ fontSize })}
-              />
-              <NumberStepField
-                label="Peso"
-                max={900}
-                min={300}
-                step={10}
-                value={style.fontWeight}
-                onChange={(fontWeight) => onStyle({ fontWeight })}
-              />
-            </div>
-            <div className="two-columns">
-              <ColorInput
-                label="Cor"
-                value={style.color}
-                onChange={(color) => onStyle({ color })}
-              />
-              <RangeField
-                label="Opacidade"
-                value={style.opacity}
-                onChange={(opacity) => onStyle({ opacity })}
-              />
-            </div>
-            <div className="two-columns">
-              <RangeField
-                label="Deslocamento X"
-                max={160}
-                min={-160}
-                unit="px"
-                value={style.offsetX}
-                onChange={(offsetX) => onStyle({ offsetX })}
-              />
-              <RangeField
-                label="Deslocamento Y"
-                max={160}
-                min={-160}
-                unit="px"
-                value={style.offsetY}
-                onChange={(offsetY) => onStyle({ offsetY })}
-              />
-            </div>
-            {children}
-          </>
-        ) : null}
-      </div>
-    </details>
-  );
-}
-
-const coverSeriesMetaLabels: Record<CoverSeriesMetaKey, string> = {
-  series: "Série numérica",
-  title: "Nome da música",
-  album: "Nome do álbum",
-  artist: "Autor",
-  year: "Ano",
-};
-
-const coverSeriesIncludeKey: Record<
-  CoverSeriesMetaKey,
-  keyof CoverSeriesSettings
-> = {
-  series: "includeNumber",
-  title: "includeTitle",
-  album: "includeAlbum",
-  artist: "includeArtist",
-  year: "includeYear",
-};
-
-// One unified list for the numbered-cover complementary texts: order +
-// visibility + per-field style live in a single disclosure row per field,
-// mirroring the video-text editor. The Único/Série scope lives above this
-// component, so controls here always edit the opened field only.
-function CoverSeriesFieldsEditor({
-  onChange,
-  settings,
-}: {
-  onChange: (patch: Partial<CoverSeriesSettings>) => void;
-  settings: CoverSeriesSettings;
-}) {
-  const order = coverSeriesMetaOrder(settings.metaOrder);
-  const visibility: Record<CoverSeriesMetaKey, boolean> = {
-    series: settings.includeNumber !== false,
-    title: settings.includeTitle,
-    album: settings.includeAlbum,
-    artist: settings.includeArtist,
-    year: settings.includeYear,
-  };
-  const applyChange = (patch: Partial<CoverSeriesSettings>) =>
-    onChange({ enabled: true, ...patch });
-  const move = (key: CoverSeriesMetaKey, direction: -1 | 1) => {
-    const index = order.indexOf(key);
-    const target = index + direction;
-    if (target < 0 || target >= order.length) return;
-    const next = [...order];
-    [next[index], next[target]] = [next[target], next[index]];
-    applyChange({ metaOrder: next.join(", ") });
-  };
-  return (
-    <div className="text-field-style-stack">
-      <span className="inspector-kicker">
-        Campos complementares · ordem, exibição e estilo
-      </span>
-      {order.map((key, index) => (
-        <CoverSeriesMetaControls
-          enabled={visibility[key]}
-          index={index}
-          isFirst={index === 0}
-          isLast={index === order.length - 1}
-          key={key}
-          label={coverSeriesMetaLabels[key]}
-          sizeMax={key === "series" ? 180 : 72}
-          style={coverSeriesMetaStyleForKey(settings, key)}
-          onMove={(direction) => move(key, direction)}
-          onStyle={(patch) =>
-            applyChange({
-              metaStyles: {
-                ...settings.metaStyles,
-                [key]: {
-                  ...coverSeriesMetaStyleForKey(settings, key),
-                  ...patch,
-                },
-              },
-            })
-          }
-          onToggle={() =>
-            applyChange({ [coverSeriesIncludeKey[key]]: !visibility[key] })
-          }
-        >
-          {key === "series" ? (
-            <>
-              <div className="two-columns">
-                <SelectField
-                  label="Sequência"
-                  value={settings.style}
-                  onChange={(value) =>
-                    applyChange({
-                      style:
-                        value === "custom" || value === "arabic"
-                          ? value
-                          : "roman",
-                    })
-                  }
-                >
-                  <option value="roman">Romana · I, II, III</option>
-                  <option value="arabic">Arábica · 1, 2, 3</option>
-                  <option value="custom">Personalizada</option>
-                </SelectField>
-                <RangeField
-                  label="Espaçamento"
-                  max={80}
-                  unit="px"
-                  value={settings.letterSpacing}
-                  onChange={(letterSpacing) => applyChange({ letterSpacing })}
-                />
-              </div>
-              {settings.style === "custom" && (
-                <TextArea
-                  label="Itens personalizados"
-                  rows={3}
-                  value={settings.sequence}
-                  onChange={(sequence) => applyChange({ sequence })}
-                />
-              )}
-            </>
-          ) : null}
-        </CoverSeriesMetaControls>
-      ))}
-    </div>
-  );
-}
-
-function CoverSeriesEditor({
-  compact = false,
-  onChange,
-  onSaveDefault,
-  settings,
-}: {
-  compact?: boolean;
-  onChange: (patch: Partial<CoverSeriesSettings>) => void;
-  onSaveDefault: (settings: CoverSeriesSettings) => void;
-  settings: CoverSeriesSettings;
-}) {
-  const applyChange = (patch: Partial<CoverSeriesSettings>) =>
-    onChange({ enabled: true, ...patch });
-  return (
-    <div className={`cover-series-editor ${compact ? "compact" : ""}`}>
-      <div className="cover-series-section">
-        <p className="cover-series-section-title">Posição da lista</p>
-        <SelectField
-          label="Posição predefinida"
-          value=""
-          onChange={(preset) => {
-            const presetId = preset as PositionPresetId;
-            const next = coverSeriesPositionPresets[presetId];
-            if (!next) return;
-            applyChange({
-              ...next,
-              metaStyles: coverSeriesAlignedMetaStyles(
-                settings,
-                coverSeriesAlignForPositionPreset(presetId),
-              ),
-            });
-          }}
-        >
-          <option value="">Escolher posição…</option>
-          {positionPresetOptions.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </SelectField>
-        <div className="cover-series-editor-grid">
-          <RangeField
-            label="Horizontal"
-            value={settings.x}
-            onChange={(x) => applyChange({ x })}
-          />
-          <RangeField
-            label="Vertical"
-            value={settings.y}
-            onChange={(y) => applyChange({ y })}
-          />
-        </div>
-        <RangeField
-          label="Espaço entre linhas"
-          max={48}
-          unit="px"
-          value={settings.metaGap}
-          onChange={(metaGap) => applyChange({ metaGap })}
-        />
-      </div>
-      <div className="cover-series-section cover-series-meta">
-        <CoverSeriesFieldsEditor settings={settings} onChange={applyChange} />
-      </div>
-      <div className="cover-series-section">
-        <CheckField
-          label="Manter capa do álbum embutida no MP3"
-          checked={settings.embedAlbumCover === true}
-          onChange={(embedAlbumCover) => applyChange({ embedAlbumCover })}
-        />
-        <button
-          className="quiet-action"
-          type="button"
-          onClick={() => onSaveDefault(settings)}
-        >
-          <Save /> Salvar como padrão
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function MusicInspector({
-  artworkHint,
-  cover,
-  metadata,
-  onApplySuggestions,
-  onApplyCommonBatch,
-  onChange,
-  onChooseCover,
-  onClearCover,
-  onCreateVariation,
-  onReplaceAudio,
-  onRestoreSuggestedCover,
-  suggestedCover,
-}: {
-  artworkHint: string;
-  cover: { file: File; src: string } | null;
-  metadata: TrackMetadata;
-  onApplyCommonBatch?: () => void;
-  onApplySuggestions: () => void;
-  onChange: (patch: Partial<TrackMetadata>) => void;
-  onChooseCover: () => void;
-  onClearCover: () => void;
-  onCreateVariation: () => void;
-  onReplaceAudio?: () => void;
-  onRestoreSuggestedCover: () => void;
-  suggestedCover?: ArtworkSuggestion;
-}) {
-  return (
-    <>
-      <InspectorGroup title="Faixa" open scope="track">
-        <div className="inspector-subsection">
-          <p className="inspector-kicker">Identidade</p>
-          <TextField
-            label="Título"
-            value={metadata.title}
-            onChange={(title) => onChange({ title })}
-          />
-          <TextField
-            label="Artista"
-            value={metadata.artist}
-            placeholder={metadata.albumArtist || ""}
-            onChange={(artist) => onChange({ artist })}
-          />
-          <TextField
-            label="Álbum"
-            value={metadata.album}
-            onChange={(album) => onChange({ album })}
-          />
-          <TextField
-            label="Versão"
-            suggestions={versionSuggestions}
-            value={metadata.version}
-            onChange={(version) => onChange({ version })}
-          />
-        </div>
-        <div className="inspector-subsection">
-          <p className="inspector-kicker">Ações</p>
-          <div className="inline-actions">
-            <button type="button" onClick={onApplySuggestions}>
-              <RotateCcw /> Usar dados do áudio
-            </button>
-            <button type="button" onClick={onCreateVariation}>
-              <Copy /> Criar variação
-            </button>
-          </div>
-          {onReplaceAudio && (
-            <button
-              className="upload-action"
-              type="button"
-              onClick={onReplaceAudio}
-            >
-              <FileAudio /> Trocar áudio desta versão
-            </button>
-          )}
-          {onApplyCommonBatch && (
-            <button
-              className="upload-action"
-              type="button"
-              onClick={onApplyCommonBatch}
-            >
-              <Layers3 /> Aplicar álbum e artista ao lote
-            </button>
-          )}
-        </div>
-      </InspectorGroup>
-      <InspectorGroup title="Arte do álbum" open scope="series">
-        <div className="inspector-subsection">
-          <p className="inspector-kicker">Capa</p>
-          {cover ? (
-            <div className="cover-preview">
-              <img alt="" src={cover.src} />
-              <button type="button" onClick={onClearCover}>
-                <Trash2 /> Remover
-              </button>
-            </div>
-          ) : (
-            <button
-              className="upload-action"
-              type="button"
-              onClick={onChooseCover}
-            >
-              <Image /> Escolher capa
-            </button>
-          )}
-          {suggestedCover && (
-            <p className="helper-copy">
-              Arte oferecida pela pasta: {suggestedCover.relativePath}
-            </p>
-          )}
-          {suggestedCover && cover?.file !== suggestedCover.file && (
-            <button
-              className="quiet-action"
-              type="button"
-              onClick={() => onRestoreSuggestedCover()}
-            >
-              <RotateCcw /> Usar arte oferecida
-            </button>
-          )}
-          {!suggestedCover && <p className="helper-copy">{artworkHint}</p>}
-        </div>
-      </InspectorGroup>
-      <InspectorGroup title="Descrição e publicação" scope="track">
-        <div className="inspector-subsection">
-          <p className="inspector-kicker">Descrição</p>
-          <TextArea
-            label="Descrição do vídeo (YouTube)"
-            value={metadata.description}
-            onChange={(description) => onChange({ description })}
-          />
-          <p className="helper-copy">
-            Texto da página do vídeo no YouTube. A letra da música é um campo
-            separado, na Biblioteca de áudio › Letra.
-          </p>
-        </div>
-        <div className="inspector-subsection">
-          <p className="inspector-kicker">Tags</p>
-          <TextField
-            label="Tags"
-            value={metadata.tags}
-            onChange={(tags) => onChange({ tags })}
-          />
-        </div>
-      </InspectorGroup>
-    </>
-  );
-}
-
-function TextFadeOutFields({
-  label,
-  settings,
-  onChange,
-}: {
-  label: string;
-  settings: TextFadeOutSettings;
-  onChange: (patch: Partial<TextFadeOutSettings>) => void;
-}) {
-  return (
-    <div className="text-fade-controls">
-      <CheckField
-        label={`Fade-out de ${label}`}
-        checked={settings.enabled}
-        onChange={(enabled) => onChange({ enabled })}
-      />
-      {settings.enabled && (
-        <>
-          <SelectField
-            label="Tipo de fade"
-            value={settings.mode ?? "tail"}
-            onChange={(mode) =>
-              onChange({ mode: mode === "timed" ? "timed" : "tail" })
-            }
-          >
-            <option value="tail">Final do vídeo</option>
-            <option value="timed">Ponto + duração</option>
-          </SelectField>
-          {(settings.mode ?? "tail") === "timed" ? (
-            <>
-              <RangeField
-                label="Começa em"
-                max={95}
-                min={0}
-                step={5}
-                unit="% do vídeo"
-                value={settings.startPercent ?? 10}
-                onChange={(startPercent) => onChange({ startPercent })}
-              />
-              <RangeField
-                label="Duração"
-                max={20}
-                min={0.25}
-                step={0.25}
-                unit="s"
-                value={settings.durationSeconds ?? 2}
-                onChange={(durationSeconds) => onChange({ durationSeconds })}
-              />
-            </>
-          ) : (
-            <RangeField
-              label="Duração do fade"
-              max={95}
-              min={5}
-              step={5}
-              unit="% finais"
-              value={settings.endPercent}
-              onChange={(endPercent) => onChange({ endPercent })}
-            />
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-// Named, persistent text profiles: save the current text overlay settings under
-// a name (localStorage) and reapply them to any track. Synced across inspectors.
-const TEXT_PROFILES_KEY = "sonara.textProfiles";
-const TEXT_PROFILES_LIMIT = 50;
-
-type TextProfile = { name: string; settings: TextOverlaySettings };
-
-const textProfilesStore = (() => {
-  let profiles: TextProfile[] = readTextProfiles();
-  const listeners = new Set<() => void>();
-  function readTextProfiles(): TextProfile[] {
-    try {
-      const raw = JSON.parse(
-        window.localStorage.getItem(TEXT_PROFILES_KEY) ?? "[]",
-      );
-      if (!Array.isArray(raw)) return [];
-      return raw
-        .filter(
-          (entry): entry is TextProfile =>
-            Boolean(entry) &&
-            typeof entry.name === "string" &&
-            Boolean(entry.settings) &&
-            typeof entry.settings === "object",
-        )
-        .slice(0, TEXT_PROFILES_LIMIT);
-    } catch {
-      return [];
-    }
-  }
-  function persist() {
-    try {
-      window.localStorage.setItem(TEXT_PROFILES_KEY, JSON.stringify(profiles));
-    } catch {
-      // localStorage may be unavailable; in-memory list still works this session.
-    }
-    listeners.forEach((listener) => listener());
-  }
-  return {
-    getSnapshot: () => profiles,
-    subscribe(listener: () => void) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    save(name: string, settings: TextOverlaySettings) {
-      const clean = name.trim().slice(0, 60);
-      if (!clean) return;
-      profiles = [
-        { name: clean, settings },
-        ...profiles.filter((entry) => entry.name !== clean),
-      ].slice(0, TEXT_PROFILES_LIMIT);
-      persist();
-    },
-    remove(name: string) {
-      profiles = profiles.filter((entry) => entry.name !== name);
-      persist();
-    },
-  };
-})();
-
-function useTextProfiles() {
-  return useSyncExternalStore(
-    textProfilesStore.subscribe,
-    textProfilesStore.getSnapshot,
-    textProfilesStore.getSnapshot,
-  );
-}
-
-function TextProfiles({
-  current,
-  onApply,
-}: {
-  current: TextOverlaySettings;
-  onApply: (settings: TextOverlaySettings) => void;
-}) {
-  const profiles = useTextProfiles();
-  const [name, setName] = useState("");
-  return (
-    <div className="inspector-subsection text-profiles">
-      <p className="inspector-kicker">Perfis de texto</p>
-      <div className="text-profiles-save">
-        <input
-          aria-label="Nome do perfil de texto"
-          className="text-profile-name"
-          maxLength={60}
-          placeholder="Nome do perfil"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && name.trim()) {
-              textProfilesStore.save(name, current);
-              setName("");
-            }
-          }}
-        />
-        <button
-          className="quiet-action"
-          disabled={!name.trim()}
-          type="button"
-          onClick={() => {
-            textProfilesStore.save(name, current);
-            setName("");
-          }}
-        >
-          <Save /> Salvar
-        </button>
-      </div>
-      {profiles.length === 0 ? (
-        <p className="helper-copy">
-          Salve o estilo de texto atual (tipografia, cor, posição e estilos por
-          campo) para reaplicar em outras faixas.
-        </p>
-      ) : (
-        <ul className="text-profiles-list">
-          {profiles.map((profile) => (
-            <li key={profile.name}>
-              <button
-                className="text-profile-apply"
-                title={`Aplicar perfil ${profile.name}`}
-                type="button"
-                onClick={() => onApply(profile.settings)}
-              >
-                {profile.name}
-              </button>
-              <button
-                aria-label={`Excluir perfil ${profile.name}`}
-                className="icon-button"
-                type="button"
-                onClick={() => textProfilesStore.remove(profile.name)}
-              >
-                <Trash2 />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-// 3×3 grid button whose icon is just a dot in the matching corner/edge/center
-const positionPickerIcons: Record<PositionPresetId, ReactNode> = {
-  "top-left": (
-    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="2" cy="2" r="2" fill="currentColor" />
-    </svg>
-  ),
-  "top-center": (
-    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="5" cy="2" r="2" fill="currentColor" />
-    </svg>
-  ),
-  "top-right": (
-    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="8" cy="2" r="2" fill="currentColor" />
-    </svg>
-  ),
-  "middle-left": (
-    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="2" cy="5" r="2" fill="currentColor" />
-    </svg>
-  ),
-  center: (
-    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="5" cy="5" r="2" fill="currentColor" />
-    </svg>
-  ),
-  "middle-right": (
-    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="8" cy="5" r="2" fill="currentColor" />
-    </svg>
-  ),
-  "bottom-left": (
-    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="2" cy="8" r="2" fill="currentColor" />
-    </svg>
-  ),
-  "bottom-center": (
-    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="5" cy="8" r="2" fill="currentColor" />
-    </svg>
-  ),
-  "bottom-right": (
-    <svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="8" cy="8" r="2" fill="currentColor" />
-    </svg>
-  ),
-};
-
-function TextPositionPicker({
-  textSettings,
-  onTextSettings,
-}: {
-  textSettings: TextOverlaySettings;
-  onTextSettings: (patch: Partial<TextOverlaySettings>) => void;
-}) {
-  // Derive the "active" grid cell from current x/y/anchor/align
-  const activePreset = (
-    Object.keys(textPositionPresets) as PositionPresetId[]
-  ).find((id) => {
-    const p = textPositionPresets[id];
-    return (
-      p.x === textSettings.x &&
-      p.y === textSettings.y &&
-      p.verticalAnchor === textSettings.verticalAnchor &&
-      p.align === textSettings.align
-    );
-  });
-  return (
-    <div className="text-position-picker">
-      {(
-        Object.entries(textPositionPresets) as [
-          PositionPresetId,
-          Partial<TextOverlaySettings>,
-        ][]
-      ).map(([id, preset]) => (
-        <button
-          key={id}
-          className={id === activePreset ? "is-active" : ""}
-          title={positionPresetOptions.find(([k]) => k === id)?.[1] ?? id}
-          type="button"
-          onClick={() => onTextSettings(preset)}
-        >
-          {positionPickerIcons[id]}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function TextInspector({
-  metadata,
-  scene,
-  showMetadata,
-  textSettings,
-  onChange,
-  onCommon,
-  onTextSettings,
-  onToggle,
-  onApplyBatch,
-}: {
-  metadata: TrackMetadata;
-  scene: ScenePresetV3;
-  showMetadata: boolean;
-  textSettings: TextOverlaySettings;
-  onChange: (patch: Partial<TrackMetadata>) => void;
-  onCommon: (key: string, value: number) => void;
-  onTextSettings: (patch: Partial<TextOverlaySettings>) => void;
-  onToggle: (checked: boolean) => void;
-  onApplyBatch?: () => void;
-}) {
-  const orderedFields = normalizeTextOrder(textSettings.order);
-
-  function moveTextField(field: TextFieldKey, direction: -1 | 1) {
-    const index = orderedFields.indexOf(field);
-    const target = index + direction;
-    if (index < 0 || target < 0 || target >= orderedFields.length) return;
-    const next = [...orderedFields];
-    [next[index], next[target]] = [next[target], next[index]];
-    onTextSettings({ order: next });
-  }
-
-  function updateFieldStyle(
-    field: TextFieldKey,
-    patch: Partial<TextFieldStyle>,
-  ) {
-    onTextSettings({
-      fieldStyles: {
-        ...textSettings.fieldStyles,
-        [field]: {
-          ...textSettings.fieldStyles[field],
-          ...patch,
-        },
-      },
-    });
-  }
-
-  return (
-    <>
-      <InspectorGroup title="Texto no vídeo" open scope="track">
-        <CheckField
-          label="Mostrar texto no vídeo"
-          checked={showMetadata}
-          onChange={onToggle}
-        />
-        <p className="helper-copy">
-          Mostre/oculte e reordene cada campo na lista “Ordem dos campos” abaixo
-          (ícone de olho + setas).
-        </p>
-        <TextField
-          label="Título"
-          value={metadata.title}
-          onChange={(title) => onChange({ title })}
-        />
-        <TextField
-          label="Artista"
-          value={metadata.artist}
-          placeholder={metadata.albumArtist || ""}
-          onChange={(artist) => onChange({ artist })}
-        />
-        <TextField
-          label="Álbum"
-          value={metadata.album}
-          onChange={(album) => onChange({ album })}
-        />
-        <div className="two-columns">
-          <TextField
-            label="Ano"
-            value={metadata.year}
-            onChange={(year) => onChange({ year })}
-          />
-          <TextField
-            label="Versão"
-            suggestions={versionSuggestions}
-            value={metadata.version}
-            onChange={(version) => onChange({ version })}
-          />
-        </div>
-      </InspectorGroup>
-      <InspectorGroup title="Tipografia e posição" open scope="track">
-        <div className="inspector-subsection">
-          <div className="text-profiles-header">
-            <p className="inspector-kicker">Perfis de texto</p>
-            <button
-              className="icon-button"
-              title="Restaurar configuração padrão"
-              type="button"
-              onClick={() =>
-                onTextSettings(cloneTextSettings(defaultTextSettings))
-              }
-            >
-              <RotateCcw />
-            </button>
-          </div>
-          <TextProfiles current={textSettings} onApply={onTextSettings} />
-        </div>
-        <div className="inspector-subsection">
-          <p className="inspector-kicker">Layout</p>
-          <SelectField
-            label="Estilo de texto"
-            value={textSettings.preset}
-            onChange={(preset) =>
-              onTextSettings(
-                textPresetPatch(preset as TextOverlaySettings["preset"]),
-              )
-            }
-          >
-            {Object.entries(textStylePresetLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </SelectField>
-        </div>
-        <div className="inspector-subsection">
-          <p className="inspector-kicker">Posição</p>
-          <div className="inspector-row-inline">
-            <TextPositionPicker
-              textSettings={textSettings}
-              onTextSettings={onTextSettings}
-            />
-            <div className="inspector-col-fill">
-              <div className="two-columns">
-                <RangeField
-                  label="Horizontal"
-                  value={textSettings.x}
-                  onChange={(x) => onTextSettings({ x })}
-                />
-                <RangeField
-                  label="Vertical"
-                  value={textSettings.y}
-                  onChange={(y) => onTextSettings({ y })}
-                />
-              </div>
-              <div className="two-columns">
-                <SelectField
-                  label="Alinhamento"
-                  value={textSettings.align}
-                  onChange={(align) =>
-                    onTextSettings({
-                      align: align as TextOverlaySettings["align"],
-                    })
-                  }
-                >
-                  <option value="left">Esquerda</option>
-                  <option value="center">Centro</option>
-                  <option value="right">Direita</option>
-                  <option value="justify">Justificado</option>
-                </SelectField>
-                <SelectField
-                  label="Âncora"
-                  value={textSettings.verticalAnchor}
-                  onChange={(verticalAnchor) =>
-                    onTextSettings({
-                      verticalAnchor:
-                        verticalAnchor as TextOverlaySettings["verticalAnchor"],
-                    })
-                  }
-                >
-                  <option value="top">Topo</option>
-                  <option value="middle">Centro</option>
-                  <option value="bottom">Base</option>
-                </SelectField>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="inspector-subsection">
-          <p className="inspector-kicker">Fundo</p>
-          <RangeField
-            label="Sombra"
-            value={textSettings.shadow}
-            onChange={(shadow) => onTextSettings({ shadow })}
-          />
-          <RangeField
-            label="Escurecimento do fundo"
-            value={scene.common.shade}
-            onChange={(value) => onCommon("shade", value)}
-          />
-        </div>
-        <div className="text-field-style-stack">
-          <span className="inspector-kicker">
-            Campos · ordem, visibilidade e estilo individual
-          </span>
-          {orderedFields.map((field, index) => (
-            <TextFieldStyleEditor
-              field={field}
-              index={index}
-              isFirst={index === 0}
-              isLast={index === orderedFields.length - 1}
-              key={field}
-              style={textSettings.fieldStyles[field]}
-              visible={textSettings.fields[field]}
-              onChange={(patch) => updateFieldStyle(field, patch)}
-              onMove={(direction) => moveTextField(field, direction)}
-              onToggleVisible={() =>
-                onTextSettings({
-                  fields: {
-                    ...textSettings.fields,
-                    [field]: !textSettings.fields[field],
-                  },
-                })
-              }
-            />
-          ))}
-        </div>
-        {onApplyBatch && (
-          <div className="text-action-row">
-            <button
-              className="upload-action"
-              type="button"
-              title="Aplicar este texto a todas as faixas do lote"
-              onClick={onApplyBatch}
-            >
-              <Layers3 /> Aplicar a todos
-            </button>
-          </div>
-        )}
-      </InspectorGroup>
-    </>
-  );
-}
-
-function TextFieldStyleEditor({
-  field,
-  index,
-  isFirst,
-  isLast,
-  onChange,
-  onMove,
-  onToggleVisible,
-  style,
-  visible,
-}: {
-  field: TextFieldKey;
-  index: number;
-  isFirst: boolean;
-  isLast: boolean;
-  onChange: (patch: Partial<TextFieldStyle>) => void;
-  onMove: (direction: -1 | 1) => void;
-  onToggleVisible: () => void;
-  style: TextFieldStyle;
-  visible: boolean;
-}) {
-  // Buttons live inside <summary>; stop the click from toggling the disclosure.
-  const stop = (event: ReactMouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-  };
-  return (
-    <details
-      className={`text-field-style ${visible ? "" : "is-hidden-field"}`}
-      open={visible}
-    >
-      <summary>
-        <span>
-          {index + 1}. {textFieldLabels[field]}
-        </span>
-        <span className="text-field-style-actions">
-          <button
-            aria-label={
-              visible
-                ? `Ocultar ${textFieldLabels[field]}`
-                : `Mostrar ${textFieldLabels[field]}`
-            }
-            aria-pressed={visible}
-            title={visible ? "Visível no vídeo" : "Oculto"}
-            type="button"
-            onClick={(event) => {
-              stop(event);
-              onToggleVisible();
-            }}
-          >
-            {visible ? <Eye /> : <EyeOff />}
-          </button>
-          <button
-            aria-label={`Mover ${textFieldLabels[field]} para cima`}
-            disabled={isFirst}
-            type="button"
-            onClick={(event) => {
-              stop(event);
-              onMove(-1);
-            }}
-          >
-            <ChevronUp />
-          </button>
-          <button
-            aria-label={`Mover ${textFieldLabels[field]} para baixo`}
-            disabled={isLast}
-            type="button"
-            onClick={(event) => {
-              stop(event);
-              onMove(1);
-            }}
-          >
-            <ChevronDown />
-          </button>
-        </span>
-      </summary>
-      <div className="text-field-style-body">
-        <SelectField
-          label="Fonte"
-          value={style.fontFamily}
-          onChange={(fontFamily) =>
-            onChange({ fontFamily: fontFamily as TextFieldStyle["fontFamily"] })
-          }
-        >
-          {(["Sans-serif", "Serif", "Display"] as const).map((cat) => (
-            <optgroup key={cat} label={cat}>
-              {textFontOptions
-                .filter((f) => f.category === cat)
-                .map((f) => (
-                  <option key={f.value} value={f.value}>
-                    {f.label}
-                  </option>
-                ))}
-            </optgroup>
-          ))}
-        </SelectField>
-        <div
-          className="icon-toggle-row"
-          aria-label={`Estilo de ${textFieldLabels[field]}`}
-        >
-          <button
-            className={style.fontWeight >= 700 ? "active" : ""}
-            title="Negrito"
-            type="button"
-            onClick={() =>
-              onChange({ fontWeight: style.fontWeight >= 700 ? 560 : 760 })
-            }
-          >
-            <Bold />
-          </button>
-          <button
-            className={style.fontStyle === "italic" ? "active" : ""}
-            title="Itálico"
-            type="button"
-            onClick={() =>
-              onChange({
-                fontStyle: style.fontStyle === "italic" ? "normal" : "italic",
-              })
-            }
-          >
-            <Italic />
-          </button>
-          <span aria-hidden="true" />
-          <button
-            className={
-              (style.textTransform ?? "none") === "uppercase" ? "active" : ""
-            }
-            title="MAIÚSCULAS"
-            type="button"
-            onClick={() =>
-              onChange({
-                textTransform:
-                  (style.textTransform ?? "none") === "uppercase"
-                    ? "none"
-                    : "uppercase",
-              })
-            }
-          >
-            <span style={{ fontWeight: 700, fontSize: "0.7rem" }}>AA</span>
-          </button>
-          <button
-            className={
-              (style.textTransform ?? "none") === "lowercase" ? "active" : ""
-            }
-            title="minúsculas"
-            type="button"
-            onClick={() =>
-              onChange({
-                textTransform:
-                  (style.textTransform ?? "none") === "lowercase"
-                    ? "none"
-                    : "lowercase",
-              })
-            }
-          >
-            <span style={{ fontSize: "0.7rem" }}>aa</span>
-          </button>
-          <span aria-hidden="true" />
-          <button
-            className={style.align === "left" ? "active" : ""}
-            title="Alinhar à esquerda"
-            type="button"
-            onClick={() => onChange({ align: "left" })}
-          >
-            <AlignLeft />
-          </button>
-          <button
-            className={style.align === "center" ? "active" : ""}
-            title="Centralizar"
-            type="button"
-            onClick={() => onChange({ align: "center" })}
-          >
-            <AlignCenter />
-          </button>
-          <button
-            className={style.align === "right" ? "active" : ""}
-            title="Alinhar à direita"
-            type="button"
-            onClick={() => onChange({ align: "right" })}
-          >
-            <AlignRight />
-          </button>
-        </div>
-        <div className="two-columns">
-          <NumberStepField
-            label="Tamanho"
-            max={96}
-            min={10}
-            unit="px"
-            value={style.fontSize}
-            onChange={(fontSize) => onChange({ fontSize })}
-          />
-          <NumberStepField
-            label="Peso"
-            max={900}
-            min={300}
-            step={10}
-            value={style.fontWeight}
-            onChange={(fontWeight) => onChange({ fontWeight })}
-          />
-        </div>
-        <div className="two-columns">
-          <NumberStepField
-            label="Espaçamento"
-            max={24}
-            min={0}
-            unit="px"
-            value={style.letterSpacing}
-            onChange={(letterSpacing) => onChange({ letterSpacing })}
-          />
-          <NumberStepField
-            label="Altura"
-            max={180}
-            min={90}
-            unit="%"
-            value={style.lineHeight}
-            onChange={(lineHeight) => onChange({ lineHeight })}
-          />
-        </div>
-        <ColorInput
-          label="Cor"
-          value={style.color}
-          onChange={(color) => onChange({ color })}
-        />
-        <RangeField
-          label="Opacidade"
-          value={style.opacity}
-          onChange={(opacity) => onChange({ opacity })}
-        />
-        <TextFadeOutFields
-          label={textFieldLabels[field]}
-          settings={normalizeTextFadeOut(style.fadeOut)}
-          onChange={(fadeOut) =>
-            onChange({
-              fadeOut: normalizeTextFadeOut({
-                ...style.fadeOut,
-                ...fadeOut,
-              }),
-            })
-          }
-        />
-        <FadeInFields
-          label={textFieldLabels[field]}
-          settings={normalizeFadeIn(style.fadeIn)}
-          onChange={(fadeIn) =>
-            onChange({
-              fadeIn: normalizeFadeIn({
-                ...style.fadeIn,
-                ...fadeIn,
-              }),
-            })
-          }
-        />
-      </div>
-    </details>
-  );
-}
-
-function PublicationInspector({
-  assetMode,
-  assetSettings,
-  clipDuration,
-  clipStart,
-  generateDataFiles,
-  includeLyrics,
-  lyricsText,
-  outputConflictMode,
-  outputFolderName,
-  presetId,
-  presetOverrideActive,
-  selectedCount,
-  selectedPreset,
-  onApplyTextToScope,
-  onAssetMode,
-  onAssetSettings,
-  onChooseOutput,
-  onClipDuration,
-  onClipStart,
-  onExport,
-  onGenerateDataFiles,
-  onIncludeLyrics,
-  onOutputConflictMode,
-  onPreset,
-  onResetAssetSettings,
-}: {
-  assetMode: PublicationAssetMode;
-  assetSettings: PublicationAssetSettings;
-  clipDuration: number;
-  clipStart: number;
-  generateDataFiles: boolean;
-  includeLyrics: boolean;
-  lyricsText: string;
-  outputConflictMode: VideoOutputConflictMode;
-  outputFolderName: string;
-  presetId: string;
-  presetOverrideActive: boolean;
-  selectedCount: number;
-  selectedPreset: PublicationAssetPreset;
-  onApplyTextToScope: (scope: "group" | "all") => void;
-  onAssetMode: (value: PublicationAssetMode) => void;
-  onAssetSettings: (patch: Partial<PublicationAssetSettings>) => void;
-  onChooseOutput: () => void;
-  onClipDuration: (value: number) => void;
-  onClipStart: (value: number) => void;
-  onExport: () => void;
-  onGenerateDataFiles: (value: boolean) => void;
-  onIncludeLyrics: (value: boolean) => void;
-  onOutputConflictMode: (value: string) => void;
-  onPreset: (value: string) => void;
-  onResetAssetSettings: () => void;
-}) {
-  const selectionCount = publicationPresetsForMode(
-    selectedPreset,
-    assetMode,
-  ).length;
-  const lyricsOptions = publicationLyricsExcerptOptions(lyricsText);
-  return (
-    <>
-      <InspectorGroup title="Divulgação" open>
-        <div className="inspector-subsection">
-          <p className="inspector-kicker">Preset</p>
-          <SelectField
-            label="Formato base"
-            value={presetId}
-            onChange={onPreset}
-          >
-            {publicationAssetPresets.map((preset) => (
-              <option key={preset.id} value={preset.id}>
-                {preset.label} · {preset.width}x{preset.height}
-              </option>
-            ))}
-          </SelectField>
-          <SelectField
-            label="Disparar"
-            value={assetMode}
-            onChange={(value) => onAssetMode(value as PublicationAssetMode)}
-          >
-            <option value="single">Individual</option>
-            <option value="group">Grupo do formato</option>
-            <option value="all">Total</option>
-          </SelectField>
-          <p className="helper-copy">
-            Gerar {selectionCount} preset{selectionCount === 1 ? "" : "s"} para{" "}
-            {selectedCount} faixa
-            {selectedCount === 1 ? "" : "s"}.
-          </p>
-        </div>
-        <div className="inspector-subsection">
-          <p className="inspector-kicker">Padrão global</p>
-          <RangeField
-            label="Início padrão"
-            min={0}
-            max={300}
-            step={1}
-            unit="s"
-            value={clipStart}
-            onChange={onClipStart}
-          />
-          <RangeField
-            label="Duração padrão"
-            min={1}
-            max={30}
-            step={1}
-            unit="s"
-            value={clipDuration}
-            onChange={onClipDuration}
-          />
-          <CheckField
-            label="Incluir letras completas por padrão"
-            checked={includeLyrics}
-            onChange={onIncludeLyrics}
-          />
-          <p className="helper-copy">
-            A letra escolhida é sobreposta no clipe (vídeo). Em imagens, entra
-            no arquivo de dados.
-          </p>
-          <CheckField
-            label="Gerar arquivos de dados (JSON/Markdown)"
-            checked={generateDataFiles}
-            onChange={onGenerateDataFiles}
-          />
-          <p className="helper-copy">
-            Desligue para exportar só o clipe/imagem, sem o manifesto de dados.
-          </p>
-        </div>
-        <div className="inspector-subsection publication-asset-override">
-          <div className="publication-asset-override-head">
-            <div>
-              <p className="inspector-kicker">Ajustes deste asset</p>
-              <strong>{selectedPreset.label}</strong>
-            </div>
-            <button
-              className="icon-button"
-              disabled={!presetOverrideActive}
-              title="Voltar ao padrão global"
-              type="button"
-              onClick={onResetAssetSettings}
-            >
-              <RotateCcw />
-            </button>
-          </div>
-          {selectedPreset.kind === "clip" ? (
-            <>
-              <NumberStepField
-                label="Início deste asset"
-                max={300}
-                min={0}
-                step={1}
-                unit="s"
-                value={assetSettings.clipStart}
-                onChange={(clipStart) => onAssetSettings({ clipStart })}
-              />
-              <NumberStepField
-                label="Duração deste asset"
-                max={30}
-                min={1}
-                step={1}
-                unit="s"
-                value={assetSettings.clipDuration}
-                onChange={(clipDuration) =>
-                  onAssetSettings({
-                    clipDuration: clampPublicationClipDuration(clipDuration),
-                  })
-                }
-              />
-            </>
-          ) : (
-            <>
-              <NumberStepField
-                label="Frame do pôster"
-                max={300}
-                min={0}
-                step={1}
-                unit="s"
-                value={assetSettings.clipStart}
-                onChange={(clipStart) =>
-                  onAssetSettings({
-                    clipStart: clampPublicationClipStart(clipStart),
-                  })
-                }
-              />
-              <p className="helper-copy">
-                A imagem é renderizada neste segundo da composição — escolha o
-                frame que quer congelar.
-              </p>
-            </>
-          )}
-          <SelectField
-            label="Letra deste asset"
-            value={assetSettings.lyricsMode}
-            onChange={(value) => {
-              const lyricsMode =
-                value as PublicationAssetSettings["lyricsMode"];
-              onAssetSettings({
-                includeLyrics: lyricsMode !== "none",
-                lyricsExcerpt:
-                  lyricsMode === "excerpt" && !assetSettings.lyricsExcerpt
-                    ? (lyricsOptions[0]?.value ?? "")
-                    : assetSettings.lyricsExcerpt,
-                lyricsMode,
-              });
-            }}
-          >
-            <option value="none">Sem letra</option>
-            <option value="full">Letra completa</option>
-            <option value="excerpt">Trecho editado</option>
-          </SelectField>
-          {assetSettings.lyricsMode !== "none" && (
-            <>
-              <CheckField
-                label="Ocultar tags entre [ ]"
-                checked={assetSettings.lyricsHideTags}
-                onChange={(lyricsHideTags) =>
-                  onAssetSettings({ lyricsHideTags })
-                }
-              />
-              <SelectField
-                label="Posição da letra no clipe"
-                value={assetSettings.lyricsPosition}
-                onChange={(value) =>
-                  onAssetSettings({
-                    lyricsPosition:
-                      value as PublicationAssetSettings["lyricsPosition"],
-                  })
-                }
-              >
-                <option value="bottom">Base</option>
-                <option value="center">Centro</option>
-                <option value="top">Topo</option>
-              </SelectField>
-              <SelectField
-                label="Estilo da letra no clipe"
-                value={assetSettings.lyricsStyle}
-                onChange={(value) =>
-                  onAssetSettings({
-                    lyricsStyle:
-                      value as PublicationAssetSettings["lyricsStyle"],
-                  })
-                }
-              >
-                <option value="minimal">Minimal (contorno fino)</option>
-                <option value="shadow">Sombra forte</option>
-                <option value="boxed">Caixa de fundo</option>
-              </SelectField>
-              <RangeField
-                label="Espaçamento da letra"
-                max={220}
-                min={100}
-                step={5}
-                unit="%"
-                value={assetSettings.lyricsLineSpacing}
-                onChange={(lyricsLineSpacing) =>
-                  onAssetSettings({ lyricsLineSpacing })
-                }
-              />
-            </>
-          )}
-          {assetSettings.lyricsMode === "excerpt" && (
-            <>
-              {lyricsOptions.length ? (
-                <SelectField
-                  label="Trecho sugerido"
-                  value=""
-                  onChange={(value) => {
-                    const option = lyricsOptions.find(
-                      (candidate) => candidate.id === value,
-                    );
-                    if (option) {
-                      onAssetSettings({
-                        includeLyrics: true,
-                        lyricsExcerpt: option.value,
-                        lyricsMode: "excerpt",
-                      });
-                    }
-                  }}
-                >
-                  <option value="">Escolher trecho</option>
-                  {lyricsOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </SelectField>
-              ) : (
-                <p className="helper-copy">
-                  Esta faixa ainda não tem letra detectada; cole o trecho abaixo
-                  para incluir no manifesto.
-                </p>
-              )}
-              <TextArea
-                label="Trecho editável da letra"
-                rows={6}
-                value={assetSettings.lyricsExcerpt}
-                onChange={(lyricsExcerpt) =>
-                  onAssetSettings({
-                    includeLyrics: true,
-                    lyricsExcerpt,
-                    lyricsMode: "excerpt",
-                  })
-                }
-              />
-            </>
-          )}
-          <div className="publication-text-override">
-            <p className="inspector-kicker">Texto deste asset</p>
-            <RangeField
-              label="Tamanho do texto"
-              max={2}
-              min={0.5}
-              step={0.05}
-              unit="x"
-              value={assetSettings.textScale}
-              onChange={(textScale) => onAssetSettings({ textScale })}
-            />
-            <RangeField
-              label="Deslocar horizontal"
-              max={40}
-              min={-40}
-              step={1}
-              unit="%"
-              value={assetSettings.textOffsetX}
-              onChange={(textOffsetX) => onAssetSettings({ textOffsetX })}
-            />
-            <RangeField
-              label="Deslocar vertical"
-              max={40}
-              min={-40}
-              step={1}
-              unit="%"
-              value={assetSettings.textOffsetY}
-              onChange={(textOffsetY) => onAssetSettings({ textOffsetY })}
-            />
-            <CheckField
-              label="Ocultar texto neste asset"
-              checked={assetSettings.hideText}
-              onChange={(hideText) => onAssetSettings({ hideText })}
-            />
-            <div className="publication-apply-scope">
-              <button type="button" onClick={() => onApplyTextToScope("group")}>
-                Aplicar ao grupo
-              </button>
-              <button type="button" onClick={() => onApplyTextToScope("all")}>
-                Aplicar a todos
-              </button>
-            </div>
-          </div>
-          <p className="helper-copy">
-            Este ajuste fica salvo no projeto para {selectedPreset.label} e não
-            altera os demais assets. Use os botões para copiar o texto deste
-            asset ao grupo ou a todos os formatos.
-          </p>
-        </div>
-        <div className="inspector-subsection">
-          <p className="inspector-kicker">Destino</p>
-          <button
-            className="upload-action"
-            type="button"
-            onClick={onChooseOutput}
-          >
-            <FolderOpen /> {outputFolderName}
-          </button>
-          <SelectField
-            label="Se a pasta do projeto já existir"
-            value={outputConflictMode}
-            onChange={onOutputConflictMode}
-          >
-            <option value="backup">Fazer backup antes</option>
-            <option value="overwrite">Sobrescrever nomes iguais</option>
-            <option value="clear">Excluir conteúdo anterior</option>
-          </SelectField>
-          <p className="helper-copy">
-            A saída fica em assets/publicacao/imagens, clips e dados dentro da
-            subpasta do projeto.
-          </p>
-          <button
-            className="primary-action wide"
-            disabled={selectedCount === 0}
-            type="button"
-            onClick={onExport}
-          >
-            <Download /> Gerar divulgação
-          </button>
-        </div>
-      </InspectorGroup>
-    </>
-  );
-}
-
 function trackFromInput(
   name: string,
   info?: AudioInfo,
@@ -10434,7 +5700,11 @@ function trackFromInput(
   const projectDefaults = normalizeProjectMetadataDefaults(defaults);
   const metadata = metadataFromAudio(
     info,
-    { ...defaultMetadata, ...projectDefaults },
+    {
+      ...defaultMetadata,
+      ...projectDefaults,
+      title: titleFromSourceKey(name),
+    },
     true,
   );
   return {
@@ -10596,9 +5866,12 @@ function metadataFromAudio(
     albumArtist:
       info?.albumArtist || suggestions?.albumArtist || fallback.albumArtist,
     genre: info?.genre || suggestions?.genre || fallback.genre,
+    description: info?.description || info?.comment || fallback.description,
     comment: info?.comment || suggestions?.comment || fallback.comment,
-    composer: suggestions?.composer || fallback.composer,
-    year: suggestions?.year || fallback.year,
+    composer: info?.composer || suggestions?.composer || fallback.composer,
+    year: String(info?.year ?? suggestions?.year ?? fallback.year),
+    recordingDate: String(info?.date ?? fallback.recordingDate),
+    lyrics: info?.lyrics || fallback.lyrics,
     trackNumber:
       Number(info?.track) || suggestions?.trackNumber || fallback.trackNumber,
     trackTotal:
@@ -10611,6 +5884,11 @@ function metadataFromAudio(
       Number(info?.diskTotal) || suggestions?.diskTotal || fallback.diskTotal,
     useEmbeddedCover: Boolean(info?.hasEmbeddedCover),
   };
+}
+
+function titleFromSourceKey(sourceKey: string) {
+  const fileName = sourceKey.split(/[\\/]+/).pop() ?? sourceKey;
+  return fileName.replace(/\.[^.]+$/, "") || defaultMetadata.title;
 }
 
 function trackBatchGroupKey(track: TrackDraft) {
@@ -11552,99 +6830,6 @@ function lyricPreview(value: string) {
   return lines.slice(0, 3).join(" / ").slice(0, 160);
 }
 
-function lyricsMatchLabel(suggestion: LyricsSuggestion) {
-  const base =
-    {
-      "audio-stem": "nome do arquivo",
-      "track-title": "título da faixa",
-      "numbered-title": "número e título",
-      "numbered-audio-stem": "número e arquivo",
-      "title-with-prefix": "título com prefixo",
-      "stem-with-prefix": "arquivo com prefixo",
-      "track-number": "número da faixa",
-    }[suggestion.matchedBy] ?? "candidato";
-  return suggestion.confidence === "high" ? `match por ${base}` : base;
-}
-
-// Group export formats for the divulgação checklist: generic "Social" presets
-// read as "Padrões" and come first; the rest group by platform.
-function publicationFormatGroups() {
-  const groups = new Map<string, PublicationAssetPreset[]>();
-  for (const preset of publicationAssetPresets) {
-    const label = preset.platform === "Social" ? "Padrões" : preset.platform;
-    const bucket = groups.get(label) ?? [];
-    bucket.push(preset);
-    groups.set(label, bucket);
-  }
-  return [...groups.entries()]
-    .sort(([a], [b]) => (a === "Padrões" ? -1 : b === "Padrões" ? 1 : 0))
-    .map(([label, presets]) => ({ label, presets }));
-}
-
-function publicationPresetsForMode(
-  selectedPreset: PublicationAssetPreset,
-  mode: PublicationAssetMode,
-) {
-  if (mode === "all") return publicationAssetPresets;
-  if (mode === "group") {
-    return publicationAssetPresets.filter(
-      (preset) => preset.kind === selectedPreset.kind,
-    );
-  }
-  return [selectedPreset];
-}
-
-function publicationAssetModeLabel(mode: PublicationAssetMode) {
-  return {
-    single: "Individual",
-    group: "Grupo do formato",
-    all: "Total",
-  }[mode];
-}
-
-function publicationLyricsSettingLabel(settings: PublicationAssetSettings) {
-  if (settings.lyricsMode === "full") return "letra completa";
-  if (settings.lyricsMode === "excerpt") return "trecho de letra";
-  return "sem letra";
-}
-
-function publicationLyricsExcerptOptions(value: string) {
-  const lines = String(value ?? "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (!lines.length) return [];
-  const windowSize = Math.min(4, lines.length);
-  const starts =
-    lines.length <= windowSize
-      ? [{ id: "all", label: "Letra detectada", start: 0 }]
-      : [
-          { id: "start", label: "Início da letra", start: 0 },
-          {
-            id: "middle",
-            label: "Meio da letra",
-            start: Math.max(0, Math.floor((lines.length - windowSize) / 2)),
-          },
-          {
-            id: "end",
-            label: "Final da letra",
-            start: Math.max(0, lines.length - windowSize),
-          },
-        ];
-  const seen = new Set<string>();
-  return starts
-    .map((option) => ({
-      id: option.id,
-      label: option.label,
-      value: lines.slice(option.start, option.start + windowSize).join("\n"),
-    }))
-    .filter((option) => {
-      if (seen.has(option.value)) return false;
-      seen.add(option.value);
-      return true;
-    });
-}
-
 async function ensureAlbumArtworkDirectories(
   handle: FileSystemDirectoryHandle,
   rootPrefix: string,
@@ -11670,18 +6855,6 @@ async function ensureAlbumArtworkDirectories(
   }
 }
 
-function artworkConventionHint(track: TrackDraft) {
-  if (track.metadata.trackTotal > 1) {
-    return "Para automatizar as capas, use art/ na pasta do álbum. Arquivos iniciados pelo número da faixa vencem a capa geral album.* ou cover.*.";
-  }
-  return `Para automatizar esta capa, use ${singleTrackArtworkFileName(track.sourceKey)} ao lado do MP3.`;
-}
-
-function artworkVariantLabel(artwork: ArtworkSuggestion) {
-  const segments = artwork.relativePath.split(/[\\/]+/);
-  return segments.at(-1) ?? artwork.file.name;
-}
-
 function audioDraftFromMetadata(metadata: TrackMetadata): AudioTagDraft {
   return {
     title: metadata.title,
@@ -11700,6 +6873,13 @@ function audioDraftFromMetadata(metadata: TrackMetadata): AudioTagDraft {
     lyrics: metadata.lyrics,
     lyricsLanguage: metadata.lyricsLanguage,
     normalizationEnabled: metadata.normalizationEnabled,
+    podcastVoiceProfile: metadata.podcastVoiceProfile,
+    podcastTrimSilence: metadata.podcastTrimSilence,
+    podcastVoiceBoost: metadata.podcastVoiceBoost,
+    podcastPlaybackSpeed: metadata.podcastPlaybackSpeed,
+    podcastIntroInsert: metadata.podcastIntroInsert,
+    podcastOutroInsert: metadata.podcastOutroInsert,
+    podcastAdInsert: metadata.podcastAdInsert,
     cleanPackage: true,
   };
 }
@@ -11713,8 +6893,14 @@ function selectedTrackFrom(tracks: TrackDraft[], selectedTrackId: string) {
   return tracks.find((track) => track.id === selectedTrackId) ?? null;
 }
 
-function projectOptionLabel(project: InputProjectOption) {
-  return `${project.name} (${project.trackCount} música${project.trackCount === 1 ? "" : "s"})`;
+function projectOptionLabel(project: InputProjectOption, itemLabel = "música") {
+  const plural =
+    itemLabel === "episódio"
+      ? "episódios"
+      : `${itemLabel}${itemLabel.endsWith("s") ? "" : "s"}`;
+  return `${project.name} (${project.trackCount} ${
+    project.trackCount === 1 ? itemLabel : plural
+  })`;
 }
 
 function isBrowserInputProject(
@@ -11842,478 +7028,6 @@ function applyPublicationTemplateToTracks(
         }
       : track,
   );
-}
-
-function cloneTextSettings(settings?: TextOverlaySettings) {
-  return mergeTextSettings(settings);
-}
-
-function normalizeTextOrder(order?: TextFieldKey[]) {
-  const incoming = Array.isArray(order) ? order : [];
-  const next = incoming.filter(
-    (field): field is TextFieldKey =>
-      textFieldOrder.includes(field as TextFieldKey) &&
-      !incoming.slice(0, incoming.indexOf(field)).includes(field),
-  );
-  return [...next, ...textFieldOrder.filter((field) => !next.includes(field))];
-}
-
-function mergeTextFieldStyle(
-  field: TextFieldKey,
-  base?: Partial<TextFieldStyle>,
-  patch?: Partial<TextFieldStyle>,
-): TextFieldStyle {
-  const fallback = defaultTextFieldStyles[field];
-  const candidateFont =
-    patch?.fontFamily ?? base?.fontFamily ?? fallback.fontFamily;
-  const fontFamily = textFontOptions.some((f) => f.value === candidateFont)
-    ? candidateFont
-    : fallback.fontFamily;
-  return {
-    fontFamily,
-    fontSize: clampNumber(
-      patch?.fontSize ?? base?.fontSize,
-      10,
-      96,
-      fallback.fontSize,
-    ),
-    fontWeight: clampNumber(
-      patch?.fontWeight ?? base?.fontWeight,
-      300,
-      900,
-      fallback.fontWeight,
-    ),
-    fontStyle:
-      (patch?.fontStyle ?? base?.fontStyle) === "italic"
-        ? "italic"
-        : fallback.fontStyle,
-    letterSpacing: clampNumber(
-      patch?.letterSpacing ?? base?.letterSpacing,
-      0,
-      24,
-      fallback.letterSpacing,
-    ),
-    lineHeight: clampNumber(
-      patch?.lineHeight ?? base?.lineHeight,
-      90,
-      180,
-      fallback.lineHeight,
-    ),
-    color: safeHex(patch?.color ?? base?.color, fallback.color),
-    opacity: clampNumber(
-      patch?.opacity ?? base?.opacity,
-      0,
-      100,
-      fallback.opacity,
-    ),
-    fadeOut: normalizeTextFadeOut(patch?.fadeOut ?? base?.fadeOut),
-    fadeIn: normalizeFadeIn(patch?.fadeIn ?? base?.fadeIn),
-    align: ["left", "center", "right"].includes(
-      patch?.align ?? base?.align ?? fallback.align,
-    )
-      ? (patch?.align ?? base?.align ?? fallback.align)
-      : fallback.align,
-  };
-}
-
-function normalizeTextFadeOut(
-  value?: Partial<TextFadeOutSettings> | null,
-): TextFadeOutSettings {
-  const mode = value?.mode === "timed" ? "timed" : "tail";
-  return {
-    enabled: value?.enabled === true,
-    mode,
-    endPercent: clampNumber(
-      Number(value?.endPercent ?? defaultTextFadeOut.endPercent),
-      5,
-      95,
-      defaultTextFadeOut.endPercent,
-    ),
-    startPercent: clampNumber(
-      Number(value?.startPercent ?? defaultTextFadeOut.startPercent),
-      0,
-      95,
-      defaultTextFadeOut.startPercent,
-    ),
-    durationSeconds: clampNumber(
-      Number(value?.durationSeconds ?? defaultTextFadeOut.durationSeconds),
-      0.25,
-      60,
-      defaultTextFadeOut.durationSeconds,
-    ),
-  };
-}
-
-function normalizeTextFieldStyles(
-  base?: Partial<Record<TextFieldKey, Partial<TextFieldStyle>>>,
-  patch?: Partial<Record<TextFieldKey, Partial<TextFieldStyle>>>,
-) {
-  return textFieldOrder.reduce(
-    (styles, field) => ({
-      ...styles,
-      [field]: mergeTextFieldStyle(field, base?.[field], patch?.[field]),
-    }),
-    {} as Record<TextFieldKey, TextFieldStyle>,
-  );
-}
-
-function mergeTextSettings(
-  base?: Partial<TextOverlaySettings>,
-  patch: Partial<TextOverlaySettings> = {},
-): TextOverlaySettings {
-  return {
-    ...defaultTextSettings,
-    ...base,
-    ...patch,
-    order: normalizeTextOrder(patch.order ?? base?.order),
-    fieldStyles: normalizeTextFieldStyles(base?.fieldStyles, patch.fieldStyles),
-    fields: {
-      ...defaultTextSettings.fields,
-      ...(base?.fields ?? {}),
-      ...(patch.fields ?? {}),
-    },
-  };
-}
-
-function textPresetPatch(
-  preset: TextOverlaySettings["preset"],
-): Partial<TextOverlaySettings> {
-  if (preset === "bottom-center") {
-    return {
-      preset,
-      order: ["title", "version", "artist", "album", "year"],
-      fieldStyles: normalizeTextFieldStyles(undefined, {
-        title: { fontSize: 36, fontWeight: 720, color: "#ffffff" },
-        artist: { fontSize: 24, opacity: 76 },
-        album: { fontSize: 22, opacity: 64 },
-        year: { fontSize: 18, letterSpacing: 3, opacity: 58 },
-      }),
-      x: 50,
-      y: 78,
-      align: "center",
-      verticalAnchor: "top",
-      fontSize: 34,
-      shadow: 58,
-    };
-  }
-  if (preset === "cover-left") {
-    return {
-      preset,
-      order: ["title", "artist", "album", "year", "version"],
-      fieldStyles: normalizeTextFieldStyles(undefined, {
-        title: { fontSize: 40, fontWeight: 760 },
-        artist: { fontSize: 25, opacity: 78 },
-        album: { fontSize: 22, color: "#d6c7a4", opacity: 62 },
-      }),
-      x: 58,
-      y: 34,
-      align: "left",
-      verticalAnchor: "top",
-      fontSize: 38,
-      shadow: 52,
-    };
-  }
-  if (preset === "side-left") {
-    return {
-      preset,
-      order: ["title", "album", "artist", "year", "version"],
-      fieldStyles: normalizeTextFieldStyles(undefined, {
-        title: { fontSize: 42, fontWeight: 760 },
-        album: { fontSize: 25, color: "#d6c7a4", opacity: 76 },
-        artist: { fontSize: 24, opacity: 78 },
-      }),
-      x: 7,
-      y: 50,
-      align: "left",
-      verticalAnchor: "middle",
-      fontSize: 36,
-      shadow: 54,
-    };
-  }
-  if (preset === "side-right") {
-    return {
-      preset,
-      order: ["title", "album", "artist", "year", "version"],
-      fieldStyles: normalizeTextFieldStyles(undefined, {
-        title: { fontSize: 42, fontWeight: 760 },
-        album: { fontSize: 25, color: "#d6c7a4", opacity: 76 },
-        artist: { fontSize: 24, opacity: 78 },
-      }),
-      x: 64,
-      y: 50,
-      align: "left",
-      verticalAnchor: "middle",
-      fontSize: 36,
-      shadow: 54,
-    };
-  }
-  if (preset === "editorial-stack") {
-    return {
-      preset,
-      order: ["title", "album", "artist", "year", "version"],
-      fieldStyles: normalizeTextFieldStyles(undefined, {
-        title: {
-          fontFamily: "Georgia",
-          fontSize: 52,
-          fontWeight: 620,
-          color: "#fff6df",
-        },
-        album: {
-          fontFamily: "Georgia",
-          fontSize: 30,
-          fontWeight: 560,
-          color: "#d9bd86",
-          opacity: 84,
-        },
-        artist: { fontSize: 24, fontWeight: 640, opacity: 78 },
-        year: {
-          fontSize: 17,
-          fontWeight: 700,
-          letterSpacing: 7,
-          opacity: 64,
-        },
-      }),
-      x: 8,
-      y: 66,
-      align: "left",
-      verticalAnchor: "middle",
-      fontSize: 44,
-      shadow: 66,
-    };
-  }
-  if (preset === "quiet-album") {
-    return {
-      preset,
-      order: ["title", "artist", "album", "year", "version"],
-      fieldStyles: normalizeTextFieldStyles(undefined, {
-        title: { fontSize: 32, fontWeight: 690, color: "#f7f8fb" },
-        artist: { fontSize: 21, opacity: 70 },
-        album: { fontSize: 20, color: "#b9c2d1", opacity: 62 },
-        year: { fontSize: 15, letterSpacing: 4, opacity: 54 },
-      }),
-      x: 6,
-      y: 8,
-      align: "left",
-      verticalAnchor: "top",
-      fontSize: 32,
-      shadow: 46,
-    };
-  }
-  if (preset === "jazz-serif") {
-    return {
-      preset,
-      order: ["title", "artist", "album", "year", "version"],
-      fieldStyles: normalizeTextFieldStyles(undefined, {
-        title: {
-          fontFamily: "Playfair Display",
-          fontSize: 46,
-          fontWeight: 700,
-          fontStyle: "italic",
-          color: "#fff8ec",
-        },
-        artist: {
-          fontFamily: "Playfair Display",
-          fontSize: 26,
-          fontWeight: 400,
-          color: "#d6c89a",
-          opacity: 80,
-        },
-        album: {
-          fontFamily: "Inter",
-          fontSize: 16,
-          fontWeight: 700,
-          letterSpacing: 6,
-          textTransform: "uppercase",
-          opacity: 60,
-        },
-        year: {
-          fontFamily: "Inter",
-          fontSize: 14,
-          letterSpacing: 4,
-          textTransform: "uppercase",
-          opacity: 50,
-        },
-      }),
-      x: 8,
-      y: 78,
-      align: "left",
-      verticalAnchor: "top",
-      fontSize: 46,
-      shadow: 64,
-    };
-  }
-  if (preset === "bold-impact") {
-    return {
-      preset,
-      order: ["title", "artist", "version", "album", "year"],
-      fieldStyles: normalizeTextFieldStyles(undefined, {
-        title: {
-          fontFamily: "Oswald",
-          fontSize: 56,
-          fontWeight: 700,
-          textTransform: "uppercase",
-          color: "#ffffff",
-          letterSpacing: 2,
-        },
-        artist: {
-          fontFamily: "Oswald",
-          fontSize: 28,
-          fontWeight: 400,
-          textTransform: "uppercase",
-          letterSpacing: 4,
-          color: "#c8d0de",
-          opacity: 82,
-        },
-        album: {
-          fontFamily: "Inter",
-          fontSize: 16,
-          fontWeight: 700,
-          letterSpacing: 6,
-          textTransform: "uppercase",
-          opacity: 56,
-        },
-      }),
-      x: 6,
-      y: 72,
-      align: "left",
-      verticalAnchor: "top",
-      fontSize: 54,
-      shadow: 70,
-    };
-  }
-  if (preset === "cinzel-caps") {
-    return {
-      preset,
-      order: ["title", "artist", "album", "year", "version"],
-      fieldStyles: normalizeTextFieldStyles(undefined, {
-        title: {
-          fontFamily: "Cinzel",
-          fontSize: 40,
-          fontWeight: 700,
-          textTransform: "uppercase",
-          letterSpacing: 5,
-          color: "#f5edda",
-        },
-        artist: {
-          fontFamily: "Cinzel",
-          fontSize: 20,
-          fontWeight: 400,
-          textTransform: "uppercase",
-          letterSpacing: 8,
-          color: "#c9bfa0",
-          opacity: 74,
-        },
-        album: {
-          fontFamily: "Cinzel",
-          fontSize: 15,
-          fontWeight: 400,
-          textTransform: "uppercase",
-          letterSpacing: 6,
-          opacity: 56,
-        },
-      }),
-      x: 50,
-      y: 82,
-      align: "center",
-      verticalAnchor: "top",
-      fontSize: 38,
-      shadow: 62,
-    };
-  }
-  if (preset === "ambient-light") {
-    return {
-      preset,
-      order: ["title", "artist", "album", "year", "version"],
-      fieldStyles: normalizeTextFieldStyles(undefined, {
-        title: {
-          fontFamily: "Cormorant Garamond",
-          fontSize: 50,
-          fontWeight: 300,
-          fontStyle: "italic",
-          color: "#fffdf8",
-          letterSpacing: 1,
-        },
-        artist: {
-          fontFamily: "Cormorant Garamond",
-          fontSize: 24,
-          fontWeight: 400,
-          color: "#cfc9b4",
-          opacity: 76,
-        },
-        album: {
-          fontFamily: "Inter",
-          fontSize: 13,
-          fontWeight: 400,
-          letterSpacing: 5,
-          textTransform: "uppercase",
-          color: "#a09882",
-          opacity: 58,
-        },
-        year: {
-          fontFamily: "Inter",
-          fontSize: 12,
-          letterSpacing: 3,
-          textTransform: "uppercase",
-          opacity: 48,
-        },
-      }),
-      x: 50,
-      y: 88,
-      align: "center",
-      verticalAnchor: "bottom",
-      fontSize: 44,
-      shadow: 42,
-    };
-  }
-  if (preset === "minimal-grotesk") {
-    return {
-      preset,
-      order: ["title", "artist", "album", "year", "version"],
-      fieldStyles: normalizeTextFieldStyles(undefined, {
-        title: {
-          fontFamily: "Space Grotesk",
-          fontSize: 38,
-          fontWeight: 700,
-          textTransform: "uppercase",
-          letterSpacing: 3,
-          color: "#ffffff",
-        },
-        artist: {
-          fontFamily: "Space Grotesk",
-          fontSize: 20,
-          fontWeight: 400,
-          color: "#b2bccb",
-          letterSpacing: 1,
-          opacity: 78,
-        },
-        album: {
-          fontFamily: "Space Grotesk",
-          fontSize: 14,
-          fontWeight: 600,
-          letterSpacing: 4,
-          textTransform: "uppercase",
-          opacity: 56,
-        },
-      }),
-      x: 5,
-      y: 5,
-      align: "left",
-      verticalAnchor: "top",
-      fontSize: 38,
-      shadow: 44,
-    };
-  }
-  return {
-    preset,
-    order: ["title", "version", "artist", "album", "year"],
-    fieldStyles: normalizeTextFieldStyles(),
-    x: 5,
-    y: 7,
-    align: "left",
-    verticalAnchor: "top",
-    fontSize: 42,
-    shadow: 48,
-  };
 }
 
 function coverLayerFromArtwork(
@@ -12567,6 +7281,27 @@ function savePanelWidths(widths: { left: number; right: number }) {
   }
 }
 
+function loadPodcastEnabled() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(PODCAST_ENABLED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function savePodcastEnabled(enabled: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      PODCAST_ENABLED_STORAGE_KEY,
+      enabled ? "true" : "false",
+    );
+  } catch {
+    // Podcast is an opt-in UI preference; storage failures should not block use.
+  }
+}
+
 function clampPanelWidth(
   value: number,
   bounds: { min: number; max: number },
@@ -12582,93 +7317,10 @@ function clampPanelWidth(
   return Math.round(Math.min(Math.max(value, bounds.min), max));
 }
 
-// Same audio source resolution the player uses, so previews can play a track
-// whether it came from the internal input/ folder or an uploaded file.
-function trackAudioSrc(track: TrackDraft) {
-  return (
-    track.sourceUrl ??
-    (track.source === "input"
-      ? `/api/audio/${encodeURIComponent(track.sourceKey)}`
-      : "")
-  );
-}
-
-function thumbnailFingerprint(
-  track: TrackDraft,
-  coverSrc: string | undefined,
-  showMetadata: boolean,
-) {
-  return JSON.stringify({
-    coverSrc,
-    layers: track.layers.map((layer) => ({
-      id: layer.id,
-      name: layer.name,
-      opacity: layer.opacity,
-      order: layer.order,
-      rotation: layer.rotation,
-      scale: layer.scale,
-      blur: layer.blur,
-      maskOpacity: layer.maskOpacity,
-      coverFadeOut: layer.coverFadeOut,
-      visible: layer.visible,
-      x: layer.x,
-      y: layer.y,
-    })),
-    durationSeconds: track.audioInfo?.durationSeconds ?? null,
-    metadata: track.metadata,
-    scene: track.scene,
-    showMetadata,
-    textSettings: track.textSettings,
-  });
-}
-
 function formatDuration(seconds?: number | null) {
   if (!Number.isFinite(seconds)) return "--:--";
   const safe = Number(seconds);
   return `${Math.floor(safe / 60)}:${String(Math.floor(safe % 60)).padStart(2, "0")}`;
-}
-
-function formatMetric(value?: number | null, unit = "") {
-  return Number.isFinite(value) ? `${Number(value).toFixed(1)}${unit}` : "--";
-}
-
-function previewTreatedFileName(
-  metadata: TrackMetadata,
-  pattern: FileNamePattern,
-) {
-  return `${buildNameFromPattern(pattern, metadata, safeFilePart) || "Sem titulo"}.mp3`;
-}
-
-function safeFilePart(value: string) {
-  const cleaned = value
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return cleaned || "Sem titulo";
-}
-
-function riskLabel(risk: AudioTechnicalAnalysis["risk"]) {
-  return {
-    safe: "Margem adequada",
-    "reduced-headroom": "Margem reduzida",
-    overload: "Sobrecarga detectada",
-    "decode-error": "Falha na análise",
-  }[risk];
-}
-
-function riskDescription(analysis: AudioTechnicalAnalysis) {
-  if (analysis.risk === "reduced-headroom") {
-    return `Margem reduzida: pico verdadeiro em ${analysis.truePeakDbtp.toFixed(2)} dBTP. Não há clipping confirmado; considere normalizar a cópia tratada.`;
-  }
-  if (analysis.risk === "overload") {
-    return `Sobrecarga detectada: pico verdadeiro em ${analysis.truePeakDbtp.toFixed(2)} dBTP. Revise antes de exportar.`;
-  }
-  if (analysis.risk === "safe") {
-    return `Margem adequada: ${analysis.integratedLufs.toFixed(1)} LUFS e ${analysis.truePeakDbtp.toFixed(2)} dBTP.`;
-  }
-  return "Não foi possível decodificar o áudio para a análise técnica.";
 }
 
 function stepLabel(step: ActiveStep) {
@@ -12678,6 +7330,64 @@ function stepLabel(step: ActiveStep) {
     text: "Texto",
     export: "Exportar",
   }[step];
+}
+
+function visualStageLabel(
+  visualStageView: VisualStageView,
+  activeStep: ActiveStep,
+) {
+  if (visualStageView === "promotion") return "Divulgação";
+  if (visualStageView === "review") return "Visualizar";
+  if (visualStageView === "publication-export") return "Exportar Divulgação";
+  return stepLabel(activeStep);
+}
+
+function normalizeSnapshotNavigation(snapshot: ProjectSnapshot): {
+  workspaceMode: WorkspaceMode;
+  audioStageView: AudioStageView;
+  visualStageView: VisualStageView;
+  activeStep: ActiveStep;
+} {
+  const legacyAudioStageView = snapshot.audioStageView;
+  const legacyVisualStageView = snapshot.visualStageView;
+  let workspaceMode: WorkspaceMode =
+    snapshot.workspaceMode === "audio" ? "audio" : "visual";
+  let audioStageView: AudioStageView =
+    legacyAudioStageView === "artwork" ||
+    (legacyAudioStageView === "podcast" && snapshot.podcastEnabled === true) ||
+    legacyAudioStageView === "catalog" ||
+    legacyAudioStageView === "audio-export"
+      ? legacyAudioStageView
+      : "edit";
+  let visualStageView: VisualStageView =
+    legacyVisualStageView === "review" || legacyVisualStageView === "videos"
+      ? "review"
+      : legacyVisualStageView === "promotion"
+        ? "promotion"
+        : legacyVisualStageView === "publication-export" ||
+            legacyVisualStageView === "queue"
+          ? "publication-export"
+          : "editor";
+  let activeStep: ActiveStep =
+    snapshot.activeStep === "text" ||
+    snapshot.activeStep === "visual" ||
+    snapshot.activeStep === "export"
+      ? snapshot.activeStep
+      : "visual";
+
+  if (legacyAudioStageView === "videos") {
+    workspaceMode = "visual";
+    audioStageView = "edit";
+    visualStageView = "review";
+    activeStep = "visual";
+  }
+  if (
+    visualStageView === "publication-export" ||
+    visualStageView === "promotion"
+  ) {
+    activeStep = "export";
+  }
+  return { workspaceMode, audioStageView, visualStageView, activeStep };
 }
 
 function formatUsage(usage?: { files: number; bytes: number }) {

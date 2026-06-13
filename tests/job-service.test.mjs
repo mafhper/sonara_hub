@@ -10,8 +10,9 @@ import {
   createJobRunner,
   createJobStageTracker,
   isCanceledJobError,
-  runJobWithRetry,
   normalizeJobError,
+  resolveJobConcurrency,
+  runJobWithRetry,
 } from "../server/job-service.mjs";
 
 test("job service normalizes worker errors with stable code and detail", () => {
@@ -118,6 +119,33 @@ test("job queue respects concurrency and keeps draining after task errors", asyn
     concurrency: 2,
     pending: 0,
   });
+});
+
+test("job concurrency resolver clamps configured and default values", () => {
+  assert.equal(
+    resolveJobConcurrency({ configured: "3", defaultConcurrency: 1, max: 4 }),
+    3,
+  );
+  assert.equal(
+    resolveJobConcurrency({ configured: "9", defaultConcurrency: 1, max: 4 }),
+    4,
+  );
+  assert.equal(
+    resolveJobConcurrency({
+      configured: "invalid",
+      defaultConcurrency: 0,
+      max: 4,
+    }),
+    1,
+  );
+  assert.equal(
+    resolveJobConcurrency({
+      configured: undefined,
+      defaultConcurrency: 2.8,
+      max: 4,
+    }),
+    2,
+  );
 });
 
 test("job stage tracker records ordered timings", () => {

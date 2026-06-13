@@ -80,9 +80,8 @@ try {
     await ensurePanelOpen(page, "library");
     await ensurePanelOpen(page, "inspector");
     await page
-      .locator(".steps button")
-      .filter({ hasText: "Visual" })
-      .first()
+      .getByLabel("Etapas do projeto")
+      .getByRole("button", { name: "Visual", exact: true })
       .click();
     await page
       .locator('select:has(option[value="volumetric-clouds"])')

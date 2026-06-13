@@ -57,6 +57,17 @@ export function applyCoverSeriesMetaStylePatch<
   options?: { target?: "field" | "all" },
 ): TSettings;
 
+export type TextBatchApplyMode = "all" | "position" | "style";
+
+export const TEXT_POSITION_KEYS: readonly string[];
+
+export function mergeTextSettingsByMode<TTextSettings>(
+  current: TTextSettings,
+  template: TTextSettings,
+  mode?: TextBatchApplyMode,
+  clone?: (settings: TTextSettings) => TTextSettings,
+): TTextSettings;
+
 export function applySelectedTextSettingsToBatch<
   TTextSettings,
   TTrack extends TextScopedTrack<TTextSettings>,
@@ -64,6 +75,7 @@ export function applySelectedTextSettingsToBatch<
   tracks: TTrack[],
   selectedTrackId: string,
   clone?: (settings: TTextSettings) => TTextSettings,
+  mode?: TextBatchApplyMode,
 ): TTrack[];
 
 type EffectiveCompositionTrack<TScene, TText, TLayer, TMeta, TArtwork> =

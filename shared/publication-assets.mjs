@@ -1,4 +1,53 @@
-export const publicationAssetKinds = ["image", "clip"];
+export const publicationAssetKinds = ["image", "clip", "booklet"];
+
+export const publicationBookletThemes = [
+  {
+    id: "midnight",
+    label: "Noite editorial",
+    background: "#0f1117",
+    surface: "#181d27",
+    text: "#f5f7fa",
+    muted: "#c8d0dc",
+    accent: "#f0b860",
+  },
+  {
+    id: "studio",
+    label: "Estúdio claro",
+    background: "#f5f2ec",
+    surface: "#fffaf2",
+    text: "#17191f",
+    muted: "#5f6673",
+    accent: "#3f5f9f",
+  },
+  {
+    id: "contrast",
+    label: "Alto contraste",
+    background: "#050506",
+    surface: "#111216",
+    text: "#ffffff",
+    muted: "#d8dee8",
+    accent: "#b8ccff",
+  },
+];
+
+const MB = 1024 * 1024;
+
+const publicationBookletThemeIds = new Set(
+  publicationBookletThemes.map((theme) => theme.id),
+);
+
+export function normalizePublicationBookletTheme(value) {
+  const theme = String(value ?? "").trim();
+  return publicationBookletThemeIds.has(theme) ? theme : "midnight";
+}
+
+export function publicationBookletThemeById(id) {
+  const themeId = normalizePublicationBookletTheme(id);
+  return (
+    publicationBookletThemes.find((theme) => theme.id === themeId) ??
+    publicationBookletThemes[0]
+  );
+}
 
 export const publicationAssetPresets = [
   {
@@ -10,6 +59,10 @@ export const publicationAssetPresets = [
     height: 720,
     directory: "imagens",
     extension: "jpg",
+    constraints: {
+      aspectRatio: "16:9",
+      codec: "JPEG",
+    },
   },
   {
     id: "youtube-banner",
@@ -70,6 +123,9 @@ export const publicationAssetPresets = [
     height: 1920,
     directory: "imagens",
     extension: "jpg",
+    constraints: {
+      aspectRatio: "9:16",
+    },
   },
   {
     id: "whatsapp-status",
@@ -80,6 +136,10 @@ export const publicationAssetPresets = [
     height: 1920,
     directory: "imagens",
     extension: "jpg",
+    constraints: {
+      aspectRatio: "9:16",
+      maxFileSizeBytes: 10 * MB,
+    },
   },
   {
     id: "clip-landscape",
@@ -91,6 +151,10 @@ export const publicationAssetPresets = [
     directory: "clips",
     extension: "mp4",
     maxDurationSeconds: 30,
+    constraints: {
+      codec: "H.264/AAC",
+      maxDurationSeconds: 30,
+    },
   },
   {
     id: "clip-square",
@@ -102,6 +166,10 @@ export const publicationAssetPresets = [
     directory: "clips",
     extension: "mp4",
     maxDurationSeconds: 30,
+    constraints: {
+      codec: "H.264/AAC",
+      maxDurationSeconds: 30,
+    },
   },
   {
     id: "clip-vertical",
@@ -113,6 +181,27 @@ export const publicationAssetPresets = [
     directory: "clips",
     extension: "mp4",
     maxDurationSeconds: 30,
+    constraints: {
+      codec: "H.264/AAC",
+      maxDurationSeconds: 30,
+      aspectRatio: "9:16",
+    },
+  },
+  {
+    id: "instagram-story-clip",
+    kind: "clip",
+    label: "Instagram story clip",
+    platform: "Instagram",
+    width: 1080,
+    height: 1920,
+    directory: "clips",
+    extension: "mp4",
+    maxDurationSeconds: 15,
+    constraints: {
+      codec: "H.264/AAC",
+      maxDurationSeconds: 15,
+      aspectRatio: "9:16",
+    },
   },
   {
     id: "instagram-reel",
@@ -123,7 +212,12 @@ export const publicationAssetPresets = [
     height: 1920,
     directory: "clips",
     extension: "mp4",
-    maxDurationSeconds: 30,
+    maxDurationSeconds: 90,
+    constraints: {
+      codec: "H.264/AAC",
+      maxDurationSeconds: 90,
+      aspectRatio: "9:16",
+    },
   },
   {
     id: "whatsapp-status-clip",
@@ -135,6 +229,66 @@ export const publicationAssetPresets = [
     directory: "clips",
     extension: "mp4",
     maxDurationSeconds: 30,
+    constraints: {
+      codec: "H.264/AAC",
+      maxDurationSeconds: 30,
+      maxFileSizeBytes: 10 * MB,
+      aspectRatio: "9:16",
+    },
+  },
+  {
+    id: "youtube-shorts",
+    kind: "clip",
+    label: "YouTube Shorts",
+    platform: "YouTube",
+    width: 1080,
+    height: 1920,
+    directory: "clips",
+    extension: "mp4",
+    maxDurationSeconds: 60,
+    constraints: {
+      codec: "H.264/AAC",
+      maxDurationSeconds: 60,
+      aspectRatio: "9:16",
+    },
+  },
+  {
+    id: "tiktok-vertical",
+    kind: "clip",
+    label: "TikTok vertical",
+    platform: "TikTok",
+    width: 1080,
+    height: 1920,
+    directory: "clips",
+    extension: "mp4",
+    maxDurationSeconds: 600,
+    constraints: {
+      codec: "H.264/AAC",
+      maxDurationSeconds: 600,
+      aspectRatio: "9:16",
+    },
+  },
+  {
+    id: "digital-booklet-editorial",
+    kind: "booklet",
+    label: "Encarte digital editorial",
+    platform: "Encarte digital",
+    width: 1440,
+    height: 1920,
+    directory: "encartes",
+    extension: "html",
+    bookletTheme: "midnight",
+  },
+  {
+    id: "digital-booklet-profile",
+    kind: "booklet",
+    label: "Página de perfil",
+    platform: "Encarte digital",
+    width: 1440,
+    height: 1920,
+    directory: "encartes",
+    extension: "html",
+    bookletTheme: "studio",
   },
 ];
 
@@ -153,7 +307,59 @@ export function publicationAssetPresetLabel(id) {
 export function clampPublicationClipDuration(value) {
   const duration = Number(value);
   if (Number.isNaN(duration)) return 15;
-  return Math.min(30, Math.max(1, duration));
+  return Math.min(600, Math.max(1, duration));
+}
+
+export function publicationPresetMaxDurationSeconds(idOrPreset) {
+  const preset =
+    typeof idOrPreset === "string"
+      ? publicationAssetPresetById(idOrPreset)
+      : idOrPreset;
+  return Math.max(
+    1,
+    Number(
+      preset?.constraints?.maxDurationSeconds ??
+        preset?.maxDurationSeconds ??
+        600,
+    ),
+  );
+}
+
+export function clampPublicationClipDurationForPreset(value, idOrPreset) {
+  return Math.min(
+    publicationPresetMaxDurationSeconds(idOrPreset),
+    clampPublicationClipDuration(value),
+  );
+}
+
+export function publicationConstraintSummary(idOrPreset) {
+  const preset =
+    typeof idOrPreset === "string"
+      ? publicationAssetPresetById(idOrPreset)
+      : idOrPreset;
+  const constraints = preset?.constraints;
+  if (!constraints) return "";
+  const parts = [];
+  if (constraints.maxDurationSeconds) {
+    parts.push(`até ${constraints.maxDurationSeconds}s`);
+  }
+  if (constraints.maxFileSizeBytes) {
+    parts.push(`até ${formatConstraintBytes(constraints.maxFileSizeBytes)}`);
+  }
+  if (constraints.codec) {
+    parts.push(constraints.codec);
+  }
+  if (constraints.aspectRatio) {
+    parts.push(constraints.aspectRatio);
+  }
+  return parts.join(" · ");
+}
+
+function formatConstraintBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes <= 0) return "";
+  if (bytes >= MB) return `${Math.round(bytes / MB)} MB`;
+  return `${Math.round(bytes / 1024)} KB`;
 }
 
 export function clampPublicationClipStart(value) {
@@ -257,8 +463,9 @@ export function normalizePublicationAssetOverrides(value = {}) {
       override.clipStart = clampPublicationClipStart(rawOverride.clipStart);
     }
     if (hasOwn(rawOverride, "clipDuration")) {
-      override.clipDuration = clampPublicationClipDuration(
+      override.clipDuration = clampPublicationClipDurationForPreset(
         rawOverride.clipDuration,
+        presetId,
       );
     }
     if (hasOwn(rawOverride, "includeLyrics")) {
@@ -309,6 +516,11 @@ export function normalizePublicationAssetOverrides(value = {}) {
         rawOverride.lyricsStyle,
       );
     }
+    if (hasOwn(rawOverride, "bookletTheme")) {
+      override.bookletTheme = normalizePublicationBookletTheme(
+        rawOverride.bookletTheme,
+      );
+    }
     if (Object.keys(override).length) output[presetId] = override;
   }
   return output;
@@ -322,7 +534,10 @@ export function publicationAssetSettingsForPreset(
   const preset = publicationAssetPresetById(presetId);
   const base = {
     clipStart: clampPublicationClipStart(defaults.clipStart ?? 0),
-    clipDuration: clampPublicationClipDuration(defaults.clipDuration ?? 15),
+    clipDuration: clampPublicationClipDurationForPreset(
+      defaults.clipDuration ?? 15,
+      preset,
+    ),
     includeLyrics: Boolean(defaults.includeLyrics),
     lyricsMode: normalizePublicationLyricsMode(
       defaults.lyricsMode,
@@ -339,6 +554,9 @@ export function publicationAssetSettingsForPreset(
     hideText: Boolean(defaults.hideText),
     lyricsPosition: normalizePublicationLyricsPosition(defaults.lyricsPosition),
     lyricsStyle: normalizePublicationLyricsStyle(defaults.lyricsStyle),
+    bookletTheme: normalizePublicationBookletTheme(
+      defaults.bookletTheme ?? preset.bookletTheme,
+    ),
   };
   const normalizedOverrides = normalizePublicationAssetOverrides(overrides);
   const merged = {
@@ -352,6 +570,10 @@ export function publicationAssetSettingsForPreset(
   return {
     ...merged,
     includeLyrics: lyricsMode !== "none",
+    clipDuration: clampPublicationClipDurationForPreset(
+      merged.clipDuration,
+      preset,
+    ),
     lyricsMode,
     lyricsExcerpt: sanitizePublicationLyricsExcerpt(merged.lyricsExcerpt),
     lyricsHideTags: Boolean(merged.lyricsHideTags),
@@ -364,6 +586,7 @@ export function publicationAssetSettingsForPreset(
     hideText: Boolean(merged.hideText),
     lyricsPosition: normalizePublicationLyricsPosition(merged.lyricsPosition),
     lyricsStyle: normalizePublicationLyricsStyle(merged.lyricsStyle),
+    bookletTheme: normalizePublicationBookletTheme(merged.bookletTheme),
   };
 }
 

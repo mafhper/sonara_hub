@@ -2580,7 +2580,7 @@ function globalMetricGroups(runs: BenchmarkRun[], metricKey: string) {
 }
 
 function sortDomains(domains: string[]) {
-  const priority = ["video", "audio", "asset", "workflow", "system"];
+  const priority = ["video", "audio", "podcast", "asset", "workflow", "system"];
   return domains.sort((first, second) => {
     const firstIndex = priority.indexOf(first);
     const secondIndex = priority.indexOf(second);
@@ -2614,6 +2614,7 @@ function domainLabel(domain: string) {
     {
       asset: "Assets",
       audio: "Áudio",
+      podcast: "Podcast",
       system: "Sistema",
       video: "Vídeo",
       workflow: "Workflow",
@@ -2636,6 +2637,7 @@ function workflowPipelineLabel(pipeline: string) {
     {
       "audio-processing": "Processamento de áudio",
       "full-workflow": "Workflow completo",
+      "podcast-feed": "Feeds de podcast",
       "publication-assets": "Assets de publicação",
       "render-export": "Exportação de vídeo",
       workflow: "Workflow",

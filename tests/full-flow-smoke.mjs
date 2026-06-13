@@ -191,7 +191,10 @@ try {
   );
 
   await page.getByRole("button", { name: "Estúdio visual" }).click();
-  await page.locator(".steps button").filter({ hasText: "Visual" }).click();
+  await page
+    .getByLabel("Etapas do projeto")
+    .getByRole("button", { name: "Visual", exact: true })
+    .click();
   await page
     .locator('select:has(option[value="audio-dark"])')
     .selectOption("audio-dark");
@@ -254,7 +257,10 @@ try {
     .locator(".text-fade-controls", { hasText: "Fade-out de Música" })
     .getByLabel("Tipo de fade")
     .selectOption("timed");
-  await page.getByRole("button", { name: "Aplicar a todos" }).click();
+  await page
+    .locator(".text-batch-apply")
+    .getByRole("button", { name: "Tudo" })
+    .click();
   await page
     .getByRole("status")
     .getByText("Texto do vídeo aplicado ao lote selecionado.")
@@ -264,7 +270,10 @@ try {
     fullPage: true,
   });
 
-  await page.locator(".steps button").filter({ hasText: "Fila" }).click();
+  await page
+    .locator(".steps button")
+    .filter({ hasText: "Exportar Divulgação" })
+    .click();
   await page.getByLabel("Resolução").selectOption("youtube-720p");
   await page.getByLabel("Perfil de qualidade").selectOption("fast");
   const renderResponses = [];
@@ -279,7 +288,7 @@ try {
   page.on("response", responseCollector);
   await page.getByRole("button", { name: "Exportar lote" }).click();
   await page
-    .getByText("Processamento de vídeos", { exact: true })
+    .getByText("Fila de exportação", { exact: true })
     .waitFor({ timeout: 20_000 });
   await waitForCondition(
     () => renderResponses.length >= 2,

@@ -28,13 +28,14 @@ test("workflow benchmark summarizes completed job timings by pipeline and stage"
       timing("asset-prepare", 150),
       timing("poster-render", 250),
     ]),
+    job("podcast-a", "podcast-feed", "done", [timing("feed-manifest", 50)]),
   ]);
 
   assert.equal(report.enabled, true);
-  assert.equal(report.sampleCount, 3);
+  assert.equal(report.sampleCount, 4);
   assert.deepEqual(
     report.pipelines.map((item) => item.pipeline),
-    ["render-export", "publication-assets", "audio-processing"],
+    ["render-export", "publication-assets", "audio-processing", "podcast-feed"],
   );
   assert.equal(
     report.pipelines.find((item) => item.pipeline === "render-export")
@@ -49,9 +50,13 @@ test("workflow benchmark summarizes completed job timings by pipeline and stage"
     report.stages.find((item) => item.stage === "asset-prepare").domain,
     "asset",
   );
+  assert.equal(
+    report.stages.find((item) => item.stage === "feed-manifest").domain,
+    "podcast",
+  );
   assert.deepEqual(
     report.samples.map((item) => item.jobId),
-    ["asset-a", "video-a", "audio-a"],
+    ["podcast-a", "asset-a", "video-a", "audio-a"],
   );
 });
 

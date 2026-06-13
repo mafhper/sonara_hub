@@ -93,16 +93,24 @@ async function testExternalProjectFolderFlow(browser) {
     );
 
     await setupField(page, "Pasta de entrada").getByRole("button").click();
-    const projectSelect = page
-      .locator(".library-project-picker select")
-      .first();
-    await projectSelect.waitFor();
-    assert.equal(await projectSelect.locator("option").count(), 2);
-    assert.deepEqual(await projectSelect.locator("option").allTextContents(), [
+    const projectSwitcher = page.locator(".project-switcher").first();
+    await projectSwitcher.waitFor();
+    await projectSwitcher.locator(".project-switcher-trigger").click();
+    const projectOptions = page.locator(".project-switcher-item");
+    await projectOptions.first().waitFor();
+    assert.equal(await projectOptions.count(), 2);
+    assert.deepEqual(await projectOptions.allTextContents(), [
       "Projeto Alpha (1 música)",
       "Projeto Beta (1 música)",
     ]);
-    assert.equal(await projectSelect.inputValue(), "Projeto Alpha");
+    assert.equal(
+      await projectOptions
+        .filter({ hasText: "Projeto Alpha" })
+        .first()
+        .getAttribute("aria-selected"),
+      "true",
+    );
+    await page.keyboard.press("Escape");
     await page
       .locator(".project-profile", { hasText: "Projeto Alpha" })
       .waitFor();
@@ -380,9 +388,17 @@ async function testUnreadableExternalAssetDoesNotBlockProjectSnapshot(browser) {
 
 async function testInternalProjectPrefersSonaraSnapshot(browser) {
   const internalSnapshotPuts = [];
+  const podcastFeedRequests = [];
+  const audioProcessRequests = [];
   const scenario = await createScenarioPage(browser, {
     globalSnapshot: emptyGlobalSnapshot(),
-    routeApi: (page) => routeInternalProjectApi(page, internalSnapshotPuts),
+    routeApi: (page) =>
+      routeInternalProjectApi(
+        page,
+        internalSnapshotPuts,
+        podcastFeedRequests,
+        audioProcessRequests,
+      ),
   });
   const { page } = scenario;
   try {
@@ -396,12 +412,119 @@ async function testInternalProjectPrefersSonaraSnapshot(browser) {
       .locator(".track-row", { hasText: "Saved Internal Title" })
       .waitFor();
     await page.waitForTimeout(900);
-
     assert.equal(
       internalSnapshotPuts.length,
       0,
       "restoring an internal project must not save the global empty snapshot over .sonara",
     );
+
+    await page.getByRole("button", { name: "Configurações locais" }).click();
+    await page.getByLabel("Habilitar Podcast").check();
+    await page.getByRole("button", { name: "Fechar configurações" }).click();
+    await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
+    await page.getByRole("button", { name: "Podcast", exact: true }).click();
+    await page.getByRole("heading", { name: "Podcast", exact: true }).waitFor();
+    await page
+      .locator(".podcast-feed-panel")
+      .getByRole("heading", { name: "Internal Album", exact: true })
+      .waitFor();
+    await page
+      .getByLabel("Base pública dos áudios")
+      .fill("https://cdn.example.com/internal");
+    await page
+      .getByLabel("URL do site/feed")
+      .fill("https://example.com/internal-feed");
+    await page
+      .getByLabel("Capa pública")
+      .fill("https://example.com/internal-cover.jpg");
+    await page.getByLabel("Responsável", { exact: true }).fill("Equipe Sonara");
+    await page.getByLabel("E-mail do responsável").fill("podcast@example.com");
+    assert.equal(
+      await page.getByLabel("Base pública dos áudios").inputValue(),
+      "https://cdn.example.com/internal",
+    );
+    await page.getByText("1/1 com metadados", { exact: true }).waitFor();
+    await page
+      .getByLabel("Página do episódio")
+      .fill("https://example.com/internal-feed/alpha");
+    await page
+      .getByLabel("Capa do episódio")
+      .fill("https://example.com/internal-alpha-cover.jpg");
+    await page
+      .getByLabel("Links de apoio")
+      .fill("https://example.com/internal-notes\nhttps://example.com/credits");
+    await page.getByLabel("Link de doação").fill("https://example.com/support");
+    const createFeedButton = page
+      .getByRole("button", { name: "Gerar job", exact: true })
+      .first();
+    await createFeedButton.waitFor();
+    const feedResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/api/podcast-feeds" &&
+        response.request().method() === "POST"
+      );
+    });
+    await createFeedButton.click();
+    await feedResponse;
+    assert.equal(podcastFeedRequests.length, 1);
+    assert.equal(
+      podcastFeedRequests[0].sidecar.feed.link,
+      "https://example.com/internal-feed",
+    );
+    assert.equal(
+      podcastFeedRequests[0].sidecar.feed.artworkUrl,
+      "https://example.com/internal-cover.jpg",
+    );
+    assert.equal(
+      podcastFeedRequests[0].sidecar.feed.owner.email,
+      "podcast@example.com",
+    );
+    assert.equal(
+      podcastFeedRequests[0].sidecar.episodes[0].enclosureUrl,
+      "https://cdn.example.com/internal/Internal%20Album/alpha.wav",
+    );
+    assert.equal(
+      podcastFeedRequests[0].sidecar.episodes[0].link,
+      "https://example.com/internal-feed/alpha",
+    );
+    assert.equal(
+      podcastFeedRequests[0].sidecar.episodes[0].artworkUrl,
+      "https://example.com/internal-alpha-cover.jpg",
+    );
+    assert.deepEqual(podcastFeedRequests[0].sidecar.episodes[0].links, [
+      "https://example.com/internal-notes",
+      "https://example.com/credits",
+    ]);
+    assert.equal(
+      podcastFeedRequests[0].sidecar.episodes[0].donationUrl,
+      "https://example.com/support",
+    );
+    await page.getByRole("button", { name: "RSS", exact: true }).waitFor();
+    await page.getByRole("button", { name: "JSON", exact: true }).waitFor();
+    await page.getByText("Publicação de podcast", { exact: true }).waitFor();
+    await page.waitForFunction(() =>
+      Array.from(document.querySelectorAll(".inspector-scroll textarea")).some(
+        (textarea) =>
+          textarea.value.includes("Transcrição interna do episódio"),
+      ),
+    );
+    await page.getByLabel("Perfil de voz").waitFor();
+    await page.getByRole("button", { name: "Editar", exact: true }).click();
+    await page.getByRole("tab", { name: "Qualidade" }).click();
+    const processResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/api/audio/process" &&
+        response.request().method() === "POST"
+      );
+    });
+    await page.getByRole("button", { name: "Processar cópia" }).click();
+    await processResponse;
+    assert.equal(audioProcessRequests.length, 1);
+    assert.match(audioProcessRequests[0], /name="inputAudio"/);
+    assert.match(audioProcessRequests[0], /Internal Album\/alpha\.wav/);
+    assert.doesNotMatch(audioProcessRequests[0], /name="audio"/);
     await scenario.assertClean();
   } finally {
     await scenario.close();
@@ -759,7 +882,12 @@ async function routeExternalAudioAnalyzeApi(page) {
   });
 }
 
-async function routeInternalProjectApi(page, snapshotPuts) {
+async function routeInternalProjectApi(
+  page,
+  snapshotPuts,
+  podcastFeedRequests,
+  audioProcessRequests,
+) {
   const savedSnapshot = internalSavedSnapshot();
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -786,6 +914,58 @@ async function routeInternalProjectApi(page, snapshotPuts) {
     }
     if (url.pathname === "/api/jobs") {
       await json(route, { jobs: [], queuePaused: false });
+      return;
+    }
+    if (url.pathname === "/api/podcast-feeds") {
+      podcastFeedRequests.push(JSON.parse(request.postData() ?? "{}"));
+      await json(route, { jobId: "podcast-feed-test-job" });
+      return;
+    }
+    if (url.pathname === "/api/audio/process") {
+      audioProcessRequests.push(
+        request.postDataBuffer()?.toString("utf8") ?? "",
+      );
+      await json(route, { jobId: "audio-process-test-job" });
+      return;
+    }
+    if (url.pathname === "/api/jobs/podcast-feed-test-job") {
+      await json(route, {
+        id: "podcast-feed-test-job",
+        kind: "podcast-feed",
+        status: "done",
+        progress: 1,
+        message: "Podcast: Internal Album",
+        outputUrl: "/outputs/internal-album.rss.xml",
+        sidecarUrl: "/outputs/internal-album.podcast.json",
+        thumbnailUrl: null,
+        assetUrls: [],
+        metadata: {
+          title: "Internal Album",
+          album: "Internal Album",
+          artist: "Internal Artist",
+        },
+      });
+      return;
+    }
+    if (url.pathname === "/api/jobs/audio-process-test-job") {
+      await json(route, {
+        id: "audio-process-test-job",
+        kind: "audio-process",
+        status: "done",
+        progress: 1,
+        message: "Cópia tratada validada",
+        outputUrl:
+          "/outputs/audio/Internal%20Album/Saved%20Internal%20Title.mp3",
+        sidecarUrl:
+          "/outputs/audio/Internal%20Album/Saved%20Internal%20Title.mp3.soundcloud.json",
+        thumbnailUrl: null,
+        assetUrls: [],
+        metadata: {
+          title: "Saved Internal Title",
+          album: "Internal Album",
+          artist: "Saved Artist",
+        },
+      });
       return;
     }
     if (url.pathname === "/api/audio/analyze") {
@@ -845,6 +1025,9 @@ function internalAudioInfo(fileName) {
     title: "Internal Base Title",
     artist: "Internal Artist",
     album: "Internal Album",
+    genre: "Podcast",
+    description: "Notas internas do episódio",
+    lyrics: "Transcrição interna do episódio",
     track: 1,
     trackTotal: 1,
     disk: 1,

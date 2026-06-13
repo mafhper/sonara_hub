@@ -133,6 +133,11 @@ export function BatchJobBoard({
                         <Download /> Asset
                       </a>
                     )}
+                    {kind === "podcast-feed" && job.outputUrl && (
+                      <a href={job.outputUrl} download title="Baixar RSS">
+                        <Download /> RSS
+                      </a>
+                    )}
                     {job.sidecarUrl && (
                       <a href={job.sidecarUrl} download title="Baixar JSON">
                         <Download /> JSON
