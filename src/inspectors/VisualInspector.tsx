@@ -16,6 +16,7 @@ import type {
   PlayfulContent,
   RenderStackItem,
   ScenePresetV3,
+  VisualCommonControlKey,
   VisualPalette,
   WaveformType,
   WaveformV1,
@@ -77,6 +78,19 @@ const visualColorLabels: Record<keyof ScenePresetV3["colors"], string> = {
   effect: "Movimento",
   light: "Luz",
 };
+const commonControlDefinitions: Array<{
+  key: VisualCommonControlKey;
+  label: string;
+  max?: number;
+  unit?: string;
+}> = [
+  { key: "intensity", label: "Intensidade" },
+  { key: "speed", label: "Velocidade" },
+  { key: "brightness", label: "Brilho" },
+  { key: "direction", label: "Direção da deriva", max: 360, unit: "°" },
+  { key: "audioReaction", label: "Reação musical" },
+  { key: "shade", label: "Escurecimento do fundo" },
+];
 const waveformStylePresets: Array<{
   name: string;
   description: string;
@@ -212,6 +226,13 @@ function visualNumberMapMatches(
 ) {
   return Object.entries(expected).every(
     ([key, value]) => Math.round(actual[key] ?? NaN) === Math.round(value),
+  );
+}
+
+function commonControlsForScene(scene: ScenePresetV3) {
+  const supported = new Set(scene.supportsCommon ?? []);
+  return commonControlDefinitions.filter((control) =>
+    supported.has(control.key),
   );
 }
 
@@ -353,6 +374,7 @@ export function VisualInspector(props: {
   // há item "Foco solar" na pilha); os controles entram no pane da atmosfera.
   const sunInsideAtmosphere =
     scene.rendererId === "volumetric-clouds" && Boolean(scene.cloudLight);
+  const supportedCommonControls = commonControlsForScene(scene);
   return (
     <>
       <section className="composition-section">
@@ -548,31 +570,7 @@ export function VisualInspector(props: {
                   ))}
                 </div>
               </div>
-              <InspectorGroup title="Movimento e áudio" open>
-                <RangeField
-                  label="Intensidade"
-                  value={scene.common.intensity}
-                  onChange={(value) => props.onCommon("intensity", value)}
-                />
-                <RangeField
-                  label="Velocidade"
-                  value={scene.common.speed}
-                  onChange={(value) => props.onCommon("speed", value)}
-                />
-                <RangeField
-                  label="Direção"
-                  max={360}
-                  unit="°"
-                  value={scene.common.direction}
-                  onChange={(value) => props.onCommon("direction", value)}
-                />
-                <RangeField
-                  label="Reação musical"
-                  value={scene.common.audioReaction}
-                  onChange={(value) => props.onCommon("audioReaction", value)}
-                />
-              </InspectorGroup>
-              <InspectorGroup title="Ajustes avançados">
+              <InspectorGroup title="Controles" open>
                 {scene.controls.map((control) => (
                   <RangeField
                     key={control.key}
@@ -582,6 +580,16 @@ export function VisualInspector(props: {
                     unit={control.unit}
                     value={scene.advanced[control.key]}
                     onChange={(value) => props.onAdvanced(control.key, value)}
+                  />
+                ))}
+                {supportedCommonControls.map((control) => (
+                  <RangeField
+                    key={control.key}
+                    label={control.label}
+                    max={control.max}
+                    unit={control.unit}
+                    value={scene.common[control.key]}
+                    onChange={(value) => props.onCommon(control.key, value)}
                   />
                 ))}
               </InspectorGroup>

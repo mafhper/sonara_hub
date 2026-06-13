@@ -8,6 +8,7 @@ import {
   normalizeVisualSettings,
   parseVisualCollection,
   removedEffectIds,
+  visualCommonControlKeys,
 } from "../shared/visual-effects.mjs";
 
 const expectedIds = [
@@ -76,6 +77,60 @@ test("every visual preset exposes four reusable palettes", () => {
       );
     }
   }
+});
+
+test("visual presets expose only common controls consumed by their renderer", () => {
+  assert.deepEqual(visualCommonControlKeys, [
+    "intensity",
+    "speed",
+    "brightness",
+    "direction",
+    "audioReaction",
+    "shade",
+  ]);
+
+  const liquid = normalizeVisualSettings({ id: "liquid-mesh" });
+  assert.deepEqual(liquid.supportsCommon, [
+    "speed",
+    "brightness",
+    "direction",
+    "audioReaction",
+    "shade",
+  ]);
+
+  const clouds = normalizeVisualSettings({ id: "volumetric-clouds" });
+  assert.deepEqual(clouds.supportsCommon, visualCommonControlKeys);
+
+  const plasma = normalizeVisualSettings({ id: "plasma-nebula" });
+  assert.deepEqual(plasma.supportsCommon, [
+    "intensity",
+    "speed",
+    "brightness",
+    "audioReaction",
+    "shade",
+  ]);
+
+  const starfield = normalizeVisualSettings({ id: "starfield" });
+  assert.deepEqual(starfield.supportsCommon, [
+    "speed",
+    "brightness",
+    "audioReaction",
+    "shade",
+  ]);
+
+  const aura = normalizeVisualSettings({ id: "vector-aura" });
+  assert.deepEqual(aura.supportsCommon, [
+    "speed",
+    "direction",
+    "audioReaction",
+    "shade",
+  ]);
+
+  const vinyl = normalizeVisualSettings({ id: "vinyl" });
+  assert.deepEqual(vinyl.supportsCommon, ["audioReaction", "shade"]);
+
+  const dark = normalizeVisualSettings({ id: "audio-dark" });
+  assert.deepEqual(dark.supportsCommon, ["speed", "shade"]);
 });
 
 test("ported shader presets normalize to their fullscreen renderers", () => {

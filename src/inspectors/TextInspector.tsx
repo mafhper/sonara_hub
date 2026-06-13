@@ -15,7 +15,6 @@ import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 
 import type { TextBatchApplyMode } from "../../shared/composition-scope.mjs";
 import { mergeTextSettingsByMode } from "../../shared/composition-scope.mjs";
-import type { ScenePresetV3 } from "../../shared/visual-effects.mjs";
 import {
   CheckField,
   ColorInput,
@@ -52,22 +51,18 @@ type TextFadeOutSettings = NonNullable<TextFieldStyle["fadeOut"]>;
 
 export function TextInspector({
   metadata,
-  scene,
   showMetadata,
   textSettings,
   onChange,
-  onCommon,
   onTextSettings,
   onToggle,
   onApplyBatch,
   versionSuggestions,
 }: {
   metadata: TrackMetadata;
-  scene: ScenePresetV3;
   showMetadata: boolean;
   textSettings: TextOverlaySettings;
   onChange: (patch: Partial<TrackMetadata>) => void;
-  onCommon: (key: string, value: number) => void;
   onTextSettings: (patch: Partial<TextOverlaySettings>) => void;
   onToggle: (checked: boolean) => void;
   onApplyBatch?: (mode: TextBatchApplyMode) => void;
@@ -258,11 +253,6 @@ export function TextInspector({
             label="Sombra"
             value={textSettings.shadow}
             onChange={(shadow) => onTextSettings({ shadow })}
-          />
-          <RangeField
-            label="Escurecimento do fundo"
-            value={scene.common.shade}
-            onChange={(value) => onCommon("shade", value)}
           />
         </div>
         <div className="text-field-style-stack">

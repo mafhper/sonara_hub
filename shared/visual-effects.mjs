@@ -77,6 +77,40 @@ const commonDefaults = {
   audioReaction: 18,
   shade: 18,
 };
+export const visualCommonControlKeys = [
+  "intensity",
+  "speed",
+  "brightness",
+  "direction",
+  "audioReaction",
+  "shade",
+];
+const visualCommonControlKeySet = new Set(visualCommonControlKeys);
+const commonSupportsByRenderer = new Map([
+  [
+    "liquid-mesh",
+    ["speed", "brightness", "direction", "audioReaction", "shade"],
+  ],
+  ["volumetric-clouds", visualCommonControlKeys],
+  [
+    "aurora-ribbons",
+    ["speed", "brightness", "direction", "audioReaction", "shade"],
+  ],
+  [
+    "color-mesh",
+    ["speed", "brightness", "direction", "audioReaction", "shade"],
+  ],
+  ["plasma", ["intensity", "speed", "brightness", "audioReaction", "shade"]],
+  ["lava", ["intensity", "speed", "brightness", "audioReaction", "shade"]],
+  ["vortex", ["intensity", "speed", "brightness", "audioReaction", "shade"]],
+  ["galaxy", ["intensity", "speed", "brightness", "audioReaction", "shade"]],
+  ["starfield", ["speed", "brightness", "audioReaction", "shade"]],
+  ["vector-aura", ["speed", "direction", "audioReaction", "shade"]],
+  ["playful-shapes", ["speed", "direction", "audioReaction", "shade"]],
+  ["piano-ribbons", ["speed", "direction", "audioReaction", "shade"]],
+  ["vinyl", ["audioReaction", "shade"]],
+  ["audio-dark", ["speed", "shade"]],
+]);
 
 const paletteProfiles = [
   { id: "original", name: "Original" },
@@ -127,6 +161,7 @@ function preset({
   common = {},
   advanced,
   controls,
+  supportsCommon,
   playful,
   cloudLight,
   palettes,
@@ -150,6 +185,7 @@ function preset({
     colors,
     palettes: normalizedPalettes,
     common: normalizedCommon,
+    supportsCommon: normalizeSupportsCommon(supportsCommon, rendererId),
     advanced,
     controls,
     waveform: { ...waveformDefaults },
@@ -356,7 +392,7 @@ export const builtinVisualPresets = [
       control("wave", "Ondulacao"),
       control("spread", "Espalhamento"),
       control("height", "Altura"),
-      control("glow", "Brilho"),
+      control("glow", "Brilho das faixas"),
     ],
   }),
   preset({
@@ -521,7 +557,7 @@ export const builtinVisualPresets = [
       control("scale", "Escala"),
       control("complexity", "Complexidade"),
       control("saturation", "Saturação"),
-      control("glow", "Brilho"),
+      control("glow", "Brilho do plasma"),
     ],
   }),
   preset({
@@ -537,7 +573,7 @@ export const builtinVisualPresets = [
       control("scale", "Escala"),
       control("complexity", "Complexidade"),
       control("saturation", "Saturação"),
-      control("glow", "Brilho"),
+      control("glow", "Brilho da lava"),
     ],
   }),
   preset({
@@ -553,7 +589,7 @@ export const builtinVisualPresets = [
       control("arms", "Braços"),
       control("twist", "Torção"),
       control("zoom", "Zoom"),
-      control("glow", "Brilho"),
+      control("glow", "Brilho do núcleo"),
     ],
   }),
   preset({
@@ -569,7 +605,7 @@ export const builtinVisualPresets = [
       control("arms", "Braços"),
       control("twist", "Torção"),
       control("zoom", "Zoom"),
-      control("glow", "Brilho"),
+      control("glow", "Brilho do núcleo"),
     ],
   }),
   preset({
@@ -637,9 +673,9 @@ export const builtinVisualPresets = [
     ],
     controls: [
       control("density", "Densidade"),
-      control("warp", "Velocidade"),
+      control("warp", "Profundidade do avanço"),
       control("twinkle", "Cintilação"),
-      control("glow", "Brilho"),
+      control("glow", "Brilho das estrelas"),
       control("colorVar", "Variedade de cor"),
     ],
   }),
@@ -765,6 +801,10 @@ export function normalizeVisualSettings(input = {}) {
       ),
       shade: number(incomingCommon.shade, base.common.shade),
     },
+    supportsCommon: normalizeSupportsCommon(
+      source.supportsCommon ?? base.supportsCommon,
+      base.rendererId,
+    ),
     advanced: Object.fromEntries(
       Object.entries(base.advanced).map(([key, fallback]) => [
         key,
@@ -999,6 +1039,25 @@ function normalizePaletteCommon(value = {}, fallback = {}) {
       number(value?.[key], fallbackValue, 0, key === "direction" ? 360 : 100),
     ]),
   );
+}
+
+function normalizeSupportsCommon(value, rendererId) {
+  const fallback =
+    commonSupportsByRenderer.get(String(rendererId)) ??
+    commonSupportsByRenderer.get("liquid-mesh");
+  const source = Array.isArray(value) && value.length ? value : fallback;
+  const normalized = [];
+  for (const key of source) {
+    const stringKey = String(key);
+    if (
+      !visualCommonControlKeySet.has(stringKey) ||
+      normalized.includes(stringKey)
+    ) {
+      continue;
+    }
+    normalized.push(stringKey);
+  }
+  return normalized.length ? normalized : [...fallback];
 }
 
 function adjustCommon(value = {}, patch = {}) {
