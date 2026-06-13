@@ -127,10 +127,29 @@ test("visual presets expose only common controls consumed by their renderer", ()
   ]);
 
   const vinyl = normalizeVisualSettings({ id: "vinyl" });
-  assert.deepEqual(vinyl.supportsCommon, ["audioReaction", "shade"]);
+  assert.deepEqual(vinyl.supportsCommon, ["speed", "shade"]);
 
   const dark = normalizeVisualSettings({ id: "audio-dark" });
   assert.deepEqual(dark.supportsCommon, ["speed", "shade"]);
+});
+
+test("custom presets recompute common controls when renderer changes", () => {
+  const scene = normalizeVisualSettings({
+    id: "custom-vinyl-to-aura",
+    name: "Custom aura",
+    source: "custom",
+    rendererId: "vector-aura",
+    supportsCommon: ["speed", "shade"],
+  });
+
+  assert.equal(scene.id, "custom-vinyl-to-aura");
+  assert.equal(scene.rendererId, "vector-aura");
+  assert.deepEqual(scene.supportsCommon, [
+    "speed",
+    "direction",
+    "audioReaction",
+    "shade",
+  ]);
 });
 
 test("ported shader presets normalize to their fullscreen renderers", () => {

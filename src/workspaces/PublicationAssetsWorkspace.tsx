@@ -1,5 +1,5 @@
-import { BookOpen, Download, Image, Video, X } from "lucide-react";
-import type { CSSProperties } from "react";
+import { BookOpen, ChevronDown, Download, Image, Video, X } from "lucide-react";
+import { useState, type CSSProperties } from "react";
 
 import { CanvasInteractionOverlay } from "../CanvasInteractionOverlay";
 import { BatchJobBoard } from "../jobs/BatchJobBoard";
@@ -102,6 +102,9 @@ export function PublicationAssetsWorkspace({
   onAssetSettings: (patch: Partial<PublicationAssetSettings>) => void;
   onUpdateLayer: (trackId: string, patch: { layers: MediaLayerV2[] }) => void;
 }) {
+  const [openFormatGroups, setOpenFormatGroups] = useState<
+    Record<string, boolean>
+  >({ Padrões: true });
   const publicationJobs = jobs.filter(
     (job) => job.kind === "publication-asset",
   );
@@ -125,7 +128,14 @@ export function PublicationAssetsWorkspace({
         ? "HTML estático"
         : "imagem"
   }`;
-  const previewLongest = 360;
+  const previewShape =
+    preset.width === preset.height
+      ? "square"
+      : preset.width > preset.height
+        ? "wide"
+        : "portrait";
+  const previewLongest =
+    previewShape === "portrait" ? 560 : previewShape === "wide" ? 560 : 480;
   const previewWidth =
     preset.width >= preset.height
       ? previewLongest
@@ -244,45 +254,82 @@ export function PublicationAssetsWorkspace({
             </div>
           </div>
           <div className="publication-format-list">
-            {publicationFormatGroups().map((group) => (
-              <div className="publication-format-group" key={group.label}>
-                <span className="publication-format-group-label">
-                  {group.label}
-                </span>
-                <ul>
-                  {group.presets.map((option) => {
-                    const checked = checkedPresetIds.has(option.id);
-                    const focused = option.id === preset.id;
-                    return (
-                      <li
-                        className={`publication-format-row${focused ? " is-focused" : ""}`}
-                        key={option.id}
-                      >
-                        <input
-                          aria-label={`Incluir ${option.label} na exportação`}
-                          checked={checked}
-                          type="checkbox"
-                          onChange={() => onTogglePreset(option.id)}
-                        />
-                        <button
-                          className="publication-format-select"
-                          type="button"
-                          onClick={() => onPreset(option.id)}
+            {publicationFormatGroups().map((group) => {
+              const checkedInGroup = group.presets.filter((option) =>
+                checkedPresetIds.has(option.id),
+              ).length;
+              const focusedGroup = group.presets.some(
+                (option) => option.id === preset.id,
+              );
+              const groupOpen =
+                openFormatGroups[group.label] ??
+                (group.label === "Padrões" || focusedGroup);
+              return (
+                <details
+                  className={`publication-format-group${
+                    focusedGroup ? " is-focused" : ""
+                  }`}
+                  key={group.label}
+                  open={groupOpen}
+                  onToggle={(event) => {
+                    const target = event.currentTarget;
+                    setOpenFormatGroups((current) => ({
+                      ...current,
+                      [group.label]: target.open,
+                    }));
+                  }}
+                >
+                  <summary className="publication-format-group-summary">
+                    <span className="publication-format-group-title">
+                      <span className="publication-format-group-label">
+                        {group.label}
+                      </span>
+                      <strong>
+                        {checkedInGroup} de {group.presets.length} marcado
+                        {checkedInGroup === 1 ? "" : "s"}
+                      </strong>
+                    </span>
+                    <small>{publicationFormatKindSummary(group.presets)}</small>
+                    <ChevronDown
+                      aria-hidden="true"
+                      className="publication-format-group-chevron"
+                    />
+                  </summary>
+                  <ul>
+                    {group.presets.map((option) => {
+                      const checked = checkedPresetIds.has(option.id);
+                      const focused = option.id === preset.id;
+                      return (
+                        <li
+                          className={`publication-format-row${focused ? " is-focused" : ""}`}
+                          key={option.id}
                         >
-                          <span className="publication-format-name">
-                            {option.label}
-                          </span>
-                          <small>
-                            {publicationAssetKindLabel(option.kind)} ·{" "}
-                            {option.width}x{option.height}
-                          </small>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
+                          <input
+                            aria-label={`Incluir ${option.label} na exportação`}
+                            checked={checked}
+                            type="checkbox"
+                            onChange={() => onTogglePreset(option.id)}
+                          />
+                          <button
+                            className="publication-format-select"
+                            type="button"
+                            onClick={() => onPreset(option.id)}
+                          >
+                            <span className="publication-format-name">
+                              {option.label}
+                            </span>
+                            <small>
+                              {publicationAssetKindLabel(option.kind)} ·{" "}
+                              {option.width}x{option.height}
+                            </small>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </details>
+              );
+            })}
           </div>
         </div>
         <div className="publication-preview-panel">
@@ -297,7 +344,7 @@ export function PublicationAssetsWorkspace({
             </small>
           </div>
           <div
-            className="publication-preview-stage"
+            className={`publication-preview-stage ${previewShape}`}
             style={{ aspectRatio: `${preset.width} / ${preset.height}` }}
           >
             {previewTrack && previewComposition?.scene ? (
@@ -523,6 +570,12 @@ function publicationFormatGroups() {
       first === "Padrões" ? -1 : second === "Padrões" ? 1 : 0,
     )
     .map(([label, presets]) => ({ label, presets }));
+}
+
+function publicationFormatKindSummary(presets: PublicationAssetPreset[]) {
+  return [
+    ...new Set(presets.map((preset) => publicationAssetKindLabel(preset.kind))),
+  ].join(" · ");
 }
 
 function BookletPreview({
