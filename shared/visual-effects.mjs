@@ -267,6 +267,7 @@ function broadCloudPreset({
   common,
   advanced,
   cloudLight = cloudLightDefaults,
+  variants,
 }) {
   return preset({
     id,
@@ -278,9 +279,140 @@ function broadCloudPreset({
     common,
     advanced,
     cloudLight: { ...cloudLightDefaults, ...cloudLight },
+    variants,
     controls: volumetricCloudControls,
   });
 }
+
+const cloudTimelineVariants = [
+  {
+    id: "dawn",
+    name: "Amanhecer",
+    note: "Ceu frio abrindo em rosa quente, com nuvens largas e luz baixa.",
+    colors: { base: "#1a3140", effect: "#f2b8a0", light: "#ffe3b0" },
+    common: {
+      speed: 14,
+      brightness: 56,
+      direction: 24,
+      audioReaction: 10,
+      shade: 14,
+    },
+    advanced: { coverage: 54, scale: 48, softness: 84, light: 54, drift: 18 },
+    cloudLight: {
+      enabled: true,
+      intensity: 46,
+      color: "#ffd8a6",
+      x: 24,
+      y: 28,
+      radius: 34,
+      diffusion: 78,
+      motion: 8,
+      speed: 24,
+      direction: 16,
+    },
+  },
+  {
+    id: "noon",
+    name: "Meio-dia",
+    note: "Azul aberto, nuvens claras e sol alto para uma atmosfera mais limpa.",
+    colors: { base: "#4f90b2", effect: "#edf7f4", light: "#fff7d6" },
+    common: {
+      speed: 12,
+      brightness: 70,
+      direction: 8,
+      audioReaction: 8,
+      shade: 4,
+    },
+    advanced: { coverage: 46, scale: 42, softness: 72, light: 66, drift: 14 },
+    cloudLight: {
+      enabled: true,
+      intensity: 42,
+      color: "#fff4c6",
+      x: 50,
+      y: 18,
+      radius: 28,
+      diffusion: 64,
+      motion: 4,
+      speed: 18,
+      direction: 8,
+    },
+  },
+  {
+    id: "sunset",
+    name: "Entardecer",
+    note: "Horizonte quente com nuvens densas e brilho lateral cinematografico.",
+    colors: { base: "#2d2034", effect: "#f09a76", light: "#ffd39a" },
+    common: {
+      speed: 15,
+      brightness: 58,
+      direction: 350,
+      audioReaction: 12,
+      shade: 12,
+    },
+    advanced: { coverage: 60, scale: 46, softness: 80, light: 58, drift: 20 },
+    cloudLight: {
+      enabled: true,
+      intensity: 60,
+      color: "#ffc081",
+      x: 76,
+      y: 34,
+      radius: 36,
+      diffusion: 76,
+      motion: 10,
+      speed: 20,
+      direction: 350,
+    },
+  },
+  {
+    id: "dusk",
+    name: "Anoitecer",
+    note: "Azuis profundos com rastro quente no horizonte e deriva discreta.",
+    colors: { base: "#101b35", effect: "#6f83aa", light: "#f3b58c" },
+    common: {
+      speed: 13,
+      brightness: 44,
+      direction: 338,
+      audioReaction: 10,
+      shade: 22,
+    },
+    advanced: { coverage: 62, scale: 50, softness: 86, light: 38, drift: 18 },
+    cloudLight: {
+      enabled: true,
+      intensity: 32,
+      color: "#f5aa8c",
+      x: 78,
+      y: 42,
+      radius: 40,
+      diffusion: 82,
+      motion: 6,
+      speed: 16,
+      direction: 338,
+    },
+  },
+  {
+    id: "midnight",
+    name: "Noite alta",
+    note: "Nuvens frias e contidas sobre ceu quase preto, sem foco solar ativo.",
+    colors: { base: "#030712", effect: "#263755", light: "#9eb8df" },
+    common: {
+      speed: 10,
+      brightness: 34,
+      direction: 326,
+      audioReaction: 8,
+      shade: 36,
+    },
+    advanced: { coverage: 64, scale: 52, softness: 90, light: 24, drift: 12 },
+    cloudLight: {
+      color: "#b8cdfd",
+      x: 62,
+      y: 22,
+      radius: 30,
+      diffusion: 70,
+      speed: 14,
+      direction: 326,
+    },
+  },
+];
 
 export const builtinVisualPresets = [
   preset({
@@ -306,133 +438,7 @@ export const builtinVisualPresets = [
     colors: { base: "#162631", effect: "#bdc7c8", light: "#e2c99b" },
     common: { speed: 16, brightness: 52, direction: 16, audioReaction: 12 },
     advanced: { coverage: 58, scale: 44, softness: 78, light: 44, drift: 22 },
-  }),
-  broadCloudPreset({
-    id: "volumetric-clouds-dawn",
-    name: "Nuvens amplas · Amanhecer",
-    note: "Ceu frio abrindo em rosa quente, com nuvens largas e luz baixa.",
-    colors: { base: "#1a3140", effect: "#f2b8a0", light: "#ffe3b0" },
-    common: {
-      speed: 14,
-      brightness: 56,
-      direction: 24,
-      audioReaction: 10,
-      shade: 14,
-    },
-    advanced: { coverage: 54, scale: 48, softness: 84, light: 54, drift: 18 },
-    cloudLight: {
-      enabled: true,
-      intensity: 46,
-      color: "#ffd8a6",
-      x: 24,
-      y: 28,
-      radius: 34,
-      diffusion: 78,
-      motion: 8,
-      speed: 24,
-      direction: 16,
-    },
-  }),
-  broadCloudPreset({
-    id: "volumetric-clouds-noon",
-    name: "Nuvens amplas · Meio-dia",
-    note: "Azul aberto, nuvens claras e sol alto para uma atmosfera mais limpa.",
-    colors: { base: "#4f90b2", effect: "#edf7f4", light: "#fff7d6" },
-    common: {
-      speed: 12,
-      brightness: 70,
-      direction: 8,
-      audioReaction: 8,
-      shade: 4,
-    },
-    advanced: { coverage: 46, scale: 42, softness: 72, light: 66, drift: 14 },
-    cloudLight: {
-      enabled: true,
-      intensity: 42,
-      color: "#fff4c6",
-      x: 50,
-      y: 18,
-      radius: 28,
-      diffusion: 64,
-      motion: 4,
-      speed: 18,
-      direction: 8,
-    },
-  }),
-  broadCloudPreset({
-    id: "volumetric-clouds-sunset",
-    name: "Nuvens amplas · Entardecer",
-    note: "Horizonte quente com nuvens densas e brilho lateral cinematografico.",
-    colors: { base: "#2d2034", effect: "#f09a76", light: "#ffd39a" },
-    common: {
-      speed: 15,
-      brightness: 58,
-      direction: 350,
-      audioReaction: 12,
-      shade: 12,
-    },
-    advanced: { coverage: 60, scale: 46, softness: 80, light: 58, drift: 20 },
-    cloudLight: {
-      enabled: true,
-      intensity: 60,
-      color: "#ffc081",
-      x: 76,
-      y: 34,
-      radius: 36,
-      diffusion: 76,
-      motion: 10,
-      speed: 20,
-      direction: 350,
-    },
-  }),
-  broadCloudPreset({
-    id: "volumetric-clouds-dusk",
-    name: "Nuvens amplas · Anoitecer",
-    note: "Azuis profundos com rastro quente no horizonte e deriva discreta.",
-    colors: { base: "#101b35", effect: "#6f83aa", light: "#f3b58c" },
-    common: {
-      speed: 13,
-      brightness: 44,
-      direction: 338,
-      audioReaction: 10,
-      shade: 22,
-    },
-    advanced: { coverage: 62, scale: 50, softness: 86, light: 38, drift: 18 },
-    cloudLight: {
-      enabled: true,
-      intensity: 32,
-      color: "#f5aa8c",
-      x: 78,
-      y: 42,
-      radius: 40,
-      diffusion: 82,
-      motion: 6,
-      speed: 16,
-      direction: 338,
-    },
-  }),
-  broadCloudPreset({
-    id: "volumetric-clouds-midnight",
-    name: "Nuvens amplas · Noite alta",
-    note: "Nuvens frias e contidas sobre ceu quase preto, sem foco solar ativo.",
-    colors: { base: "#030712", effect: "#263755", light: "#9eb8df" },
-    common: {
-      speed: 10,
-      brightness: 34,
-      direction: 326,
-      audioReaction: 8,
-      shade: 36,
-    },
-    advanced: { coverage: 64, scale: 52, softness: 90, light: 24, drift: 12 },
-    cloudLight: {
-      color: "#b8cdfd",
-      x: 62,
-      y: 22,
-      radius: 30,
-      diffusion: 70,
-      speed: 14,
-      direction: 326,
-    },
+    variants: cloudTimelineVariants,
   }),
   preset({
     id: "aurora-ribbons",
@@ -873,6 +879,26 @@ export const effectIds = builtinVisualPresets.map((item) => item.id);
 const legacyPresetAliases = new Map([
   ["starfield-prism", { baseId: "starfield", paletteId: "prism" }],
   ["starfield-warm", { baseId: "starfield", paletteId: "warm" }],
+  [
+    "volumetric-clouds-dawn",
+    { baseId: "volumetric-clouds", variantId: "dawn" },
+  ],
+  [
+    "volumetric-clouds-noon",
+    { baseId: "volumetric-clouds", variantId: "noon" },
+  ],
+  [
+    "volumetric-clouds-sunset",
+    { baseId: "volumetric-clouds", variantId: "sunset" },
+  ],
+  [
+    "volumetric-clouds-dusk",
+    { baseId: "volumetric-clouds", variantId: "dusk" },
+  ],
+  [
+    "volumetric-clouds-midnight",
+    { baseId: "volumetric-clouds", variantId: "midnight" },
+  ],
 ]);
 export const removedEffectIds = [
   "clouds",
@@ -886,6 +912,11 @@ export const removedEffectIds = [
   "embers",
   "starfield-prism",
   "starfield-warm",
+  "volumetric-clouds-dawn",
+  "volumetric-clouds-noon",
+  "volumetric-clouds-sunset",
+  "volumetric-clouds-dusk",
+  "volumetric-clouds-midnight",
 ];
 
 export function getBuiltinPreset(id) {
@@ -936,16 +967,34 @@ export function normalizeVisualSettings(input = {}) {
       (item) => item.rendererId === requestedRenderer,
     ) ??
     builtinVisualPresets[0];
+  const requestedVariantId = normalizeIdentifier(
+    source.appliedVariantId ?? legacyAlias?.variantId,
+    "",
+  );
+  const selectedVariant = requestedVariantId
+    ? base.variants.find((variant) => variant.id === requestedVariantId)
+    : null;
   const aliasPalette = legacyAlias
     ? base.palettes.find((palette) => palette.id === legacyAlias.paletteId)
     : null;
   const incomingCommon =
     source.common ??
-    (hasCommonFields(source) ? source : aliasPalette?.common) ??
+    (hasCommonFields(source)
+      ? source
+      : (selectedVariant?.common ?? aliasPalette?.common)) ??
     source;
   const incomingColors =
-    source.colors ?? (hasColorFields(source) ? {} : aliasPalette?.colors) ?? {};
-  const incomingAdvanced = source.advanced ?? aliasPalette?.advanced ?? {};
+    source.colors ??
+    (hasColorFields(source)
+      ? {}
+      : (selectedVariant?.colors ?? aliasPalette?.colors)) ??
+    {};
+  const incomingAdvanced =
+    source.advanced ??
+    selectedVariant?.advanced ??
+    aliasPalette?.advanced ??
+    {};
+  const incomingCloudLight = source.cloudLight ?? selectedVariant?.cloudLight;
   const incomingWaveform = source.waveform ?? {};
   const incomingWaveformAdvanced = incomingWaveform.advanced ?? {};
 
@@ -968,13 +1017,13 @@ export function normalizeVisualSettings(input = {}) {
       source.performanceTier ?? base.performanceTier,
     ),
     post: normalizePost(source.post, base.post),
-    ...(normalizeIdentifier(
-      source.appliedVariantId ?? base.appliedVariantId,
-      "",
-    )
+    ...(selectedVariant ||
+    normalizeIdentifier(source.appliedVariantId ?? base.appliedVariantId, "")
       ? {
           appliedVariantId: normalizeIdentifier(
-            source.appliedVariantId ?? base.appliedVariantId,
+            selectedVariant?.id ??
+              source.appliedVariantId ??
+              base.appliedVariantId,
             "",
           ),
         }
@@ -1067,10 +1116,10 @@ export function normalizeVisualSettings(input = {}) {
           ),
         }
       : {}),
-    ...(base.cloudLight || source.cloudLight
+    ...(base.cloudLight || incomingCloudLight
       ? {
           cloudLight: normalizeCloudLight(
-            source.cloudLight,
+            incomingCloudLight,
             base.cloudLight ?? cloudLightDefaults,
           ),
         }

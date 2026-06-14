@@ -3,7 +3,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import ffmpegPath from "ffmpeg-static";
-import { builtinVisualPresets } from "../shared/visual-effects.mjs";
+import {
+  builtinVisualPresets,
+  normalizeVisualSettings,
+} from "../shared/visual-effects.mjs";
 import { renderWebglBackgroundVideo } from "../server/webgl-export.mjs";
 
 const root = path.resolve(
@@ -32,23 +35,28 @@ for (const preset of builtinVisualPresets) {
   });
 }
 
-const cloudTimelineIds = [
-  "volumetric-clouds-dawn",
-  "volumetric-clouds-noon",
-  "volumetric-clouds-sunset",
-  "volumetric-clouds-dusk",
-  "volumetric-clouds-midnight",
-];
+const broadClouds = builtinVisualPresets.find(
+  (preset) => preset.id === "volumetric-clouds",
+);
 const cloudTimelineHashes = [];
-for (const id of cloudTimelineIds) {
-  cloudTimelineHashes.push(
-    await firstFrameHash(path.join(outputDir, `${id}-720p.webm`)),
-  );
+for (const variant of broadClouds.variants) {
+  const preset = normalizeVisualSettings({
+    id: broadClouds.id,
+    appliedVariantId: variant.id,
+  });
+  const outputPath = await renderAndCheck({
+    name: `${broadClouds.id}-${variant.id}-720p`,
+    preset,
+    size: { width: 1280, height: 720 },
+    duration: 3,
+    fps: 12,
+  });
+  cloudTimelineHashes.push(await firstFrameHash(outputPath));
 }
 assert.equal(
   new Set(cloudTimelineHashes).size,
-  cloudTimelineIds.length,
-  "cloud timeline presets should render visibly distinct first frames",
+  broadClouds.variants.length,
+  "cloud timeline variants should render visibly distinct first frames",
 );
 
 for (const type of [

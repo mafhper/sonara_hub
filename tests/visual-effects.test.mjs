@@ -17,11 +17,6 @@ import {
 const expectedIds = [
   "liquid-mesh",
   "volumetric-clouds",
-  "volumetric-clouds-dawn",
-  "volumetric-clouds-noon",
-  "volumetric-clouds-sunset",
-  "volumetric-clouds-dusk",
-  "volumetric-clouds-midnight",
   "aurora-ribbons",
   "vector-aura",
   "playful-shapes",
@@ -51,6 +46,7 @@ test("catalog exposes the broad families plus the ported shader presets", () => 
   );
   assert.ok(removedEffectIds.includes("fire"));
   assert.ok(removedEffectIds.includes("rain-window"));
+  assert.ok(removedEffectIds.includes("volumetric-clouds-dawn"));
   assert.equal(new Set(expectedIds).size, builtinVisualPresets.length);
 });
 
@@ -214,49 +210,55 @@ test("ported shader presets normalize to their fullscreen renderers", () => {
   assert.equal(galaxy.advanced.arms, 57);
 });
 
-test("cloud timeline presets use stable ids and fall back through broad clouds", () => {
-  const cloudTimelineIds = [
-    "volumetric-clouds-dawn",
-    "volumetric-clouds-noon",
-    "volumetric-clouds-sunset",
-    "volumetric-clouds-dusk",
-    "volumetric-clouds-midnight",
+test("cloud timeline presets live as variants with legacy aliases", () => {
+  const legacyCloudTimelineIds = [
+    ["volumetric-clouds-dawn", "dawn"],
+    ["volumetric-clouds-noon", "noon"],
+    ["volumetric-clouds-sunset", "sunset"],
+    ["volumetric-clouds-dusk", "dusk"],
+    ["volumetric-clouds-midnight", "midnight"],
   ];
   const base = normalizeVisualSettings({ id: "volumetric-clouds" });
-  const variants = cloudTimelineIds.map((id) =>
+  const legacyScenes = legacyCloudTimelineIds.map(([id]) =>
     normalizeVisualSettings({ id }),
+  );
+  const directVariantScenes = legacyCloudTimelineIds.map(
+    ([, appliedVariantId]) =>
+      normalizeVisualSettings({ id: "volumetric-clouds", appliedVariantId }),
   );
 
   assert.deepEqual(
-    variants.map((preset) => preset.name),
-    [
-      "Nuvens amplas · Amanhecer",
-      "Nuvens amplas · Meio-dia",
-      "Nuvens amplas · Entardecer",
-      "Nuvens amplas · Anoitecer",
-      "Nuvens amplas · Noite alta",
-    ],
+    base.variants.map((variant) => variant.id),
+    ["dawn", "noon", "sunset", "dusk", "midnight"],
   );
 
-  for (const variant of variants) {
-    assert.equal(variant.rendererId, "volumetric-clouds");
-    assert.equal(variant.category, "Atmosferas");
-    assert.equal(variant.source, "builtin");
+  for (const [index, scene] of legacyScenes.entries()) {
+    const direct = directVariantScenes[index];
+    const [, variantId] = legacyCloudTimelineIds[index];
+    assert.equal(scene.id, "volumetric-clouds");
+    assert.equal(scene.appliedVariantId, variantId);
+    assert.equal(scene.rendererId, "volumetric-clouds");
+    assert.equal(scene.category, "Atmosferas");
+    assert.equal(scene.source, "builtin");
+    assert.deepEqual(scene.colors, direct.colors, variantId);
+    assert.deepEqual(scene.common, direct.common, variantId);
+    assert.deepEqual(scene.advanced, direct.advanced, variantId);
+    assert.deepEqual(scene.cloudLight, direct.cloudLight, variantId);
     assert.deepEqual(
-      variant.controls.map((entry) => entry.key),
+      scene.controls.map((entry) => entry.key),
       base.controls.map((entry) => entry.key),
-      variant.id,
+      variantId,
     );
     assert.deepEqual(
-      Object.keys(variant.advanced),
+      Object.keys(scene.advanced),
       Object.keys(base.advanced),
-      variant.id,
+      variantId,
     );
   }
 
   assert.equal(
     new Set(
-      variants.map((variant) =>
+      legacyScenes.map((variant) =>
         JSON.stringify({
           colors: variant.colors,
           common: variant.common,
@@ -265,7 +267,7 @@ test("cloud timeline presets use stable ids and fall back through broad clouds",
         }),
       ),
     ).size,
-    variants.length,
+    legacyScenes.length,
   );
 
   const missingVariant = normalizeVisualSettings({
