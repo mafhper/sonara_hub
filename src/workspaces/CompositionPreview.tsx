@@ -13,6 +13,7 @@ import {
 } from "../../shared/canvas-scene-runtime.mjs";
 import type { SceneComposition } from "../../shared/canvas-scene-runtime.mjs";
 import type { ScenePresetV3 } from "../../shared/visual-effects.mjs";
+import { audioBandsFromAnalyser } from "../features/audio/audioPlayback";
 import type {
   MediaLayerV2,
   TextOverlaySettings,
@@ -319,38 +320,11 @@ export function CompositionLivePreview({
     if (!canvas || !audio) return;
     const runtime = createSceneRuntime(canvas, scene, {});
     runtimeRef.current = runtime;
-    const frequency = new Uint8Array(1024);
-    const samples = new Uint8Array(2048);
     let frame = 0;
     const draw = () => {
       const analyser = analyserRef.current;
       if (analyser && !audio.paused) {
-        analyser.getByteFrequencyData(frequency);
-        analyser.getByteTimeDomainData(samples);
-        const average = (from: number, to: number) => {
-          let total = 0;
-          for (let index = from; index < to; index += 1)
-            total += frequency[index];
-          return total / Math.max(1, to - from) / 255;
-        };
-        runtime.setAudio({
-          low: average(0, 18),
-          mid: average(18, 74),
-          high: average(74, frequency.length),
-          samples: Array.from(samples)
-            .filter((_, index) => index % 6 === 0)
-            .map((value) => (value - 128) / 128),
-          spectrum: Array.from({ length: 24 }, (_, index) => {
-            const start = Math.floor(
-              Math.pow(index / 24, 2.15) * frequency.length,
-            );
-            const end = Math.max(
-              start + 1,
-              Math.floor(Math.pow((index + 1) / 24, 2.15) * frequency.length),
-            );
-            return average(start, Math.min(frequency.length, end));
-          }),
-        });
+        runtime.setAudio(audioBandsFromAnalyser(analyser));
       }
       const current = Number.isFinite(audio.currentTime)
         ? audio.currentTime

@@ -110,8 +110,16 @@ export type ScenePresetV4 = {
     | "vinyl"
     | "audio-dark"
     | "plasma"
+    | "lava"
     | "vortex"
-    | "starfield";
+    | "galaxy"
+    | "starfield"
+    | "iridescent-bloom"
+    | "ether-birth"
+    | "fluid-volume"
+    | "endless-shallows"
+    | "storybook-dream"
+    | "liquid-chrome";
   source: "builtin" | "custom";
   category: string;
   note: string;

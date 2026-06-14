@@ -31,6 +31,12 @@ const expectedIds = [
   "vortex-whirlpool",
   "vortex-galaxy",
   "starfield",
+  "iridescent-bloom",
+  "ether-birth",
+  "fluid-volume",
+  "endless-shallows",
+  "storybook-dream",
+  "liquid-chrome",
 ];
 
 test("catalog exposes the broad families plus the ported shader presets", () => {

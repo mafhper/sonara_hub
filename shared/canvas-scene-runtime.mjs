@@ -325,6 +325,154 @@ void main() {
   color = pow(max(color, 0.0), vec3(0.9));
   gl_FragColor = vec4(finish(color, frag), 1.0);
 }`,
+  // === Sonara Atmospheres V5 — Lote 1 (etéreo × CodePen) ===
+  // Bloom iridescente: brilhos suaves com reflexo nacarado deslizante, sem
+  // pontos. Graves -> respiração do bloom; energia -> varredura de matiz.
+  // Paleta cosseno no estilo Inigo Quilez (fórmula de uso livre).
+  "iridescent-bloom": `${shaderPrelude}
+vec3 cosPalette(float t, vec3 a, vec3 b, vec3 c, vec3 d) {
+  return a + b * cos(6.28318 * (c * t + d));
+}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  vec2 ratio = vec2(u_resolution.x / u_resolution.y, 1.0);
+  float t = u_time * (0.05 + u_speed * 0.40);
+  vec2 p = (uv - 0.5) * ratio * (1.0 + u_param0 * 2.0);
+  vec2 drift = direction() * t * (0.05 + u_param4 * 0.25);
+  float warp = fbm(p * 1.3 + drift);
+  float field = fbm(p * (0.8 + u_param1 * 1.6) + warp * (0.5 + u_param2 * 1.5) + drift);
+  float bassPulse = 1.0 + u_audioBass * u_audioReaction * 0.6;
+  vec2 c1 = vec2(0.34, 0.40) + 0.04 * vec2(sin(t * 0.7), cos(t * 0.5));
+  vec2 c2 = vec2(0.68, 0.62) + 0.05 * vec2(cos(t * 0.6), sin(t * 0.8));
+  float r = mix(0.5, 0.18, u_param3) / bassPulse;
+  float bloom1 = smoothstep(r, 0.0, distance(uv, c1));
+  float bloom2 = smoothstep(r * 1.2, 0.0, distance(uv, c2));
+  float lum = field * 0.6 + (bloom1 + bloom2) * 0.5;
+  float hue = field * (0.6 + u_param2) + u_time * 0.02 + u_audioEnergy * u_audioReaction * 0.5;
+  vec3 irid = cosPalette(hue, vec3(0.5), vec3(0.5), vec3(1.0), vec3(0.0, 0.33, 0.67));
+  vec3 base = mix(u_colorA, u_colorB, smoothstep(0.2, 0.9, field));
+  vec3 color = mix(base, irid, (0.35 + u_param5 * 0.5) * lum);
+  color += u_accentColor * (bloom1 + bloom2) * 0.25 * pulse(u_audioMid, 0.3);
+  gl_FragColor = vec4(finish(color, uv), 1.0);
+}`,
+  // Nascimento etéreo: fbm radial expandindo de um núcleo brilhante. A massa
+  // pulsa para fora a partir do centro (energia/grave), sem deriva lateral —
+  // é o que o separa de smoke/clouds.
+  "ether-birth": `${shaderPrelude}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  vec2 ratio = vec2(u_resolution.x / u_resolution.y, 1.0);
+  vec2 p = (uv - 0.5) * ratio;
+  float t = u_time * (0.05 + u_speed * 0.40);
+  float radius = length(p);
+  float expansion = 1.0 + u_audioEnergy * u_audioReaction * 0.7;
+  float scale = 1.0 + u_param0 * 2.5;
+  // Seamless swirl: rotate sampling by radius (no atan, so no seam on -x axis).
+  float swirl = u_param2 * 4.0 * radius - t * 0.3;
+  float cs = cos(swirl), sn = sin(swirl);
+  vec2 q = vec2(p.x * cs - p.y * sn, p.x * sn + p.y * cs);
+  float turbulence = fbm(q * scale * (2.0 + u_param1 * 4.0) + t * 0.15);
+  // Concentric shells expanding outward from the core.
+  float shells = sin(radius * (8.0 + u_param1 * 16.0) * scale - t * expansion * 4.0) * 0.5 + 0.5;
+  float core = smoothstep(0.6, 0.0, radius / (0.35 + u_param3 * 0.5));
+  float mass = smoothstep(0.1, 0.9, shells * 0.4 + turbulence * 0.5 + core * 0.7);
+  vec3 color = mix(u_colorA, u_colorB, mass);
+  color += u_accentColor * core * (0.4 + u_param4 * 0.6) * pulse(u_audioBass, 0.4);
+  color += u_colorB * smoothstep(0.95, 0.2, radius) * mass * 0.18;
+  gl_FragColor = vec4(finish(color, uv), 1.0);
+}`,
+  // Volume fluido: fbm faux-volumétrico (acúmulo leve de densidade em camadas)
+  // com profundidade/oclusão e advecção interna. Energia -> advecção.
+  // Reimplementação original inspirada na vibe "3D Fluid" (sem copiar código).
+  "fluid-volume": `${shaderPrelude}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  vec2 ratio = vec2(u_resolution.x / u_resolution.y, 1.0);
+  vec2 p = (uv - 0.5) * ratio * (1.0 + u_param0 * 1.5);
+  float t = u_time * (0.05 + u_speed * 0.40);
+  vec2 advect = direction() * t * (0.1 + u_param4 * 0.3);
+  float density = 0.0;
+  for (int i = 0; i < 5; i++) {
+    float fi = float(i);
+    vec2 q = p + advect + vec2(fi * 0.05, -fi * 0.03);
+    float layer = fbm(q * (1.2 + u_param1 * 1.8) + fi * 0.4 + density * (0.3 + u_param2));
+    density += layer * (0.32 - fi * 0.03);
+  }
+  density += u_audioEnergy * u_audioReaction * 0.4;
+  float volume = smoothstep(0.2, 1.1, density);
+  vec3 deep = mix(u_colorA, u_colorB, volume);
+  vec3 color = mix(deep, u_accentColor, smoothstep(0.6, 1.0, density) * (0.2 + u_param3 * 0.5));
+  color *= mix(0.7, 1.05, volume);
+  color += u_accentColor * pow(volume, 3.0) * 0.18 * pulse(u_audioMid, 0.25);
+  gl_FragColor = vec4(finish(color, uv), 1.0);
+}`,
+  // Águas rasas infinitas: cáusticas de luz (rede de filamentos) sobre um
+  // gradiente, com cintilação lenta e deriva. Médios -> cintilação.
+  // Reimplementação original inspirada na vibe "Endless Shallows".
+  "endless-shallows": `${shaderPrelude}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  vec2 ratio = vec2(u_resolution.x / u_resolution.y, 1.0);
+  vec2 p = uv * ratio * (2.0 + u_param0 * 3.0);
+  float t = u_time * (0.06 + u_speed * 0.30);
+  vec2 drift = direction() * t * (0.05 + u_param4 * 0.2);
+  float warp = fbm(p * 0.8 + drift);
+  vec2 cell = p + warp * (0.6 + u_param1 * 1.4) + drift;
+  float c1 = abs(sin(cell.x * 1.3 + cell.y * 0.7 + t));
+  float c2 = abs(sin(cell.y * 1.1 - cell.x * 0.5 - t * 0.8));
+  float caustic = pow(1.0 - min(c1, c2), 2.5 + u_param2 * 3.0);
+  float shimmer = caustic * pulse(u_audioMid, 0.5);
+  vec3 water = mix(u_colorA, u_colorB, smoothstep(0.0, 1.0, uv.y + warp * 0.2));
+  vec3 color = water + u_accentColor * shimmer * (0.4 + u_param3 * 0.6);
+  gl_FragColor = vec4(finish(color, uv), 1.0);
+}`,
+  // Sonho de livro ilustrado: luz volumétrica quente (god-rays suaves) com halo
+  // sobre um entardecer. Cintilação lenta; graves -> respiração do halo.
+  "storybook-dream": `${shaderPrelude}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  vec2 ratio = vec2(u_resolution.x / u_resolution.y, 1.0);
+  float t = u_time * (0.04 + u_speed * 0.25);
+  vec2 sun = vec2(0.5 + (u_param2 - 0.5) * 0.6, 0.72);
+  vec2 d = (uv - sun) * ratio;
+  float angle = atan(d.y, d.x);
+  float radius = length(d);
+  float rays = pow(fbm(vec2(angle * (3.0 + u_param0 * 6.0), radius * 2.0 - t)), 1.5);
+  float beam = smoothstep(0.9, 0.0, radius) * (0.4 + rays * (0.4 + u_param1 * 0.8));
+  float halo = smoothstep(0.5 + u_param3 * 0.4, 0.0, radius);
+  vec3 sky = mix(u_colorA, u_colorB, smoothstep(0.0, 1.0, uv.y));
+  vec3 color = sky + u_accentColor * (beam + halo * 0.6) * (0.5 + u_param4 * 0.5);
+  color += u_accentColor * halo * 0.3 * pulse(u_audioBass, 0.25);
+  gl_FragColor = vec4(finish(color, uv), 1.0);
+}`,
+  // Cromo líquido: campo de altura + normal-map fake -> metal anisotrópico com
+  // reflexos especulares. Graves -> amplitude da ondulação.
+  // Porte da técnica de LUMEN MODE0 (MIT) — ver NOTICE para atribuição.
+  "liquid-chrome": `${shaderPrelude}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  vec2 ratio = vec2(u_resolution.x / u_resolution.y, 1.0);
+  vec2 p = uv * ratio * (1.5 + u_param0 * 3.0);
+  float t = u_time * (0.05 + u_speed * 0.50);
+  vec2 drift = direction() * t * 0.15;
+  float amp = 1.0 + u_audioBass * u_audioReaction * 0.6;
+  float e = 0.012;
+  float h = fbm(p + drift);
+  float hx = fbm(p + vec2(e, 0.0) + drift);
+  float hy = fbm(p + vec2(0.0, e) + drift);
+  float relief = (4.0 + u_param1 * 8.0) * amp;
+  vec3 n = normalize(vec3((h - hx) * relief, (h - hy) * relief, 1.0));
+  vec3 lightDir = normalize(vec3(0.5, 0.6, 0.7));
+  vec3 viewDir = vec3(0.0, 0.0, 1.0);
+  vec3 reflectDir = reflect(-lightDir, n);
+  float spec = pow(max(dot(reflectDir, viewDir), 0.0), mix(8.0, 48.0, u_param2));
+  float diffuse = max(dot(n, lightDir), 0.0);
+  float aniso = abs(sin((h + n.x) * (6.0 + u_param3 * 10.0)));
+  vec3 metal = mix(u_colorA, u_colorB, diffuse);
+  vec3 color = metal + u_accentColor * spec * (0.6 + u_param4 * 0.8);
+  color = mix(color, u_accentColor, aniso * 0.12);
+  gl_FragColor = vec4(finish(color, uv), 1.0);
+}`,
 };
 
 const blendModes = {
