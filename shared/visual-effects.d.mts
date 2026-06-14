@@ -116,7 +116,11 @@ export type SceneRendererId =
   | "fluid-volume"
   | "endless-shallows"
   | "storybook-dream"
-  | "liquid-chrome";
+  | "liquid-chrome"
+  | "stratosphere-flight"
+  | "shambhala-passage"
+  | "neural-haze"
+  | "light-trails";
 
 export type VisualPostSettings = {
   bloom: number;

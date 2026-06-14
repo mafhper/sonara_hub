@@ -35,6 +35,10 @@ const expectedIds = [
   "endless-shallows",
   "storybook-dream",
   "liquid-chrome",
+  "stratosphere-flight",
+  "shambhala-passage",
+  "neural-haze",
+  "light-trails",
 ];
 
 test("catalog exposes the broad families plus the ported shader presets", () => {
@@ -69,6 +73,10 @@ test("visual presets expose V5 catalog metadata with neutral post defaults", () 
   assert.equal(
     normalizeVisualSettings({ id: "liquid-chrome" }).family,
     "liquid-chrome",
+  );
+  assert.equal(
+    normalizeVisualSettings({ id: "stratosphere-flight" }).family,
+    "sky-atmosphere",
   );
 });
 
@@ -156,6 +164,9 @@ test("visual presets expose only common controls consumed by their renderer", ()
 
   const vinyl = normalizeVisualSettings({ id: "vinyl" });
   assert.deepEqual(vinyl.supportsCommon, ["speed", "shade"]);
+
+  const storybook = normalizeVisualSettings({ id: "storybook-dream" });
+  assert.ok(storybook.controls.some((control) => control.key === "sunY"));
 
   const dark = normalizeVisualSettings({ id: "audio-dark" });
   assert.deepEqual(dark.supportsCommon, ["speed", "shade"]);

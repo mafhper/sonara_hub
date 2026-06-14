@@ -490,6 +490,100 @@ void main() {
   color = mix(color, u_accentColor, aniso * 0.12);
   gl_FragColor = vec4(finish(color, uv), 1.0);
 }`,
+  // V5.2 — referências CodePen usadas apenas como direção visual. Estes
+  // shaders são originais e mantêm resposta musical limitada a luz/cor.
+  "stratosphere-flight": `${shaderPrelude}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  vec2 ratio = vec2(u_resolution.x / u_resolution.y, 1.0);
+  float t = u_time * (0.05 + u_speed * 0.34);
+  float horizon = mix(0.28, 0.68, u_param2);
+  vec2 drift = direction() * t * (0.08 + u_param3 * 0.28);
+  vec2 p = vec2((uv.x - 0.5) * ratio.x, uv.y - horizon);
+  float depth = smoothstep(-0.18, 0.48, p.y);
+  float cloudScale = mix(1.2, 4.8, u_param1);
+  float cloud = 0.0;
+  for (int i = 0; i < 4; i++) {
+    float fi = float(i);
+    vec2 layer = vec2(p.x * (1.0 + fi * 0.22), p.y * (1.9 + fi * 0.5));
+    layer += drift * (0.4 + fi * 0.35) + vec2(0.0, -t * (0.08 + fi * 0.04));
+    cloud += fbm(layer * cloudScale + fi * 1.7) * (0.34 - fi * 0.045);
+  }
+  float mass = smoothstep(0.42, 0.86, cloud + depth * (0.12 + u_param0 * 0.34));
+  float runway = pow(max(0.0, 1.0 - abs(p.x) * 1.8), 3.0) * smoothstep(-0.16, 0.42, p.y);
+  float streaks = pow(max(0.0, sin((p.y + t * (0.5 + u_param3)) * 16.0 + abs(p.x) * 7.0)), 5.0);
+  float beatLight = 1.0 + u_audioBeat * u_audioReaction * 0.12 + u_audioEnergy * u_audioReaction * 0.1;
+  vec3 sky = mix(u_colorA, u_colorB, smoothstep(0.05, 1.0, uv.y));
+  vec3 color = mix(sky, u_colorB, mass * (0.2 + u_intensity * 0.36));
+  color += u_accentColor * (runway * (0.16 + u_param4 * 0.38) + streaks * 0.06) * beatLight;
+  color += u_colorB * smoothstep(0.9, 0.18, abs(uv.y - horizon)) * 0.08;
+  gl_FragColor = vec4(finish(color, uv), 1.0);
+}`,
+  "shambhala-passage": `${shaderPrelude}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  vec2 ratio = vec2(u_resolution.x / u_resolution.y, 1.0);
+  vec2 p = (uv - 0.5) * ratio;
+  float t = u_time * (0.04 + u_speed * 0.28);
+  float r = length(p);
+  float a = atan(p.y, p.x);
+  float symmetry = floor(mix(5.0, 12.0, u_param0));
+  float arch = abs(sin(a * symmetry + r * (4.0 + u_param1 * 8.0) - t));
+  float corridor = pow(max(0.0, 1.0 - abs(p.x) * (1.0 + u_param2 * 1.4)), 2.2);
+  float steps = pow(1.0 - abs(fract((r - t * 0.06) * (8.0 + u_param1 * 8.0)) - 0.5) * 2.0, 3.0);
+  float mist = fbm(p * (2.0 + u_param2 * 3.0) + t * 0.12);
+  float gate = smoothstep(0.82, 0.18, r) * (arch * (0.16 + u_param3 * 0.44) + steps * 0.18);
+  float glow = corridor * smoothstep(0.72, 0.0, abs(p.y + 0.16)) * (0.22 + u_param4 * 0.54);
+  vec3 stone = mix(u_colorA, u_colorB, mist * 0.5 + r * 0.35);
+  vec3 color = stone + u_accentColor * (gate + glow) * (1.0 + u_audioMid * u_audioReaction * 0.14);
+  color += u_colorB * corridor * 0.08;
+  gl_FragColor = vec4(finish(color, uv), 1.0);
+}`,
+  "neural-haze": `${shaderPrelude}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  vec2 ratio = vec2(u_resolution.x / u_resolution.y, 1.0);
+  vec2 p = (uv - 0.5) * ratio * (1.0 + u_param0 * 2.4);
+  float t = u_time * (0.05 + u_speed * 0.3);
+  vec2 drift = direction() * t * (0.08 + u_param4 * 0.22);
+  float field = fbm(p * (1.2 + u_param1 * 2.8) + drift);
+  field += 0.5 * fbm(p * (3.1 + u_param1 * 3.0) - drift.yx * 0.7 + field);
+  float contourFreq = mix(5.0, 18.0, u_param2);
+  float contour = 1.0 - smoothstep(0.0, 0.08 + u_param3 * 0.1, abs(fract(field * contourFreq + t * 0.08) - 0.5));
+  float pulse = 1.0 + (u_audioFlux * 0.4 + u_audioOnset * 0.35) * u_audioReaction;
+  float node = smoothstep(0.96, 0.72, length(p + vec2(0.12, -0.04)));
+  vec3 base = mix(u_colorA, u_colorB, smoothstep(0.16, 0.9, field));
+  vec3 color = base + u_accentColor * (contour * (0.16 + u_param3 * 0.34) + node * 0.14) * pulse;
+  color = mix(color, u_colorB, smoothstep(0.7, 0.2, length(p)) * 0.12);
+  gl_FragColor = vec4(finish(color, uv), 1.0);
+}`,
+  "light-trails": `${shaderPrelude}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  vec2 ratio = vec2(u_resolution.x / u_resolution.y, 1.0);
+  vec2 p = (uv - 0.5) * ratio;
+  float t = u_time * (0.05 + u_speed * 0.42);
+  float trails = floor(mix(3.0, 8.0, u_param0));
+  float width = mix(0.012, 0.08, u_param1);
+  float bend = mix(0.14, 0.62, u_param2);
+  float field = fbm(p * (1.4 + u_param5 * 2.2) + direction() * t * 0.16);
+  float accum = 0.0;
+  for (int i = 0; i < 8; i++) {
+    float fi = float(i);
+    float active = step(fi + 0.5, trails);
+    float lane = (fi + 0.5) / trails - 0.5;
+    float wave = sin((p.x + field * bend) * (3.0 + fi * 0.42) + t * (1.0 + fi * 0.12)) * bend;
+    float target = lane * 0.9 + wave * 0.22;
+    float line = smoothstep(width * (1.8 + fi * 0.12), 0.0, abs(p.y - target));
+    accum += line * (0.55 + fi * 0.06) * active;
+  }
+  float flare = pow(smoothstep(0.82, 0.0, length(p - vec2(0.22, 0.08))), 2.0);
+  float response = 1.0 + (u_audioHigh * 0.2 + u_audioBeat * 0.16) * u_audioReaction;
+  vec3 base = mix(u_colorA, u_colorB, field * 0.46 + uv.y * 0.24);
+  vec3 color = base + u_accentColor * accum * (0.22 + u_param3 * 0.46) * response;
+  color += u_colorB * flare * (0.08 + u_param4 * 0.22);
+  gl_FragColor = vec4(finish(color, uv), 1.0);
+}`,
 };
 
 const blendModes = {
