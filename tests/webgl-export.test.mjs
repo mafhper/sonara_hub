@@ -17,7 +17,7 @@ test("canvas exporter requests deterministic frames instead of relying on headle
 
   assert.match(html, /canvas\.captureStream\(0\)/);
   assert.match(html, /track\.requestFrame\(\)/);
-  assert.match(html, /runtime\.render\(time\)/);
+  assert.match(html, /runtime\.render\(time, fps\)/);
   assert.match(html, /await delay\(frameDuration\)/);
   assert.match(html, /reportScenePhase/);
   assert.match(html, /media-recorder-start/);

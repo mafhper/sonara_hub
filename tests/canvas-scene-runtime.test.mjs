@@ -287,6 +287,7 @@ test("legacy render stack starts with atmosphere", () => {
   const scene = { rendererId: "audio-dark", cloudLight: { enabled: false } };
   const stack = legacyRenderStack(scene, { layers: [] });
   assert.equal(stack[0].kind, "atmosphere");
+  assert.equal(stack[1].kind, "post");
 });
 
 test("legacy render stack includes sun-focus when cloudLight is enabled and not volumetric-clouds", () => {
@@ -298,17 +299,19 @@ test("legacy render stack includes sun-focus when cloudLight is enabled and not 
   const stack = legacyRenderStack(scene, { layers: [] });
   assert.equal(stack[0].kind, "atmosphere");
   assert.equal(stack[1].kind, "sun-focus");
+  assert.equal(stack[2].kind, "post");
 });
 
-test("legacy render stack omits sun-focus for volumetric-clouds", () => {
+test("legacy render stack places post after volumetric-clouds atmosphere", () => {
   const scene = {
     rendererId: "volumetric-clouds",
     cloudLight: { enabled: true },
     waveform: { visible: false },
   };
   const stack = legacyRenderStack(scene, { layers: [] });
-  assert.equal(stack.length, 1);
+  assert.equal(stack.length, 2);
   assert.equal(stack[0].kind, "atmosphere");
+  assert.equal(stack[1].kind, "post");
 });
 
 test("legacy render stack includes media layers in reverse order", () => {
@@ -323,10 +326,11 @@ test("legacy render stack includes media layers in reverse order", () => {
   };
   const stack = legacyRenderStack(scene, { layers });
   assert.equal(stack[0].kind, "atmosphere");
-  assert.equal(stack[1].kind, "media");
-  assert.equal(stack[1].layerId, "b");
+  assert.equal(stack[1].kind, "post");
   assert.equal(stack[2].kind, "media");
-  assert.equal(stack[2].layerId, "a");
+  assert.equal(stack[2].layerId, "b");
+  assert.equal(stack[3].kind, "media");
+  assert.equal(stack[3].layerId, "a");
 });
 
 test("legacy render stack includes vinyl when renderer is vinyl", () => {

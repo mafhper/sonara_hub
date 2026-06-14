@@ -95,7 +95,7 @@ export function createSceneRuntime(
   initialScene: ScenePresetV3,
   initialComposition?: SceneComposition,
 ): {
-  render(time?: number): void;
+  render(time?: number, fps?: number): void;
   resize(width?: number, height?: number): void;
   setScene(scene: ScenePresetV3): void;
   setComposition(composition: SceneComposition): void;

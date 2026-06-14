@@ -500,7 +500,7 @@ export function buildRendererHtml({
 
     window.renderScenePoster = (time = 0) => {
       runtime.setAudio(audioAt(time));
-      runtime.render(time);
+      runtime.render(time, 24);
     };
 
     window.recordScene = async (durationSeconds, fps, startTime = 0) => {
@@ -561,7 +561,7 @@ export function buildRendererHtml({
         const time = Math.max(0, startTime) + Math.min(durationSeconds, index / fps);
         const renderStarted = performance.now();
         runtime.setAudio(audioAt(time));
-        runtime.render(time);
+        runtime.render(time, fps);
         captureMetrics.renderMs += performance.now() - renderStarted;
         const requestFrameStarted = performance.now();
         track.requestFrame();

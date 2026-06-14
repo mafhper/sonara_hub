@@ -35,6 +35,21 @@ for (const preset of builtinVisualPresets) {
   });
 }
 
+const postScene = structuredClone(builtinVisualPresets[0]);
+postScene.post = { ...postScene.post, vignette: 58, scanlines: 30 };
+const postOutput = await renderAndCheck({
+  name: "liquid-mesh-post-overlay-720p",
+  preset: postScene,
+  size: { width: 1280, height: 720 },
+  duration: 1,
+  fps: 12,
+});
+assert.notEqual(
+  await firstFrameHash(path.join(outputDir, "liquid-mesh-720p.webm")),
+  await firstFrameHash(postOutput),
+  "post overlay should alter the rendered frame when enabled",
+);
+
 const broadClouds = builtinVisualPresets.find(
   (preset) => preset.id === "volumetric-clouds",
 );

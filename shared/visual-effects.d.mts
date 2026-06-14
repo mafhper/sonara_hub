@@ -91,6 +91,7 @@ export type VisualPalette = {
 export type RenderStackItem =
   | { kind: "atmosphere" }
   | { kind: "sun-focus" }
+  | { kind: "post" }
   | { kind: "waveform" }
   | { kind: "vinyl" }
   | { kind: "media"; layerId: string; order: number };

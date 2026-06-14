@@ -492,6 +492,7 @@ export function legacyRenderStack(scene, composition) {
   if (scene.cloudLight?.enabled && scene.rendererId !== "volumetric-clouds") {
     stack.push({ kind: "sun-focus" });
   }
+  stack.push({ kind: "post" });
   for (const layer of [...(composition.layers ?? [])].reverse()) {
     if (layer.visible !== false && layer.element) {
       stack.push({ kind: "media", layerId: layer.id, order: layer.order });
@@ -556,7 +557,7 @@ export function createSceneRuntime(
     }
   }
 
-  function render(time = 0) {
+  function render(time = 0, fps = 24) {
     resize(
       canvas.clientWidth || canvas.width,
       canvas.clientHeight || canvas.height,
@@ -591,6 +592,9 @@ export function createSceneRuntime(
               time,
             );
           }
+          break;
+        case "post":
+          drawPost(context, width, height, scene.post, time, fps);
           break;
         case "waveform":
           if (scene.waveform?.visible) {
@@ -1438,6 +1442,69 @@ export function mediaTextAvoidanceBounds(
   return layers
     .map((layer) => mediaLayerBounds(width, height, layer, 0, durationSeconds))
     .filter(Boolean);
+}
+
+function drawPost(context, width, height, post, time = 0, fps = 24) {
+  const vignette = clampNumber(Number(post?.vignette ?? 0), 0, 100) / 100;
+  const grain = clampNumber(Number(post?.grain ?? 0), 0, 100) / 100;
+  const scanlines = clampNumber(Number(post?.scanlines ?? 0), 0, 100) / 100;
+  // `bloom` and `chromaticAberration` are schema stubs for V5.1; they need
+  // framebuffer passes, so V5 keeps them inert instead of faking the behavior.
+  if (vignette <= 0 && grain <= 0 && scanlines <= 0) return;
+
+  if (vignette > 0) {
+    context.save();
+    context.globalCompositeOperation = "multiply";
+    const radius = Math.hypot(width, height) * (0.48 + vignette * 0.18);
+    const gradient = context.createRadialGradient(
+      width * 0.5,
+      height * 0.5,
+      radius * 0.16,
+      width * 0.5,
+      height * 0.5,
+      radius,
+    );
+    gradient.addColorStop(0, "rgba(255,255,255,1)");
+    gradient.addColorStop(0.64, "rgba(245,245,245,1)");
+    gradient.addColorStop(1, `rgba(0,0,0,${0.42 * vignette})`);
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, width, height);
+    context.restore();
+  }
+
+  if (grain > 0 && typeof document !== "undefined") {
+    const frameSeed = Math.floor(Math.max(0, time) * Math.max(1, fps));
+    const image = context.createImageData(width, height);
+    const data = image.data;
+    const alpha = Math.round(28 * grain);
+    for (let index = 0; index < data.length; index += 4) {
+      const pixel = index / 4;
+      const value = seeded(frameSeed + 17, pixel, 29) > 0.5 ? 255 : 0;
+      data[index] = value;
+      data[index + 1] = value;
+      data[index + 2] = value;
+      data[index + 3] = alpha;
+    }
+    const grainCanvas = document.createElement("canvas");
+    grainCanvas.width = width;
+    grainCanvas.height = height;
+    grainCanvas.getContext("2d").putImageData(image, 0, 0);
+    context.save();
+    context.globalCompositeOperation = "overlay";
+    context.drawImage(grainCanvas, 0, 0);
+    context.restore();
+  }
+
+  if (scanlines > 0) {
+    const step = Math.max(2, Math.round(height / 360));
+    context.save();
+    context.globalCompositeOperation = "multiply";
+    context.fillStyle = `rgba(0,0,0,${0.2 * scanlines})`;
+    for (let y = 0; y < height; y += step * 2) {
+      context.fillRect(0, y, width, step);
+    }
+    context.restore();
+  }
 }
 
 // Generic, renderer-agnostic sun/light overlay. Drawn after the base scene so
