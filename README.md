@@ -19,10 +19,12 @@ sem uploads, sem contas e sem depender da nuvem.
   revise tags ID3, capas, letras, descrição de publicação, análise técnica e
   gere cópias MP3 tratadas sem alterar os originais.
 - **Catálogo e capas** — confira o álbum como coleção, escolha artes detectadas
-  na pasta, gere capas em série e ajuste textos complementares por faixa ou por
+  na pasta, defina uma capa compartilhada do álbum, mantenha overrides por
+  faixa, gere capas em série e ajuste textos complementares por faixa ou por
   série.
-- **Estúdio visual** — escolha cenas animadas, paletas, camadas de mídia,
-  waveform, capa, textos e fade individual de capa/textos. A prévia e a
+- **Estúdio visual** — navegue por cenas animadas em um browser de presets com
+  categorias, variantes, paletas, tags e tier de performance; combine camadas de
+  mídia, waveform, capa, textos e fade individual de capa/textos. A prévia e a
   exportação usam a mesma composição efetiva.
 - **Fila de vídeos** — revise as faixas, escolha Pasta de Saída, política de
   backup/sobrescrita e exporte vídeos em 720p ou 1080p com sidecar
@@ -30,6 +32,11 @@ sem uploads, sem contas e sem depender da nuvem.
 - **Divulgação** — gere imagens, clips curtos e manifestos JSON/Markdown para
   publicação do álbum usando, preferencialmente, os ajustes visuais já criados
   no vídeo.
+- **Podcast experimental** — habilite a guia de Podcast por workspace para
+  agrupar episódios, revisar metadados de feed, aplicar escolhas de
+  processamento voltadas para voz e exportar RSS/sidecar.
+- **Acessibilidade e temas** — escolha tema original, claro, escuro ou golden e
+  ajuste a escala da interface para melhorar leitura e toque em sessões longas.
 
 ## Veja em ação
 
@@ -53,9 +60,15 @@ Um catálogo curado para funcionar como fundo de tela para música, todas com
 cores, intensidade e reação ao áudio ajustáveis:
 
 - **Atmosferas** — fluxo líquido, nuvens com foco solar, aurora e aura vetorial.
-- **Shaders** — plasma e vórtice, efeitos WebGL reativos à música.
-- **Composições** — vinil reativo com a capa do álbum e tela escura para áudio.
-- **Cenas leves** — formas lúdicas, mesh colorido e faixas de piano.
+- **Atmosferas V5** — `stratosphere-flight`, `shambhala-passage`,
+  `neural-haze` e `light-trails`, famílias originais inspiradas em linguagem
+  WebGL pública, mas implementadas sem copiar código de terceiros.
+- **Shaders** — plasma, vórtice, estrelas, bloom iridescente, volume fluido e
+  efeitos WebGL com resposta musical limitada por design.
+- **Composições** — vinil com reação musical discreta, tela escura para áudio e
+  cenas ilustradas com controles de posição mais previsíveis.
+- **Cenas leves** — formas lúdicas, mesh colorido e faixas de piano redesenhadas
+  para parecerem mais musicais e menos abstratas.
 
 ## Qualidade e benchmark
 
@@ -69,6 +82,8 @@ performance e degradação ao longo do desenvolvimento:
 - `npm run test:flow` executa um fluxo completo curto com áudio, capa, camada,
   texto, fade, sidecar e validação do vídeo final.
 - `npm run test:render` valida presets representativos no renderer WebGL.
+- `npm run site:build` e `npm run site:test` validam o promo-site publicado via
+  GitHub Pages.
 - `npm run test:scale` valida o comportamento de catálogo, presets, histórico e
   lifecycle de Object URLs em um projeto sintético com 120 faixas.
 - `npm run bench:render` serve como referência local para comparar tempo,
@@ -88,6 +103,10 @@ saudável, degradando ou pedindo nova instrumentação.
 - **Desktop virá depois da base estável.** Quando a plataforma estiver funcional
   e estável como app local, o próximo passo será começar o porte para uma
   aplicação desktop.
+- **Internacionalização do app está na trilha.** O promo-site já detecta idioma
+  automaticamente e publica copy em pt-BR, inglês e espanhol; o app principal
+  deve seguir esse padrão em uma rodada dedicada, porque isso toca praticamente
+  toda a superfície de UI.
 - **Prioridade atual: funcionalidade basal.** Não vou gastar energia escovando
   bits em detalhes que uma versão desktop nativa deve resolver melhor; primeiro
   preciso garantir que o fluxo essencial funciona bem.
@@ -105,7 +124,10 @@ saudável, degradando ou pedindo nova instrumentação.
 
 ![Site de apresentação do Sonara Hub](docs/media/promo-hero.webp)
 
-Há um site de apresentação com a proposta e telas do estúdio:
+Há um site de apresentação com a proposta, telas do estúdio e uma experiência
+interativa para testar atmosferas visuais. O site detecta automaticamente a
+preferência de idioma do navegador e oferece conteúdo em **pt-BR**, **inglês**
+e **espanhol**:
 **[mafhper.github.io/sonara_hub](https://mafhper.github.io/sonara_hub/)**.
 
 ## Como rodar
@@ -177,6 +199,7 @@ O repositório inclui um site de apresentação separado, na pasta `site/`:
 ```bash
 npm run site:dev    # desenvolvimento
 npm run site:build  # build estático em site/dist
+npm run site:test   # smoke test do site compilado
 ```
 
 ## Para desenvolvedores

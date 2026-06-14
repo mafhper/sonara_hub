@@ -102,6 +102,19 @@ O promo-site vive em `site/` e compartilha assets de marca em `public/brand/`.
 O workflow `.github/workflows/pages.yml` publica somente `site/dist` quando a
 branch `main` recebe push ou quando o workflow é executado manualmente.
 
+O site é uma aplicação React/Vite estática com detecção automática de idioma via
+`navigator.languages`. A copy pública deve permanecer disponível em `pt-BR`,
+`en` e `es`, incluindo novas seções, CTAs, nomes acessíveis e experiências
+interativas. Hoje a vitrine inclui uma prévia leve de atmosferas em canvas para
+apresentar as famílias V5 sem depender do renderer completo do app.
+
+Antes de publicar alterações no site:
+
+```powershell
+npm run site:build
+npm run site:test
+```
+
 ## Dependências
 
 O projeto mantém `package-lock.json`, usa `npm ci` na CI e fixa Actions por SHA

@@ -1,4 +1,12 @@
-import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  type ReactElement,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import auroraWave from "./assets/aurora-wave.webp";
 import heroAmbient from "./assets/hero-ambient.webp";
 import heroCoverAzul from "./assets/hero-cover-azul.webp";
@@ -37,29 +45,1039 @@ type Principle = {
   icon: (props: IconProps) => ReactElement;
 };
 
+type Locale = "pt-BR" | "en" | "es";
+type AtmosphereLabId =
+  | "stratosphere-flight"
+  | "shambhala-passage"
+  | "neural-haze"
+  | "light-trails";
+type AtmospherePaletteId = "dawn" | "prism" | "nocturne";
+
+const supportedLocales: Locale[] = ["pt-BR", "en", "es"];
+const atmosphereLabIds: AtmosphereLabId[] = [
+  "stratosphere-flight",
+  "shambhala-passage",
+  "neural-haze",
+  "light-trails",
+];
+const atmospherePaletteIds: AtmospherePaletteId[] = [
+  "dawn",
+  "prism",
+  "nocturne",
+];
+const atmospherePaletteColors: Record<AtmospherePaletteId, string[]> = {
+  dawn: ["#0b1720", "#3d7f91", "#f0bf74", "#f6e0b4"],
+  prism: ["#090a12", "#7ccfce", "#d69d54", "#c9dbff"],
+  nocturne: ["#06070b", "#1b2440", "#6d7fc8", "#e7ecff"],
+};
+
+const siteCopy = {
+  "pt-BR": {
+    header: {
+      aria: "Navegação do site",
+      home: "Início do Sonara Hub",
+      primary: "Navegação principal",
+      nav: {
+        workspaces: "Workspaces",
+        visualSystem: "Visuais",
+        workflow: "Fluxo",
+        releaseFormats: "Publicação",
+        roadmap: "Rota futura",
+      },
+    },
+    hero: {
+      status: "Estúdio local-first em desenvolvimento ativo",
+      title: "Prepare, organize e visualize sua música.",
+      body: "Sonara Hub é um estúdio criativo local-first para músicos independentes, selos e narradores. Trate áudio, construa capas de álbum, navegue por atmosferas visuais e exporte materiais prontos para publicação sem uploads, contas ou dependência de nuvem.",
+      actions: {
+        github: "Ver no GitHub",
+        download: "Download em breve",
+      },
+    },
+    showcase: {
+      descriptors: {
+        cover: "Capa de álbum",
+        screen: "Dentro do app",
+        video: "Exportado para YouTube",
+      },
+      cards: {
+        beauty: "The Beauty of Almost",
+        visualStudio: "Estúdio visual",
+        musicVideo: "Vídeo musical",
+        azul: "Azul de Roda",
+        albumCatalog: "Catálogo do álbum",
+        jardim: "Jardim dos Ventos",
+      },
+    },
+    strip: [
+      "Local first",
+      "Privacidade por design",
+      "Sem uploads",
+      "Fluxo de álbum",
+      "Browser visual",
+      "Capas compartilhadas",
+      "Podcast experimental",
+      "Escala de UI acessível",
+      "Open source",
+    ],
+    story: {
+      label: "O problema",
+      title: "Publicar um disco não deveria exigir costurar seis utilitários.",
+      paragraphs: [
+        "Criadores independentes costumam alternar entre editores de tag, ferramentas de loudness, utilitários de capa, geradores de vídeo e checklists de publicação. Cada etapa funciona, mas o fluxo fica fragmentado.",
+        "Sonara Hub transforma essa cadeia em um workspace local: prepare o áudio, organize a identidade do álbum e construa uma atmosfera visual capaz de carregar vídeos, séries de capas e formatos futuros de publicação.",
+      ],
+    },
+    workspaces: {
+      label: "Dois workspaces",
+      title: "O áudio vira visual sem sair do estúdio.",
+      body: "A mesma pasta, metadados e decisões de capa alimentam a exportação visual. Sem retrabalho, sem uma etapa de publicação desconectada.",
+      audio: {
+        eyebrow: "01 - Biblioteca de áudio",
+        title: "Prepare o disco.",
+        description:
+          "Importe pastas, analise qualidade de MP3, revise tags ID3, gerencie letras, escolha capas compartilhadas e gere cópias tratadas antes da publicação.",
+        features: [
+          "Metadados e letras",
+          "Capas compartilhadas e por faixa",
+          "Revisão de loudness e pico",
+          "Tratamento em lote",
+          "Metadados de podcast opt-in",
+        ],
+      },
+      visual: {
+        eyebrow: "02 - Estúdio visual",
+        title: "Construa a atmosfera.",
+        description:
+          "Crie visualizers ambientes com mídia em camadas, tratamentos de waveform, textos de série de capa e um browser compacto para famílias de movimento curadas.",
+        features: [
+          "Cenas ambientes",
+          "Browser de presets e variantes",
+          "Mídia em camadas",
+          "Estilos de waveform",
+          "Sidecars prontos para YouTube",
+          "Séries de capa e texto",
+        ],
+      },
+    },
+    visualSystem: {
+      label: "Sistema visual",
+      title: "Atmosferas agora são navegadas, não adivinhadas.",
+      body: "A lista plana de presets está evoluindo para um browser compacto com categorias, variantes, amostras de cor, tags e tiers de performance. Presets de estilo ficam separados dos controles de posição, então a escolha visual fica mais clara e mais segura para reutilizar.",
+      atmospheres: {
+        label: "Atmosferas V5",
+        title: "Novas famílias, resposta ao áudio mais calma.",
+        body: "Vinil, faixas de piano e cenas ilustradas foram ajustadas para reagir com intenção. As novas famílias WebGL ampliam a variedade sem copiar código público de shaders ou deixar a música dirigir movimentos descontrolados.",
+        aria: "Exemplos de novas atmosferas visuais",
+        items: [
+          [
+            "Stratosphere flight",
+            "Paralaxe aérea lenta para lançamentos cinematográficos.",
+          ],
+          [
+            "Shambhala passage",
+            "Arquitetura simétrica de luz com resposta musical contida.",
+          ],
+          [
+            "Neural haze",
+            "Contornos orgânicos suaves para movimento ambiente discreto.",
+          ],
+          ["Light trails", "Rastros luminosos com movimento sem caos visual."],
+        ],
+      },
+      themes: {
+        label: "Temas",
+        title: "Temas de interface e escala de UI.",
+        body: "Temas original, claro, escuro e golden se combinam com preferências de escala de UI para criadores que precisam de controles maiores e leitura mais forte em sessões longas de revisão.",
+      },
+      covers: {
+        label: "Capas",
+        title: "Capa do álbum primeiro, override por faixa quando precisar.",
+        body: "A arte do álbum pode ser compartilhada pela série enquanto faixas individuais mantêm um caminho de override. O texto da série usa controles diretos de posição com alinhamento acompanhando o ponto escolhido.",
+      },
+      lab: {
+        label: "Laboratório de atmosferas",
+        title: "Experimente o clima antes de abrir o app.",
+        body: "A prévia abaixo é uma versão leve para o site: ela não substitui o renderer do Sonara Hub, mas mostra como as novas famílias variam em paleta, movimento e intensidade.",
+        previewAria: "Prévia interativa da atmosfera selecionada",
+        controls: {
+          atmosphere: "Atmosfera",
+          palette: "Paleta",
+          motion: "Movimento",
+          intensity: "Intensidade",
+        },
+        palettes: {
+          dawn: "Amanhecer",
+          prism: "Prisma",
+          nocturne: "Noturno",
+        },
+        presets: {
+          "stratosphere-flight": {
+            name: "Stratosphere flight",
+            description:
+              "Céu em camadas, horizonte suave e deslocamento lento.",
+            tags: ["céu", "paralaxe", "cinema"],
+          },
+          "shambhala-passage": {
+            name: "Shambhala passage",
+            description: "Portal simétrico com luz dourada e pulso contido.",
+            tags: ["portal", "simetria", "luz"],
+          },
+          "neural-haze": {
+            name: "Neural haze",
+            description: "Contornos orgânicos, névoa calma e pouca distração.",
+            tags: ["orgânico", "névoa", "calmo"],
+          },
+          "light-trails": {
+            name: "Light trails",
+            description:
+              "Rastros luminosos com curvas largas e energia controlada.",
+            tags: ["rastro", "movimento", "brilho"],
+          },
+        },
+      },
+    },
+    workflow: {
+      label: "Fluxo",
+      title: "Um lançamento, cinco movimentos claros.",
+      body: "O produto acompanha a direção natural do criador: de músicas brutas para um pacote audiovisual pronto para publicação.",
+      steps: [
+        ["01", "Importar", "Abra uma pasta e preserve os arquivos originais."],
+        ["02", "Preparar", "Revise tags, letras, capas e qualidade técnica."],
+        [
+          "03",
+          "Organizar",
+          "Confirme o álbum como catálogo antes do tratamento.",
+        ],
+        [
+          "04",
+          "Visualizar",
+          "Navegue por atmosferas, variantes, waveform, camadas e texto.",
+        ],
+        [
+          "05",
+          "Publicar",
+          "Gere vídeos, sidecars, assets de divulgação e feeds experimentais de podcast.",
+        ],
+      ],
+    },
+    releaseFormats: {
+      label: "Experimentos de publicação",
+      title:
+        "Lançamentos musicais, assets visuais e feeds de podcast compartilham a mesma fonte.",
+      body: "O produto ainda se concentra em áudio e vídeo ambiente, mas a superfície de lançamento está crescendo: temas de encarte, manifestos promocionais e exportações RSS de podcast são moldados a partir do mesmo projeto local.",
+      cards: [
+        {
+          label: "Núcleo estável",
+          title: "Áudio, capas e vídeos",
+          body: "Trate MP3s, revise metadados, monte a identidade do catálogo e exporte vídeos atmosféricos com sidecars de YouTube.",
+        },
+        {
+          label: "Camada em crescimento",
+          title: "Assets promocionais e encartes",
+          body: "Gere manifestos de publicação e assets visuais temáticos que herdam a identidade do álbum em vez de começar uma campanha do zero.",
+        },
+        {
+          label: "Experimental",
+          title: "Workspace de podcast",
+          body: "Ferramentas opt-in de podcast agrupam episódios, preservam metadados de feed, aplicam escolhas de processamento para voz e exportam RSS/sidecars.",
+        },
+      ],
+    },
+    screenshots: {
+      label: "Dentro do Sonara",
+      title: "Um instrumento, não um dashboard.",
+      body: "Capturas reais do estúdio carregado com um álbum: as mesmas superfícies escuras e ritmo editorial conduzidos de ponta a ponta.",
+      slots: [
+        {
+          title: "Biblioteca de áudio",
+          caption:
+            "Revisão em lote, tags, capa compartilhada e status de processamento.",
+        },
+        {
+          title: "Prévia de catálogo",
+          caption:
+            "Uma página de disco para confirmar identidade de álbum e capas em série.",
+        },
+        {
+          title: "Grade de vídeo",
+          caption:
+            "Miniaturas em estilo YouTube antes de renderizar a série visual.",
+        },
+        {
+          title: "Estúdio visual",
+          caption:
+            "Um canvas dominante com inspetores focados e variantes de presets.",
+        },
+      ],
+    },
+    principles: {
+      label: "Princípios",
+      title: "Feito para posse, não dependência.",
+      items: [
+        {
+          label: "Local first",
+          title: "Seus arquivos ficam na sua máquina.",
+          body: "Sonara trabalha com pastas no disco e mantém sessões locais privadas por padrão.",
+        },
+        {
+          label: "Privacidade por design",
+          title: "Sem contas ou uploads obrigatórios.",
+          body: "O produto é desenhado para posse, não lock-in de nuvem ou processamento remoto.",
+        },
+        {
+          label: "Foco em criadores",
+          title: "Construído em torno da preparação de lançamento.",
+          body: "Metadados, arte, letras, checagens de áudio, visuais e sidecars de publicação são tratados como um fluxo único.",
+        },
+        {
+          label: "Acessível por padrão",
+          title: "Temas legíveis e UI escalável.",
+          body: "Temas, controles por teclado, foco claro e opções de escala maior fazem parte da superfície do produto.",
+        },
+        {
+          label: "Open source",
+          title: "Transparente enquanto cresce.",
+          body: "O repositório é público, as arestas ficam visíveis e contribuições são bem-vindas.",
+        },
+      ],
+    },
+    openSource: {
+      label: "Open source",
+      title: "Uma pequena ferramenta de estúdio, construída em público.",
+      body: "Sonara Hub é desenvolvido publicamente no GitHub. O repositório, testes, issues e caminho de release ficam visíveis enquanto o MVP amadurece rumo a uma aplicação Windows.",
+      follow: "Acompanhar desenvolvimento",
+      codeAria: "Comandos de desenvolvimento local",
+      code: `git clone https://github.com/mafhper/sonara_hub
+cd sonara_hub
+npm ci
+npm run dev
+
+workspace: Biblioteca de audio
+workspace: Estudio visual
+experimento: Podcast RSS
+visuais: browser de presets + V5
+storage: autosave local`,
+    },
+    roadmap: {
+      label: "Rota futura",
+      title:
+        "Um workspace completo de publicação para criadores independentes.",
+      body: "Preparação de áudio e vídeo ambiente são a fundação. A próxima fase avança para um app Windows dedicado, publicação de podcast mais rica, catálogo mais profundo, mais famílias visuais e validação em resoluções maiores preservando o núcleo local-first.",
+      aria: "Trilha futura de aperfeiçoamento",
+      items: [
+        "Empacotamento desktop para Windows",
+        "Internacionalização do app em pt-BR, inglês e espanhol",
+        "Publicação de podcast mais rica",
+        "Mais famílias originais de atmosferas",
+        "Validação 2K e 4K quando o hardware permitir",
+      ],
+    },
+    finalCta: {
+      title: "Crie a trilha sonora.",
+      accent: "Construa a atmosfera.",
+      github: "Ver no GitHub",
+      follow: "Acompanhar desenvolvimento",
+    },
+    footer: {
+      home: "Início do Sonara Hub",
+      project: "Projeto open-source",
+    },
+  },
+  en: {
+    header: {
+      aria: "Site navigation",
+      home: "Sonara Hub home",
+      primary: "Primary navigation",
+      nav: {
+        workspaces: "Workspaces",
+        visualSystem: "Visuals",
+        workflow: "Workflow",
+        releaseFormats: "Publishing",
+        roadmap: "Roadmap",
+      },
+    },
+    hero: {
+      status: "Local-first studio in active development",
+      title: "Prepare, organize and visualize your music.",
+      body: "Sonara Hub is a local-first creative studio for independent musicians, labels and storytellers. Treat audio, shape album artwork, browse curated atmospheres, and export publication-ready visuals without uploads, accounts or lock-in.",
+      actions: {
+        github: "View on GitHub",
+        download: "Download soon",
+      },
+    },
+    showcase: {
+      descriptors: {
+        cover: "Album cover",
+        screen: "Inside the app",
+        video: "Exported to YouTube",
+      },
+      cards: {
+        beauty: "The Beauty of Almost",
+        visualStudio: "Visual Studio",
+        musicVideo: "Music video",
+        azul: "Azul de Roda",
+        albumCatalog: "Album catalog",
+        jardim: "Jardim dos Ventos",
+      },
+    },
+    strip: [
+      "Local first",
+      "Privacy by design",
+      "No uploads",
+      "Album workflow",
+      "Visual preset browser",
+      "Shared album covers",
+      "Podcast experiments",
+      "Accessible UI scale",
+      "Open source",
+    ],
+    story: {
+      label: "The problem",
+      title:
+        "Publishing a record should not mean stitching together six utilities.",
+      paragraphs: [
+        "Independent creators usually move between tag editors, loudness tools, cover utilities, video generators and publishing checklists. Each step works, but the flow gets fragmented.",
+        "Sonara Hub turns that chain into one local workspace: prepare the audio, organize album identity, then build a visual atmosphere that can carry videos, artwork series and future publishing formats.",
+      ],
+    },
+    workspaces: {
+      label: "Two workspaces",
+      title: "Audio becomes visual without leaving the studio.",
+      body: "The same folder, metadata and cover decisions feed the visual export. No duplicate entry, no disconnected publishing pass.",
+      audio: {
+        eyebrow: "01 - Audio Library",
+        title: "Prepare the record.",
+        description:
+          "Import folders, analyze MP3 quality, review ID3 tags, manage lyrics, choose shared album covers and generate treated copies before publication.",
+        features: [
+          "Metadata and lyrics",
+          "Shared and per-track covers",
+          "Loudness and peak review",
+          "Batch treatment",
+          "Opt-in podcast metadata",
+        ],
+      },
+      visual: {
+        eyebrow: "02 - Visual Studio",
+        title: "Build the atmosphere.",
+        description:
+          "Create ambient visualizers with layered media, waveform treatments, cover series text and a compact browser for curated motion families.",
+        features: [
+          "Ambient scenes",
+          "Preset browser and variants",
+          "Layered media",
+          "Waveform styles",
+          "YouTube-ready sidecars",
+          "Cover and text series",
+        ],
+      },
+    },
+    visualSystem: {
+      label: "Visual system",
+      title: "Atmospheres are now browsed, not guessed.",
+      body: "The flat preset list is evolving into a compact browser with categories, variants, swatches, tags and performance tiers. Style presets stay separate from position controls, so the visual choice is easier to understand and safer to reuse.",
+      atmospheres: {
+        label: "Atmospheres V5",
+        title: "New families, calmer audio response.",
+        body: "Vinyl, piano ribbons and storybook scenes were tuned to react with intention. The new WebGL families expand the mood range without copying public shader code or letting the music drive uncontrolled motion.",
+        aria: "New visual atmosphere examples",
+        items: [
+          [
+            "Stratosphere flight",
+            "Slow aerial parallax for cinematic releases.",
+          ],
+          [
+            "Shambhala passage",
+            "Symmetric light architecture with contained music response.",
+          ],
+          [
+            "Neural haze",
+            "Soft organic contours for restrained ambient movement.",
+          ],
+          ["Light trails", "Luminous ribbons for motion without visual chaos."],
+        ],
+      },
+      themes: {
+        label: "Themes",
+        title: "Interface themes and UI scale.",
+        body: "Original, light, dark and golden themes are paired with UI scale preferences for creators who need larger controls and stronger readability during long review sessions.",
+      },
+      covers: {
+        label: "Covers",
+        title: "Album cover first, track override when needed.",
+        body: "Album artwork can be shared across the set while individual tracks keep their own override path. Cover series text uses direct position controls with alignment that follows the chosen point.",
+      },
+      lab: {
+        label: "Atmosphere lab",
+        title: "Try the mood before opening the app.",
+        body: "The preview below is a lightweight site version: it does not replace the Sonara Hub renderer, but it shows how the new families shift across palette, motion and intensity.",
+        previewAria: "Interactive preview of the selected atmosphere",
+        controls: {
+          atmosphere: "Atmosphere",
+          palette: "Palette",
+          motion: "Motion",
+          intensity: "Intensity",
+        },
+        palettes: {
+          dawn: "Dawn",
+          prism: "Prism",
+          nocturne: "Nocturne",
+        },
+        presets: {
+          "stratosphere-flight": {
+            name: "Stratosphere flight",
+            description: "Layered sky, soft horizon and slow drift.",
+            tags: ["sky", "parallax", "cinema"],
+          },
+          "shambhala-passage": {
+            name: "Shambhala passage",
+            description:
+              "Symmetric portal with golden light and contained pulse.",
+            tags: ["portal", "symmetry", "light"],
+          },
+          "neural-haze": {
+            name: "Neural haze",
+            description: "Organic contours, calm haze and low distraction.",
+            tags: ["organic", "haze", "calm"],
+          },
+          "light-trails": {
+            name: "Light trails",
+            description:
+              "Luminous trails with wide curves and controlled energy.",
+            tags: ["trails", "motion", "glow"],
+          },
+        },
+      },
+    },
+    workflow: {
+      label: "Workflow",
+      title: "One release, five clear movements.",
+      body: "The product is built around the direction a creator naturally wants to move: from raw songs to a publication-ready audiovisual package.",
+      steps: [
+        [
+          "01",
+          "Import",
+          "Open a folder and keep ownership of the original files.",
+        ],
+        ["02", "Prepare", "Review tags, lyrics, covers and technical quality."],
+        [
+          "03",
+          "Organize",
+          "Confirm the album as a catalog before treating files.",
+        ],
+        [
+          "04",
+          "Visualize",
+          "Browse atmospheres, variants, waveform, media layers and text.",
+        ],
+        [
+          "05",
+          "Publish",
+          "Generate videos, sidecars, promo assets and experimental podcast feeds.",
+        ],
+      ],
+    },
+    releaseFormats: {
+      label: "Publishing experiments",
+      title:
+        "Music releases, visual assets and podcast feeds share one source.",
+      body: "The product still centers on audio and ambient video, but the release surface is widening: booklet themes, promo manifests and podcast RSS exports are being shaped around the same local project.",
+      cards: [
+        {
+          label: "Stable core",
+          title: "Audio, covers and videos",
+          body: "Treat MP3s, review metadata, assemble catalog identity and export atmospheric videos with matching YouTube sidecars.",
+        },
+        {
+          label: "Growing layer",
+          title: "Promo and booklet assets",
+          body: "Generate publication manifests and themed visual assets that inherit the album identity instead of starting from a blank campaign.",
+        },
+        {
+          label: "Experimental",
+          title: "Podcast workspace",
+          body: "Opt-in podcast tools group episodes, preserve feed metadata, apply voice-oriented processing choices and export RSS/sidecar artifacts.",
+        },
+      ],
+    },
+    screenshots: {
+      label: "Inside Sonara",
+      title: "An instrument, not a dashboard.",
+      body: "Real captures from the studio, loaded with an album: the same dark surfaces and editorial rhythm carried end to end.",
+      slots: [
+        {
+          title: "Audio Library",
+          caption:
+            "Batch review, tags, shared cover art and processing status.",
+        },
+        {
+          title: "Catalog preview",
+          caption:
+            "A record-page view to confirm album identity and series covers.",
+        },
+        {
+          title: "Video grid",
+          caption: "YouTube-style thumbnails before rendering the visual set.",
+        },
+        {
+          title: "Visual Studio",
+          caption:
+            "A dominant canvas with focused inspectors and preset variants.",
+        },
+      ],
+    },
+    principles: {
+      label: "Principles",
+      title: "Built for ownership, not dependency.",
+      items: [
+        {
+          label: "Local first",
+          title: "Your files stay on your machine.",
+          body: "Sonara works with folders on disk and keeps local sessions private by default.",
+        },
+        {
+          label: "Privacy by design",
+          title: "No accounts or uploads required.",
+          body: "The product is designed for ownership, not cloud lock-in or remote processing.",
+        },
+        {
+          label: "Creator-focused",
+          title: "Built around release preparation.",
+          body: "Metadata, artwork, lyrics, audio checks, visuals and publishing sidecars are treated as one flow.",
+        },
+        {
+          label: "Accessible by default",
+          title: "Readable themes and scalable UI.",
+          body: "Theme choices, keyboard-friendly controls, clear focus states and larger UI scale options are part of the product surface.",
+        },
+        {
+          label: "Open source",
+          title: "Transparent while it grows.",
+          body: "The repository is public, the rough edges are visible, and contributions are welcome.",
+        },
+      ],
+    },
+    openSource: {
+      label: "Open source",
+      title: "A small studio tool, built in the open.",
+      body: "Sonara Hub is developed publicly on GitHub. The repository, tests, issues and release path stay visible while the MVP matures into a Windows application.",
+      follow: "Follow development",
+      codeAria: "Local development commands",
+      code: `git clone https://github.com/mafhper/sonara_hub
+cd sonara_hub
+npm ci
+npm run dev
+
+workspace: Audio Library
+workspace: Visual Studio
+experiment: Podcast RSS
+visuals: preset browser + V5
+storage: local autosave`,
+    },
+    roadmap: {
+      label: "Roadmap",
+      title: "A complete publishing workspace for independent creators.",
+      body: "Audio preparation and ambient video are the foundation. The next phase moves toward a dedicated Windows app, richer podcast publishing, deeper catalog tooling, more visual families and higher-resolution validation while preserving the local-first core.",
+      aria: "Future improvement track",
+      items: [
+        "Windows desktop packaging",
+        "App-wide localization in pt-BR, English and Spanish",
+        "Richer podcast publishing",
+        "More original atmosphere families",
+        "2K and 4K validation when hardware allows",
+      ],
+    },
+    finalCta: {
+      title: "Create the soundtrack.",
+      accent: "Build the atmosphere.",
+      github: "View on GitHub",
+      follow: "Follow development",
+    },
+    footer: {
+      home: "Sonara Hub home",
+      project: "Open-source project",
+    },
+  },
+  es: {
+    header: {
+      aria: "Navegación del sitio",
+      home: "Inicio de Sonara Hub",
+      primary: "Navegación principal",
+      nav: {
+        workspaces: "Workspaces",
+        visualSystem: "Visuales",
+        workflow: "Flujo",
+        releaseFormats: "Publicación",
+        roadmap: "Ruta futura",
+      },
+    },
+    hero: {
+      status: "Estudio local-first en desarrollo activo",
+      title: "Prepara, organiza y visualiza tu música.",
+      body: "Sonara Hub es un estudio creativo local-first para músicos independientes, sellos y narradores. Trata audio, define portadas de álbum, navega atmósferas visuales y exporta materiales listos para publicar sin subidas, cuentas ni dependencia de la nube.",
+      actions: {
+        github: "Ver en GitHub",
+        download: "Descarga pronto",
+      },
+    },
+    showcase: {
+      descriptors: {
+        cover: "Portada de álbum",
+        screen: "Dentro de la app",
+        video: "Exportado a YouTube",
+      },
+      cards: {
+        beauty: "The Beauty of Almost",
+        visualStudio: "Estudio visual",
+        musicVideo: "Video musical",
+        azul: "Azul de Roda",
+        albumCatalog: "Catálogo del álbum",
+        jardim: "Jardim dos Ventos",
+      },
+    },
+    strip: [
+      "Local first",
+      "Privacidad por diseño",
+      "Sin subidas",
+      "Flujo de álbum",
+      "Browser visual",
+      "Portadas compartidas",
+      "Podcast experimental",
+      "Escala de UI accesible",
+      "Open source",
+    ],
+    story: {
+      label: "El problema",
+      title:
+        "Publicar un disco no debería exigir unir seis utilidades distintas.",
+      paragraphs: [
+        "Los creadores independientes suelen pasar por editores de etiquetas, herramientas de loudness, utilidades de portada, generadores de video y listas de publicación. Cada paso funciona, pero el flujo se fragmenta.",
+        "Sonara Hub convierte esa cadena en un workspace local: prepara el audio, organiza la identidad del álbum y construye una atmósfera visual capaz de sostener videos, series de portadas y formatos futuros de publicación.",
+      ],
+    },
+    workspaces: {
+      label: "Dos workspaces",
+      title: "El audio se vuelve visual sin salir del estudio.",
+      body: "La misma carpeta, los metadatos y las decisiones de portada alimentan la exportación visual. Sin duplicar datos, sin una etapa de publicación desconectada.",
+      audio: {
+        eyebrow: "01 - Biblioteca de audio",
+        title: "Prepara el disco.",
+        description:
+          "Importa carpetas, analiza calidad MP3, revisa etiquetas ID3, gestiona letras, elige portadas compartidas y genera copias tratadas antes de publicar.",
+        features: [
+          "Metadatos y letras",
+          "Portadas compartidas y por pista",
+          "Revisión de loudness y pico",
+          "Tratamiento por lote",
+          "Metadatos de podcast opt-in",
+        ],
+      },
+      visual: {
+        eyebrow: "02 - Estudio visual",
+        title: "Construye la atmósfera.",
+        description:
+          "Crea visualizadores ambientales con medios en capas, tratamientos de waveform, texto de series de portada y un browser compacto para familias de movimiento curadas.",
+        features: [
+          "Escenas ambientales",
+          "Browser de presets y variantes",
+          "Medios en capas",
+          "Estilos de waveform",
+          "Sidecars listos para YouTube",
+          "Series de portada y texto",
+        ],
+      },
+    },
+    visualSystem: {
+      label: "Sistema visual",
+      title: "Las atmósferas ahora se navegan, no se adivinan.",
+      body: "La lista plana de presets evoluciona hacia un browser compacto con categorías, variantes, muestras de color, tags y tiers de rendimiento. Los presets de estilo quedan separados de los controles de posición, así la elección visual es más clara y más segura para reutilizar.",
+      atmospheres: {
+        label: "Atmósferas V5",
+        title: "Nuevas familias, respuesta al audio más calmada.",
+        body: "Vinilo, cintas de piano y escenas ilustradas fueron ajustadas para reaccionar con intención. Las nuevas familias WebGL amplían el rango visual sin copiar código público de shaders ni dejar que la música provoque movimientos descontrolados.",
+        aria: "Ejemplos de nuevas atmósferas visuales",
+        items: [
+          [
+            "Stratosphere flight",
+            "Paralaje aéreo lento para lanzamientos cinematográficos.",
+          ],
+          [
+            "Shambhala passage",
+            "Arquitectura de luz simétrica con respuesta musical contenida.",
+          ],
+          [
+            "Neural haze",
+            "Contornos orgánicos suaves para movimiento ambiental discreto.",
+          ],
+          ["Light trails", "Trazos luminosos con movimiento sin caos visual."],
+        ],
+      },
+      themes: {
+        label: "Temas",
+        title: "Temas de interfaz y escala de UI.",
+        body: "Los temas original, claro, oscuro y golden se combinan con preferencias de escala de UI para creadores que necesitan controles más grandes y lectura más fuerte en sesiones largas de revisión.",
+      },
+      covers: {
+        label: "Portadas",
+        title:
+          "Primero la portada del álbum, override por pista si hace falta.",
+        body: "La arte del álbum puede compartirse en toda la serie mientras las pistas individuales mantienen su propio override. El texto de serie usa controles directos de posición con alineación siguiendo el punto elegido.",
+      },
+      lab: {
+        label: "Laboratorio de atmósferas",
+        title: "Prueba el clima antes de abrir la app.",
+        body: "La vista previa de abajo es una versión ligera para el sitio: no reemplaza el renderer de Sonara Hub, pero muestra cómo las nuevas familias cambian con paleta, movimiento e intensidad.",
+        previewAria: "Vista previa interactiva de la atmósfera seleccionada",
+        controls: {
+          atmosphere: "Atmósfera",
+          palette: "Paleta",
+          motion: "Movimiento",
+          intensity: "Intensidad",
+        },
+        palettes: {
+          dawn: "Amanecer",
+          prism: "Prisma",
+          nocturne: "Nocturno",
+        },
+        presets: {
+          "stratosphere-flight": {
+            name: "Stratosphere flight",
+            description:
+              "Cielo en capas, horizonte suave y desplazamiento lento.",
+            tags: ["cielo", "paralaje", "cine"],
+          },
+          "shambhala-passage": {
+            name: "Shambhala passage",
+            description: "Portal simétrico con luz dorada y pulso contenido.",
+            tags: ["portal", "simetría", "luz"],
+          },
+          "neural-haze": {
+            name: "Neural haze",
+            description:
+              "Contornos orgánicos, niebla calma y baja distracción.",
+            tags: ["orgánico", "niebla", "calma"],
+          },
+          "light-trails": {
+            name: "Light trails",
+            description:
+              "Trazos luminosos con curvas amplias y energía controlada.",
+            tags: ["trazos", "movimiento", "brillo"],
+          },
+        },
+      },
+    },
+    workflow: {
+      label: "Flujo",
+      title: "Un lanzamiento, cinco movimientos claros.",
+      body: "El producto sigue la dirección natural del creador: de canciones crudas a un paquete audiovisual listo para publicar.",
+      steps: [
+        [
+          "01",
+          "Importar",
+          "Abre una carpeta y conserva los archivos originales.",
+        ],
+        ["02", "Preparar", "Revisa tags, letras, portadas y calidad técnica."],
+        [
+          "03",
+          "Organizar",
+          "Confirma el álbum como catálogo antes del tratamiento.",
+        ],
+        [
+          "04",
+          "Visualizar",
+          "Navega atmósferas, variantes, waveform, capas y texto.",
+        ],
+        [
+          "05",
+          "Publicar",
+          "Genera videos, sidecars, assets promocionales y feeds experimentales de podcast.",
+        ],
+      ],
+    },
+    releaseFormats: {
+      label: "Experimentos de publicación",
+      title:
+        "Lanzamientos musicales, assets visuales y feeds de podcast comparten una sola fuente.",
+      body: "El producto sigue centrado en audio y video ambiental, pero la superficie de lanzamiento crece: temas de booklet, manifiestos promocionales y exportaciones RSS de podcast se forman desde el mismo proyecto local.",
+      cards: [
+        {
+          label: "Núcleo estable",
+          title: "Audio, portadas y videos",
+          body: "Trata MP3s, revisa metadatos, arma la identidad del catálogo y exporta videos atmosféricos con sidecars de YouTube.",
+        },
+        {
+          label: "Capa en crecimiento",
+          title: "Assets promocionales y booklets",
+          body: "Genera manifiestos de publicación y assets visuales temáticos que heredan la identidad del álbum en vez de comenzar una campaña desde cero.",
+        },
+        {
+          label: "Experimental",
+          title: "Workspace de podcast",
+          body: "Herramientas opt-in de podcast agrupan episodios, preservan metadatos de feed, aplican decisiones de procesamiento para voz y exportan RSS/sidecars.",
+        },
+      ],
+    },
+    screenshots: {
+      label: "Dentro de Sonara",
+      title: "Un instrumento, no un dashboard.",
+      body: "Capturas reales del estudio cargado con un álbum: las mismas superficies oscuras y ritmo editorial de punta a punta.",
+      slots: [
+        {
+          title: "Biblioteca de audio",
+          caption:
+            "Revisión por lote, tags, portada compartida y estado de procesamiento.",
+        },
+        {
+          title: "Vista de catálogo",
+          caption:
+            "Una página de disco para confirmar identidad de álbum y portadas en serie.",
+        },
+        {
+          title: "Grilla de video",
+          caption:
+            "Miniaturas estilo YouTube antes de renderizar la serie visual.",
+        },
+        {
+          title: "Estudio visual",
+          caption:
+            "Un canvas dominante con inspectores enfocados y variantes de presets.",
+        },
+      ],
+    },
+    principles: {
+      label: "Principios",
+      title: "Hecho para propiedad, no dependencia.",
+      items: [
+        {
+          label: "Local first",
+          title: "Tus archivos quedan en tu máquina.",
+          body: "Sonara trabaja con carpetas en disco y mantiene sesiones locales privadas por defecto.",
+        },
+        {
+          label: "Privacidad por diseño",
+          title: "Sin cuentas ni subidas obligatorias.",
+          body: "El producto está diseñado para propiedad, no lock-in de nube ni procesamiento remoto.",
+        },
+        {
+          label: "Enfocado en creadores",
+          title: "Construido alrededor de la preparación de lanzamientos.",
+          body: "Metadatos, arte, letras, chequeos de audio, visuales y sidecars de publicación se tratan como un flujo único.",
+        },
+        {
+          label: "Accesible por defecto",
+          title: "Temas legibles y UI escalable.",
+          body: "Temas, controles por teclado, foco claro y opciones de escala mayor forman parte de la superficie del producto.",
+        },
+        {
+          label: "Open source",
+          title: "Transparente mientras crece.",
+          body: "El repositorio es público, las aristas son visibles y las contribuciones son bienvenidas.",
+        },
+      ],
+    },
+    openSource: {
+      label: "Open source",
+      title: "Una pequeña herramienta de estudio, construida en público.",
+      body: "Sonara Hub se desarrolla públicamente en GitHub. El repositorio, los tests, issues y camino de release quedan visibles mientras el MVP madura hacia una aplicación Windows.",
+      follow: "Seguir desarrollo",
+      codeAria: "Comandos de desarrollo local",
+      code: `git clone https://github.com/mafhper/sonara_hub
+cd sonara_hub
+npm ci
+npm run dev
+
+workspace: Biblioteca de audio
+workspace: Estudio visual
+experimento: Podcast RSS
+visuales: browser de presets + V5
+storage: autosave local`,
+    },
+    roadmap: {
+      label: "Ruta futura",
+      title:
+        "Un workspace completo de publicación para creadores independientes.",
+      body: "Preparación de audio y video ambiental son la base. La próxima fase avanza hacia una app Windows dedicada, publicación de podcast más rica, catálogo más profundo, más familias visuales y validación en resoluciones mayores preservando el núcleo local-first.",
+      aria: "Trilha futura de mejoras",
+      items: [
+        "Empaquetado desktop para Windows",
+        "Internacionalización de la app en pt-BR, inglés y español",
+        "Publicación de podcast más rica",
+        "Más familias originales de atmósferas",
+        "Validación 2K y 4K cuando el hardware lo permita",
+      ],
+    },
+    finalCta: {
+      title: "Crea la banda sonora.",
+      accent: "Construye la atmósfera.",
+      github: "Ver en GitHub",
+      follow: "Seguir desarrollo",
+    },
+    footer: {
+      home: "Inicio de Sonara Hub",
+      project: "Proyecto open-source",
+    },
+  },
+} as const;
+
+type SiteCopy = (typeof siteCopy)[Locale];
+
+const SiteCopyContext = createContext<SiteCopy>(siteCopy.en);
+
+function useSiteCopy() {
+  return useContext(SiteCopyContext);
+}
+
+function detectPreferredLocale(): Locale {
+  if (typeof navigator === "undefined") return "en";
+  const languages = navigator.languages?.length
+    ? navigator.languages
+    : [navigator.language];
+  for (const language of languages) {
+    const normalized = language.toLowerCase();
+    if (normalized === "pt-br" || normalized.startsWith("pt")) return "pt-BR";
+    if (normalized.startsWith("es")) return "es";
+    if (normalized.startsWith("en")) return "en";
+  }
+  return supportedLocales[0];
+}
+
 export function App() {
+  const locale = useMemo(detectPreferredLocale, []);
+  const copy = siteCopy[locale];
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
+
   return (
-    <main className="site-shell">
-      <Header />
-      <Hero />
-      <ContinuityStrip />
-      <Story />
-      <Workspaces />
-      <Workflow />
-      <ScreenshotGallery />
-      <Principles />
-      <OpenSource />
-      <FutureVision />
-      <FinalCta />
-      <Footer />
-    </main>
+    <SiteCopyContext.Provider value={copy}>
+      <main className="site-shell">
+        <Header />
+        <Hero />
+        <ContinuityStrip />
+        <Story />
+        <Workspaces />
+        <VisualSystems />
+        <Workflow />
+        <ReleaseFormats />
+        <ScreenshotGallery />
+        <Principles />
+        <OpenSource />
+        <FutureVision />
+        <FinalCta />
+        <Footer />
+      </main>
+    </SiteCopyContext.Provider>
   );
 }
 
 function Header() {
+  const copy = useSiteCopy();
+
   return (
-    <header className="topbar" aria-label="Site navigation">
-      <a className="brand" href="#top" aria-label="Sonara Hub home">
+    <header className="topbar" aria-label={copy.header.aria}>
+      <a className="brand" href="#top" aria-label={copy.header.home}>
         <img
           className="brand-logo"
           src={BRAND_MARK_URL}
@@ -70,11 +1088,12 @@ function Header() {
         />
         <span>Sonara Hub</span>
       </a>
-      <nav className="nav-links" aria-label="Primary navigation">
-        <a href="#workspaces">Workspaces</a>
-        <a href="#workflow">Workflow</a>
-        <a href="#principles">Principles</a>
-        <a href="#open-source">Open source</a>
+      <nav className="nav-links" aria-label={copy.header.primary}>
+        <a href="#workspaces">{copy.header.nav.workspaces}</a>
+        <a href="#visual-system">{copy.header.nav.visualSystem}</a>
+        <a href="#workflow">{copy.header.nav.workflow}</a>
+        <a href="#release-formats">{copy.header.nav.releaseFormats}</a>
+        <a href="#roadmap">{copy.header.nav.roadmap}</a>
       </nav>
       <a className="button button-quiet button-compact" href={GITHUB_URL}>
         <GithubIcon className="icon" />
@@ -85,6 +1104,8 @@ function Header() {
 }
 
 function Hero() {
+  const copy = useSiteCopy();
+
   return (
     <section id="top" className="hero-section" data-motion-stage="0">
       <img
@@ -99,18 +1120,14 @@ function Hero() {
       <div className="hero-content">
         <p className="status-pill">
           <span className="status-dot" aria-hidden="true" />
-          Open-source workstation in development
+          {copy.hero.status}
         </p>
-        <h1>Prepare, organize and visualize your music.</h1>
-        <p className="hero-copy">
-          Sonara Hub is a local-first creative studio for independent musicians
-          and storytellers. Treat your audio, shape your catalog, and export
-          atmospheric videos without uploads, accounts or lock-in.
-        </p>
+        <h1>{copy.hero.title}</h1>
+        <p className="hero-copy">{copy.hero.body}</p>
         <div className="hero-actions" aria-label="Primary actions">
           <a className="button button-primary" href={GITHUB_URL}>
             <GithubIcon className="icon" />
-            View on GitHub
+            {copy.hero.actions.github}
             <ArrowIcon className="icon icon-trailing" />
           </a>
           <a
@@ -118,7 +1135,7 @@ function Hero() {
             href={`${GITHUB_URL}/releases`}
           >
             <DownloadIcon className="icon" />
-            Download soon
+            {copy.hero.actions.download}
           </a>
         </div>
       </div>
@@ -129,25 +1146,26 @@ function Hero() {
 
 type ShowcaseCard = {
   kind: "cover" | "screen" | "video";
-  label: string;
+  labelKey:
+    | "beauty"
+    | "visualStudio"
+    | "musicVideo"
+    | "azul"
+    | "albumCatalog"
+    | "jardim";
   image: string;
 };
 
-const showcaseDescriptors: Record<ShowcaseCard["kind"], string> = {
-  cover: "Album cover",
-  screen: "Inside the app",
-  video: "Exported to YouTube",
-};
-
 function HeroShowcase() {
+  const copy = useSiteCopy();
   const cards: ShowcaseCard[] = useMemo(
     () => [
-      { kind: "cover", label: "The Beauty of Almost", image: heroCoverBeauty },
-      { kind: "screen", label: "Visual Studio", image: shotAzulVisual },
-      { kind: "video", label: "Music video", image: shotAzulFrame },
-      { kind: "cover", label: "Azul de Roda", image: heroCoverAzul },
-      { kind: "screen", label: "Album catalog", image: shotJardimCatalog },
-      { kind: "cover", label: "Jardim dos Ventos", image: heroCoverJardim },
+      { kind: "cover", labelKey: "beauty", image: heroCoverBeauty },
+      { kind: "screen", labelKey: "visualStudio", image: shotAzulVisual },
+      { kind: "video", labelKey: "musicVideo", image: shotAzulFrame },
+      { kind: "cover", labelKey: "azul", image: heroCoverAzul },
+      { kind: "screen", labelKey: "albumCatalog", image: shotJardimCatalog },
+      { kind: "cover", labelKey: "jardim", image: heroCoverJardim },
     ],
     [],
   );
@@ -174,9 +1192,10 @@ function HeroShowcase() {
       <div className="showcase-stage">
         {cards.map((card, index) => {
           const depth = (index - active + cards.length) % cards.length;
+          const label = copy.showcase.cards[card.labelKey];
           return (
             <figure
-              key={card.label}
+              key={card.labelKey}
               className={`showcase-card showcase-${card.kind}`}
               data-depth={depth > 2 ? "back" : String(depth)}
             >
@@ -208,8 +1227,8 @@ function HeroShowcase() {
                 </div>
               )}
               <figcaption className="card-info">
-                <strong>{card.label}</strong>
-                <span>{showcaseDescriptors[card.kind]}</span>
+                <strong>{label}</strong>
+                <span>{copy.showcase.descriptors[card.kind]}</span>
               </figcaption>
             </figure>
           );
@@ -473,14 +1492,7 @@ function compileShader(
 }
 
 function ContinuityStrip() {
-  const items = [
-    "Local first",
-    "Privacy by design",
-    "No uploads",
-    "Album workflow",
-    "Atmospheric video",
-    "Open source",
-  ];
+  const { strip: items } = useSiteCopy();
 
   return (
     <section className="continuity-strip" aria-label="Sonara Hub principles">
@@ -496,24 +1508,17 @@ function ContinuityStrip() {
 }
 
 function Story() {
+  const copy = useSiteCopy();
+
   return (
     <section className="section story-section" data-motion-stage="0.7">
-      <div className="section-label">The problem</div>
+      <div className="section-label">{copy.story.label}</div>
       <div className="story-grid">
-        <h2>
-          Publishing a record should not mean stitching together six utilities.
-        </h2>
+        <h2>{copy.story.title}</h2>
         <div className="story-copy">
-          <p>
-            Independent creators usually move between tag editors, loudness
-            tools, cover utilities, video generators and publishing checklists.
-            Each step works, but the flow gets fragmented.
-          </p>
-          <p>
-            Sonara Hub turns that chain into one local workspace: prepare the
-            audio, organize the album, then build the atmosphere around each
-            song.
-          </p>
+          {copy.story.paragraphs.map((paragraph) => (
+            <p key={paragraph}>{paragraph}</p>
+          ))}
         </div>
       </div>
     </section>
@@ -521,50 +1526,91 @@ function Story() {
 }
 
 function Workspaces() {
+  const copy = useSiteCopy();
+
   return (
     <section id="workspaces" className="section" data-motion-stage="1.4">
       <div className="section-heading">
         <div>
-          <div className="section-label">Two workspaces</div>
-          <h2>Audio becomes visual without leaving the studio.</h2>
+          <div className="section-label">{copy.workspaces.label}</div>
+          <h2>{copy.workspaces.title}</h2>
         </div>
-        <p>
-          The same folder, metadata and cover decisions feed the visual export.
-          No duplicate entry, no disconnected publishing pass.
-        </p>
+        <p>{copy.workspaces.body}</p>
       </div>
       <div className="workspace-grid">
         <WorkspaceCard
           id="audio-library"
-          eyebrow="01 - Audio Library"
-          title="Prepare the record."
-          description="Import folders, analyze MP3 quality, review ID3 tags, manage lyrics and generate treated copies before publication."
+          eyebrow={copy.workspaces.audio.eyebrow}
+          title={copy.workspaces.audio.title}
+          description={copy.workspaces.audio.description}
           image={shotAudioLibrary}
           tone="audio"
-          features={[
-            "Metadata and lyrics",
-            "Cover artwork",
-            "Loudness and peak review",
-            "Batch treatment",
-            "Album catalog preview",
-          ]}
+          features={[...copy.workspaces.audio.features]}
         />
         <WorkspaceCard
           id="visual-studio"
-          eyebrow="02 - Visual Studio"
-          title="Build the atmosphere."
-          description="Create ambient visualizers with layered images, videos, waveforms and curated motion families from 720p to 4K."
+          eyebrow={copy.workspaces.visual.eyebrow}
+          title={copy.workspaces.visual.title}
+          description={copy.workspaces.visual.description}
           image={shotVisualStudio}
           tone="visual"
-          features={[
-            "Ambient scenes",
-            "Layered media",
-            "Waveform styles",
-            "YouTube-ready sidecars",
-            "Resolution presets",
-          ]}
+          features={[...copy.workspaces.visual.features]}
         />
       </div>
+    </section>
+  );
+}
+
+function VisualSystems() {
+  const copy = useSiteCopy();
+
+  return (
+    <section
+      id="visual-system"
+      className="section visual-system-section"
+      data-motion-stage="1.9"
+    >
+      <div className="section-heading">
+        <div>
+          <div className="section-label">{copy.visualSystem.label}</div>
+          <h2>{copy.visualSystem.title}</h2>
+        </div>
+        <p>{copy.visualSystem.body}</p>
+      </div>
+
+      <div className="feature-grid">
+        <article className="feature-panel feature-panel-wide">
+          <div className="section-label">
+            {copy.visualSystem.atmospheres.label}
+          </div>
+          <h3>{copy.visualSystem.atmospheres.title}</h3>
+          <p>{copy.visualSystem.atmospheres.body}</p>
+          <div
+            className="atmosphere-list"
+            aria-label={copy.visualSystem.atmospheres.aria}
+          >
+            {copy.visualSystem.atmospheres.items.map(([name, body]) => (
+              <div key={name}>
+                <strong>{name}</strong>
+                <span>{body}</span>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="feature-panel">
+          <div className="section-label">{copy.visualSystem.themes.label}</div>
+          <h3>{copy.visualSystem.themes.title}</h3>
+          <p>{copy.visualSystem.themes.body}</p>
+        </article>
+
+        <article className="feature-panel">
+          <div className="section-label">{copy.visualSystem.covers.label}</div>
+          <h3>{copy.visualSystem.covers.title}</h3>
+          <p>{copy.visualSystem.covers.body}</p>
+        </article>
+      </div>
+      <AtmosphereLab />
     </section>
   );
 }
@@ -597,18 +1643,408 @@ function WorkspaceCard({
   );
 }
 
+function AtmosphereLab() {
+  const copy = useSiteCopy();
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [selected, setSelected] = useState<AtmosphereLabId>("light-trails");
+  const [palette, setPalette] = useState<AtmospherePaletteId>("prism");
+  const [motion, setMotion] = useState(58);
+  const [intensity, setIntensity] = useState(68);
+  const selectedPreset = copy.visualSystem.lab.presets[selected];
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    let frame = 0;
+    let visible = true;
+    const startedAt = performance.now();
+
+    const resize = () => {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    const draw = (now: number) => {
+      const rect = canvas.getBoundingClientRect();
+      const time = reducedMotion
+        ? 0
+        : ((now - startedAt) / 1000) * (motion / 60);
+      drawAtmospherePreview(context, {
+        width: rect.width,
+        height: rect.height,
+        time,
+        intensity: intensity / 100,
+        palette: atmospherePaletteColors[palette],
+        selected,
+      });
+
+      if (!reducedMotion && visible) {
+        frame = window.requestAnimationFrame(draw);
+      }
+    };
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        visible = entry ? entry.isIntersecting : true;
+        if (visible && !frame) frame = window.requestAnimationFrame(draw);
+        if (!visible && frame) {
+          window.cancelAnimationFrame(frame);
+          frame = 0;
+        }
+      },
+      { threshold: 0.05 },
+    );
+
+    resize();
+    observer.observe(canvas);
+    window.addEventListener("resize", resize);
+    frame = window.requestAnimationFrame(draw);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", resize);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [intensity, motion, palette, selected]);
+
+  return (
+    <div className="atmosphere-lab">
+      <div className="atmosphere-lab-copy">
+        <div className="section-label">{copy.visualSystem.lab.label}</div>
+        <h3>{copy.visualSystem.lab.title}</h3>
+        <p>{copy.visualSystem.lab.body}</p>
+      </div>
+      <div className="atmosphere-lab-shell">
+        <canvas
+          ref={canvasRef}
+          className="atmosphere-lab-canvas"
+          aria-label={copy.visualSystem.lab.previewAria}
+          data-testid="atmosphere-lab-canvas"
+        />
+        <div className="atmosphere-lab-controls">
+          <section aria-labelledby="atmosphere-control-title">
+            <h4 id="atmosphere-control-title">
+              {copy.visualSystem.lab.controls.atmosphere}
+            </h4>
+            <div className="atmosphere-choice-list">
+              {atmosphereLabIds.map((id) => {
+                const preset = copy.visualSystem.lab.presets[id];
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className={selected === id ? "active" : ""}
+                    aria-pressed={selected === id}
+                    onClick={() => setSelected(id)}
+                  >
+                    <strong>{preset.name}</strong>
+                    <span>{preset.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section aria-labelledby="palette-control-title">
+            <h4 id="palette-control-title">
+              {copy.visualSystem.lab.controls.palette}
+            </h4>
+            <div className="palette-choice-list">
+              {atmospherePaletteIds.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={palette === id ? "active" : ""}
+                  aria-pressed={palette === id}
+                  onClick={() => setPalette(id)}
+                >
+                  <span className="palette-swatch" aria-hidden="true">
+                    {atmospherePaletteColors[id].slice(1).map((color) => (
+                      <i key={color} style={{ background: color }} />
+                    ))}
+                  </span>
+                  {copy.visualSystem.lab.palettes[id]}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <div className="lab-range-grid">
+            <label>
+              <span>{copy.visualSystem.lab.controls.motion}</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={motion}
+                onChange={(event) => setMotion(Number(event.target.value))}
+              />
+            </label>
+            <label>
+              <span>{copy.visualSystem.lab.controls.intensity}</span>
+              <input
+                type="range"
+                min="20"
+                max="100"
+                value={intensity}
+                onChange={(event) => setIntensity(Number(event.target.value))}
+              />
+            </label>
+          </div>
+
+          <div className="lab-tag-row" aria-label={selectedPreset.name}>
+            {selectedPreset.tags.map((tag) => (
+              <span key={tag}>{tag}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type AtmosphereDrawOptions = {
+  width: number;
+  height: number;
+  time: number;
+  intensity: number;
+  palette: string[];
+  selected: AtmosphereLabId;
+};
+
+function drawAtmospherePreview(
+  context: CanvasRenderingContext2D,
+  options: AtmosphereDrawOptions,
+) {
+  const { width, height, palette, intensity, selected, time } = options;
+  context.clearRect(0, 0, width, height);
+
+  const background = context.createLinearGradient(0, 0, width, height);
+  background.addColorStop(0, palette[0]);
+  background.addColorStop(0.52, mixColor(palette[0], palette[1], 0.38));
+  background.addColorStop(1, "#020308");
+  context.fillStyle = background;
+  context.fillRect(0, 0, width, height);
+
+  if (selected === "stratosphere-flight") {
+    drawStratosphere(context, width, height, time, intensity, palette);
+  } else if (selected === "shambhala-passage") {
+    drawShambhala(context, width, height, time, intensity, palette);
+  } else if (selected === "neural-haze") {
+    drawNeuralHaze(context, width, height, time, intensity, palette);
+  } else {
+    drawLightTrails(context, width, height, time, intensity, palette);
+  }
+
+  const vignette = context.createRadialGradient(
+    width * 0.5,
+    height * 0.46,
+    0,
+    width * 0.5,
+    height * 0.5,
+    Math.max(width, height) * 0.72,
+  );
+  vignette.addColorStop(0, "rgba(255,255,255,0)");
+  vignette.addColorStop(1, "rgba(0,0,0,0.62)");
+  context.fillStyle = vignette;
+  context.fillRect(0, 0, width, height);
+}
+
+function drawStratosphere(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  time: number,
+  intensity: number,
+  palette: string[],
+) {
+  const horizon = height * (0.58 + Math.sin(time * 0.18) * 0.025);
+  const glow = context.createRadialGradient(
+    width * 0.72,
+    horizon,
+    0,
+    width * 0.72,
+    horizon,
+    width * 0.58,
+  );
+  glow.addColorStop(0, withAlpha(palette[2], 0.34 * intensity));
+  glow.addColorStop(1, "rgba(255,255,255,0)");
+  context.fillStyle = glow;
+  context.fillRect(0, 0, width, height);
+
+  for (let layer = 0; layer < 9; layer += 1) {
+    const y = horizon + layer * height * 0.044;
+    const drift = time * (12 + layer * 2);
+    context.beginPath();
+    for (let x = -40; x <= width + 40; x += 18) {
+      const wave =
+        y +
+        Math.sin((x + drift) * 0.008 + layer * 0.7) * (12 + layer * 2) +
+        Math.sin((x - drift) * 0.018) * 5;
+      if (x === -40) context.moveTo(x, wave);
+      else context.lineTo(x, wave);
+    }
+    context.strokeStyle = withAlpha(layer % 2 ? palette[1] : palette[3], 0.18);
+    context.lineWidth = Math.max(1, 3.6 - layer * 0.22);
+    context.stroke();
+  }
+}
+
+function drawShambhala(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  time: number,
+  intensity: number,
+  palette: string[],
+) {
+  const centerX = width * 0.5;
+  const centerY = height * 0.52;
+  const pulse = 1 + Math.sin(time * 0.7) * 0.035 * intensity;
+  context.save();
+  context.translate(centerX, centerY);
+  for (let ring = 0; ring < 8; ring += 1) {
+    const radius = (42 + ring * 34) * pulse;
+    context.beginPath();
+    for (let side = 0; side < 6; side += 1) {
+      const angle = -Math.PI / 2 + (Math.PI * 2 * side) / 6 + ring * 0.06;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius * 0.74;
+      if (side === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    }
+    context.closePath();
+    context.strokeStyle = withAlpha(ring % 2 ? palette[2] : palette[3], 0.2);
+    context.lineWidth = 1.2 + intensity * 1.3;
+    context.stroke();
+  }
+  for (let ray = 0; ray < 18; ray += 1) {
+    const angle = (Math.PI * 2 * ray) / 18 + Math.sin(time * 0.25) * 0.08;
+    context.beginPath();
+    context.moveTo(Math.cos(angle) * 38, Math.sin(angle) * 28);
+    context.lineTo(
+      Math.cos(angle) * width * 0.56,
+      Math.sin(angle) * height * 0.48,
+    );
+    context.strokeStyle = withAlpha(palette[2], 0.08 + intensity * 0.08);
+    context.lineWidth = 1;
+    context.stroke();
+  }
+  context.restore();
+}
+
+function drawNeuralHaze(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  time: number,
+  intensity: number,
+  palette: string[],
+) {
+  for (let blob = 0; blob < 18; blob += 1) {
+    const x =
+      width * (0.12 + ((blob * 0.173 + Math.sin(time * 0.05 + blob)) % 0.78));
+    const y =
+      height * (0.14 + ((blob * 0.119 + Math.cos(time * 0.04 + blob)) % 0.72));
+    const radius = 42 + ((blob * 23) % 90);
+    const haze = context.createRadialGradient(x, y, 0, x, y, radius);
+    haze.addColorStop(0, withAlpha(blob % 2 ? palette[1] : palette[2], 0.1));
+    haze.addColorStop(1, "rgba(255,255,255,0)");
+    context.fillStyle = haze;
+    context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  }
+
+  for (let contour = 0; contour < 11; contour += 1) {
+    context.beginPath();
+    for (let point = 0; point <= 120; point += 1) {
+      const t = point / 120;
+      const angle = t * Math.PI * 2;
+      const base = 72 + contour * 19;
+      const wobble =
+        Math.sin(angle * 3 + time * 0.38 + contour) * 15 +
+        Math.cos(angle * 5 - time * 0.22) * 8;
+      const x = width * 0.5 + Math.cos(angle) * (base + wobble) * 1.45;
+      const y = height * 0.5 + Math.sin(angle) * (base + wobble) * 0.78;
+      if (point === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    }
+    context.closePath();
+    context.strokeStyle = withAlpha(
+      contour % 2 ? palette[3] : palette[1],
+      0.08 + intensity * 0.07,
+    );
+    context.lineWidth = 1 + intensity * 1.2;
+    context.stroke();
+  }
+}
+
+function drawLightTrails(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  time: number,
+  intensity: number,
+  palette: string[],
+) {
+  context.globalCompositeOperation = "lighter";
+  for (let trail = 0; trail < 10; trail += 1) {
+    const yBase = height * (0.28 + trail * 0.055);
+    const gradient = context.createLinearGradient(0, yBase, width, yBase);
+    gradient.addColorStop(0, "rgba(255,255,255,0)");
+    gradient.addColorStop(
+      0.35,
+      withAlpha(trail % 2 ? palette[1] : palette[2], 0.26),
+    );
+    gradient.addColorStop(0.74, withAlpha(palette[3], 0.34));
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+    context.beginPath();
+    for (let x = -20; x <= width + 20; x += 12) {
+      const y =
+        yBase +
+        Math.sin(x * 0.012 + time * (0.7 + trail * 0.035) + trail) *
+          (22 + intensity * 18) +
+        Math.sin(x * 0.005 - time * 0.36) * 16;
+      if (x === -20) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    }
+    context.strokeStyle = gradient;
+    context.lineWidth = 1.2 + intensity * 3.6;
+    context.stroke();
+  }
+  context.globalCompositeOperation = "source-over";
+}
+
+function withAlpha(hex: string, alpha: number) {
+  const [r, g, b] = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
+}
+
+function mixColor(first: string, second: string, amount: number) {
+  const a = hexToRgb(first);
+  const b = hexToRgb(second);
+  const mix = a.map((value, index) =>
+    Math.round(value + (b[index] - value) * amount),
+  );
+  return `rgb(${mix[0]}, ${mix[1]}, ${mix[2]})`;
+}
+
+function hexToRgb(hex: string) {
+  const normalized = hex.replace("#", "");
+  const value = Number.parseInt(normalized, 16);
+  return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+}
+
 function Workflow() {
-  const steps = [
-    ["01", "Import", "Open a folder and keep ownership of the original files."],
-    ["02", "Prepare", "Review tags, lyrics, covers and technical quality."],
-    ["03", "Organize", "Confirm the album as a catalog before treating files."],
-    [
-      "04",
-      "Visualize",
-      "Choose the atmosphere, waveform, media layers and text.",
-    ],
-    ["05", "Export", "Generate video files and YouTube-ready sidecars."],
-  ];
+  const copy = useSiteCopy();
 
   return (
     <section
@@ -618,16 +2054,13 @@ function Workflow() {
     >
       <div className="section-heading">
         <div>
-          <div className="section-label">Workflow</div>
-          <h2>One release, five clear movements.</h2>
+          <div className="section-label">{copy.workflow.label}</div>
+          <h2>{copy.workflow.title}</h2>
         </div>
-        <p>
-          The product is built around the direction a creator naturally wants to
-          move: from raw songs to a publication-ready audiovisual package.
-        </p>
+        <p>{copy.workflow.body}</p>
       </div>
       <ol className="workflow-list">
-        {steps.map(([number, title, body]) => (
+        {copy.workflow.steps.map(([number, title, body]) => (
           <li key={number}>
             <span className="step-number">{number}</span>
             <h3>{title}</h3>
@@ -639,48 +2072,59 @@ function Workflow() {
   );
 }
 
+function ReleaseFormats() {
+  const copy = useSiteCopy();
+
+  return (
+    <section
+      id="release-formats"
+      className="section release-section"
+      data-motion-stage="2.9"
+    >
+      <div className="section-heading">
+        <div>
+          <div className="section-label">{copy.releaseFormats.label}</div>
+          <h2>{copy.releaseFormats.title}</h2>
+        </div>
+        <p>{copy.releaseFormats.body}</p>
+      </div>
+      <div className="release-grid">
+        {copy.releaseFormats.cards.map((card) => (
+          <article key={card.title}>
+            <span>{card.label}</span>
+            <h3>{card.title}</h3>
+            <p>{card.body}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ScreenshotGallery() {
-  const slots: Array<{ title: string; caption: string; image: string }> = [
-    {
-      title: "Audio Library",
-      caption: "Batch review, tags, cover art and processing status.",
-      image: shotAudioLibrary,
-    },
-    {
-      title: "Catalog preview",
-      caption: "A record-page view to confirm album identity.",
-      image: shotCatalog,
-    },
-    {
-      title: "Video grid",
-      caption: "YouTube-style thumbnails before rendering the set.",
-      image: shotVideoGrid,
-    },
-    {
-      title: "Visual Studio",
-      caption: "A dominant canvas with focused inspectors around it.",
-      image: shotVisualStudio,
-    },
+  const copy = useSiteCopy();
+  const images = [
+    shotAudioLibrary,
+    shotCatalog,
+    shotVideoGrid,
+    shotVisualStudio,
   ];
 
   return (
     <section className="section screenshot-section" data-motion-stage="1.8">
       <div className="section-heading">
         <div>
-          <div className="section-label">Inside Sonara</div>
-          <h2>An instrument, not a dashboard.</h2>
+          <div className="section-label">{copy.screenshots.label}</div>
+          <h2>{copy.screenshots.title}</h2>
         </div>
-        <p>
-          Real captures from the studio, loaded with an album: the same dark
-          surfaces and editorial rhythm carried end to end.
-        </p>
+        <p>{copy.screenshots.body}</p>
       </div>
       <div className="screenshot-grid">
-        {slots.map((slot) => (
+        {copy.screenshots.slots.map((slot, index) => (
           <article className="workspace-card" key={slot.title}>
             <div className="workspace-media">
               <img
-                src={slot.image}
+                src={images[index]}
                 alt={`${slot.title} — Sonara Hub`}
                 loading="lazy"
               />
@@ -697,34 +2141,16 @@ function ScreenshotGallery() {
 }
 
 function Principles() {
+  const copy = useSiteCopy();
   const principles: Principle[] = useMemo(
-    () => [
-      {
-        label: "Local first",
-        title: "Your files stay on your machine.",
-        body: "Sonara works with folders on disk and keeps local sessions private by default.",
-        icon: HomeIcon,
-      },
-      {
-        label: "Privacy by design",
-        title: "No accounts or uploads required.",
-        body: "The product is designed for ownership, not cloud lock-in or remote processing.",
-        icon: ShieldIcon,
-      },
-      {
-        label: "Creator-focused",
-        title: "Built around release preparation.",
-        body: "Metadata, artwork, lyrics, audio checks and videos are treated as one publishing flow.",
-        icon: BrushIcon,
-      },
-      {
-        label: "Open source",
-        title: "Transparent while it grows.",
-        body: "The repository is public, the rough edges are visible, and contributions are welcome.",
-        icon: GithubIcon,
-      },
-    ],
-    [],
+    () =>
+      copy.principles.items.map((item, index) => ({
+        ...item,
+        icon: [HomeIcon, ShieldIcon, BrushIcon, AccessibilityIcon, GithubIcon][
+          index
+        ],
+      })),
+    [copy.principles.items],
   );
 
   return (
@@ -735,8 +2161,8 @@ function Principles() {
     >
       <div className="section-heading">
         <div>
-          <div className="section-label">Principles</div>
-          <h2>Built for ownership, not dependency.</h2>
+          <div className="section-label">{copy.principles.label}</div>
+          <h2>{copy.principles.title}</h2>
         </div>
       </div>
       <div className="principle-grid">
@@ -756,6 +2182,8 @@ function Principles() {
 }
 
 function OpenSource() {
+  const copy = useSiteCopy();
+
   return (
     <section
       id="open-source"
@@ -764,20 +2192,16 @@ function OpenSource() {
     >
       <img src={liquidFlow} alt="" width="1080" height="1920" loading="lazy" />
       <div className="open-source-content">
-        <div className="section-label">Open source</div>
-        <h2>A small studio tool, built in the open.</h2>
-        <p>
-          Sonara Hub is developed publicly on GitHub. The repository, the issues
-          and the release path stay visible while the MVP matures into a Windows
-          application.
-        </p>
+        <div className="section-label">{copy.openSource.label}</div>
+        <h2>{copy.openSource.title}</h2>
+        <p>{copy.openSource.body}</p>
         <div className="source-actions">
           <a className="button button-primary" href={GITHUB_URL}>
             <GithubIcon className="icon" />
             mafhper/sonara_hub
           </a>
           <a className="button button-secondary" href={`${GITHUB_URL}/issues`}>
-            Follow development
+            {copy.openSource.follow}
             <ArrowIcon className="icon icon-trailing" />
           </a>
         </div>
@@ -788,54 +2212,58 @@ function OpenSource() {
 }
 
 function CodePanel() {
+  const copy = useSiteCopy();
+
   return (
-    <aside className="code-panel" aria-label="Local development commands">
+    <aside className="code-panel" aria-label={copy.openSource.codeAria}>
       <div className="code-panel-top">
         <span>~/sonara_hub</span>
         <span>local</span>
       </div>
-      <pre>{`git clone https://github.com/mafhper/sonara_hub
-cd sonara_hub
-npm ci
-npm run dev
-
-workspace: Biblioteca de audio
-workspace: Estudio visual
-storage: local autosave`}</pre>
+      <pre>{copy.openSource.code}</pre>
     </aside>
   );
 }
 
 function FutureVision() {
+  const copy = useSiteCopy();
+
   return (
-    <section className="section vision-section" data-motion-stage="3">
-      <div className="section-label">Future vision</div>
-      <h2>A complete publishing workspace for independent creators.</h2>
-      <p>
-        Audio preparation and ambient video are the foundation. The next phase
-        moves toward a dedicated Windows app, richer catalog tooling and more
-        refined visual families while preserving the local-first core.
-      </p>
+    <section
+      id="roadmap"
+      className="section vision-section"
+      data-motion-stage="3"
+    >
+      <div className="section-label">{copy.roadmap.label}</div>
+      <h2>{copy.roadmap.title}</h2>
+      <p>{copy.roadmap.body}</p>
+      <div className="roadmap-list" aria-label={copy.roadmap.aria}>
+        {copy.roadmap.items.map((item) => (
+          <span key={item}>{item}</span>
+        ))}
+      </div>
     </section>
   );
 }
 
 function FinalCta() {
+  const copy = useSiteCopy();
+
   return (
     <section className="final-cta" data-motion-stage="2.8">
       <img src={auroraWave} alt="" width="1920" height="1080" loading="lazy" />
       <div className="final-content">
         <h2>
-          Create the soundtrack.
-          <span>Build the atmosphere.</span>
+          {copy.finalCta.title}
+          <span>{copy.finalCta.accent}</span>
         </h2>
         <div className="hero-actions">
           <a className="button button-primary" href={GITHUB_URL}>
             <GithubIcon className="icon" />
-            View on GitHub
+            {copy.finalCta.github}
           </a>
           <a className="button button-secondary" href={`${GITHUB_URL}/issues`}>
-            Follow development
+            {copy.finalCta.follow}
             <ArrowIcon className="icon icon-trailing" />
           </a>
         </div>
@@ -941,9 +2369,11 @@ function FooterWave() {
 }
 
 function Footer() {
+  const copy = useSiteCopy();
+
   return (
     <footer className="footer">
-      <a className="brand" href="#top" aria-label="Sonara Hub home">
+      <a className="brand" href="#top" aria-label={copy.footer.home}>
         <img
           className="brand-logo"
           src={BRAND_MARK_URL}
@@ -954,7 +2384,7 @@ function Footer() {
         />
         <span>Sonara Hub</span>
       </a>
-      <span>Open-source project</span>
+      <span>{copy.footer.project}</span>
       <a href={GITHUB_URL}>
         <GithubIcon className="icon" />
         GitHub
@@ -1013,6 +2443,17 @@ function ShieldIcon({ className = "" }: IconProps) {
     <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 3 5 6v5c0 4.5 2.8 8.4 7 10 4.2-1.6 7-5.5 7-10V6l-7-3Z" />
       <path d="m9 12 2 2 4-5" />
+    </svg>
+  );
+}
+
+function AccessibilityIcon({ className = "" }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 4.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z" />
+      <path d="M5 9.5c2.6.8 4.9 1.2 7 1.2s4.4-.4 7-1.2" />
+      <path d="M12 10.8v8.7" />
+      <path d="m8 20 4-9.2L16 20" />
     </svg>
   );
 }

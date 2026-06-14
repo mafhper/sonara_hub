@@ -54,9 +54,11 @@ try {
   await waitForServer(baseUrl);
 
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({
+  const context = await browser.newContext({
+    locale: "en-US",
     viewport: { width: 1440, height: 980 },
   });
+  const page = await context.newPage();
   const consoleErrors = [];
   const failedRequests = [];
 
@@ -75,6 +77,11 @@ try {
     .locator("h1")
     .filter({ hasText: /Prepare, organize and visualize/i })
     .waitFor();
+  assert.equal(
+    await page.evaluate(() => document.documentElement.lang),
+    "en",
+    "English locale was not applied from browser preferences.",
+  );
   assert.equal(
     await page.locator('link[rel="icon"][href$="brand/favicon.svg"]').count(),
     1,
@@ -168,6 +175,42 @@ try {
     fullPage: true,
   });
 
+  await page.getByRole("link", { name: /visuals/i }).click();
+  await page
+    .getByRole("heading", { name: /Atmospheres are now browsed/i })
+    .waitFor();
+  await page.getByRole("button", { name: /Neural haze/i }).click();
+  await page.getByRole("button", { name: /Prism/i }).click();
+  await page.getByLabel(/Motion/i).evaluate((input) => {
+    input.value = "82";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForTimeout(250);
+  const labSample = await page
+    .locator('[data-testid="atmosphere-lab-canvas"]')
+    .evaluate((canvas) => {
+      const element = canvas;
+      if (!(element instanceof HTMLCanvasElement))
+        return { width: 0, height: 0, pixels: 0 };
+      const ctx = element.getContext("2d");
+      if (!ctx)
+        return { width: element.width, height: element.height, pixels: 0 };
+      const sampleX = Math.max(0, Math.floor(element.width / 2) - 12);
+      const sampleY = Math.max(0, Math.floor(element.height / 2) - 12);
+      const image = ctx.getImageData(sampleX, sampleY, 24, 24).data;
+      let total = 0;
+      for (let i = 0; i < image.length; i += 4) {
+        total += image[i] + image[i + 1] + image[i + 2] + image[i + 3];
+      }
+      return { width: element.width, height: element.height, pixels: total };
+    });
+  assert.ok(
+    labSample.width > 300 && labSample.height > 200,
+    "Atmosphere lab canvas is undersized.",
+  );
+  assert.ok(labSample.pixels > 0, "Atmosphere lab canvas is blank.");
+
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto(baseUrl, { waitUntil: "networkidle" });
   assert.equal(
@@ -201,6 +244,10 @@ try {
   assert.deepEqual(consoleErrors, [], "Unexpected console errors.");
   assert.deepEqual(failedRequests, [], "Unexpected failed requests.");
 
+  await assertLocalizedHome(browser, "pt-BR", /Prepare, organize e visualize/i);
+  await assertLocalizedHome(browser, "es-ES", /Prepara, organiza y visualiza/i);
+
+  await context.close();
   await browser.close();
 } finally {
   if (server.pid && process.platform === "win32") {
@@ -228,4 +275,18 @@ async function waitForServer(url) {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`Timed out waiting for ${url}\n${logs.join("")}`);
+}
+
+async function assertLocalizedHome(browser, locale, headingPattern) {
+  const context = await browser.newContext({
+    locale,
+    viewport: { width: 960, height: 760 },
+  });
+  try {
+    const page = await context.newPage();
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await page.locator("h1").filter({ hasText: headingPattern }).waitFor();
+  } finally {
+    await context.close();
+  }
 }
