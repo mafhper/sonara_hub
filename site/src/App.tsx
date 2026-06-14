@@ -47,18 +47,18 @@ type Principle = {
 
 type Locale = "pt-BR" | "en" | "es";
 type AtmosphereLabId =
-  | "stratosphere-flight"
-  | "shambhala-passage"
   | "neural-haze"
-  | "light-trails";
+  | "playful-forms"
+  | "starfield"
+  | "iridescent-bloom";
 type AtmospherePaletteId = "dawn" | "prism" | "nocturne";
 
 const supportedLocales: Locale[] = ["pt-BR", "en", "es"];
 const atmosphereLabIds: AtmosphereLabId[] = [
-  "stratosphere-flight",
-  "shambhala-passage",
   "neural-haze",
-  "light-trails",
+  "playful-forms",
+  "starfield",
+  "iridescent-bloom",
 ];
 const atmospherePaletteIds: AtmospherePaletteId[] = [
   "dawn",
@@ -171,18 +171,21 @@ const siteCopy = {
         aria: "Exemplos de novas atmosferas visuais",
         items: [
           [
-            "Stratosphere flight",
-            "Paralaxe aérea lenta para lançamentos cinematográficos.",
+            "Névoa neural",
+            "Contornos orgânicos e conexões suaves para movimento ambiente.",
           ],
           [
-            "Shambhala passage",
-            "Arquitetura simétrica de luz com resposta musical contida.",
+            "Formas lúdicas",
+            "Geometrias leves, coloridas e amigáveis para cenas infantis.",
           ],
           [
-            "Neural haze",
-            "Contornos orgânicos suaves para movimento ambiente discreto.",
+            "Campo estelar",
+            "Profundidade espacial com brilho contido e deriva lenta.",
           ],
-          ["Light trails", "Rastros luminosos com movimento sem caos visual."],
+          [
+            "Bloom iridescente",
+            "Feixes prismáticos e brilho amplo sem reação descontrolada.",
+          ],
         ],
       },
       themes: {
@@ -212,27 +215,27 @@ const siteCopy = {
           nocturne: "Noturno",
         },
         presets: {
-          "stratosphere-flight": {
-            name: "Stratosphere flight",
-            description:
-              "Céu em camadas, horizonte suave e deslocamento lento.",
-            tags: ["céu", "paralaxe", "cinema"],
-          },
-          "shambhala-passage": {
-            name: "Shambhala passage",
-            description: "Portal simétrico com luz dourada e pulso contido.",
-            tags: ["portal", "simetria", "luz"],
-          },
           "neural-haze": {
-            name: "Neural haze",
-            description: "Contornos orgânicos, névoa calma e pouca distração.",
-            tags: ["orgânico", "névoa", "calmo"],
+            name: "Névoa neural",
+            description: "Rede orgânica com contornos suaves e brilho difuso.",
+            tags: ["orgânico", "névoa", "rede"],
           },
-          "light-trails": {
-            name: "Light trails",
+          "playful-forms": {
+            name: "Formas lúdicas",
             description:
-              "Rastros luminosos com curvas largas e energia controlada.",
-            tags: ["rastro", "movimento", "brilho"],
+              "Blocos, círculos e órbitas gentis para climas infantis.",
+            tags: ["lúdico", "formas", "cor"],
+          },
+          starfield: {
+            name: "Campo estelar",
+            description:
+              "Estrelas em profundidade com nebulosa e deriva lenta.",
+            tags: ["espaço", "profundidade", "brilho"],
+          },
+          "iridescent-bloom": {
+            name: "Bloom iridescente",
+            description: "Halo prismático com feixes largos e luz controlada.",
+            tags: ["prisma", "bloom", "luz"],
           },
         },
       },
@@ -484,18 +487,18 @@ storage: autosave local`,
         aria: "New visual atmosphere examples",
         items: [
           [
-            "Stratosphere flight",
-            "Slow aerial parallax for cinematic releases.",
-          ],
-          [
-            "Shambhala passage",
-            "Symmetric light architecture with contained music response.",
-          ],
-          [
             "Neural haze",
-            "Soft organic contours for restrained ambient movement.",
+            "Organic contours and soft links for ambient motion.",
           ],
-          ["Light trails", "Luminous ribbons for motion without visual chaos."],
+          [
+            "Playful forms",
+            "Light, colorful geometry for friendly and childlike scenes.",
+          ],
+          ["Starfield", "Spatial depth with restrained glints and slow drift."],
+          [
+            "Iridescent bloom",
+            "Prismatic beams and broad glow without runaway audio motion.",
+          ],
         ],
       },
       themes: {
@@ -525,27 +528,26 @@ storage: autosave local`,
           nocturne: "Nocturne",
         },
         presets: {
-          "stratosphere-flight": {
-            name: "Stratosphere flight",
-            description: "Layered sky, soft horizon and slow drift.",
-            tags: ["sky", "parallax", "cinema"],
-          },
-          "shambhala-passage": {
-            name: "Shambhala passage",
-            description:
-              "Symmetric portal with golden light and contained pulse.",
-            tags: ["portal", "symmetry", "light"],
-          },
           "neural-haze": {
             name: "Neural haze",
-            description: "Organic contours, calm haze and low distraction.",
-            tags: ["organic", "haze", "calm"],
+            description: "Organic network with soft contours and diffuse glow.",
+            tags: ["organic", "haze", "network"],
           },
-          "light-trails": {
-            name: "Light trails",
+          "playful-forms": {
+            name: "Playful forms",
             description:
-              "Luminous trails with wide curves and controlled energy.",
-            tags: ["trails", "motion", "glow"],
+              "Blocks, circles and gentle orbits for childlike moods.",
+            tags: ["playful", "forms", "color"],
+          },
+          starfield: {
+            name: "Starfield",
+            description: "Depth stars with a nebula field and slow drift.",
+            tags: ["space", "depth", "glow"],
+          },
+          "iridescent-bloom": {
+            name: "Iridescent bloom",
+            description: "Prismatic halo with wide beams and controlled light.",
+            tags: ["prism", "bloom", "light"],
           },
         },
       },
@@ -799,18 +801,21 @@ storage: local autosave`,
         aria: "Ejemplos de nuevas atmósferas visuales",
         items: [
           [
-            "Stratosphere flight",
-            "Paralaje aéreo lento para lanzamientos cinematográficos.",
+            "Niebla neural",
+            "Contornos orgánicos y conexiones suaves para movimiento ambiental.",
           ],
           [
-            "Shambhala passage",
-            "Arquitectura de luz simétrica con respuesta musical contenida.",
+            "Formas lúdicas",
+            "Geometría ligera, colorida y amable para escenas infantiles.",
           ],
           [
-            "Neural haze",
-            "Contornos orgánicos suaves para movimiento ambiental discreto.",
+            "Campo estelar",
+            "Profundidad espacial con brillo contenido y deriva lenta.",
           ],
-          ["Light trails", "Trazos luminosos con movimiento sin caos visual."],
+          [
+            "Bloom iridiscente",
+            "Haces prismáticos y brillo amplio sin reacción descontrolada.",
+          ],
         ],
       },
       themes: {
@@ -841,28 +846,27 @@ storage: local autosave`,
           nocturne: "Nocturno",
         },
         presets: {
-          "stratosphere-flight": {
-            name: "Stratosphere flight",
-            description:
-              "Cielo en capas, horizonte suave y desplazamiento lento.",
-            tags: ["cielo", "paralaje", "cine"],
-          },
-          "shambhala-passage": {
-            name: "Shambhala passage",
-            description: "Portal simétrico con luz dorada y pulso contenido.",
-            tags: ["portal", "simetría", "luz"],
-          },
           "neural-haze": {
-            name: "Neural haze",
-            description:
-              "Contornos orgánicos, niebla calma y baja distracción.",
-            tags: ["orgánico", "niebla", "calma"],
+            name: "Niebla neural",
+            description: "Red orgánica con contornos suaves y brillo difuso.",
+            tags: ["orgánico", "niebla", "red"],
           },
-          "light-trails": {
-            name: "Light trails",
+          "playful-forms": {
+            name: "Formas lúdicas",
             description:
-              "Trazos luminosos con curvas amplias y energía controlada.",
-            tags: ["trazos", "movimiento", "brillo"],
+              "Bloques, círculos y órbitas suaves para climas infantiles.",
+            tags: ["lúdico", "formas", "color"],
+          },
+          starfield: {
+            name: "Campo estelar",
+            description:
+              "Estrellas en profundidad con nebulosa y deriva lenta.",
+            tags: ["espacio", "profundidad", "brillo"],
+          },
+          "iridescent-bloom": {
+            name: "Bloom iridiscente",
+            description: "Halo prismático con haces amplios y luz controlada.",
+            tags: ["prisma", "bloom", "luz"],
           },
         },
       },
@@ -1646,9 +1650,8 @@ function WorkspaceCard({
 function AtmosphereLab() {
   const copy = useSiteCopy();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [selected, setSelected] =
-    useState<AtmosphereLabId>("shambhala-passage");
-  const [palette, setPalette] = useState<AtmospherePaletteId>("dawn");
+  const [selected, setSelected] = useState<AtmosphereLabId>("iridescent-bloom");
+  const [palette, setPalette] = useState<AtmospherePaletteId>("prism");
   const [motion, setMotion] = useState(58);
   const [intensity, setIntensity] = useState(68);
   const selectedPreset = copy.visualSystem.lab.presets[selected];
@@ -1851,14 +1854,14 @@ function drawAtmospherePreview(
   context.fillStyle = bloom;
   context.fillRect(0, 0, width, height);
 
-  if (selected === "stratosphere-flight") {
-    drawStratosphere(context, width, height, time, intensity, palette);
-  } else if (selected === "shambhala-passage") {
-    drawShambhala(context, width, height, time, intensity, palette);
-  } else if (selected === "neural-haze") {
+  if (selected === "neural-haze") {
     drawNeuralHaze(context, width, height, time, intensity, palette);
+  } else if (selected === "playful-forms") {
+    drawPlayfulForms(context, width, height, time, intensity, palette);
+  } else if (selected === "starfield") {
+    drawStarfield(context, width, height, time, intensity, palette);
   } else {
-    drawLightTrails(context, width, height, time, intensity, palette);
+    drawIridescentBloom(context, width, height, time, intensity, palette);
   }
 
   const vignette = context.createRadialGradient(
@@ -1876,7 +1879,7 @@ function drawAtmospherePreview(
   context.fillRect(0, 0, width, height);
 }
 
-function drawStratosphere(
+function drawStarfield(
   context: CanvasRenderingContext2D,
   width: number,
   height: number,
@@ -1884,75 +1887,63 @@ function drawStratosphere(
   intensity: number,
   palette: string[],
 ) {
-  const horizon = height * (0.58 + Math.sin(time * 0.18) * 0.025);
-  const skyBeam = context.createLinearGradient(0, height * 0.15, width, height);
-  skyBeam.addColorStop(0, "rgba(255,255,255,0)");
-  skyBeam.addColorStop(0.46, withAlpha(palette[3], 0.2 * intensity));
-  skyBeam.addColorStop(0.5, withAlpha(palette[1], 0.44 * intensity));
-  skyBeam.addColorStop(0.57, "rgba(255,255,255,0)");
-  context.fillStyle = skyBeam;
-  context.fillRect(0, 0, width, height);
-
-  const glow = context.createRadialGradient(
-    width * 0.72,
-    horizon,
+  const centerX = width * 0.5 + Math.sin(time * 0.16) * width * 0.04;
+  const centerY = height * 0.46 + Math.cos(time * 0.12) * height * 0.04;
+  const nebula = context.createRadialGradient(
+    centerX,
+    centerY,
     0,
-    width * 0.72,
-    horizon,
-    width * 0.58,
+    centerX,
+    centerY,
+    Math.max(width, height) * 0.58,
   );
-  glow.addColorStop(0, withAlpha(palette[2], 0.34 * intensity));
-  glow.addColorStop(1, "rgba(255,255,255,0)");
-  context.fillStyle = glow;
+  nebula.addColorStop(0, withAlpha(palette[1], 0.28 * intensity));
+  nebula.addColorStop(0.28, withAlpha(palette[2], 0.12 * intensity));
+  nebula.addColorStop(1, "rgba(255,255,255,0)");
+  context.fillStyle = nebula;
   context.fillRect(0, 0, width, height);
 
-  const sun = context.createRadialGradient(
-    width * 0.73,
-    horizon,
-    0,
-    width * 0.73,
-    horizon,
-    width * 0.22,
-  );
-  sun.addColorStop(0, withAlpha(palette[3], 0.44 * intensity));
-  sun.addColorStop(0.24, withAlpha(palette[2], 0.22 * intensity));
-  sun.addColorStop(1, "rgba(255,255,255,0)");
-  context.fillStyle = sun;
-  context.fillRect(0, 0, width, height);
-
-  for (let cloud = 0; cloud < 22; cloud += 1) {
-    const x = ((cloud * 97 + time * (10 + cloud)) % (width + 160)) - 80;
-    const y = horizon - height * 0.22 + ((cloud * 31) % (height * 0.44));
-    const radius = 58 + ((cloud * 23) % 120);
-    const haze = context.createRadialGradient(x, y, 0, x, y, radius);
-    haze.addColorStop(0, withAlpha(cloud % 2 ? palette[1] : palette[3], 0.07));
-    haze.addColorStop(1, "rgba(255,255,255,0)");
-    context.fillStyle = haze;
-    context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-  }
-
-  for (let layer = 0; layer < 11; layer += 1) {
-    const y = horizon + layer * height * 0.044;
-    const drift = time * (12 + layer * 2);
+  context.save();
+  context.translate(centerX, centerY);
+  context.rotate(-0.18 + Math.sin(time * 0.09) * 0.03);
+  for (let band = 0; band < 5; band += 1) {
     context.beginPath();
-    for (let x = -40; x <= width + 40; x += 18) {
-      const wave =
-        y +
-        Math.sin((x + drift) * 0.008 + layer * 0.7) * (12 + layer * 2) +
-        Math.sin((x - drift) * 0.018) * 5;
-      if (x === -40) context.moveTo(x, wave);
-      else context.lineTo(x, wave);
-    }
-    context.shadowBlur = 12;
-    context.shadowColor = withAlpha(layer % 2 ? palette[1] : palette[3], 0.42);
-    context.strokeStyle = withAlpha(layer % 2 ? palette[1] : palette[3], 0.22);
-    context.lineWidth = Math.max(1.2, 4.4 - layer * 0.22);
+    context.ellipse(
+      0,
+      0,
+      width * (0.18 + band * 0.075),
+      height * (0.045 + band * 0.014),
+      band * 0.08,
+      0,
+      Math.PI * 2,
+    );
+    context.strokeStyle = withAlpha(
+      band % 2 ? palette[2] : palette[3],
+      0.08 + intensity * 0.05,
+    );
+    context.lineWidth = 1.1 + band * 0.35;
     context.stroke();
   }
-  context.shadowBlur = 0;
+  context.restore();
+
+  context.globalCompositeOperation = "lighter";
+  for (let star = 0; star < 130; star += 1) {
+    const depth = 0.35 + ((star * 37) % 100) / 100;
+    const drift = time * (8 + depth * 18);
+    const x = ((star * 83 + drift) % (width + 80)) - 40;
+    const y = (star * 47 + Math.sin(time * 0.12 + star) * 9) % height;
+    const radius = 0.55 + depth * 1.9;
+    const twinkle =
+      0.22 + Math.abs(Math.sin(time * (0.8 + depth) + star)) * 0.46;
+    context.beginPath();
+    context.arc(x, y, radius, 0, Math.PI * 2);
+    context.fillStyle = withAlpha(star % 3 ? palette[3] : palette[2], twinkle);
+    context.fill();
+  }
+  context.globalCompositeOperation = "source-over";
 }
 
-function drawShambhala(
+function drawPlayfulForms(
   context: CanvasRenderingContext2D,
   width: number,
   height: number,
@@ -1960,9 +1951,8 @@ function drawShambhala(
   intensity: number,
   palette: string[],
 ) {
-  const centerX = width * 0.5;
+  const centerX = width * 0.52;
   const centerY = height * 0.52;
-  const pulse = 1 + Math.sin(time * 0.7) * 0.035 * intensity;
   const core = context.createRadialGradient(
     centerX,
     centerY,
@@ -1977,58 +1967,61 @@ function drawShambhala(
   context.fillStyle = core;
   context.fillRect(0, 0, width, height);
 
-  context.save();
-  context.translate(centerX, centerY);
-  for (let ring = 0; ring < 10; ring += 1) {
-    const radius = (38 + ring * 31) * pulse;
+  for (let orbit = 0; orbit < 4; orbit += 1) {
     context.beginPath();
-    const sides = ring % 2 ? 8 : 6;
-    for (let side = 0; side < sides; side += 1) {
-      const angle = -Math.PI / 2 + (Math.PI * 2 * side) / sides + ring * 0.055;
-      const x = Math.cos(angle) * radius;
-      const y = Math.sin(angle) * radius * 0.74;
-      if (side === 0) context.moveTo(x, y);
-      else context.lineTo(x, y);
-    }
-    context.closePath();
-    if (ring % 3 === 0) {
-      context.fillStyle = withAlpha(ring % 2 ? palette[1] : palette[2], 0.04);
-      context.fill();
-    }
-    context.shadowBlur = 18;
-    context.shadowColor = withAlpha(palette[2], 0.44);
-    context.strokeStyle = withAlpha(ring % 2 ? palette[2] : palette[3], 0.2);
-    context.lineWidth = 1.2 + intensity * 1.3;
-    context.stroke();
-  }
-  context.shadowBlur = 0;
-  for (let ray = 0; ray < 24; ray += 1) {
-    const angle = (Math.PI * 2 * ray) / 24 + Math.sin(time * 0.25) * 0.08;
-    context.beginPath();
-    context.moveTo(Math.cos(angle) * 38, Math.sin(angle) * 28);
-    context.lineTo(
-      Math.cos(angle) * width * 0.56,
-      Math.sin(angle) * height * 0.48,
-    );
-    context.strokeStyle = withAlpha(palette[2], 0.09 + intensity * 0.11);
-    context.lineWidth = 1.2;
-    context.stroke();
-  }
-  for (let point = 0; point < 18; point += 1) {
-    const angle = (Math.PI * 2 * point) / 18 + time * 0.08;
-    const radius = width * (0.11 + (point % 3) * 0.035);
-    context.beginPath();
-    context.arc(
-      Math.cos(angle) * radius,
-      Math.sin(angle) * radius * 0.72,
-      2.4 + (point % 3) * 1.1,
+    context.ellipse(
+      centerX,
+      centerY,
+      width * (0.16 + orbit * 0.08),
+      height * (0.07 + orbit * 0.035),
+      -0.4 + orbit * 0.22,
       0,
       Math.PI * 2,
     );
-    context.fillStyle = withAlpha(point % 2 ? palette[3] : palette[2], 0.42);
-    context.fill();
+    context.strokeStyle = withAlpha(palette[3], 0.08 + intensity * 0.06);
+    context.lineWidth = 1.4;
+    context.stroke();
   }
-  context.restore();
+
+  for (let shape = 0; shape < 18; shape += 1) {
+    const angle = shape * 0.82 + time * (0.12 + (shape % 3) * 0.04);
+    const radius = width * (0.09 + (shape % 5) * 0.045);
+    const x = centerX + Math.cos(angle) * radius * 1.3;
+    const y = centerY + Math.sin(angle) * radius * 0.72;
+    const size = 14 + ((shape * 7) % 34) + intensity * 10;
+    const color = palette[(shape % (palette.length - 1)) + 1];
+
+    context.save();
+    context.translate(x, y);
+    context.rotate(angle * 0.4);
+    context.shadowBlur = 14;
+    context.shadowColor = withAlpha(color, 0.44);
+    context.fillStyle = withAlpha(color, 0.22 + intensity * 0.22);
+    if (shape % 3 === 0) {
+      roundedRectPath(
+        context,
+        -size * 0.6,
+        -size * 0.42,
+        size * 1.2,
+        size * 0.84,
+        size * 0.22,
+      );
+      context.fill();
+    } else if (shape % 3 === 1) {
+      context.beginPath();
+      context.arc(0, 0, size * 0.46, 0, Math.PI * 2);
+      context.fill();
+    } else {
+      context.beginPath();
+      context.moveTo(0, -size * 0.56);
+      context.lineTo(size * 0.5, size * 0.36);
+      context.lineTo(-size * 0.5, size * 0.36);
+      context.closePath();
+      context.fill();
+    }
+    context.restore();
+  }
+  context.shadowBlur = 0;
 }
 
 function drawNeuralHaze(
@@ -2099,7 +2092,7 @@ function drawNeuralHaze(
   context.shadowBlur = 0;
 }
 
-function drawLightTrails(
+function drawIridescentBloom(
   context: CanvasRenderingContext2D,
   width: number,
   height: number,
@@ -2182,6 +2175,33 @@ function drawLightTrails(
   }
   context.shadowBlur = 0;
   context.globalCompositeOperation = "source-over";
+}
+
+function roundedRectPath(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+) {
+  const corner = Math.min(radius, width / 2, height / 2);
+  context.beginPath();
+  context.moveTo(x + corner, y);
+  context.lineTo(x + width - corner, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + corner);
+  context.lineTo(x + width, y + height - corner);
+  context.quadraticCurveTo(
+    x + width,
+    y + height,
+    x + width - corner,
+    y + height,
+  );
+  context.lineTo(x + corner, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - corner);
+  context.lineTo(x, y + corner);
+  context.quadraticCurveTo(x, y, x + corner, y);
+  context.closePath();
 }
 
 function withAlpha(hex: string, alpha: number) {

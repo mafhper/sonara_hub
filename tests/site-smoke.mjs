@@ -180,7 +180,7 @@ try {
     .getByRole("heading", { name: /Atmospheres are now browsed/i })
     .waitFor();
   await page.getByRole("button", { name: /Neural haze/i }).click();
-  await page.getByRole("button", { name: /Prism/i }).click();
+  await page.getByRole("button", { name: "Prism", exact: true }).click();
   await page.getByLabel(/Motion/i).evaluate((input) => {
     input.value = "82";
     input.dispatchEvent(new Event("input", { bubbles: true }));
