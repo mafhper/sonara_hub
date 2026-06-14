@@ -1,5 +1,7 @@
 import type { ScenePresetV3, RenderStackItem } from "./visual-effects.mjs";
 
+export const shaderAudioUniformNames: string[];
+
 export type RuntimeMediaLayer = {
   id: string;
   kind: "image" | "svg" | "video";

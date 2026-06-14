@@ -9,6 +9,7 @@ import {
   mediaLayerBounds,
   mediaTextAvoidanceBounds,
   metadataSafeWidth,
+  shaderAudioUniformNames,
 } from "../shared/canvas-scene-runtime.mjs";
 
 // Minimal 2D context stand-in: width proportional to char count and font px so
@@ -373,4 +374,18 @@ test("legacy render stack omits hidden media layers", () => {
   const mediaItems = stack.filter((item) => item.kind === "media");
   assert.equal(mediaItems.length, 1);
   assert.equal(mediaItems[0].layerId, "a");
+});
+
+test("WebGL runtime registers every scalar audio uniform used by shaders", () => {
+  assert.deepEqual(shaderAudioUniformNames, [
+    "audioEnergy",
+    "audioBass",
+    "audioMid",
+    "audioHigh",
+    "audioCentroid",
+    "audioFlux",
+    "audioOnset",
+    "audioBeat",
+    "beatPhase",
+  ]);
 });

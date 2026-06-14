@@ -72,6 +72,18 @@ vec3 finish(vec3 color, vec2 uv) {
 }
 `;
 
+export const shaderAudioUniformNames = [
+  "audioEnergy",
+  "audioBass",
+  "audioMid",
+  "audioHigh",
+  "audioCentroid",
+  "audioFlux",
+  "audioOnset",
+  "audioBeat",
+  "beatPhase",
+];
+
 const fragmentShaders = {
   "liquid-mesh": `${shaderPrelude}
 void main() {
@@ -438,7 +450,7 @@ void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution.xy;
   vec2 ratio = vec2(u_resolution.x / u_resolution.y, 1.0);
   float t = u_time * (0.04 + u_speed * 0.25);
-  vec2 sun = vec2(0.5 + (u_param2 - 0.5) * 0.6, 0.72);
+  vec2 sun = vec2(0.5 + (u_param2 - 0.5) * 0.6, mix(0.18, 0.84, u_param5));
   vec2 d = (uv - sun) * ratio;
   float angle = atan(d.y, d.x);
   float radius = length(d);
@@ -523,6 +535,11 @@ export function createSceneRuntime(
       bass: 0,
       mid: 0,
       high: 0,
+      centroid: 0,
+      flux: 0,
+      onset: 0,
+      beat: 0,
+      beatPhase: 0,
       samples: [],
       spectrum: [],
     },
@@ -770,10 +787,7 @@ function createWebglRenderer(canvas) {
       "direction",
       "audioReaction",
       "shade",
-      "audioEnergy",
-      "audioBass",
-      "audioMid",
-      "audioHigh",
+      ...shaderAudioUniformNames,
       "colorA",
       "colorB",
       "accentColor",
@@ -1176,65 +1190,161 @@ function drawPlayfulElement(
 
 function drawPianoRibbons(context, width, height, scene, audio, time) {
   const background = context.createLinearGradient(0, 0, width, height);
-  background.addColorStop(0, scene.colors.base);
-  background.addColorStop(1, hexToRgba(scene.colors.effect, 0.82));
+  background.addColorStop(0, hexToRgba(scene.colors.base, 1));
+  background.addColorStop(0.58, hexToRgba(scene.colors.effect, 0.34));
+  background.addColorStop(1, hexToRgba(scene.colors.base, 0.96));
   context.fillStyle = background;
   context.fillRect(0, 0, width, height);
 
-  const bandCount = Math.round(6 + ((scene.advanced.bands ?? 54) / 100) * 8);
-  const gap = 0.12 + ((scene.advanced.gap ?? 26) / 100) * 0.34;
-  const widthScale = 0.74 + ((scene.advanced.bandWidth ?? 58) / 100) * 0.68;
-  const curvature = ((scene.advanced.curvature ?? 46) / 100) * height * 0.22;
+  const glow = context.createRadialGradient(
+    width * 0.34,
+    height * 0.22,
+    0,
+    width * 0.34,
+    height * 0.22,
+    Math.max(width, height) * 0.72,
+  );
+  glow.addColorStop(
+    0,
+    hexToRgba(scene.colors.light, 0.16 + (audio.mid ?? 0) * 0.04),
+  );
+  glow.addColorStop(1, hexToRgba(scene.colors.light, 0));
+  context.fillStyle = glow;
+  context.fillRect(0, 0, width, height);
+
+  const bandCount = Math.round(4 + ((scene.advanced.bands ?? 54) / 100) * 5);
+  const gap = 0.08 + ((scene.advanced.gap ?? 26) / 100) * 0.18;
+  const widthScale = 0.7 + ((scene.advanced.bandWidth ?? 58) / 100) * 0.42;
+  const curvature = ((scene.advanced.curvature ?? 46) / 100) * height * 0.18;
   const depth = (scene.advanced.depth ?? 54) / 100;
   const drift = (scene.advanced.drift ?? 34) / 100;
-  const speed = 0.16 + (scene.common.speed ?? 24) / 82;
+  const speed = 0.08 + (scene.common.speed ?? 24) / 120;
   const direction = ((scene.common.direction ?? 0) * Math.PI) / 180;
-  const available = width * 1.16;
-  const step = available / bandCount;
-  const bandWidth = step * widthScale * (1 - gap * 0.38);
+  const reaction = ((scene.common.audioReaction ?? 28) / 100) * 0.32;
   const palette = [
     scene.colors.light,
     "#f7f1dd",
     scene.colors.effect,
     "#76b7d6",
   ];
+
   context.save();
-  context.translate(width / 2, height / 2);
-  context.rotate(Math.sin(direction) * 0.08);
-  context.translate(-width / 2, -height / 2);
+  context.globalCompositeOperation = "screen";
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  for (let staff = 0; staff < 5; staff += 1) {
+    const y = height * (0.28 + staff * 0.048);
+    context.strokeStyle = hexToRgba("#ffffff", 0.08 + depth * 0.03);
+    context.lineWidth = Math.max(1, height * 0.0014);
+    context.beginPath();
+    context.moveTo(width * 0.08, y);
+    context.bezierCurveTo(
+      width * 0.3,
+      y - height * 0.018,
+      width * 0.68,
+      y + height * 0.016,
+      width * 0.94,
+      y,
+    );
+    context.stroke();
+  }
+
   for (let index = 0; index < bandCount; index += 1) {
     const spectrum =
       audio.spectrum?.[index % (audio.spectrum?.length || 1)] ??
       audio.energy ??
       0;
-    const phase = time * speed + index * 0.54;
+    const phase = time * speed + index * 0.62;
     const wave =
-      Math.sin(phase) * curvature * (0.46 + drift * 0.7) +
-      spectrum * curvature * (scene.common.audioReaction / 70);
-    const x = -width * 0.08 + index * step;
-    const foreground = index % 3 !== 1;
-    context.globalAlpha = 0.56 + (foreground ? 0.26 : depth * 0.18);
-    context.fillStyle = palette[index % palette.length];
+      Math.sin(phase + Math.cos(direction) * 0.6) *
+        curvature *
+        (0.32 + drift * 0.58) +
+      spectrum * curvature * reaction;
+    const y = height * (0.24 + index * (0.38 / Math.max(1, bandCount - 1)));
+    const thickness =
+      height *
+      (0.01 + widthScale * 0.015 + spectrum * reaction * 0.018) *
+      (1 - gap * 0.22);
+    const alpha = 0.34 + depth * 0.28 + Math.min(0.16, spectrum * 0.12);
+    const ribbon = context.createLinearGradient(0, y, width, y + wave);
+    ribbon.addColorStop(0, hexToRgba(palette[index % palette.length], 0));
+    ribbon.addColorStop(
+      0.22,
+      hexToRgba(palette[index % palette.length], alpha),
+    );
+    ribbon.addColorStop(
+      0.74,
+      hexToRgba(palette[(index + 1) % palette.length], alpha * 0.92),
+    );
+    ribbon.addColorStop(1, hexToRgba(scene.colors.light, 0));
+    context.strokeStyle = ribbon;
+    context.lineWidth = thickness;
+    context.shadowColor = hexToRgba(scene.colors.light, 0.22 + alpha * 0.12);
+    context.shadowBlur = thickness * (0.8 + depth * 1.1);
     context.beginPath();
-    context.moveTo(x, height * 1.12);
+    context.moveTo(-width * 0.08, y + wave * 0.4);
     context.bezierCurveTo(
-      x - bandWidth * 0.12,
-      height * 0.72 + wave,
-      x + bandWidth * 0.18,
-      height * 0.28 - wave * 0.58,
-      x + bandWidth * 0.5,
-      -height * 0.12,
+      width * 0.22,
+      y - wave,
+      width * 0.54,
+      y + wave,
+      width * 1.08,
+      y - wave * 0.36,
     );
-    context.lineTo(x + bandWidth * 1.18, -height * 0.12);
-    context.bezierCurveTo(
-      x + bandWidth * 0.84,
-      height * 0.28 - wave * 0.58,
-      x + bandWidth * 0.92,
-      height * 0.72 + wave,
-      x + bandWidth,
-      height * 1.12,
+    context.stroke();
+  }
+  context.shadowColor = "transparent";
+  context.globalCompositeOperation = "source-over";
+  drawPianoKeyboard(context, width, height, scene, audio);
+  context.restore();
+}
+
+function drawPianoKeyboard(context, width, height, scene, audio) {
+  const baseY = height * 0.72;
+  const keyboardHeight = height * 0.2;
+  const left = width * 0.08;
+  const right = width * 0.92;
+  const keys = 18;
+  const keyWidth = (right - left) / keys;
+  const lift = (audio.energy ?? 0) * ((scene.common.audioReaction ?? 28) / 100);
+  context.save();
+  context.shadowColor = "rgba(0,0,0,0.36)";
+  context.shadowBlur = height * 0.018;
+  context.shadowOffsetY = height * 0.012;
+  for (let index = 0; index < keys; index += 1) {
+    const x = left + index * keyWidth;
+    const topInset = (index / keys - 0.5) * height * 0.035;
+    const alpha = 0.78 + (index % 3 === 0 ? lift * 0.08 : 0);
+    context.fillStyle = `rgba(247,241,221,${alpha})`;
+    roundedRectPath(
+      context,
+      x + 1,
+      baseY + Math.abs(topInset),
+      keyWidth - 2,
+      keyboardHeight - Math.abs(topInset),
+      Math.max(2, keyWidth * 0.08),
     );
-    context.closePath();
+    context.fill();
+    context.strokeStyle = "rgba(24, 28, 36, 0.48)";
+    context.lineWidth = 1;
+    context.stroke();
+  }
+  const blackPattern = new Set([0, 1, 3, 4, 5]);
+  for (let index = 0; index < keys - 1; index += 1) {
+    if (!blackPattern.has(index % 7)) continue;
+    const x = left + (index + 0.68) * keyWidth;
+    const heightOffset = (index % 4) * keyboardHeight * 0.012;
+    roundedRectPath(
+      context,
+      x,
+      baseY + keyboardHeight * 0.04,
+      keyWidth * 0.58,
+      keyboardHeight * (0.58 + heightOffset / keyboardHeight),
+      Math.max(2, keyWidth * 0.08),
+    );
+    context.fillStyle = "#11151d";
+    context.fill();
+    context.fillStyle = hexToRgba(scene.colors.light, 0.05 + lift * 0.04);
     context.fill();
   }
   context.restore();
@@ -1573,17 +1683,16 @@ function drawVinyl(
   const reaction =
     (scene.advanced.reaction ?? scene.common.audioReaction ?? 0) / 100;
   const bassPulse = Math.max(0, audio.bass ?? audio.energy ?? 0) * reaction;
+  const lightBreath = Math.max(0, audio.mid ?? audio.energy ?? 0) * reaction;
   const size =
     ((Math.min(width, height) * scene.advanced.discSize) / 100) *
-    (1 + bassPulse * 0.045);
+    (1 + bassPulse * 0.012);
   const x = (width * scene.advanced.x) / 100;
   const y = (height * scene.advanced.y) / 100;
   const radius = size / 2;
   context.save();
   context.translate(x, y);
-  context.rotate(
-    time * (((scene.advanced.rpm ?? 34) + bassPulse * 16) / 60) * Math.PI * 2,
-  );
+  context.rotate(time * ((scene.advanced.rpm ?? 34) / 60) * Math.PI * 2);
   context.shadowColor = `rgba(0,0,0,${scene.advanced.shadow / 125})`;
   context.shadowBlur = radius * 0.16;
   context.shadowOffsetY = radius * 0.08;
@@ -1597,7 +1706,7 @@ function drawVinyl(
   context.arc(0, 0, radius, 0, Math.PI * 2);
   context.fill();
   context.shadowColor = "transparent";
-  context.strokeStyle = "rgba(255,255,255,0.08)";
+  context.strokeStyle = `rgba(255,255,255,${0.07 + lightBreath * 0.04})`;
   context.lineWidth = Math.max(1, radius * 0.006);
   for (let groove = 0.28; groove < 0.96; groove += 0.045) {
     context.beginPath();
