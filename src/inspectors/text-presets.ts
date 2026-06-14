@@ -172,11 +172,11 @@ export const textStylePresetLabels: Record<
   TextOverlaySettings["preset"],
   string
 > = {
-  "top-left": "Topo esquerdo",
-  "bottom-center": "Base central",
-  "cover-left": "Capa à esquerda",
-  "side-left": "Lado a lado · esquerda",
-  "side-right": "Lado a lado · direita",
+  "top-left": "Clean principal",
+  "bottom-center": "Legenda compacta",
+  "cover-left": "Capa editorial",
+  "side-left": "Coluna clássica",
+  "side-right": "Coluna espelhada",
   "editorial-stack": "Editorial",
   "quiet-album": "Álbum discreto",
   "jazz-serif": "Jazz · Playfair",
@@ -193,6 +193,24 @@ export const defaultTextFadeOut: TextFadeOutSettings = {
   startPercent: 10,
   durationSeconds: 2,
 };
+
+export function anchorForTextPosition(
+  x: number,
+  y: number,
+): Pick<TextOverlaySettings, "align" | "verticalAnchor"> {
+  const align: TextOverlaySettings["align"] =
+    x <= 33 ? "left" : x >= 67 ? "right" : "center";
+  const verticalAnchor: TextOverlaySettings["verticalAnchor"] =
+    y <= 33 ? "top" : y >= 67 ? "bottom" : "middle";
+  return { align, verticalAnchor };
+}
+
+export function nearestTextPositionPreset(x: number, y: number) {
+  const horizontal = x <= 33 ? "left" : x >= 67 ? "right" : "center";
+  const vertical = y <= 33 ? "top" : y >= 67 ? "bottom" : "middle";
+  if (horizontal === "center" && vertical === "middle") return "center";
+  return `${vertical}-${horizontal}` as PositionPresetId;
+}
 
 export function cloneTextSettings(settings?: TextOverlaySettings) {
   return mergeTextSettings(settings);

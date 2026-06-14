@@ -324,6 +324,7 @@ export function VisualInspector(props: {
   presets: ScenePresetV3[];
   renderStack: RenderStackItem[];
   scene: ScenePresetV3;
+  batchTargetCount?: number;
   selectedStackKey: string;
   onAddLayer: () => void;
   onAdvanced: (key: string, value: number) => void;
@@ -370,6 +371,10 @@ export function VisualInspector(props: {
     selectedItem?.kind === "media"
       ? props.layers.find((layer) => layer.id === selectedItem.layerId)
       : undefined;
+  const batchScopeCopy =
+    props.batchTargetCount && props.batchTargetCount >= 2
+      ? `${props.batchTargetCount} vídeos selecionados no lote`
+      : "Lote selecionado";
   // volumetric-clouds desenha o sol dentro do próprio shader da atmosfera (não
   // há item "Foco solar" na pilha); os controles entram no pane da atmosfera.
   const sunInsideAtmosphere =
@@ -526,13 +531,18 @@ export function VisualInspector(props: {
                 </button>
               </div>
               {props.onApplyBatch && (
-                <button
-                  className="upload-action"
-                  type="button"
-                  onClick={props.onApplyBatch}
-                >
-                  <Layers3 /> Aplicar fundo visual ao lote
-                </button>
+                <div className="batch-scope-action">
+                  <span className="batch-scope-note">
+                    Escopo: {batchScopeCopy}
+                  </span>
+                  <button
+                    className="upload-action"
+                    type="button"
+                    onClick={props.onApplyBatch}
+                  >
+                    <Layers3 /> Aplicar fundo visual ao lote
+                  </button>
+                </div>
               )}
               <div className="inspector-subsection visual-palette-section">
                 <p className="inspector-kicker">PALETAS</p>
@@ -1027,6 +1037,7 @@ export function VisualInspector(props: {
       )}
       {(props.onApplyLayersBatch || props.onApplyCoverLayerBatch) && (
         <InspectorGroup title="Lote" open scope="series">
+          <p className="batch-scope-note">Escopo: {batchScopeCopy}</p>
           {props.onApplyLayersBatch && (
             <>
               <button

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import BenchmarkDashboard from "./BenchmarkDashboard";
 import "./styles.css";
+import "./theme.css";
 
 const page =
   window.location.pathname.replace(/\/+$/u, "") === "/benchmarks" ? (

@@ -132,6 +132,28 @@
   color: var(--text);
 }
 
+html[data-ui-scale="large"] {
+  --font-xs: 12px;
+  --font-sm: 14px;
+  --font-md: 15px;
+  --font-lg: 18px;
+  --font-xl: 26px;
+  --control-height: 38px;
+  --slider-track-height: 7px;
+  --slider-thumb-size: 17px;
+}
+
+html[data-ui-scale="extra"] {
+  --font-xs: 13px;
+  --font-sm: 16px;
+  --font-md: 17px;
+  --font-lg: 20px;
+  --font-xl: 30px;
+  --control-height: 42px;
+  --slider-track-height: 8px;
+  --slider-thumb-size: 19px;
+}
+
 * {
   box-sizing: border-box;
   scrollbar-width: thin;
@@ -394,16 +416,14 @@ svg {
 }
 
 .primary-action:hover {
-  background: linear-gradient(180deg, #3a557e, #2a3a5a);
-  border-color: #8aa3dd;
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 14%),
-    var(--glow-cool);
+  background: var(--button-primary-hover-bg);
+  border-color: var(--button-primary-border);
+  box-shadow: var(--button-shadow), var(--glow-cool);
   transform: translateY(-1px);
 }
 
 .primary-action:active {
-  background: var(--button-active-bg);
+  background: var(--button-primary-bg);
   transform: translateY(1px);
 }
 
@@ -954,15 +974,16 @@ svg {
 }
 
 .library-footer {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--border-soft);
 }
 
 .library-footer-mode {
+  justify-self: end;
   border: none;
   background: transparent;
   padding: 0;
@@ -1801,6 +1822,49 @@ svg {
 .batch-job-summary b {
   color: #dfe4eb;
   font-size: 9px;
+}
+
+.batch-job-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.batch-job-filters button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #303641;
+  border-radius: 4px;
+  background: #101216;
+  color: #aeb7c4;
+  padding: 0 8px;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.batch-job-filters button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.batch-job-filters button b {
+  min-width: 18px;
+  border-radius: 999px;
+  background: #252a31;
+  color: #dfe4eb;
+  padding: 1px 5px;
+  text-align: center;
+}
+
+.batch-job-filters button.active,
+.batch-job-filters button[aria-pressed="true"] {
+  border-color: #5f7fb3;
+  background: #192133;
+  color: #eef4ff;
 }
 
 .batch-job-row {
@@ -3080,6 +3144,26 @@ svg {
 
 .stack-detail-body > .inspector-group:last-child {
   border-bottom: 0;
+}
+
+.batch-scope-action {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.batch-scope-note {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  border: 1px solid var(--accent-warm-border);
+  border-radius: 999px;
+  background: var(--accent-warm-low);
+  color: var(--accent-warm-strong);
+  padding: 3px 8px;
+  font-size: var(--font-xs);
+  font-weight: 720;
+  line-height: 1.2;
 }
 
 .helper-copy {
@@ -4494,20 +4578,22 @@ button:disabled {
 .library-mode-badge {
   display: inline-flex;
   width: fit-content;
-  min-height: 24px;
+  min-height: 28px;
   align-items: center;
+  justify-content: center;
   border: 1px solid var(--status-ok-border);
   border-radius: 999px;
-  background: rgb(128 202 165 / 8%);
+  background: color-mix(in srgb, var(--status-ok) 14%, transparent);
   color: var(--status-ok);
   font-size: var(--font-sm);
-  line-height: 1.4;
-  padding: 2px 8px;
+  line-height: 1.15;
+  padding: 3px 10px;
+  white-space: nowrap;
 }
 
 .library-mode-badge.write {
   border-color: var(--status-warn-border);
-  background: rgb(226 195 107 / 10%);
+  background: color-mix(in srgb, var(--status-warn) 16%, transparent);
   color: var(--status-warn);
 }
 
@@ -4812,6 +4898,27 @@ button:disabled {
 .batch-toolbar-body,
 .batch-job-summary {
   border-top-color: var(--stage-border);
+}
+
+.batch-job-filters button {
+  border-color: var(--button-border);
+  border-radius: var(--radius);
+  background: var(--button-bg);
+  color: var(--button-text);
+  font-size: var(--font-sm);
+}
+
+.batch-job-filters button b {
+  background: var(--stage-surface-low);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+}
+
+.batch-job-filters button.active,
+.batch-job-filters button[aria-pressed="true"] {
+  border-color: var(--focus);
+  background: var(--surface-raised);
+  color: var(--text-primary);
 }
 
 .batch-table-toolbar {
@@ -6829,24 +6936,41 @@ button:disabled {
 }
 
 .text-batch-apply {
+  align-items: center;
+  justify-content: flex-start;
   margin-top: 8px;
   padding-top: 0;
   border-top: none;
 }
 
-.text-batch-apply > button:not(.upload-action) {
+.text-batch-apply > * {
+  flex: 0 0 auto;
+}
+
+.text-batch-apply > button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   background: var(--control-bg);
   color: var(--text-secondary);
   padding: 7px 8px;
   font-size: var(--font-sm);
+  font-weight: 700;
   cursor: pointer;
 }
 
-.text-batch-apply > button:not(.upload-action):hover {
+.text-batch-apply > button:hover {
   color: var(--text-primary);
   border-color: var(--border-strong, var(--border-soft));
+}
+
+.text-batch-apply > button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .inspector-advanced {
@@ -6904,6 +7028,7 @@ button:disabled {
 .text-position-picker button.is-active {
   border-color: var(--accent-cool-strong);
   background: rgba(139, 165, 233, 0.18);
+  box-shadow: inset 0 0 0 2px var(--focus);
   color: var(--accent-cool-strong);
 }
 
@@ -8073,6 +8198,67 @@ button:disabled {
   white-space: nowrap;
 }
 
+.theme-preference-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(116px, 100%), 1fr));
+  gap: var(--space-2);
+}
+
+.ui-scale-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(132px, 100%), 1fr));
+  gap: var(--space-2);
+}
+
+.theme-preference-grid button,
+.ui-scale-grid button {
+  position: relative;
+  display: grid;
+  min-height: calc(var(--control-height) * 2);
+  align-content: center;
+  gap: 5px;
+  border: 1px solid var(--button-border);
+  border-radius: var(--radius-card);
+  background: var(--button-bg);
+  box-shadow: var(--button-shadow);
+  color: var(--button-text);
+  padding: var(--space-2);
+  text-align: left;
+}
+
+.theme-preference-grid button strong,
+.ui-scale-grid button strong {
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  font-weight: 760;
+}
+
+.theme-preference-grid button small,
+.ui-scale-grid button small {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.25;
+}
+
+.theme-preference-grid button:hover,
+.theme-preference-grid button:focus-visible,
+.ui-scale-grid button:hover,
+.ui-scale-grid button:focus-visible {
+  border-color: var(--focus);
+  background: var(--button-hover-bg);
+}
+
+.theme-preference-grid button.selected,
+.theme-preference-grid button[aria-pressed="true"],
+.ui-scale-grid button.selected,
+.ui-scale-grid button[aria-pressed="true"] {
+  border-color: var(--button-primary-border);
+  background: var(--selection);
+  box-shadow:
+    inset 0 0 0 2px var(--focus),
+    var(--glow-focus);
+}
+
 .settings-project-cleanup {
   display: grid;
   gap: var(--space-3);
@@ -8222,6 +8408,9 @@ button:disabled {
 .icon-toggle-row button.active {
   border-color: var(--focus);
   background: var(--button-hover-bg);
+  box-shadow:
+    inset 0 0 0 2px var(--focus),
+    var(--elev-1);
   color: var(--text-primary);
 }
 
@@ -8680,7 +8869,10 @@ button:disabled {
   position: sticky;
   bottom: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* Auto columns fill the full width for any tab count (currently 3),
+     instead of a fixed 4-column track that left an empty trailing cell. */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 5px;
   border-top: 1px solid var(--border);
   background: var(--surface);
@@ -8703,10 +8895,10 @@ button:disabled {
 .audio-inspector-tabbar button.active {
   border-color: var(--button-primary-border);
   background: var(--button-primary-grad);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 8%),
-    0 0 9px rgb(167 191 255 / 14%);
-  color: var(--text-primary);
+  box-shadow: var(--button-shadow), var(--glow-cool);
+  /* Light text for legibility on the primary fill (was --text-primary,
+     i.e. dark-on-blue, which read as low contrast). */
+  color: var(--button-primary-text);
 }
 
 .catalog-artwork-hint {

@@ -39,13 +39,9 @@ import {
   X,
 } from "lucide-react";
 import {
-  type CSSProperties,
   type ChangeEvent,
   type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -88,9 +84,7 @@ import {
 } from "./inspectors/text-presets";
 import {
   InteractionDialog,
-  type InteractionDialogState,
   NotificationCenter,
-  type ToastNotice,
   type ToastTone,
   ToastViewport,
 } from "./ui/Feedback";
@@ -105,10 +99,8 @@ import { CatalogPreview } from "./workspaces/CatalogPreview";
 import { ScenePreview } from "./workspaces/CompositionPreview";
 import { CoverArtworkWorkspace } from "./workspaces/CoverArtworkWorkspace";
 import {
-  coverSeriesMetaOrder,
   coverSeriesMetaStyleForKey,
   coverSeriesPreviewLines,
-  defaultCoverSeriesSettings,
 } from "./workspaces/CoverSeries";
 import { PodcastWorkspace } from "./workspaces/PodcastWorkspace";
 import { PublicationAssetsWorkspace } from "./workspaces/PublicationAssetsWorkspace";
@@ -125,7 +117,6 @@ import {
   type LayerZoomSettings,
   isCoverLayer,
   normalizeFadeIn,
-  normalizeLayerCoverFadeOut,
 } from "./inspectors/layer-normalizers";
 import { renderStackKey } from "./inspectors/CompositionStack";
 import {
@@ -136,7 +127,6 @@ import {
   type CoverLayerPreset,
   type PlayfulPatch,
   VisualInspector,
-  coverLayerPresetLabels,
   waveformTypeLabel,
 } from "./inspectors/VisualInspector";
 import {
@@ -175,20 +165,14 @@ import {
   writeReplacementsWithRollback,
 } from "../shared/destructive-audio-batch.mjs";
 import { directoryImportPrefix } from "../shared/audio-import.mjs";
-import {
-  defaultFileNamePattern,
-  normalizeFileNamePattern,
-} from "../shared/file-naming.mjs";
+import { normalizeFileNamePattern } from "../shared/file-naming.mjs";
 import {
   normalizeVideoOutputConflictMode,
   prepareVideoOutputProject,
   videoOutputProjectDirectoryName,
 } from "../shared/video-output-folder.mjs";
 import type { VideoOutputConflictMode } from "../shared/video-output-folder.mjs";
-import {
-  isLyricsTextPath,
-  listLyricsOptionsForTrack,
-} from "../shared/lyrics-convention.mjs";
+import { listLyricsOptionsForTrack } from "../shared/lyrics-convention.mjs";
 import type { LyricsPathSuggestion } from "../shared/lyrics-convention.mjs";
 import { collectActiveObjectUrls } from "../shared/object-url-lifecycle.mjs";
 import {
@@ -214,7 +198,6 @@ import {
   chooseArtworkForTrack,
   isArtworkName,
   listArtworkOptionsForTrack,
-  treatedAlbumArtworkFileName,
 } from "../shared/artwork-convention.mjs";
 import {
   loadDirectoryHandle,
@@ -223,6 +206,130 @@ import {
   saveSnapshot,
 } from "./storage";
 import { CanvasInteractionOverlay } from "./CanvasInteractionOverlay";
+import {
+  appThemeLabels,
+  normalizeThemePreference,
+  normalizeUiScalePreference,
+  themePreferenceOptions,
+  uiScalePreferenceOptions,
+} from "./theme";
+import { AppShell } from "./app/AppShell";
+import {
+  DEFAULT_PROJECT_SAVE_ID,
+  INPUT_PROJECT_STORAGE_KEY,
+  PODCAST_METADATA_SLICE_BYTES,
+  defaultMetadata,
+  defaultProjectSave,
+  emptyBands,
+  versionSuggestions,
+} from "./app/appDefaults";
+import type {
+  ActiveStep,
+  AudioBands,
+  AudioStageView,
+  BatchCommonDraft,
+  DestructiveAudioBatch,
+  InputProjectOption,
+  InternalInputAsset,
+  InternalInputProject,
+  PreparedPublicationOutputProject,
+  PreparedVideoOutputProject,
+  ProjectCleanupScope,
+  ProjectSaveOption,
+  StorageUsage,
+  TextFadeInSettings,
+  TextFadeOutSettings,
+  VisualStageView,
+  WorkspaceFolderKind,
+  WorkspaceMode,
+} from "./app/appTypes";
+import {
+  formatDuration,
+  formatFileCount,
+  formatUsage,
+  messageOf,
+} from "./app/appFormatters";
+import {
+  normalizeSnapshotNavigation,
+  stepLabel,
+  visualStageLabel,
+} from "./app/appNavigation";
+import {
+  loadCoverSeriesSettings,
+  normalizeCoverSeriesClient,
+  saveCoverSeriesSettings,
+} from "./features/visual/coverSeriesPreferences";
+import {
+  loadFileNamePattern,
+  saveFileNamePattern,
+} from "./features/export/fileNamePatternPreference";
+import {
+  albumFolderArtworkSourceKey,
+  backupFileName,
+  copyFileToDirectory,
+  copyUrlToDirectory,
+  getWorkspaceFile,
+  preparePublicationOutputProject,
+  publicationAssetDirectoryForUrl,
+  videoOutputBackupStamp,
+  writeBlobToWorkspacePath,
+} from "./features/export/exportWorkspaceFiles";
+import {
+  loadPodcastEnabled,
+  savePodcastEnabled,
+} from "./features/audio/podcastPreference";
+import {
+  type ProjectMetadataDefaults,
+  finalizeImportedTracks,
+  metadataFromAudio,
+  restoreTrack,
+  trackBatchGroupKey,
+  trackFromFile,
+  trackFromInput,
+} from "./features/audio/audioTrackDrafts";
+import {
+  deleteInternalProjectSnapshot,
+  ensureProjectSaveOption,
+  listInternalProjectSaves,
+  listProjectSaves,
+  loadInternalProjectSnapshot,
+  loadProjectSnapshot,
+  projectSaveIdFromName,
+  projectSaveOptionFromSnapshot,
+  removeProjectSnapshot,
+  saveInternalProjectSnapshot,
+  writeProjectSnapshot,
+} from "./features/workspace/projectSnapshot.client";
+import {
+  type DirectoryAssetEntry,
+  collectDirectoryAssets,
+  discoverInputProjects,
+  ensureAlbumArtworkDirectories,
+  isAudioName,
+  isPrivateAssetPath,
+  isPrivateAudioPath,
+} from "./features/workspace/workspaceFiles";
+import {
+  isBrowserInputProject,
+  projectOptionLabel,
+} from "./features/workspace/projectOptions";
+import { audioDraftFromMetadata } from "./features/audio/audioTagDraft";
+import {
+  applyLayersTemplateToTracks,
+  applyMusicTemplateToTracks,
+  applyPublicationTemplateToTracks,
+  applyVisualTemplateToTracks,
+} from "./features/visual/trackTemplates";
+import { stripLayerFile } from "./features/visual/layerSerialization";
+import { coverLayerFromArtwork } from "./features/visual/coverLayerFactory";
+import { useInteractionDialog } from "./hooks/useInteractionDialog";
+import { useNotifications } from "./hooks/useNotifications";
+import {
+  DEFAULT_LEFT_RAIL_WIDTH,
+  DEFAULT_RIGHT_RAIL_WIDTH,
+  usePanelLayout,
+} from "./hooks/usePanelLayout";
+import { useThemePreference } from "./hooks/useThemePreference";
 import type {
   AudioInfo,
   AudioTagDraft,
@@ -232,11 +339,9 @@ import type {
   CoverSeriesSettings,
   LyricsSuggestion,
   MediaLayerV2,
-  ProjectAssetManifestEntry,
   ProjectSnapshot,
   RenderJob,
   TextFieldKey,
-  TextFieldStyle,
   TextOverlaySettings,
   TrackDraft,
   TrackMetadata,
@@ -272,177 +377,6 @@ declare global {
   }
 }
 
-type ActiveStep = "music" | "visual" | "text" | "export";
-type WorkspaceMode = "audio" | "visual";
-type WorkspaceFolderKind = "internal" | "external";
-type AudioStageView =
-  | "edit"
-  | "artwork"
-  | "podcast"
-  | "catalog"
-  | "audio-export";
-type VisualStageView = "editor" | "review" | "promotion" | "publication-export";
-type TextFadeOutSettings = NonNullable<TextFieldStyle["fadeOut"]>;
-type TextFadeInSettings = NonNullable<TextFieldStyle["fadeIn"]>;
-type PreparedVideoOutputProject = {
-  assets: FileSystemDirectoryHandle;
-  backup: FileSystemDirectoryHandle | null;
-  backupName: string;
-  project: FileSystemDirectoryHandle;
-  projectName: string;
-};
-type PreparedPublicationOutputProject = PreparedVideoOutputProject & {
-  clips: FileSystemDirectoryHandle;
-  dados: FileSystemDirectoryHandle;
-  encartes: FileSystemDirectoryHandle;
-  imagens: FileSystemDirectoryHandle;
-  publicacao: FileSystemDirectoryHandle;
-};
-type InputProjectOption = {
-  id: string;
-  name: string;
-  path: string;
-  handle?: FileSystemDirectoryHandle;
-  source: "browser" | "internal";
-  trackCount: number;
-};
-type BrowserInputProjectOption = InputProjectOption & {
-  handle: FileSystemDirectoryHandle;
-  source: "browser";
-};
-type InternalInputProject = {
-  id: string;
-  name: string;
-  path: string;
-  trackCount: number;
-};
-type InternalInputAsset = {
-  name: string;
-};
-type ProjectCleanupScope = "current" | "selected" | "all";
-type BatchCommonDraft = {
-  artist: string;
-  album: string;
-  albumArtist: string;
-  composer: string;
-  genre: string;
-  year: string;
-  copyright: string;
-  comment: string;
-  trackTotal: number;
-  diskNumber: number;
-  diskTotal: number;
-  normalizationEnabled: boolean;
-};
-type AudioBands = {
-  energy: number;
-  bass: number;
-  mid: number;
-  high: number;
-  samples: number[];
-  spectrum: number[];
-};
-type StorageUsage = {
-  temporary: { files: number; bytes: number };
-  generated: { files: number; bytes: number };
-  jobs: { active: number; terminal: number };
-};
-type DestructiveAudioBatch = {
-  jobIds: string[];
-  finalizing: boolean;
-};
-type ProjectSaveOption = {
-  id: string;
-  name: string;
-  isDefault?: boolean;
-};
-
-const emptyBands: AudioBands = {
-  energy: 0,
-  bass: 0,
-  mid: 0,
-  high: 0,
-  samples: [],
-  spectrum: [],
-};
-// ISO 639-2 codes the server accepts for the ID3 lyrics/language frame.
-// Suggested track "version" labels (free text — users can type their own).
-const versionSuggestions = [
-  "Original",
-  "Remix",
-  "Ao vivo",
-  "Acústico",
-  "Instrumental",
-  "Demo",
-  "Remaster",
-  "Edit",
-  "Radio Edit",
-  "Extended",
-];
-
-const PANEL_WIDTH_STORAGE_KEY = "sonara-hub-panel-widths";
-const COVER_SERIES_STORAGE_KEY = "sonara-hub-cover-series-settings";
-const FILE_NAME_PATTERN_STORAGE_KEY = "sonara-hub-file-name-pattern";
-const INPUT_PROJECT_STORAGE_KEY = "sonara-hub-input-project";
-const PODCAST_ENABLED_STORAGE_KEY = "sonara-hub-podcast-enabled";
-const PODCAST_METADATA_SLICE_BYTES = 8 * 1024 * 1024;
-const PROJECT_STATE_DIRECTORY = ".sonara";
-const PROJECT_STATE_FILE = "project.json";
-const PROJECT_ASSETS_DIRECTORY = "assets";
-const PROJECT_SAVES_DIRECTORY = "saves";
-const DEFAULT_PROJECT_SAVE_ID = "default";
-const defaultProjectSave: ProjectSaveOption = {
-  id: DEFAULT_PROJECT_SAVE_ID,
-  name: "Padrão",
-  isDefault: true,
-};
-
-const DEFAULT_LEFT_RAIL_WIDTH = 256;
-const DEFAULT_RIGHT_RAIL_WIDTH = 456;
-const PANEL_MIN_PREVIEW_WIDTH = 520;
-const PANEL_FLOATING_STAGE_WIDTH = 620;
-const LEFT_RAIL_BOUNDS = { min: 220, max: 380 };
-const RIGHT_RAIL_BOUNDS = { min: 360, max: 620 };
-const defaultMetadata: TrackMetadata = {
-  title: "Nova faixa",
-  version: "",
-  artist: "",
-  album: "",
-  genre: "",
-  description: "",
-  comment: "",
-  tags: "",
-  visibility: "unlisted",
-  categoryId: "10",
-  language: "pt-BR",
-  recordingDate: "",
-  copyright: "",
-  outputFileName: "",
-  useEmbeddedCover: false,
-  containsSyntheticMedia: true,
-  madeForKids: false,
-  albumArtist: "",
-  composer: "",
-  year: "",
-  trackNumber: 1,
-  trackTotal: 1,
-  diskNumber: 1,
-  diskTotal: 1,
-  lyrics: "",
-  lyricsLanguage: "und",
-  normalizationEnabled: false,
-  podcastVoiceProfile: "natural",
-  podcastTrimSilence: false,
-  podcastVoiceBoost: false,
-  podcastPlaybackSpeed: 1,
-  podcastIntroInsert: "",
-  podcastOutroInsert: "",
-  podcastAdInsert: "",
-  podcastEpisodeArtworkUrl: "",
-  podcastEpisodeLink: "",
-  podcastEpisodeLinks: "",
-  podcastDonationUrl: "",
-};
 function revokeObjectUrl(url: string) {
   try {
     URL.revokeObjectURL(url);
@@ -456,84 +390,6 @@ const defaultFadeIn: LayerFadeInSettings = {
   startPercent: 0,
   durationSeconds: 1.5,
 };
-const coverLayerPresets: Record<
-  CoverLayerPreset,
-  Pick<
-    MediaLayerV2,
-    | "opacity"
-    | "scale"
-    | "x"
-    | "y"
-    | "rotation"
-    | "blur"
-    | "maskOpacity"
-    | "fit"
-    | "blendMode"
-    | "shadow"
-  >
-> = {
-  background: {
-    opacity: 72,
-    scale: 156,
-    x: 50,
-    y: 50,
-    rotation: 0,
-    blur: 22,
-    maskOpacity: 46,
-    fit: "cover",
-    blendMode: "normal",
-    shadow: { opacity: 0, blur: 24, x: 0, y: 14 },
-  },
-  left: {
-    opacity: 100,
-    scale: 46,
-    x: 22,
-    y: 50,
-    rotation: 0,
-    blur: 0,
-    maskOpacity: 0,
-    fit: "contain",
-    blendMode: "normal",
-    shadow: { opacity: 48, blur: 34, x: 0, y: 18 },
-  },
-  center: {
-    opacity: 100,
-    scale: 52,
-    x: 50,
-    y: 50,
-    rotation: 0,
-    blur: 0,
-    maskOpacity: 0,
-    fit: "contain",
-    blendMode: "normal",
-    shadow: { opacity: 42, blur: 32, x: 0, y: 18 },
-  },
-  right: {
-    opacity: 100,
-    scale: 46,
-    x: 78,
-    y: 50,
-    rotation: 0,
-    blur: 0,
-    maskOpacity: 0,
-    fit: "contain",
-    blendMode: "normal",
-    shadow: { opacity: 48, blur: 34, x: 0, y: 18 },
-  },
-  corner: {
-    opacity: 96,
-    scale: 30,
-    x: 18,
-    y: 74,
-    rotation: 0,
-    blur: 0,
-    maskOpacity: 0,
-    fit: "contain",
-    blendMode: "normal",
-    shadow: { opacity: 38, blur: 26, x: 0, y: 14 },
-  },
-};
-
 function App() {
   const [tracks, setTracks] = useState<TrackDraft[]>([]);
   const [selectedTrackId, setSelectedTrackId] = useState("");
@@ -588,15 +444,32 @@ function App() {
   const [pendingCoverTrackId, setPendingCoverTrackId] = useState("");
   const [jobs, setJobs] = useState<RenderJob[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const {
+    effectiveTheme,
+    setThemePreference,
+    setUiScalePreference,
+    themePreference,
+    uiScalePreference,
+  } = useThemePreference();
+  const {
+    dismissToast,
+    notificationLog,
+    notificationsOpen,
+    setBatchFeedback,
+    setError,
+    setNotificationLog,
+    setNotificationsOpen,
+    showToast,
+    toasts,
+  } = useNotifications();
+  const {
+    closeInteractionDialog,
+    interactionDialog,
+    requestConfirmation,
+    requestTextInput,
+  } = useInteractionDialog();
   const [storageUsage, setStorageUsage] = useState<StorageUsage | null>(null);
   const [cleanupBusy, setCleanupBusy] = useState(false);
-  const [toasts, setToasts] = useState<ToastNotice[]>([]);
-  // Session-wide history of every toast, so dismissed/expired notices remain
-  // reachable from the bell in the topbar.
-  const [notificationLog, setNotificationLog] = useState<ToastNotice[]>([]);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [interactionDialog, setInteractionDialog] =
-    useState<InteractionDialogState | null>(null);
   const [inputFolderName, setInputFolderName] = useState("input");
   const [inputFolderKind, setInputFolderKind] =
     useState<WorkspaceFolderKind>("internal");
@@ -624,19 +497,24 @@ function App() {
   const [outputFolderName, setOutputFolderName] = useState("outputs");
   const [outputFolderKind, setOutputFolderKind] =
     useState<WorkspaceFolderKind>("internal");
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [rightCollapsed, setRightCollapsed] = useState(false);
-  const [panelsSwapped, setPanelsSwapped] = useState(false);
-  const [floatingPanels, setFloatingPanels] = useState(false);
-  const [leftRailWidth, setLeftRailWidth] = useState(
-    () => loadPanelWidths().left,
-  );
-  const [rightRailWidth, setRightRailWidth] = useState(
-    () => loadPanelWidths().right,
-  );
-  const [resizingPanel, setResizingPanel] = useState<
-    "library" | "inspector" | null
-  >(null);
+  const {
+    floatingPanels,
+    leftCollapsed,
+    leftRailWidth,
+    panelsSwapped,
+    resizingPanel,
+    rightCollapsed,
+    rightRailWidth,
+    setLeftCollapsed,
+    setLeftRailWidth,
+    setPanelsSwapped,
+    setRightCollapsed,
+    setRightRailWidth,
+    shellStyle,
+    startPanelResize,
+    toggleLeftPanel,
+    toggleRightPanel,
+  } = usePanelLayout();
   // One-step undo for the whole layer list of a track, so a mis-click on
   // "Aplicar capa" (or remove/add) can be reverted without losing prior tweaks.
   const [layersUndo, setLayersUndo] = useState<{
@@ -723,9 +601,6 @@ function App() {
   const embeddedArtworkRequestsRef = useRef(new Set<string>());
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationRef = useRef(0);
-  const toastSequenceRef = useRef(0);
-  const toastTimersRef = useRef(new Map<number, number>());
-  const dialogSequenceRef = useRef(0);
   const activeObjectUrlsRef = useRef(new Set<string>());
 
   useEffect(() => {
@@ -822,10 +697,6 @@ function App() {
         ? `/api/audio/${encodeURIComponent(selectedTrack.sourceKey)}`
         : ""))
     : "";
-  const shellStyle = {
-    "--rail-left": `${leftRailWidth}px`,
-    "--rail-right": `${rightRailWidth}px`,
-  } as CSSProperties;
   const reviewTracks =
     workflowMode === "batch"
       ? tracks.filter((track) => track.selectedForBatch)
@@ -845,101 +716,6 @@ function App() {
       track.audioInfo?.analysis?.risk &&
       track.audioInfo.analysis.risk !== "safe",
   ).length;
-
-  function dismissToast(id: number) {
-    const timer = toastTimersRef.current.get(id);
-    if (timer) window.clearTimeout(timer);
-    toastTimersRef.current.delete(id);
-    setToasts((current) => current.filter((toast) => toast.id !== id));
-  }
-
-  function showToast(
-    message: string,
-    tone: ToastTone = "success",
-    options: { copyText?: string; persistent?: boolean } = {},
-  ) {
-    if (!message) return;
-    const id = ++toastSequenceRef.current;
-    const notice = { id, message, tone, copyText: options.copyText };
-    setToasts((current) =>
-      [
-        ...current.filter(
-          (toast) => toast.message !== message || toast.tone !== tone,
-        ),
-        notice,
-      ].slice(-4),
-    );
-    setNotificationLog((current) => [notice, ...current].slice(0, 50));
-    if (!options.persistent) {
-      // Errors linger longer (10s) so they can be read/copied, but still clear
-      // on their own; the bell keeps the full history.
-      const duration =
-        tone === "error" ? 10_000 : tone === "warning" ? 7_000 : 5_000;
-      const timer = window.setTimeout(() => dismissToast(id), duration);
-      toastTimersRef.current.set(id, timer);
-    }
-  }
-
-  function setBatchFeedback(message: string, tone: ToastTone = "success") {
-    showToast(message, tone);
-  }
-
-  function setError(message: string) {
-    if (!message) {
-      setToasts((current) => current.filter((toast) => toast.tone !== "error"));
-      return;
-    }
-    showToast(message, "error", { copyText: message });
-  }
-
-  function requestConfirmation(options: {
-    title: string;
-    message: string;
-    confirmLabel: string;
-    cancelLabel?: string;
-    tone?: InteractionDialogState["tone"];
-  }) {
-    return new Promise<boolean>((resolve) => {
-      setInteractionDialog({
-        id: ++dialogSequenceRef.current,
-        title: options.title,
-        message: options.message,
-        confirmLabel: options.confirmLabel,
-        cancelLabel: options.cancelLabel ?? "Cancelar",
-        tone: options.tone ?? "default",
-        resolve: (value) => resolve(value === true),
-      });
-    });
-  }
-
-  function requestTextInput(options: {
-    title: string;
-    message: string;
-    label: string;
-    value: string;
-    confirmLabel: string;
-    cancelLabel?: string;
-  }) {
-    return new Promise<string | null>((resolve) => {
-      setInteractionDialog({
-        id: ++dialogSequenceRef.current,
-        title: options.title,
-        message: options.message,
-        confirmLabel: options.confirmLabel,
-        cancelLabel: options.cancelLabel ?? "Cancelar",
-        tone: "default",
-        input: { label: options.label, value: options.value },
-        resolve: (value) =>
-          resolve(typeof value === "string" ? value.trim() || null : null),
-      });
-    });
-  }
-
-  function closeInteractionDialog(value: string | boolean | null) {
-    const dialog = interactionDialog;
-    setInteractionDialog(null);
-    dialog?.resolve(value);
-  }
 
   useEffect(() => {
     void loadWorkspaceBaseline();
@@ -1023,33 +799,6 @@ function App() {
   }
 
   useEffect(() => {
-    const syncPanelMode = () => {
-      const shouldFloat =
-        window.innerWidth <= 980 ||
-        window.innerWidth - leftRailWidth - rightRailWidth <
-          PANEL_FLOATING_STAGE_WIDTH;
-      setFloatingPanels((current) => {
-        if (shouldFloat && !current) {
-          setLeftCollapsed(true);
-          setRightCollapsed(true);
-        }
-        return shouldFloat;
-      });
-    };
-    syncPanelMode();
-    window.addEventListener("resize", syncPanelMode);
-    return () => window.removeEventListener("resize", syncPanelMode);
-  }, [leftRailWidth, rightRailWidth]);
-
-  useEffect(() => {
-    if (!floatingPanels) return;
-    if (!leftCollapsed && !rightCollapsed) {
-      setLeftCollapsed(true);
-      setRightCollapsed(true);
-    }
-  }, [floatingPanels, leftCollapsed, rightCollapsed]);
-
-  useEffect(() => {
     audioBandsRef.current = audioBands;
   }, [audioBands]);
 
@@ -1058,10 +807,6 @@ function App() {
       void loadEmbeddedArtwork(selectedTrack);
     }
   }, [selectedTrack?.id]);
-
-  useEffect(() => {
-    savePanelWidths({ left: leftRailWidth, right: rightRailWidth });
-  }, [leftRailWidth, rightRailWidth]);
 
   useEffect(() => {
     savePodcastEnabled(podcastEnabled);
@@ -1116,9 +861,6 @@ function App() {
   useEffect(() => {
     return () => {
       cancelPendingProjectSnapshotSave();
-      for (const timer of toastTimersRef.current.values()) {
-        window.clearTimeout(timer);
-      }
     };
   }, []);
 
@@ -2491,61 +2233,6 @@ function App() {
       return;
     }
     setCover({ file, src });
-  }
-
-  function toggleLeftPanel() {
-    const next = !leftCollapsed;
-    setLeftCollapsed(next);
-    if (!next && floatingPanels) setRightCollapsed(true);
-  }
-
-  function toggleRightPanel() {
-    const next = !rightCollapsed;
-    setRightCollapsed(next);
-    if (!next && floatingPanels) setLeftCollapsed(true);
-  }
-
-  function startPanelResize(
-    panel: "library" | "inspector",
-    event: ReactPointerEvent<HTMLButtonElement>,
-  ) {
-    if (floatingPanels) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setResizingPanel(panel);
-
-    const startX = event.clientX;
-    const startWidth = panel === "library" ? leftRailWidth : rightRailWidth;
-    const otherWidth = panel === "library" ? rightRailWidth : leftRailWidth;
-    const bounds = panel === "library" ? LEFT_RAIL_BOUNDS : RIGHT_RAIL_BOUNDS;
-    const dragDirection =
-      panel === "library" ? (panelsSwapped ? -1 : 1) : panelsSwapped ? 1 : -1;
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
-    const onMove = (moveEvent: PointerEvent) => {
-      const delta = (moveEvent.clientX - startX) * dragDirection;
-      const nextWidth = clampPanelWidth(startWidth + delta, bounds, otherWidth);
-      if (panel === "library") {
-        setLeftRailWidth(nextWidth);
-      } else {
-        setRightRailWidth(nextWidth);
-      }
-    };
-    const stopResize = () => {
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-      setResizingPanel(null);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", stopResize);
-      window.removeEventListener("pointercancel", stopResize);
-    };
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", stopResize);
-    window.addEventListener("pointercancel", stopResize);
   }
 
   function selectAdjacentTrack(direction: -1 | 1) {
@@ -4313,9 +4000,17 @@ function App() {
       : visualStageLabel(visualStageView, activeStep);
 
   return (
-    <main
-      className={`studio-shell ${leftCollapsed ? "left-hidden" : ""} ${rightCollapsed ? "right-hidden" : ""} ${panelsSwapped ? "panels-swapped" : ""} ${floatingPanels ? "floating-panels" : ""} ${resizingPanel ? "resizing-panels" : ""}`}
-      style={shellStyle}
+    <AppShell
+      floatingPanels={floatingPanels}
+      leftCollapsed={leftCollapsed}
+      onCloseFloatingPanels={() => {
+        setLeftCollapsed(true);
+        setRightCollapsed(true);
+      }}
+      panelsSwapped={panelsSwapped}
+      resizingPanel={resizingPanel}
+      rightCollapsed={rightCollapsed}
+      shellStyle={shellStyle}
     >
       <header className="topbar">
         <div className="brand" aria-label="Sonara Hub">
@@ -4447,18 +4142,6 @@ function App() {
           </button>
         </div>
       </header>
-
-      {floatingPanels && (!leftCollapsed || !rightCollapsed) && (
-        <button
-          aria-label="Fechar painel lateral"
-          className="floating-panel-backdrop"
-          type="button"
-          onClick={() => {
-            setLeftCollapsed(true);
-            setRightCollapsed(true);
-          }}
-        />
-      )}
 
       <aside className="library-panel">
         {setupPanelOpen ? (
@@ -5197,6 +4880,7 @@ function App() {
                 presets={visualPresets}
                 renderStack={computeRenderStack()}
                 scene={selectedScene}
+                batchTargetCount={selectedForBatchCount}
                 selectedStackKey={selectedStackKey}
                 onSelectStackKey={setSelectedStackKey}
                 onAddLayer={() => layerInputRef.current?.click()}
@@ -5453,6 +5137,67 @@ function App() {
               </IconButton>
             </header>
             <div className="settings-body">
+              <section className="settings-section settings-section-stack">
+                <div>
+                  <h3>Aparência</h3>
+                  <p>
+                    Escolha o tema da interface sem alterar cenas, cores de
+                    vídeo ou presets de exportação.
+                  </p>
+                  <small>
+                    Tema ativo: {appThemeLabels[effectiveTheme]} · Preferência
+                    local deste navegador.
+                  </small>
+                </div>
+                <div
+                  aria-label="Tema da interface"
+                  className="theme-preference-grid"
+                  role="group"
+                >
+                  {themePreferenceOptions.map((option) => (
+                    <button
+                      aria-label={`${option.label}: ${option.description}`}
+                      aria-pressed={themePreference === option.id}
+                      className={
+                        themePreference === option.id ? "selected" : ""
+                      }
+                      key={option.id}
+                      type="button"
+                      onClick={() =>
+                        setThemePreference(normalizeThemePreference(option.id))
+                      }
+                    >
+                      <strong>{option.label}</strong>
+                      <small>{option.description}</small>
+                    </button>
+                  ))}
+                </div>
+                <div
+                  aria-label="Escala da interface"
+                  className="ui-scale-grid"
+                  role="group"
+                >
+                  {uiScalePreferenceOptions.map((option) => (
+                    <button
+                      aria-label={`${option.label}: ${option.description}`}
+                      aria-pressed={uiScalePreference === option.id}
+                      className={
+                        uiScalePreference === option.id ? "selected" : ""
+                      }
+                      key={option.id}
+                      type="button"
+                      onClick={() =>
+                        setUiScalePreference(
+                          normalizeUiScalePreference(option.id),
+                        )
+                      }
+                    >
+                      <strong>{option.label}</strong>
+                      <small>{option.description}</small>
+                    </button>
+                  ))}
+                </div>
+              </section>
               <section className="settings-section">
                 <div>
                   <h3>Pastas do sistema</h3>
@@ -5664,1008 +5409,8 @@ function App() {
           onConfirm={(value) => closeInteractionDialog(value)}
         />
       )}
-    </main>
+    </AppShell>
   );
-}
-
-function trackFromInput(
-  name: string,
-  info?: AudioInfo,
-  defaults?: ProjectMetadataDefaults,
-): TrackDraft {
-  const projectDefaults = normalizeProjectMetadataDefaults(defaults);
-  const metadata = metadataFromAudio(
-    info,
-    {
-      ...defaultMetadata,
-      ...projectDefaults,
-      title: titleFromSourceKey(name),
-    },
-    true,
-  );
-  return {
-    id: crypto.randomUUID(),
-    sourceKey: name,
-    source: "input",
-    versionLabel: metadata.version,
-    metadata,
-    outputBaseName: "",
-    scene: normalizeVisualSettings(),
-    layers: [],
-    audioInfo: info,
-    selectedForBatch: true,
-    packageStatus: "original",
-    thumbnailPreviewMode: "composition",
-    textSettings: cloneTextSettings(),
-  };
-}
-
-type ProjectMetadataDefaults = Partial<Omit<TrackMetadata, "tags" | "year">> & {
-  tags?: string | string[];
-  year?: string | number;
-};
-
-function normalizeProjectMetadataDefaults(
-  defaults?: ProjectMetadataDefaults,
-): Partial<TrackMetadata> {
-  if (!defaults) return {};
-  return {
-    ...defaults,
-    tags: Array.isArray(defaults.tags)
-      ? defaults.tags.join(", ")
-      : (defaults.tags ?? ""),
-    year: defaults.year == null ? "" : String(defaults.year),
-  };
-}
-
-function trackFromFile(
-  file: File,
-  info?: AudioInfo,
-  sourceKey = file.name,
-): TrackDraft {
-  const metadata = metadataFromAudio(
-    info,
-    {
-      ...defaultMetadata,
-      title: file.name.replace(/\.[^.]+$/, ""),
-    },
-    true,
-  );
-  return {
-    id: crypto.randomUUID(),
-    sourceKey,
-    sourceFile: file,
-    sourceUrl: URL.createObjectURL(file),
-    source: "folder",
-    versionLabel: metadata.version,
-    metadata,
-    outputBaseName: "",
-    scene: normalizeVisualSettings(),
-    layers: [],
-    audioInfo: info,
-    selectedForBatch: true,
-    packageStatus: "original",
-    thumbnailPreviewMode: "composition",
-    textSettings: cloneTextSettings(),
-  };
-}
-
-function restoreTrack(
-  base: TrackDraft,
-  saved: ProjectSnapshot["tracks"][number],
-): TrackDraft {
-  const sourceFile = base.sourceFile ?? saved.sourceFile;
-  const coverOverride = restoreArtworkSuggestion(
-    saved.coverOverride,
-    base.artworkOptions,
-  );
-  const savedLyrics = saved.metadata?.lyrics?.trim();
-  return {
-    ...base,
-    ...saved,
-    metadata: {
-      ...base.metadata,
-      ...saved.metadata,
-      lyrics: savedLyrics ? saved.metadata.lyrics : base.metadata.lyrics,
-    },
-    // The live base track (resolved now from the input project or an uploaded
-    // file) owns the audio identity. A snapshot can carry a stale source
-    // ("folder") and a dead blob sourceUrl from a past session; letting those
-    // win leaves restored input projects silent (audioSrc "") until the folder
-    // is re-confirmed, and also breaks export, which keys off source "input" +
-    // sourceKey. So the audio plumbing always comes from base, never saved.
-    source: base.source,
-    sourceKey: base.sourceKey,
-    audioInfo: base.audioInfo ?? saved.audioInfo,
-    sourceFile,
-    sourceUrl: sourceFile ? URL.createObjectURL(sourceFile) : base.sourceUrl,
-    coverOverride,
-    lyricsOptions: base.lyricsOptions,
-    lyricsSourcePath: savedLyrics
-      ? saved.lyricsSourcePath || base.lyricsSourcePath
-      : base.lyricsSourcePath,
-    scene: normalizeVisualSettings(saved.scene),
-    thumbnailPreviewMode: saved.thumbnailPreviewMode ?? "composition",
-    textSettings: cloneTextSettings(saved.textSettings),
-    layers: saved.layers.flatMap((layer) =>
-      layer.file
-        ? [
-            {
-              ...layer,
-              file: layer.file,
-              blur: layer.blur ?? 0,
-              maskOpacity: layer.maskOpacity ?? 0,
-              src: URL.createObjectURL(layer.file),
-            },
-          ]
-        : [],
-    ),
-  };
-}
-
-function restoreArtworkSuggestion(
-  value: ProjectSnapshot["tracks"][number]["coverOverride"],
-  options: ArtworkSuggestion[] = [],
-): ArtworkSuggestion | null | undefined {
-  if (!value) return value ?? null;
-  const matched = options.find(
-    (option) => option.relativePath === value.relativePath,
-  );
-  if (matched) return { ...matched, source: value.source };
-  if (!value.file) return null;
-  const file = value.file;
-  return {
-    ...value,
-    file,
-    src: URL.createObjectURL(file),
-  };
-}
-
-function metadataFromAudio(
-  info: AudioInfo | undefined,
-  fallback: TrackMetadata,
-  includeSuggestions = false,
-): TrackMetadata {
-  const suggestions = includeSuggestions ? info?.suggestions : undefined;
-  return {
-    ...fallback,
-    title: info?.title || suggestions?.title || fallback.title,
-    // Many files tag only the album artist; treat it as the track artist when the
-    // track-level artist is empty so the field (and the video text) get filled.
-    artist:
-      info?.artist ||
-      info?.albumArtist ||
-      suggestions?.artist ||
-      suggestions?.albumArtist ||
-      fallback.artist,
-    album: info?.album || suggestions?.album || fallback.album,
-    albumArtist:
-      info?.albumArtist || suggestions?.albumArtist || fallback.albumArtist,
-    genre: info?.genre || suggestions?.genre || fallback.genre,
-    description: info?.description || info?.comment || fallback.description,
-    comment: info?.comment || suggestions?.comment || fallback.comment,
-    composer: info?.composer || suggestions?.composer || fallback.composer,
-    year: String(info?.year ?? suggestions?.year ?? fallback.year),
-    recordingDate: String(info?.date ?? fallback.recordingDate),
-    lyrics: info?.lyrics || fallback.lyrics,
-    trackNumber:
-      Number(info?.track) || suggestions?.trackNumber || fallback.trackNumber,
-    trackTotal:
-      Number(info?.trackTotal) ||
-      suggestions?.trackTotal ||
-      fallback.trackTotal,
-    diskNumber:
-      Number(info?.disk) || suggestions?.diskNumber || fallback.diskNumber,
-    diskTotal:
-      Number(info?.diskTotal) || suggestions?.diskTotal || fallback.diskTotal,
-    useEmbeddedCover: Boolean(info?.hasEmbeddedCover),
-  };
-}
-
-function titleFromSourceKey(sourceKey: string) {
-  const fileName = sourceKey.split(/[\\/]+/).pop() ?? sourceKey;
-  return fileName.replace(/\.[^.]+$/, "") || defaultMetadata.title;
-}
-
-function trackBatchGroupKey(track: TrackDraft) {
-  const metadata = track.metadata;
-  return [
-    metadata.artist || "Artista desconhecido",
-    metadata.album || "Álbum sem nome",
-    Math.max(1, Number(metadata.diskNumber) || 1),
-  ]
-    .map(normalizeBatchGroupKey)
-    .join("\u0000");
-}
-
-function normalizeBatchGroupKey(value: string | number) {
-  return String(value)
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
-}
-
-function finalizeImportedTracks(tracks: TrackDraft[]) {
-  const groups = new Map<string, TrackDraft[]>();
-  for (const track of tracks) {
-    const key = [
-      track.metadata.artist,
-      track.metadata.album,
-      track.metadata.albumArtist,
-    ].join("\u0000");
-    groups.set(key, [...(groups.get(key) ?? []), track]);
-  }
-  const finalized: TrackDraft[] = [];
-  for (const group of groups.values()) {
-    const byFileName = [...group].sort((first, second) =>
-      first.sourceKey.localeCompare(second.sourceKey, "pt-BR", {
-        numeric: true,
-        sensitivity: "base",
-      }),
-    );
-    const explicitTrackNumbers = byFileName
-      .map((track) => Number(track.metadata.trackNumber || 0))
-      .filter((value) => value > 0);
-    const uniqueExplicitTrackNumbers = new Set(explicitTrackNumbers);
-    const hasCompleteExplicitTrackNumbers =
-      explicitTrackNumbers.length === byFileName.length &&
-      uniqueExplicitTrackNumbers.size === byFileName.length;
-    const taggedTrackTotal = Math.max(
-      0,
-      ...byFileName.map((track) => Number(track.metadata.trackTotal || 0)),
-    );
-    const ordered = hasCompleteExplicitTrackNumbers
-      ? [...byFileName].sort((first, second) => {
-          const firstDisk = Number(first.metadata.diskNumber || 1);
-          const secondDisk = Number(second.metadata.diskNumber || 1);
-          if (firstDisk !== secondDisk) return firstDisk - secondDisk;
-          const firstTrack = Number(first.metadata.trackNumber || 0);
-          const secondTrack = Number(second.metadata.trackNumber || 0);
-          if (firstTrack !== secondTrack) return firstTrack - secondTrack;
-          return first.sourceKey.localeCompare(second.sourceKey, "pt-BR", {
-            numeric: true,
-            sensitivity: "base",
-          });
-        })
-      : byFileName;
-    const diskNumbers = new Set(
-      ordered
-        .map((track) => Number(track.metadata.diskNumber || 1))
-        .filter((value) => value > 0),
-    );
-    const trackTotal = Math.max(taggedTrackTotal, ordered.length);
-    for (const [index, track] of ordered.entries()) {
-      const explicit = Number(track.metadata.trackNumber || 0);
-      finalized.push({
-        ...track,
-        metadata: {
-          ...track.metadata,
-          trackNumber:
-            explicit > 0 && hasCompleteExplicitTrackNumbers
-              ? explicit
-              : index + 1,
-          trackTotal,
-          diskNumber: track.metadata.diskNumber || 1,
-          diskTotal:
-            Math.max(
-              0,
-              ...ordered.map((item) => item.metadata.diskTotal || 0),
-            ) || Math.max(1, diskNumbers.size),
-        },
-      });
-    }
-  }
-  return finalized;
-}
-
-type DirectoryAssetEntry = { file: File; relativePath: string };
-
-async function collectDirectoryAssets(
-  handle: FileSystemDirectoryHandle,
-  prefix = "",
-): Promise<{
-  audioEntries: DirectoryAssetEntry[];
-  artworkEntries: DirectoryAssetEntry[];
-  lyricEntries: DirectoryAssetEntry[];
-}> {
-  const audioEntries: DirectoryAssetEntry[] = [];
-  const artworkEntries: DirectoryAssetEntry[] = [];
-  const lyricEntries: DirectoryAssetEntry[] = [];
-  for await (const [name, entry] of handle.entries()) {
-    const relativePath = prefix ? `${prefix}/${name}` : name;
-    if (entry.kind === "file") {
-      if (isPrivateAssetPath(relativePath)) continue;
-      if (isLyricsTextPath(relativePath)) {
-        lyricEntries.push({ file: await entry.getFile(), relativePath });
-      } else if (isArtworkName(name)) {
-        artworkEntries.push({ file: await entry.getFile(), relativePath });
-      } else if (isAudioName(name) && !isPrivateAudioPath(relativePath)) {
-        audioEntries.push({ file: await entry.getFile(), relativePath });
-      }
-      continue;
-    }
-    if (isPrivateAssetPath(relativePath)) continue;
-    const nested = await collectDirectoryAssets(entry, relativePath);
-    audioEntries.push(...nested.audioEntries);
-    artworkEntries.push(...nested.artworkEntries);
-    lyricEntries.push(...nested.lyricEntries);
-  }
-  return {
-    audioEntries: audioEntries.sort(compareDirectoryEntries),
-    artworkEntries: artworkEntries.sort(compareDirectoryEntries),
-    lyricEntries: lyricEntries.sort(compareDirectoryEntries),
-  };
-}
-
-async function discoverInputProjects(
-  handle: FileSystemDirectoryHandle,
-): Promise<InputProjectOption[]> {
-  const projects: InputProjectOption[] = [];
-  const directTrackCount = await countDirectAudioFiles(handle);
-  if (directTrackCount > 0) {
-    projects.push({
-      id: ".",
-      name: handle.name,
-      path: ".",
-      handle,
-      source: "browser",
-      trackCount: directTrackCount,
-    });
-  }
-  for await (const [name, entry] of handle.entries()) {
-    if (entry.kind !== "directory") continue;
-    if (isPrivateAssetPath(name)) continue;
-    const trackCount = await countAudioFiles(entry, name);
-    if (trackCount === 0) continue;
-    projects.push({
-      id: name,
-      name,
-      path: name,
-      handle: entry,
-      source: "browser",
-      trackCount,
-    });
-  }
-  return projects.sort((first, second) =>
-    first.name.localeCompare(second.name, "pt-BR", {
-      numeric: true,
-      sensitivity: "base",
-    }),
-  );
-}
-
-async function countDirectAudioFiles(handle: FileSystemDirectoryHandle) {
-  let count = 0;
-  for await (const [name, entry] of handle.entries()) {
-    if (
-      entry.kind === "file" &&
-      isAudioName(name) &&
-      !isPrivateAudioPath(name)
-    ) {
-      count += 1;
-    }
-  }
-  return count;
-}
-
-async function countAudioFiles(
-  handle: FileSystemDirectoryHandle,
-  prefix = "",
-): Promise<number> {
-  let count = 0;
-  for await (const [name, entry] of handle.entries()) {
-    const relativePath = prefix ? `${prefix}/${name}` : name;
-    if (isPrivateAssetPath(relativePath)) continue;
-    if (entry.kind === "file") {
-      if (isAudioName(name) && !isPrivateAudioPath(relativePath)) count += 1;
-      continue;
-    }
-    count += await countAudioFiles(entry, relativePath);
-  }
-  return count;
-}
-
-async function loadProjectSnapshot(
-  handle: FileSystemDirectoryHandle,
-  saveId = DEFAULT_PROJECT_SAVE_ID,
-): Promise<ProjectSnapshot | undefined> {
-  try {
-    const directory = await handle.getDirectoryHandle(PROJECT_STATE_DIRECTORY);
-    const fileHandle =
-      saveId === DEFAULT_PROJECT_SAVE_ID
-        ? await directory.getFileHandle(PROJECT_STATE_FILE)
-        : await (
-            await directory.getDirectoryHandle(PROJECT_SAVES_DIRECTORY)
-          ).getFileHandle(projectSaveFileName(saveId));
-    const file = await fileHandle.getFile();
-    const snapshot = JSON.parse(await file.text()) as ProjectSnapshot;
-    return hydrateProjectSnapshotAssets(handle, snapshot);
-  } catch {
-    return undefined;
-  }
-}
-
-async function writeProjectSnapshot(
-  handle: FileSystemDirectoryHandle,
-  snapshot: ProjectSnapshot,
-  save: ProjectSaveOption = defaultProjectSave,
-) {
-  const directory = await handle.getDirectoryHandle(PROJECT_STATE_DIRECTORY, {
-    create: true,
-  });
-  const portableSnapshot = await createPortableProjectSnapshot(
-    directory,
-    projectSnapshotWithSave(snapshot, save),
-  );
-  const file =
-    save.id === DEFAULT_PROJECT_SAVE_ID
-      ? await directory.getFileHandle(PROJECT_STATE_FILE, { create: true })
-      : await (
-          await directory.getDirectoryHandle(PROJECT_SAVES_DIRECTORY, {
-            create: true,
-          })
-        ).getFileHandle(projectSaveFileName(save.id), { create: true });
-  const writable = await file.createWritable();
-  await writable.write(JSON.stringify(portableSnapshot, null, 2));
-  await writable.close();
-}
-
-async function removeProjectSnapshot(
-  handle: FileSystemDirectoryHandle,
-  saveId?: string,
-) {
-  let directory: FileSystemDirectoryHandle;
-  try {
-    directory = await handle.getDirectoryHandle(PROJECT_STATE_DIRECTORY);
-  } catch {
-    return;
-  }
-  if (saveId) {
-    try {
-      if (saveId === DEFAULT_PROJECT_SAVE_ID) {
-        await directory.removeEntry(PROJECT_STATE_FILE);
-      } else {
-        const savesDirectory = await directory.getDirectoryHandle(
-          PROJECT_SAVES_DIRECTORY,
-        );
-        await savesDirectory.removeEntry(projectSaveFileName(saveId));
-      }
-    } catch {
-      // Save does not exist.
-    }
-    return;
-  }
-  try {
-    await directory.removeEntry(PROJECT_STATE_FILE);
-  } catch {
-    // Project has no saved state.
-  }
-  try {
-    await directory.removeEntry(PROJECT_ASSETS_DIRECTORY, { recursive: true });
-  } catch {
-    // Project has no persisted manual assets.
-  }
-}
-
-// Internal project persistence — saves to input/<projectId>/.sonara/ via the
-// server API so assets survive across browser sessions without a DirectoryHandle.
-
-async function saveInternalProjectSnapshot(
-  projectId: string,
-  snapshot: ProjectSnapshot,
-  save: ProjectSaveOption = defaultProjectSave,
-): Promise<void> {
-  const portable = await createInternalPortableSnapshot(
-    projectId,
-    projectSnapshotWithSave(snapshot, save),
-  );
-  await fetch(
-    `/api/internal-snapshot?${internalSnapshotQuery(projectId, save)}`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(portable),
-    },
-  );
-}
-
-async function loadInternalProjectSnapshot(
-  projectId: string,
-  saveId = DEFAULT_PROJECT_SAVE_ID,
-): Promise<ProjectSnapshot | undefined> {
-  try {
-    const res = await fetch(
-      `/api/internal-snapshot?${internalSnapshotQuery(projectId, {
-        id: saveId,
-        name: projectSaveLabelFromId(saveId),
-      })}`,
-    );
-    if (!res.ok) return undefined;
-    const snapshot = (await res.json()) as ProjectSnapshot;
-    return hydrateInternalProjectSnapshotAssets(projectId, snapshot);
-  } catch {
-    return undefined;
-  }
-}
-
-async function deleteInternalProjectSnapshot(
-  projectId: string,
-  saveId?: string,
-): Promise<void> {
-  try {
-    const query = saveId
-      ? internalSnapshotQuery(projectId, {
-          id: saveId,
-          name: projectSaveLabelFromId(saveId),
-        })
-      : `project=${encodeURIComponent(projectId)}`;
-    await fetch(`/api/internal-snapshot?${query}`, { method: "DELETE" });
-  } catch {
-    // Best-effort.
-  }
-}
-
-async function listProjectSaves(
-  handle: FileSystemDirectoryHandle,
-): Promise<ProjectSaveOption[]> {
-  const saves = new Map<string, ProjectSaveOption>([
-    [defaultProjectSave.id, defaultProjectSave],
-  ]);
-  try {
-    const directory = await handle.getDirectoryHandle(PROJECT_STATE_DIRECTORY);
-    const savesDirectory = await directory.getDirectoryHandle(
-      PROJECT_SAVES_DIRECTORY,
-    );
-    for await (const [name, entry] of savesDirectory.entries()) {
-      if (entry.kind !== "file" || !name.toLowerCase().endsWith(".json")) {
-        continue;
-      }
-      const id = name.replace(/\.json$/i, "");
-      let option: ProjectSaveOption = {
-        id,
-        name: projectSaveLabelFromId(id),
-      };
-      try {
-        const file = await entry.getFile();
-        const snapshot = JSON.parse(await file.text()) as ProjectSnapshot;
-        option = projectSaveOptionFromSnapshot(id, snapshot);
-      } catch {
-        // Keep a recoverable save option even if the file is temporarily bad.
-      }
-      saves.set(option.id, option);
-    }
-  } catch {
-    // Project has no named saves yet.
-  }
-  return sortProjectSaves([...saves.values()]);
-}
-
-async function listInternalProjectSaves(
-  projectId: string,
-): Promise<ProjectSaveOption[]> {
-  try {
-    const res = await fetch(
-      `/api/internal-snapshot?project=${encodeURIComponent(projectId)}&list=1`,
-    );
-    if (!res.ok) return [defaultProjectSave];
-    const payload = (await res.json()) as { saves?: ProjectSaveOption[] };
-    return sortProjectSaves(payload.saves ?? [defaultProjectSave]);
-  } catch {
-    return [defaultProjectSave];
-  }
-}
-
-function projectSnapshotWithSave(
-  snapshot: ProjectSnapshot,
-  save: ProjectSaveOption,
-): ProjectSnapshot {
-  return {
-    ...snapshot,
-    saveId: save.id,
-    saveName: save.name,
-  };
-}
-
-function projectSaveOptionFromSnapshot(
-  id: string,
-  snapshot?: ProjectSnapshot,
-): ProjectSaveOption {
-  if (id === DEFAULT_PROJECT_SAVE_ID) return defaultProjectSave;
-  return {
-    id,
-    name:
-      normalizeProjectSaveName(snapshot?.saveName ?? "") ||
-      projectSaveLabelFromId(id),
-  };
-}
-
-function ensureProjectSaveOption(
-  saves: ProjectSaveOption[],
-  save: ProjectSaveOption | string,
-) {
-  const option =
-    typeof save === "string"
-      ? (saves.find((item) => item.id === save) ?? {
-          id: save,
-          name: projectSaveLabelFromId(save),
-        })
-      : save;
-  const next = new Map(saves.map((item) => [item.id, item]));
-  next.set(option.id, option);
-  return sortProjectSaves([...next.values()]);
-}
-
-function sortProjectSaves(saves: ProjectSaveOption[]) {
-  return saves.sort((first, second) => {
-    if (first.id === DEFAULT_PROJECT_SAVE_ID) return -1;
-    if (second.id === DEFAULT_PROJECT_SAVE_ID) return 1;
-    return first.name.localeCompare(second.name, "pt-BR", {
-      numeric: true,
-      sensitivity: "base",
-    });
-  });
-}
-
-function normalizeProjectSaveName(value: string) {
-  return value.replace(/\s+/g, " ").trim().slice(0, 80);
-}
-
-function projectSaveIdFromName(value: string) {
-  const normalized = normalizeProjectSaveName(value)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
-  return normalized || `save-${Date.now()}`;
-}
-
-function projectSaveLabelFromId(id: string) {
-  if (id === DEFAULT_PROJECT_SAVE_ID) return defaultProjectSave.name;
-  return id
-    .replace(/[-_]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function projectSaveFileName(saveId: string) {
-  return `${projectSaveIdFromName(saveId)}.json`;
-}
-
-function internalSnapshotQuery(projectId: string, save: ProjectSaveOption) {
-  const params = new URLSearchParams({ project: projectId });
-  if (save.id !== DEFAULT_PROJECT_SAVE_ID) {
-    params.set("save", save.id);
-    params.set("saveName", save.name);
-  }
-  return params.toString();
-}
-
-async function createInternalPortableSnapshot(
-  projectId: string,
-  snapshot: ProjectSnapshot,
-): Promise<ProjectSnapshot> {
-  const assetsById = new Map<string, ProjectAssetManifestEntry>();
-  const registerAsset = async (file: File | undefined) => {
-    if (!file) return undefined;
-    const asset = await prepareProjectAsset(file);
-    if (!asset) return undefined;
-    if (!assetsById.has(asset.entry.id)) {
-      const formData = new FormData();
-      formData.append(
-        "file",
-        new Blob([asset.buffer], { type: file.type }),
-        file.name,
-      );
-      await fetch(
-        `/api/internal-asset?project=${encodeURIComponent(projectId)}&fileName=${encodeURIComponent(asset.entry.fileName)}`,
-        { method: "POST", body: formData },
-      );
-      assetsById.set(asset.entry.id, asset.entry);
-    }
-    return asset.entry.id;
-  };
-  const coverAssetId = await registerAsset(snapshot.coverFile);
-  const tracks = [];
-  for (const track of snapshot.tracks) {
-    const coverOverrideAssetId = await registerAsset(track.coverOverride?.file);
-    const layers = [];
-    for (const layer of track.layers) {
-      const { file, ...serializableLayer } = layer;
-      const assetId = await registerAsset(file);
-      if (!assetId) continue;
-      layers.push({
-        ...serializableLayer,
-        assetId,
-      });
-    }
-    tracks.push({
-      ...track,
-      sourceFile: undefined,
-      coverOverrideAssetId,
-      layers,
-      coverOverride: serializeArtworkSuggestion(track.coverOverride),
-    });
-  }
-  return {
-    ...snapshot,
-    coverFile: undefined,
-    coverAssetId,
-    assetManifest: { schemaVersion: 1, files: [...assetsById.values()] },
-    tracks,
-  };
-}
-
-async function hydrateInternalProjectSnapshotAssets(
-  projectId: string,
-  snapshot: ProjectSnapshot,
-): Promise<ProjectSnapshot> {
-  const entries = snapshot.assetManifest?.files ?? [];
-  if (!entries.length) return snapshot;
-  const filesById = new Map<string, File>();
-  await Promise.all(
-    entries.map(async (entry) => {
-      try {
-        const res = await fetch(
-          `/api/internal-asset?project=${encodeURIComponent(projectId)}&file=${encodeURIComponent(entry.fileName)}`,
-        );
-        if (!res.ok) return;
-        const blob = await res.blob();
-        filesById.set(
-          entry.id,
-          new File([blob], entry.originalName, {
-            type: entry.type,
-            lastModified: entry.lastModified,
-          }),
-        );
-      } catch {
-        // Asset unavailable — layer will appear empty but not crash.
-      }
-    }),
-  );
-  const fileById = (id: string | undefined) =>
-    id ? filesById.get(id) : undefined;
-  return {
-    ...snapshot,
-    coverFile: snapshot.coverFile ?? fileById(snapshot.coverAssetId),
-    tracks: snapshot.tracks.map((track) => {
-      const coverOverrideFile = fileById(track.coverOverrideAssetId);
-      return {
-        ...track,
-        coverOverride:
-          track.coverOverride && coverOverrideFile
-            ? { ...track.coverOverride, file: coverOverrideFile }
-            : track.coverOverride,
-        layers: track.layers.map((layer) => ({
-          ...layer,
-          file: layer.file ?? fileById(layer.assetId),
-        })),
-      };
-    }),
-  };
-}
-
-async function createPortableProjectSnapshot(
-  directory: FileSystemDirectoryHandle,
-  snapshot: ProjectSnapshot,
-): Promise<ProjectSnapshot> {
-  const assetsDirectory = await directory.getDirectoryHandle(
-    PROJECT_ASSETS_DIRECTORY,
-    { create: true },
-  );
-  const assetsById = new Map<string, ProjectAssetManifestEntry>();
-  const registerAsset = async (file: File | undefined) => {
-    if (!file) return undefined;
-    const asset = await prepareProjectAsset(file);
-    if (!asset) return undefined;
-    if (!assetsById.has(asset.entry.id)) {
-      await writeProjectAssetFile(
-        assetsDirectory,
-        asset.entry.fileName,
-        asset.buffer,
-      );
-      assetsById.set(asset.entry.id, asset.entry);
-    }
-    return asset.entry.id;
-  };
-  const coverAssetId = await registerAsset(snapshot.coverFile);
-  const tracks = [];
-  for (const track of snapshot.tracks) {
-    const coverOverrideAssetId = await registerAsset(track.coverOverride?.file);
-    const layers = [];
-    for (const layer of track.layers) {
-      const { file, ...serializableLayer } = layer;
-      const assetId = await registerAsset(file);
-      if (!assetId) continue;
-      layers.push({
-        ...serializableLayer,
-        assetId,
-      });
-    }
-    tracks.push({
-      ...track,
-      sourceFile: undefined,
-      coverOverrideAssetId,
-      layers,
-      coverOverride: serializeArtworkSuggestion(track.coverOverride),
-    });
-  }
-  return {
-    ...snapshot,
-    coverFile: undefined,
-    coverAssetId,
-    assetManifest: { schemaVersion: 1, files: [...assetsById.values()] },
-    tracks,
-  };
-}
-
-async function hydrateProjectSnapshotAssets(
-  handle: FileSystemDirectoryHandle,
-  snapshot: ProjectSnapshot,
-): Promise<ProjectSnapshot> {
-  const entries = snapshot.assetManifest?.files ?? [];
-  if (!entries.length) return snapshot;
-  let assetsDirectory: FileSystemDirectoryHandle;
-  try {
-    const directory = await handle.getDirectoryHandle(PROJECT_STATE_DIRECTORY);
-    assetsDirectory = await directory.getDirectoryHandle(
-      PROJECT_ASSETS_DIRECTORY,
-    );
-  } catch {
-    return snapshot;
-  }
-  const filesById = new Map<string, File>();
-  await Promise.all(
-    entries.map(async (entry) => {
-      const file = await readProjectAssetFile(assetsDirectory, entry);
-      if (file) filesById.set(entry.id, file);
-    }),
-  );
-  const fileById = (id: string | undefined) =>
-    id ? filesById.get(id) : undefined;
-  return {
-    ...snapshot,
-    coverFile: snapshot.coverFile ?? fileById(snapshot.coverAssetId),
-    tracks: snapshot.tracks.map((track) => {
-      const coverOverrideFile = fileById(track.coverOverrideAssetId);
-      return {
-        ...track,
-        coverOverride:
-          track.coverOverride && coverOverrideFile
-            ? { ...track.coverOverride, file: coverOverrideFile }
-            : track.coverOverride,
-        layers: track.layers.map((layer) => ({
-          ...layer,
-          file: layer.file ?? fileById(layer.assetId),
-        })),
-      };
-    }),
-  };
-}
-
-async function prepareProjectAsset(
-  file: File,
-): Promise<
-  { entry: ProjectAssetManifestEntry; buffer: ArrayBuffer } | undefined
-> {
-  let buffer: ArrayBuffer;
-  try {
-    buffer = await file.arrayBuffer();
-  } catch {
-    return undefined;
-  }
-  const hash = await hashBuffer(buffer);
-  const fileName = projectAssetFileName(hash, file.name);
-  return {
-    entry: {
-      id: hash,
-      fileName,
-      originalName: file.name,
-      path: `${PROJECT_ASSETS_DIRECTORY}/${fileName}`,
-      hash,
-      type: file.type,
-      size: file.size,
-      lastModified: file.lastModified,
-    },
-    buffer,
-  };
-}
-
-async function hashBuffer(buffer: ArrayBuffer) {
-  const digest = await crypto.subtle.digest("SHA-256", buffer);
-  return Array.from(new Uint8Array(digest))
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function projectAssetFileName(hash: string, fileName: string) {
-  const cleanName =
-    fileName
-      .split(/[\\/]+/)
-      .at(-1)
-      ?.replace(/[^a-zA-Z0-9._-]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 96) || "asset.bin";
-  return `${hash.slice(0, 16)}-${cleanName}`;
-}
-
-async function writeProjectAssetFile(
-  handle: FileSystemDirectoryHandle,
-  fileName: string,
-  buffer: ArrayBuffer,
-) {
-  const output = await handle.getFileHandle(fileName, { create: true });
-  const writable = await output.createWritable();
-  await writable.write(buffer);
-  await writable.close();
-}
-
-async function readProjectAssetFile(
-  handle: FileSystemDirectoryHandle,
-  entry: ProjectAssetManifestEntry,
-) {
-  try {
-    const stored = await (await handle.getFileHandle(entry.fileName)).getFile();
-    return new File([stored], entry.originalName || stored.name, {
-      type: entry.type || stored.type,
-      lastModified: entry.lastModified ?? stored.lastModified,
-    });
-  } catch {
-    return null;
-  }
-}
-
-function serializeArtworkSuggestion(
-  value: ProjectSnapshot["tracks"][number]["coverOverride"],
-) {
-  if (!value) return null;
-  return {
-    ...value,
-    file: undefined,
-    src: "",
-  };
-}
-
-function isPrivateAudioPath(value: string) {
-  return (
-    isPrivateAssetPath(value) ||
-    pathSegments(value).some((segment) => segment === "art")
-  );
-}
-
-function isPrivateAssetPath(value: string) {
-  return pathSegments(value).some((segment) =>
-    [
-      "tratados",
-      "backup-originais",
-      "outputs",
-      "input",
-      ".sonara",
-      ".dev",
-      "node_modules",
-    ].includes(segment),
-  );
-}
-
-function pathSegments(value: string) {
-  const segments = value
-    .split(/[\\/]+/)
-    .map((segment) => segment.trim().toLowerCase())
-    .filter(Boolean);
-  return segments;
-}
-
-function compareDirectoryEntries(
-  first: DirectoryAssetEntry,
-  second: DirectoryAssetEntry,
-) {
-  return first.relativePath.localeCompare(second.relativePath, "pt-BR", {
-    numeric: true,
-    sensitivity: "base",
-  });
 }
 
 function attachSuggestedArtwork(
@@ -6804,737 +5549,6 @@ function lyricPreview(value: string) {
     .map((line) => line.trim())
     .filter(Boolean);
   return lines.slice(0, 3).join(" / ").slice(0, 160);
-}
-
-async function ensureAlbumArtworkDirectories(
-  handle: FileSystemDirectoryHandle,
-  rootPrefix: string,
-  directoryPaths: string[],
-) {
-  const permission = await handle.queryPermission?.({ mode: "readwrite" });
-  if (permission !== "granted") return;
-  const prefix = pathSegments(rootPrefix);
-  for (const directoryPath of directoryPaths) {
-    const segments = directoryPath.split(/[\\/]+/).filter(Boolean);
-    const relativeSegments = segments
-      .slice(0, prefix.length)
-      .every(
-        (segment, index) =>
-          segment.toLowerCase() === prefix[index]?.toLowerCase(),
-      )
-      ? segments.slice(prefix.length)
-      : segments;
-    let current = handle;
-    for (const segment of relativeSegments) {
-      current = await current.getDirectoryHandle(segment, { create: true });
-    }
-  }
-}
-
-function audioDraftFromMetadata(metadata: TrackMetadata): AudioTagDraft {
-  return {
-    title: metadata.title,
-    artist: metadata.artist,
-    album: metadata.album,
-    albumArtist: metadata.albumArtist,
-    genre: metadata.genre,
-    composer: metadata.composer,
-    comment: metadata.comment,
-    copyright: metadata.copyright,
-    year: metadata.year,
-    trackNumber: metadata.trackNumber,
-    trackTotal: metadata.trackTotal,
-    diskNumber: metadata.diskNumber,
-    diskTotal: metadata.diskTotal,
-    lyrics: metadata.lyrics,
-    lyricsLanguage: metadata.lyricsLanguage,
-    normalizationEnabled: metadata.normalizationEnabled,
-    podcastVoiceProfile: metadata.podcastVoiceProfile,
-    podcastTrimSilence: metadata.podcastTrimSilence,
-    podcastVoiceBoost: metadata.podcastVoiceBoost,
-    podcastPlaybackSpeed: metadata.podcastPlaybackSpeed,
-    podcastIntroInsert: metadata.podcastIntroInsert,
-    podcastOutroInsert: metadata.podcastOutroInsert,
-    podcastAdInsert: metadata.podcastAdInsert,
-    cleanPackage: true,
-  };
-}
-
-function stripLayerFile(layer: MediaLayerV2) {
-  const { file: _file, src: _src, name: _name, ...settings } = layer;
-  return settings;
-}
-
-function selectedTrackFrom(tracks: TrackDraft[], selectedTrackId: string) {
-  return tracks.find((track) => track.id === selectedTrackId) ?? null;
-}
-
-function projectOptionLabel(project: InputProjectOption, itemLabel = "música") {
-  const plural =
-    itemLabel === "episódio"
-      ? "episódios"
-      : `${itemLabel}${itemLabel.endsWith("s") ? "" : "s"}`;
-  return `${project.name} (${project.trackCount} ${
-    project.trackCount === 1 ? itemLabel : plural
-  })`;
-}
-
-function isBrowserInputProject(
-  project: InputProjectOption,
-): project is BrowserInputProjectOption {
-  return project.source === "browser" && Boolean(project.handle);
-}
-
-// Applies ONLY the atmosphere/colors (scene) to the batch. Layers are
-// deliberately left untouched so each video keeps its own — copying layers is a
-// separate, explicit action (applyLayersTemplateToTracks) to avoid the silent
-// cross-video replication that confused users.
-function applyVisualTemplateToTracks(
-  tracks: TrackDraft[],
-  selectedTrackId: string,
-) {
-  const source = selectedTrackFrom(tracks, selectedTrackId);
-  if (!source) return tracks;
-  const scene = normalizeVisualSettings(source.scene);
-  return tracks.map((track) =>
-    track.selectedForBatch
-      ? {
-          ...track,
-          scene,
-        }
-      : track,
-  );
-}
-
-// Copies the selected track's layers onto every batch-selected track, minting a
-// fresh id per layer so each video owns an independent copy. This is the only
-// path that propagates layers across videos, and it is always user-initiated.
-function applyLayersTemplateToTracks(
-  tracks: TrackDraft[],
-  selectedTrackId: string,
-) {
-  const source = selectedTrackFrom(tracks, selectedTrackId);
-  if (!source) return tracks;
-  return tracks.map((track) =>
-    track.selectedForBatch && track.id !== source.id
-      ? {
-          ...track,
-          layers: source.layers.map((layer) => ({
-            ...layer,
-            id: crypto.randomUUID(),
-          })),
-        }
-      : track,
-  );
-}
-
-function applyMusicTemplateToTracks(
-  tracks: TrackDraft[],
-  selectedTrackId: string,
-) {
-  const source = selectedTrackFrom(tracks, selectedTrackId);
-  if (!source) return tracks;
-  const {
-    album,
-    albumArtist,
-    artist,
-    comment,
-    composer,
-    copyright,
-    diskNumber,
-    diskTotal,
-    genre,
-    normalizationEnabled,
-    trackTotal,
-    year,
-  } = source.metadata;
-  return tracks.map((track) =>
-    track.selectedForBatch
-      ? {
-          ...track,
-          metadata: {
-            ...track.metadata,
-            album,
-            albumArtist,
-            artist,
-            comment,
-            composer,
-            copyright,
-            diskNumber,
-            diskTotal,
-            genre,
-            normalizationEnabled,
-            trackTotal,
-            year,
-          },
-        }
-      : track,
-  );
-}
-
-function applyPublicationTemplateToTracks(
-  tracks: TrackDraft[],
-  selectedTrackId: string,
-) {
-  const source = selectedTrackFrom(tracks, selectedTrackId);
-  if (!source) return tracks;
-  const {
-    categoryId,
-    containsSyntheticMedia,
-    description,
-    language,
-    madeForKids,
-    tags,
-    visibility,
-  } = source.metadata;
-  return tracks.map((track) =>
-    track.selectedForBatch
-      ? {
-          ...track,
-          metadata: {
-            ...track.metadata,
-            categoryId,
-            containsSyntheticMedia,
-            description,
-            language,
-            madeForKids,
-            tags,
-            visibility,
-          },
-        }
-      : track,
-  );
-}
-
-function coverLayerFromArtwork(
-  artwork: { file: File; src: string },
-  preset: CoverLayerPreset,
-  template?: MediaLayerV2,
-  coverFadeOut?: CoverFadeOutSettings,
-): MediaLayerV2 {
-  const defaults = coverLayerPresets[preset];
-  return {
-    id:
-      template?.id && isCoverLayer(template)
-        ? template.id
-        : `cover-layer-${crypto.randomUUID()}`,
-    name: `Capa - ${coverLayerPresetLabels[preset]}`,
-    file: artwork.file,
-    src: artwork.src,
-    kind: "image",
-    visible: template?.visible ?? true,
-    opacity: template?.opacity ?? defaults.opacity,
-    scale: template?.scale ?? defaults.scale,
-    x: template?.x ?? defaults.x,
-    y: template?.y ?? defaults.y,
-    rotation: template?.rotation ?? defaults.rotation,
-    blur: template?.blur ?? defaults.blur,
-    maskOpacity: template?.maskOpacity ?? defaults.maskOpacity,
-    coverFadeOut: normalizeLayerCoverFadeOut(
-      coverFadeOut ?? template?.coverFadeOut,
-    ),
-    fit: template?.fit ?? defaults.fit,
-    blendMode: template?.blendMode ?? defaults.blendMode,
-    loop: false,
-    order: template?.order ?? 0,
-    shadow: {
-      ...defaults.shadow,
-      ...(template?.shadow ?? {}),
-    },
-  };
-}
-
-function isAudioName(name: string) {
-  return /\.(mp3|wav|m4a|flac|aac|ogg)$/i.test(name);
-}
-
-function loadPanelWidths() {
-  const fallback = {
-    left: DEFAULT_LEFT_RAIL_WIDTH,
-    right: DEFAULT_RIGHT_RAIL_WIDTH,
-  };
-  try {
-    const raw = window.localStorage.getItem(PANEL_WIDTH_STORAGE_KEY);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw) as Partial<typeof fallback>;
-    return {
-      left: clampPanelWidth(
-        Number(parsed.left) || fallback.left,
-        LEFT_RAIL_BOUNDS,
-        Number(parsed.right) || fallback.right,
-      ),
-      right: clampPanelWidth(
-        Number(parsed.right) || fallback.right,
-        RIGHT_RAIL_BOUNDS,
-        Number(parsed.left) || fallback.left,
-      ),
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-function loadCoverSeriesSettings(): CoverSeriesSettings {
-  if (typeof window === "undefined") return defaultCoverSeriesSettings;
-  try {
-    const raw = window.localStorage.getItem(COVER_SERIES_STORAGE_KEY);
-    if (!raw) return defaultCoverSeriesSettings;
-    return normalizeCoverSeriesClient(JSON.parse(raw));
-  } catch {
-    return defaultCoverSeriesSettings;
-  }
-}
-
-function saveCoverSeriesSettings(settings: CoverSeriesSettings) {
-  try {
-    window.localStorage.setItem(
-      COVER_SERIES_STORAGE_KEY,
-      JSON.stringify(settings),
-    );
-  } catch {
-    // A reusable visual-series preference is optional local state.
-  }
-}
-
-function loadFileNamePattern(): FileNamePattern {
-  if (typeof window === "undefined")
-    return normalizeFileNamePattern(defaultFileNamePattern);
-  try {
-    const raw = window.localStorage.getItem(FILE_NAME_PATTERN_STORAGE_KEY);
-    return normalizeFileNamePattern(
-      raw ? JSON.parse(raw) : defaultFileNamePattern,
-    );
-  } catch {
-    return normalizeFileNamePattern(defaultFileNamePattern);
-  }
-}
-
-function saveFileNamePattern(pattern: FileNamePattern) {
-  try {
-    window.localStorage.setItem(
-      FILE_NAME_PATTERN_STORAGE_KEY,
-      JSON.stringify(pattern),
-    );
-  } catch {
-    // The filename pattern is an optional local preference.
-  }
-}
-
-function normalizeCoverSeriesClient(value: unknown): CoverSeriesSettings {
-  const candidate =
-    value && typeof value === "object"
-      ? (value as Partial<CoverSeriesSettings>)
-      : {};
-  const legacyColor = /^#[0-9a-f]{6}$/i.test(String(candidate.color ?? ""))
-    ? String(candidate.color)
-    : defaultCoverSeriesSettings.color;
-  const metaFontSize = clampNumber(
-    Number(candidate.metaFontSize ?? defaultCoverSeriesSettings.metaFontSize),
-    18,
-    72,
-    defaultCoverSeriesSettings.metaFontSize,
-  );
-  const seriesFallback = {
-    ...defaultCoverSeriesSettings.metaStyles.series,
-    fontSize: clampNumber(
-      Number(candidate.fontSize ?? defaultCoverSeriesSettings.fontSize),
-      18,
-      180,
-      defaultCoverSeriesSettings.metaStyles.series.fontSize,
-    ),
-    color: legacyColor,
-    opacity: clampNumber(
-      Number(candidate.opacity ?? defaultCoverSeriesSettings.opacity),
-      20,
-      100,
-      defaultCoverSeriesSettings.metaStyles.series.opacity,
-    ),
-  };
-  return {
-    ...defaultCoverSeriesSettings,
-    ...candidate,
-    enabled: true,
-    style: ["roman", "arabic", "custom"].includes(String(candidate.style))
-      ? (candidate.style as CoverSeriesSettings["style"])
-      : defaultCoverSeriesSettings.style,
-    color: legacyColor,
-    metaOrder: coverSeriesMetaOrder(
-      String(candidate.metaOrder ?? defaultCoverSeriesSettings.metaOrder),
-    ).join(", "),
-    embedAlbumCover: candidate.embedAlbumCover === true,
-    metaFontSize,
-    metaGap: clampNumber(
-      Number(candidate.metaGap ?? defaultCoverSeriesSettings.metaGap),
-      0,
-      48,
-      defaultCoverSeriesSettings.metaGap,
-    ),
-    metaStyles: {
-      series: normalizeCoverSeriesMetaStyleClient(
-        candidate.metaStyles?.series,
-        seriesFallback,
-        180,
-      ),
-      title: normalizeCoverSeriesMetaStyleClient(candidate.metaStyles?.title, {
-        ...defaultCoverSeriesSettings.metaStyles.title,
-        fontSize: Math.max(38, metaFontSize),
-      }),
-      album: normalizeCoverSeriesMetaStyleClient(candidate.metaStyles?.album, {
-        ...defaultCoverSeriesSettings.metaStyles.album,
-        fontSize: metaFontSize,
-      }),
-      artist: normalizeCoverSeriesMetaStyleClient(
-        candidate.metaStyles?.artist,
-        {
-          ...defaultCoverSeriesSettings.metaStyles.artist,
-          fontSize: Math.max(18, metaFontSize - 2),
-        },
-      ),
-      year: normalizeCoverSeriesMetaStyleClient(candidate.metaStyles?.year, {
-        ...defaultCoverSeriesSettings.metaStyles.year,
-        fontSize: Math.max(18, metaFontSize - 6),
-      }),
-    },
-  };
-}
-
-function normalizeCoverSeriesMetaStyleClient(
-  value: Partial<CoverSeriesMetaStyle> | undefined,
-  fallback: CoverSeriesMetaStyle,
-  maxFontSize = 72,
-): CoverSeriesMetaStyle {
-  return {
-    fontSize: clampNumber(
-      Number(value?.fontSize ?? fallback.fontSize),
-      18,
-      maxFontSize,
-      fallback.fontSize,
-    ),
-    fontWeight: clampNumber(
-      Number(value?.fontWeight ?? fallback.fontWeight),
-      300,
-      900,
-      fallback.fontWeight,
-    ),
-    fontStyle: ["normal", "italic"].includes(String(value?.fontStyle))
-      ? (value?.fontStyle as CoverSeriesMetaStyle["fontStyle"])
-      : fallback.fontStyle,
-    align: ["left", "center", "right"].includes(String(value?.align))
-      ? (value?.align as CoverSeriesMetaStyle["align"])
-      : fallback.align,
-    color: /^#[0-9a-f]{6}$/i.test(String(value?.color ?? ""))
-      ? String(value?.color)
-      : fallback.color,
-    opacity: clampNumber(
-      Number(value?.opacity ?? fallback.opacity),
-      20,
-      100,
-      fallback.opacity,
-    ),
-    offsetX: clampNumber(
-      Number(value?.offsetX ?? fallback.offsetX),
-      -320,
-      320,
-      fallback.offsetX,
-    ),
-    offsetY: clampNumber(
-      Number(value?.offsetY ?? fallback.offsetY),
-      -320,
-      320,
-      fallback.offsetY,
-    ),
-  };
-}
-
-function savePanelWidths(widths: { left: number; right: number }) {
-  try {
-    window.localStorage.setItem(
-      PANEL_WIDTH_STORAGE_KEY,
-      JSON.stringify(widths),
-    );
-  } catch {
-    // Local layout preference can be ignored when storage is unavailable.
-  }
-}
-
-function loadPodcastEnabled() {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(PODCAST_ENABLED_STORAGE_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
-
-function savePodcastEnabled(enabled: boolean) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(
-      PODCAST_ENABLED_STORAGE_KEY,
-      enabled ? "true" : "false",
-    );
-  } catch {
-    // Podcast is an opt-in UI preference; storage failures should not block use.
-  }
-}
-
-function clampPanelWidth(
-  value: number,
-  bounds: { min: number; max: number },
-  otherWidth: number,
-) {
-  const viewportWidth =
-    typeof window === "undefined" ? 1440 : window.innerWidth;
-  const viewportLimitedMax = Math.max(
-    bounds.min,
-    viewportWidth - otherWidth - PANEL_MIN_PREVIEW_WIDTH,
-  );
-  const max = Math.min(bounds.max, viewportLimitedMax);
-  return Math.round(Math.min(Math.max(value, bounds.min), max));
-}
-
-function formatDuration(seconds?: number | null) {
-  if (!Number.isFinite(seconds)) return "--:--";
-  const safe = Number(seconds);
-  return `${Math.floor(safe / 60)}:${String(Math.floor(safe % 60)).padStart(2, "0")}`;
-}
-
-function stepLabel(step: ActiveStep) {
-  return {
-    music: "Música",
-    visual: "Visual",
-    text: "Texto",
-    export: "Exportar",
-  }[step];
-}
-
-function visualStageLabel(
-  visualStageView: VisualStageView,
-  activeStep: ActiveStep,
-) {
-  if (visualStageView === "promotion") return "Divulgação";
-  if (visualStageView === "review") return "Visualizar";
-  if (visualStageView === "publication-export") return "Exportar Divulgação";
-  return stepLabel(activeStep);
-}
-
-function normalizeSnapshotNavigation(snapshot: ProjectSnapshot): {
-  workspaceMode: WorkspaceMode;
-  audioStageView: AudioStageView;
-  visualStageView: VisualStageView;
-  activeStep: ActiveStep;
-} {
-  const legacyAudioStageView = snapshot.audioStageView;
-  const legacyVisualStageView = snapshot.visualStageView;
-  let workspaceMode: WorkspaceMode =
-    snapshot.workspaceMode === "audio" ? "audio" : "visual";
-  let audioStageView: AudioStageView =
-    legacyAudioStageView === "artwork" ||
-    (legacyAudioStageView === "podcast" && snapshot.podcastEnabled === true) ||
-    legacyAudioStageView === "catalog" ||
-    legacyAudioStageView === "audio-export"
-      ? legacyAudioStageView
-      : "edit";
-  let visualStageView: VisualStageView =
-    legacyVisualStageView === "review" || legacyVisualStageView === "videos"
-      ? "review"
-      : legacyVisualStageView === "promotion"
-        ? "promotion"
-        : legacyVisualStageView === "publication-export" ||
-            legacyVisualStageView === "queue"
-          ? "publication-export"
-          : "editor";
-  let activeStep: ActiveStep =
-    snapshot.activeStep === "text" ||
-    snapshot.activeStep === "visual" ||
-    snapshot.activeStep === "export"
-      ? snapshot.activeStep
-      : "visual";
-
-  if (legacyAudioStageView === "videos") {
-    workspaceMode = "visual";
-    audioStageView = "edit";
-    visualStageView = "review";
-    activeStep = "visual";
-  }
-  if (
-    visualStageView === "publication-export" ||
-    visualStageView === "promotion"
-  ) {
-    activeStep = "export";
-  }
-  return { workspaceMode, audioStageView, visualStageView, activeStep };
-}
-
-function formatUsage(usage?: { files: number; bytes: number }) {
-  if (!usage) return "Calculando uso local...";
-  return `${formatFileCount(usage.files)} · ${formatBytes(usage.bytes)}`;
-}
-
-function formatFileCount(files: number) {
-  return `${files} ${files === 1 ? "arquivo" : "arquivos"}`;
-}
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024)
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
-}
-
-async function copyUrlToDirectory(
-  handle: FileSystemDirectoryHandle,
-  url: string,
-  fileNameOverride?: string,
-) {
-  const response = await fetchOptional(url);
-  if (!response) {
-    throw new Error(`Arquivo exportado não encontrado: ${url}`);
-  }
-  if (!response.body) {
-    throw new Error(`Arquivo exportado sem conteúdo: ${url}`);
-  }
-  const fileName =
-    fileNameOverride ??
-    decodeURIComponent(url.split("/").pop() ?? "export.bin");
-  const file = await handle.getFileHandle(fileName, { create: true });
-  const writable = await file.createWritable();
-  await response.body.pipeTo(writable);
-}
-
-async function preparePublicationOutputProject(
-  rootHandle: FileSystemDirectoryHandle,
-  projectName: string,
-  options: { backupStamp: string; conflictMode: VideoOutputConflictMode },
-): Promise<PreparedPublicationOutputProject> {
-  const project = await prepareVideoOutputProject(rootHandle, projectName, {
-    backupStamp: options.backupStamp,
-    conflictMode: options.conflictMode,
-  });
-  const publicacao = await project.assets.getDirectoryHandle("publicacao", {
-    create: true,
-  });
-  const imagens = await publicacao.getDirectoryHandle("imagens", {
-    create: true,
-  });
-  const clips = await publicacao.getDirectoryHandle("clips", {
-    create: true,
-  });
-  const dados = await publicacao.getDirectoryHandle("dados", {
-    create: true,
-  });
-  const encartes = await publicacao.getDirectoryHandle("encartes", {
-    create: true,
-  });
-  return { ...project, publicacao, imagens, clips, dados, encartes };
-}
-
-function publicationAssetDirectoryForUrl(
-  target: PreparedPublicationOutputProject,
-  url: string,
-) {
-  const fileName = decodeURIComponent(url.split("/").pop() ?? "").toLowerCase();
-  if (fileName.endsWith(".mp4")) return target.clips;
-  if (fileName.endsWith(".html")) return target.encartes;
-  if (fileName.endsWith(".json") || fileName.endsWith(".md"))
-    return target.dados;
-  return target.imagens;
-}
-
-async function getWorkspaceFile(
-  handle: FileSystemDirectoryHandle,
-  sourceKey: string,
-) {
-  const { directory, fileName } = await resolveWorkspaceFileTarget(
-    handle,
-    sourceKey,
-    false,
-  );
-  const file = await directory.getFileHandle(fileName);
-  return file.getFile();
-}
-
-async function writeBlobToWorkspacePath(
-  handle: FileSystemDirectoryHandle,
-  sourceKey: string,
-  blob: Blob,
-) {
-  const { directory, fileName } = await resolveWorkspaceFileTarget(
-    handle,
-    sourceKey,
-    true,
-  );
-  const file = await directory.getFileHandle(fileName, { create: true });
-  const writable = await file.createWritable();
-  await blob.stream().pipeTo(writable);
-}
-
-async function resolveWorkspaceFileTarget(
-  handle: FileSystemDirectoryHandle,
-  sourceKey: string,
-  createDirectories: boolean,
-) {
-  const segments = workspaceRelativeSegments(sourceKey, handle.name);
-  const fileName = segments.pop() ?? sourceKey;
-  let directory = handle;
-  for (const segment of segments) {
-    directory = await directory.getDirectoryHandle(segment, {
-      create: createDirectories,
-    });
-  }
-  return { directory, fileName };
-}
-
-function workspaceRelativeSegments(sourceKey: string, rootName: string) {
-  const segments = sourceKey.split(/[\\/]+/).filter(Boolean);
-  if (
-    segments[0] &&
-    segments[0].localeCompare(rootName, "pt-BR", { sensitivity: "base" }) === 0
-  ) {
-    return segments.slice(1);
-  }
-  return segments;
-}
-
-function albumFolderArtworkSourceKey(sourceKey: string) {
-  const segments = sourceKey.split(/[\\/]+/).filter(Boolean);
-  segments.pop();
-  if (
-    segments.length &&
-    /^(?:lado|side|disc|disk|disco|cd)\s*[-_.]?\s*[a-z0-9]+$/i.test(
-      segments.at(-1) ?? "",
-    )
-  ) {
-    segments.pop();
-  }
-  return [...segments, treatedAlbumArtworkFileName].join("/");
-}
-
-function backupFileName(sourceKey: string, stamp: string) {
-  return `${stamp}-${workspaceRelativeSegments(sourceKey, "").join("__")}`;
-}
-
-function videoOutputBackupStamp(date = new Date()) {
-  return date
-    .toISOString()
-    .replace(/\.\d{3}Z$/, "")
-    .replace(/[-:]/g, "")
-    .replace("T", "-");
-}
-
-async function copyFileToDirectory(
-  handle: FileSystemDirectoryHandle,
-  file: File,
-  fileName = file.name,
-) {
-  const output = await handle.getFileHandle(fileName, { create: true });
-  const writable = await output.createWritable();
-  await file.stream().pipeTo(writable);
-}
-
-function messageOf(reason: unknown) {
-  return reason instanceof Error ? reason.message : String(reason);
 }
 
 async function copyTextToClipboard(value: string) {

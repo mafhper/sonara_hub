@@ -88,8 +88,11 @@ await assertArtworkPreviewApi(audioPath, coveredAudioPath);
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
 await page.addInitScript(() => {
+  if (window.sessionStorage.getItem("sonara-hub-smoke-reset")) return;
   window.localStorage.removeItem("sonara-hub-panel-widths");
   window.localStorage.removeItem("sonara-hub-podcast-enabled");
+  window.localStorage.removeItem("sonara-hub-theme");
+  window.sessionStorage.setItem("sonara-hub-smoke-reset", "true");
 });
 const errors = [];
 const failedRequests = [];
@@ -251,6 +254,7 @@ try {
       );
     });
   assert.ok(centerPixel.slice(0, 3).some((value) => value > 10));
+  await assertInterfaceThemeDoesNotChangeVisualSettings(page, presetSelect);
 
   await page.getByText("Controles", { exact: true }).waitFor();
   await page.getByText("Presença").waitFor();
@@ -347,6 +351,18 @@ try {
   await page
     .getByText("Campos · ordem, visibilidade e estilo individual")
     .waitFor();
+  assert.equal(
+    await page.getByRole("button", { name: /^Posicionar texto em / }).count(),
+    9,
+    "text position picker buttons should expose accessible names",
+  );
+  await page.getByRole("button", { name: /Centro$/ }).click();
+  assert.equal(
+    await page
+      .getByRole("button", { name: /Centro$/ })
+      .getAttribute("aria-pressed"),
+    "true",
+  );
   await page.getByLabel("Fade-out de Música").check();
   const musicTextFade = page.locator(".text-fade-controls", {
     hasText: "Fade-out de Música",
@@ -565,6 +581,7 @@ try {
   await ensurePanelOpen(page, "inspector");
   await page.locator(".stack-add-menu > summary").click();
   await page.locator(".cover-layer-apply select").selectOption("right");
+  await page.getByText(/Escopo: \d+ vídeos selecionados no lote/).waitFor();
   await page.getByRole("button", { name: "Aplicar capa ao lote" }).click();
   await page
     .locator(".inspector-panel .composition-stack-row", { hasText: "Capa" })
@@ -1141,6 +1158,38 @@ async function assertLocalSettings(page) {
 
   await page.getByRole("button", { name: "Configurações locais" }).click();
   await page.getByRole("dialog", { name: "Armazenamento e sessão" }).waitFor();
+  await page.getByText("Aparência", { exact: true }).waitFor();
+  let themeGroup = page.getByRole("group", { name: "Tema da interface" });
+  await themeGroup.getByRole("button", { name: /^Golden/ }).click();
+  await page.waitForFunction(
+    () =>
+      document.documentElement.dataset.theme === "golden" &&
+      document.documentElement.dataset.themePreference === "golden",
+  );
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem("sonara-hub-theme")),
+    "golden",
+    "theme preference should persist immediately",
+  );
+  await page.getByRole("button", { name: "Fechar configurações" }).click();
+  await reloadApp(page);
+  await page.waitForFunction(
+    () => document.documentElement.dataset.theme === "golden",
+  );
+  await page.getByRole("button", { name: "Configurações locais" }).click();
+  await page.getByRole("dialog", { name: "Armazenamento e sessão" }).waitFor();
+  themeGroup = page.getByRole("group", { name: "Tema da interface" });
+  await themeGroup.getByRole("button", { name: /^Original/ }).click();
+  await page.waitForFunction(
+    () =>
+      document.documentElement.dataset.theme === "original" &&
+      document.documentElement.dataset.themePreference === "original",
+  );
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem("sonara-hub-theme")),
+    "original",
+    "theme preference should reset to original for the rest of the smoke",
+  );
   assert.equal(
     await page
       .locator(".stage-view-switch")
@@ -1190,6 +1239,50 @@ async function assertLocalSettings(page) {
     true,
     "Disabling Podcast while active should return to Editar",
   );
+}
+
+async function assertInterfaceThemeDoesNotChangeVisualSettings(
+  page,
+  presetSelect,
+) {
+  const before = await visualSettingsSignature(page, presetSelect);
+  await setInterfaceTheme(page, /^Golden/, "golden");
+  const after = await visualSettingsSignature(page, presetSelect);
+  assert.deepEqual(
+    after,
+    before,
+    "interface theme should not mutate visual preview/export settings",
+  );
+  await setInterfaceTheme(page, /^Original/, "original");
+}
+
+async function setInterfaceTheme(page, buttonName, expectedTheme) {
+  await page.getByRole("button", { name: "Configurações locais" }).click();
+  await page.getByRole("dialog", { name: "Armazenamento e sessão" }).waitFor();
+  await page
+    .getByRole("group", { name: "Tema da interface" })
+    .getByRole("button", { name: buttonName })
+    .click();
+  await page.waitForFunction(
+    (theme) => document.documentElement.dataset.theme === theme,
+    expectedTheme,
+  );
+  await page.getByRole("button", { name: "Fechar configurações" }).click();
+}
+
+async function visualSettingsSignature(page, presetSelect) {
+  return {
+    colorInputs: await page
+      .locator(".stack-detail input[type='color']")
+      .evaluateAll((inputs) => inputs.map((input) => input.value)),
+    preset: await presetSelect.inputValue(),
+    ranges: await page
+      .locator(".stack-detail input[type='range']")
+      .evaluateAll((inputs) => inputs.map((input) => input.value)),
+    selects: await page
+      .locator(".stack-detail select")
+      .evaluateAll((selects) => selects.map((select) => select.value)),
+  };
 }
 
 async function assertArtworkPreviewApi(noCoverPath, coverPath) {

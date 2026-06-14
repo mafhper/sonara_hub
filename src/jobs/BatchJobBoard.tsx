@@ -1,5 +1,19 @@
-import { Copy, Download, Pause, Play, Trash2, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Copy,
+  Download,
+  ListFilter,
+  Pause,
+  Play,
+  Timer,
+  Trash2,
+  X,
+} from "lucide-react";
 import type { RenderJob } from "../types";
+
+type JobStatusFilter = "all" | "active" | "done" | "failed";
 
 export function BatchJobBoard({
   jobs,
@@ -26,6 +40,7 @@ export function BatchJobBoard({
   onResume: () => void;
   queuePaused: boolean;
 }) {
+  const [statusFilter, setStatusFilter] = useState<JobStatusFilter>("all");
   const activeJobs = jobs.filter((job) => job.kind === kind);
   const jobCounts = {
     running: activeJobs.filter((job) => job.status === "running").length,
@@ -37,6 +52,48 @@ export function BatchJobBoard({
       ["error", "canceled"].includes(job.status),
     ).length,
   };
+  const filterOptions = useMemo(
+    () => [
+      {
+        count: activeJobs.length,
+        icon: <ListFilter />,
+        id: "all" as const,
+        label: "Todos",
+      },
+      {
+        count: jobCounts.running + jobCounts.waiting,
+        icon: <Timer />,
+        id: "active" as const,
+        label: "Ativos",
+      },
+      {
+        count: jobCounts.done,
+        icon: <CheckCircle2 />,
+        id: "done" as const,
+        label: "Concluídos",
+      },
+      {
+        count: jobCounts.failed,
+        icon: <AlertTriangle />,
+        id: "failed" as const,
+        label: "Interrompidos",
+      },
+    ],
+    [
+      activeJobs.length,
+      jobCounts.done,
+      jobCounts.failed,
+      jobCounts.running,
+      jobCounts.waiting,
+    ],
+  );
+  const filteredJobs = activeJobs.filter((job) =>
+    matchesJobStatusFilter(job, statusFilter),
+  );
+  const filteredEmptyCopy =
+    activeJobs.length > 0
+      ? `Nenhum processamento em ${jobStatusFilterLabel(statusFilter).toLowerCase()}.`
+      : emptyCopy;
   return (
     <section className="batch-job-board">
       <header>
@@ -64,26 +121,47 @@ export function BatchJobBoard({
         </div>
       </header>
       {activeJobs.length > 0 && (
-        <div className="batch-job-summary">
-          <span>
-            <b>{jobCounts.running}</b> em andamento
-          </span>
-          <span>
-            <b>{jobCounts.waiting}</b> aguardando
-          </span>
-          <span>
-            <b>{jobCounts.done}</b> concluídos
-          </span>
-          <span>
-            <b>{jobCounts.failed}</b> interrompidos
-          </span>
-        </div>
+        <>
+          <div className="batch-job-summary">
+            <span>
+              <b>{jobCounts.running}</b> em andamento
+            </span>
+            <span>
+              <b>{jobCounts.waiting}</b> aguardando
+            </span>
+            <span>
+              <b>{jobCounts.done}</b> concluídos
+            </span>
+            <span>
+              <b>{jobCounts.failed}</b> interrompidos
+            </span>
+          </div>
+          <div
+            aria-label={`Filtrar ${title}`}
+            className="batch-job-filters"
+            role="group"
+          >
+            {filterOptions.map((option) => (
+              <button
+                aria-pressed={statusFilter === option.id}
+                className={statusFilter === option.id ? "active" : ""}
+                key={option.id}
+                type="button"
+                onClick={() => setStatusFilter(option.id)}
+              >
+                {option.icon}
+                <span>{option.label}</span>
+                <b>{option.count}</b>
+              </button>
+            ))}
+          </div>
+        </>
       )}
-      {activeJobs.length === 0 ? (
-        <p className="helper-copy">{emptyCopy}</p>
+      {filteredJobs.length === 0 ? (
+        <p className="helper-copy">{filteredEmptyCopy}</p>
       ) : (
         <div className="batch-job-list">
-          {activeJobs.map((job) => {
+          {filteredJobs.map((job) => {
             const terminal = ["done", "error", "canceled"].includes(job.status);
             return (
               <div className={`batch-job-row ${job.status}`} key={job.id}>
@@ -183,6 +261,26 @@ export function BatchJobBoard({
       )}
     </section>
   );
+}
+
+function matchesJobStatusFilter(job: RenderJob, statusFilter: JobStatusFilter) {
+  if (statusFilter === "active") {
+    return ["queued", "paused", "running"].includes(job.status);
+  }
+  if (statusFilter === "done") return job.status === "done";
+  if (statusFilter === "failed") {
+    return ["error", "canceled"].includes(job.status);
+  }
+  return true;
+}
+
+function jobStatusFilterLabel(statusFilter: JobStatusFilter) {
+  return {
+    active: "Ativos",
+    all: "Todos",
+    done: "Concluídos",
+    failed: "Interrompidos",
+  }[statusFilter];
 }
 
 function jobStatusLabel(status: RenderJob["status"]) {

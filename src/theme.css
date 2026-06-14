@@ -1,0 +1,260 @@
+html[data-theme="original"] {
+  color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --app-bg: #f6f2e9;
+  --chrome: #eee8dc;
+  --surface: #f4efe6;
+  --surface-raised: #fffaf2;
+  --canvas-table: #d8d0c3;
+  --stage-bg: #e9e1d5;
+  --stage-surface: #faf5ec;
+  --stage-surface-low: #f1eadf;
+  --stage-row-bg: #fff9ef;
+  --stage-row-hover: #eee4d7;
+  --stage-row-selected: #dfe9fb;
+  --stage-border: #beb4a6;
+  --stage-border-strong: #8f8272;
+  --line: #d4cabe;
+  --line-soft: #e5ded4;
+  --text: #1c2028;
+  --muted: #5f6875;
+  --dim: #7c8490;
+  --accent: #345f9f;
+  --accent-low: #dce7fb;
+  --success: #23684d;
+  --warning: #7a550d;
+  --danger: #9a343a;
+  --text-primary: #1c2028;
+  --text-secondary: #343b46;
+  --text-muted: #5f6875;
+  --text-dim: #7c8490;
+  --border: #c7bdae;
+  --border-soft: #ded5c9;
+  --control-border: #9b9082;
+  --focus: #245ea8;
+  --focus-soft: rgb(36 94 168 / 18%);
+  --selection: #dce7fb;
+  --selection-strong: #c9daf8;
+  --status-ok: #23684d;
+  --status-warn: #7a550d;
+  --status-danger: #9a343a;
+  --text-inverse: #f8f4ed;
+  --field-bg: #fffaf2;
+  --surface-hover: #eee6db;
+  --control-hover-bg: #e8dfd2;
+  --button-bg: #fff9ef;
+  --button-hover-bg: #eadfce;
+  --button-active-bg: #dccfbc;
+  --button-border: #9f9385;
+  --button-text: #232833;
+  --button-primary-bg: #2d5c9b;
+  --button-primary-hover-bg: #244c82;
+  --button-primary-border: #17416f;
+  --button-primary-text: #fbfdff;
+  --button-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 70%), 0 1px 2px rgb(70 54 35 / 12%);
+  --slider-track-bg: #d8d0c3;
+  --slider-track-border: #b5aa9b;
+  --slider-track-fill: #2d5c9b;
+  --slider-thumb-bg: #2d5c9b;
+  --slider-thumb-border: #f9fbff;
+  --slider-badge-bg: #fffaf2;
+  --slider-badge-border: #b8aa99;
+  --slider-badge-text: var(--text-primary);
+  --chip-bg: #e9dfd0;
+  --canvas-border: #9f9486;
+  --overlay-scrim: rgb(33 28 20 / 42%);
+  --status-ok-border: #7fac96;
+  --status-warn-border: #b89342;
+  --status-danger-border: #bd8589;
+  --error-bg: #f7dddd;
+  --error-text: #73252a;
+  --accent-cool: #2d5c9b;
+  --accent-cool-strong: #17416f;
+  --accent-cool-low: #dce7fb;
+  --accent-warm: #9a681b;
+  --accent-warm-strong: #714606;
+  --accent-warm-soft: #bf8b38;
+  --accent-warm-low: #f0e2c7;
+  --accent-warm-border: #a77a2e;
+  --glow-cool: 0 0 0 1px rgb(45 92 155 / 22%), 0 0 10px rgb(45 92 155 / 12%);
+  --glow-warm: 0 0 0 1px rgb(154 104 27 / 22%), 0 0 10px rgb(154 104 27 / 12%);
+  --glow-focus: 0 0 0 3px var(--focus-soft);
+  --elev-1: inset 0 1px 0 rgb(255 255 255 / 72%), 0 1px 2px rgb(70 54 35 / 12%);
+  --elev-2:
+    inset 0 1px 0 rgb(255 255 255 / 78%), 0 8px 18px rgb(70 54 35 / 14%);
+  --elev-3:
+    inset 0 1px 0 rgb(255 255 255 / 82%), 0 18px 40px rgb(70 54 35 / 18%);
+  --surface-grad: linear-gradient(180deg, #fffaf2, #eee7dc);
+  --surface-raised-grad: linear-gradient(180deg, #fffdf8, #f2eadf);
+  --field-grad: linear-gradient(180deg, #fffaf2, #f3ece2);
+  --button-grad: linear-gradient(180deg, #fffaf1, #eadfce);
+  --button-primary-grad: linear-gradient(180deg, #3369ac, #244c82);
+  --stage-grad: radial-gradient(120% 100% at 50% 0%, #fff7ed 0%, #e8ded2 72%);
+  --hairline: rgb(30 25 18 / 8%);
+  --scrollbar-thumb: rgb(58 67 80 / 24%);
+  --scrollbar-thumb-hover: rgb(45 92 155 / 42%);
+}
+
+/*
+ * Dark — lifted "dimmed graphite". Distinct from "original": where original
+ * is an inky near-black OLED surface, this sits a few stops brighter on a
+ * softer blue-slate so panels read as elevated, comfortable for long night
+ * sessions rather than maximum contrast.
+ */
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --app-bg: #14161c;
+  --chrome: #181b22;
+  --surface: #1e212a;
+  --surface-raised: #262a34;
+  --canvas-table: #3a3f4b;
+  --stage-bg: #262b36;
+  --stage-surface: #20242e;
+  --stage-surface-low: #1a1e27;
+  --stage-row-bg: #1c212c;
+  --stage-row-hover: #272d3a;
+  --stage-row-selected: #2f3c54;
+  --stage-border: #434b59;
+  --stage-border-strong: #6b7686;
+  --line: #2c313c;
+  --line-soft: #21262f;
+  --text: #f3f5f9;
+  --muted: #aab2bf;
+  --dim: #818b99;
+  --accent: #9fb9f5;
+  --accent-low: #1d2942;
+  --text-primary: #f3f5f9;
+  --text-secondary: #d3d8e2;
+  --text-muted: #a7afbd;
+  --text-dim: #8893a1;
+  --border: #3a414e;
+  --border-soft: #2a303a;
+  --control-border: #69748a;
+  --focus: #a9c4ff;
+  --field-bg: #20242e;
+  --surface-hover: #242a35;
+  --control-hover-bg: #2a3140;
+  --button-bg: #2a313e;
+  --button-hover-bg: #333c4c;
+  --button-active-bg: #3b465a;
+  --button-border: #7b879b;
+  --button-primary-bg: #2f4670;
+  --button-primary-hover-bg: #395688;
+  --button-primary-border: #7895cf;
+  --accent-cool: #9fb9f5;
+  --accent-cool-strong: #c5d5ff;
+  --accent-warm: #efb968;
+  --surface-grad: linear-gradient(180deg, #23272f, #181b21);
+  --surface-raised-grad: linear-gradient(180deg, #2a2f3a, #20242d);
+  --button-grad: linear-gradient(180deg, #333c4c, #262d39);
+  --button-primary-grad: linear-gradient(180deg, #3d5b8e, #2c4570);
+  --stage-grad: radial-gradient(120% 100% at 50% 0%, #262c38 0%, #14171d 72%);
+}
+
+/*
+ * Golden — light "honey" theme inspired by lab01.dev UI Experiment #01.
+ * Anchored on #BA965A (hero gold) with dark warm-brown text (#2F2212),
+ * #FFE38F highlights and #886C4A mid-tones. Luminous and editorial — a
+ * warm sibling to the cool "light" theme, NOT the old dark red-brown.
+ */
+html[data-theme="golden"] {
+  color-scheme: light;
+  --app-bg: #e8d2a0;
+  --chrome: #e1c892;
+  --surface: #f1e3bd;
+  --surface-raised: #fbf2d8;
+  --canvas-table: #d6bd82;
+  --stage-bg: #e2cc97;
+  --stage-surface: #f7eccc;
+  --stage-surface-low: #ecdbb2;
+  --stage-row-bg: #fbf2d8;
+  --stage-row-hover: #f0dfb1;
+  --stage-row-selected: #f6e29f;
+  --stage-border: #c1a565;
+  --stage-border-strong: #8c6f33;
+  --line: #d2b67b;
+  --line-soft: #e4cf9b;
+  --text: #2f2212;
+  --muted: #6d5833;
+  --dim: #8b7349;
+  --accent: #955f0e;
+  --accent-low: #f1dea3;
+  --success: #2f6a39;
+  --warning: #8a5a0c;
+  --danger: #9c3a2c;
+  --text-primary: #2f2212;
+  --text-secondary: #42321a;
+  --text-muted: #6a5530;
+  --text-dim: #897046;
+  --border: #bd9f60;
+  --border-soft: #dcc892;
+  --control-border: #997b3c;
+  --focus: #9a6410;
+  --focus-soft: rgb(154 100 16 / 22%);
+  --selection: #f4e29f;
+  --selection-strong: #edd086;
+  --status-ok: #2f6a39;
+  --status-warn: #8a5a0c;
+  --status-danger: #9c3a2c;
+  --text-inverse: #fbf3de;
+  --field-bg: #fbf2d8;
+  --surface-hover: #ecdaae;
+  --control-hover-bg: #e6d29c;
+  --button-bg: #f4e6bf;
+  --button-hover-bg: #ecdaa8;
+  --button-active-bg: #e0cc91;
+  --button-border: #a8884a;
+  --button-text: #2f2212;
+  --button-primary-bg: #ba965a;
+  --button-primary-hover-bg: #c4a164;
+  --button-primary-border: #876a3a;
+  --button-primary-text: #2a1f0e;
+  --button-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 55%), 0 1px 2px rgb(120 86 30 / 22%);
+  --slider-track-bg: #dcc78c;
+  --slider-track-border: #bf9f54;
+  --slider-track-fill: #ba965a;
+  --slider-thumb-bg: #b8923f;
+  --slider-thumb-border: #fff6e2;
+  --slider-badge-bg: #fbf2d8;
+  --slider-badge-border: #bf9f57;
+  --slider-badge-text: var(--text-primary);
+  --chip-bg: #ecdaac;
+  --canvas-border: #a8884a;
+  --overlay-scrim: rgb(58 42 16 / 38%);
+  --status-ok-border: #789a58;
+  --status-warn-border: #bb9348;
+  --status-danger-border: #c08a7c;
+  --error-bg: #f6dccf;
+  --error-text: #7a2e1d;
+  --accent-cool: #955f0e;
+  --accent-cool-strong: #6f4506;
+  --accent-cool-low: #f1dea3;
+  --accent-warm: #c2871a;
+  --accent-warm-strong: #9a6410;
+  --accent-warm-soft: #cf9a33;
+  --accent-warm-low: #f2e0ad;
+  --accent-warm-border: #a87f3a;
+  --glow-cool: 0 0 0 1px rgb(149 95 14 / 22%), 0 0 10px rgb(149 95 14 / 12%);
+  --glow-warm: 0 0 0 1px rgb(194 135 26 / 26%), 0 0 12px rgb(194 135 26 / 14%);
+  --glow-focus: 0 0 0 3px var(--focus-soft);
+  --elev-1:
+    inset 0 1px 0 rgb(255 255 255 / 55%), 0 1px 2px rgb(120 86 30 / 18%);
+  --elev-2:
+    inset 0 1px 0 rgb(255 255 255 / 62%), 0 8px 18px rgb(120 86 30 / 20%);
+  --elev-3:
+    inset 0 1px 0 rgb(255 255 255 / 68%), 0 18px 40px rgb(120 86 30 / 26%);
+  --surface-grad: linear-gradient(180deg, #fbf2d8, #efe0b8);
+  --surface-raised-grad: linear-gradient(180deg, #fff8e7, #f4e7c2);
+  --field-grad: linear-gradient(180deg, #fbf2d8, #f1e2bb);
+  --button-grad: linear-gradient(180deg, #f6e9c6, #e9d7a6);
+  --button-primary-grad: linear-gradient(180deg, #c6a063, #ac874a);
+  --stage-grad: radial-gradient(120% 100% at 50% 0%, #f5e8c4 0%, #dcc78c 72%);
+  --hairline: rgb(58 42 16 / 9%);
+  --scrollbar-thumb: rgb(120 86 30 / 28%);
+  --scrollbar-thumb-hover: rgb(154 100 16 / 46%);
+}

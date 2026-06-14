@@ -4,6 +4,44 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#01010e" />
+    <script>
+      (() => {
+        const storageKey = "sonara-hub-theme";
+        const preferences = new Set([
+          "system",
+          "original",
+          "light",
+          "dark",
+          "golden",
+        ]);
+        const themeColors = {
+          dark: "#090a0d",
+          golden: "#17100a",
+          light: "#f6f2e9",
+          original: "#050506",
+        };
+        try {
+          let preference = localStorage.getItem(storageKey) || "original";
+          if (!preferences.has(preference)) preference = "original";
+          const effective =
+            preference === "system"
+              ? matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light"
+              : preference;
+          document.documentElement.dataset.themePreference = preference;
+          document.documentElement.dataset.theme = effective;
+          document.documentElement.style.colorScheme =
+            effective === "light" ? "light" : "dark";
+          const meta = document.querySelector('meta[name="theme-color"]');
+          if (meta)
+            meta.content = themeColors[effective] || themeColors.original;
+        } catch {
+          document.documentElement.dataset.theme = "original";
+          document.documentElement.dataset.themePreference = "original";
+        }
+      })();
+    </script>
     <link rel="shortcut icon" href="/brand/favicon.ico" />
     <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg" />
     <link
