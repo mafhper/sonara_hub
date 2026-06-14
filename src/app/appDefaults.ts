@@ -1,4 +1,5 @@
 import type { TrackMetadata } from "../types";
+import type { LayerFadeInSettings } from "../inspectors/layer-normalizers";
 import type { AudioBands, ProjectSaveOption } from "./appTypes";
 
 export const emptyBands: AudioBands = {
@@ -8,6 +9,12 @@ export const emptyBands: AudioBands = {
   high: 0,
   samples: [],
   spectrum: [],
+};
+
+export const defaultFadeIn: LayerFadeInSettings = {
+  enabled: false,
+  startPercent: 0,
+  durationSeconds: 1.5,
 };
 
 // ISO 639-2 codes the server accepts for the ID3 lyrics/language frame.

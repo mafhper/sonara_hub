@@ -1,15 +1,5 @@
 import type { TrackDraft } from "../types";
-
-// Same audio source resolution the player uses, so previews can play a track
-// whether it came from the internal input/ folder or an uploaded file.
-export function trackAudioSrc(track: TrackDraft) {
-  return (
-    track.sourceUrl ??
-    (track.source === "input"
-      ? `/api/audio/${encodeURIComponent(track.sourceKey)}`
-      : "")
-  );
-}
+export { trackAudioSrc } from "../features/audio/audioSources";
 
 export function thumbnailFingerprint(
   track: TrackDraft,

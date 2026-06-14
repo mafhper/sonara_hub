@@ -109,7 +109,6 @@ import { VideoReviewGrid } from "./workspaces/VideoReviewGrid";
 import { usePageStatus } from "./lib/page-status";
 import {
   type CoverFadeOutSettings,
-  type LayerFadeInSettings,
   type LayerZoomSettings,
   isCoverLayer,
   normalizeFadeIn,
@@ -168,9 +167,7 @@ import {
   videoOutputProjectDirectoryName,
 } from "../shared/video-output-folder.mjs";
 import type { VideoOutputConflictMode } from "../shared/video-output-folder.mjs";
-import { collectActiveObjectUrls } from "../shared/object-url-lifecycle.mjs";
 import {
-  applyPublicationTextOverride,
   clampPublicationClipDuration,
   clampPublicationClipStart,
   normalizePublicationAssetOverrides,
@@ -209,6 +206,7 @@ import {
   DEFAULT_PROJECT_SAVE_ID,
   INPUT_PROJECT_STORAGE_KEY,
   PODCAST_METADATA_SLICE_BYTES,
+  defaultFadeIn,
   defaultMetadata,
   defaultProjectSave,
   emptyBands,
@@ -267,6 +265,15 @@ import {
   writeBlobToWorkspacePath,
 } from "./features/export/exportWorkspaceFiles";
 import {
+  buildPublicationAssetFormData,
+  buildRenderFormData,
+} from "./features/export/renderSubmission";
+import {
+  queuedPodcastFeedJob,
+  queuedPublicationAssetJob,
+  queuedVideoRenderJob,
+} from "./features/jobs/jobFactories";
+import {
   loadPodcastEnabled,
   savePodcastEnabled,
 } from "./features/audio/podcastPreference";
@@ -279,6 +286,13 @@ import {
   trackFromFile,
   trackFromInput,
 } from "./features/audio/audioTrackDrafts";
+import { audioBandsFromAnalyser } from "./features/audio/audioPlayback";
+import {
+  appendTrackAudioSource,
+  estimateDurationFromBitrate,
+  slicePodcastMetadataFile,
+  trackAudioSrc,
+} from "./features/audio/audioSources";
 import {
   deleteInternalProjectSnapshot,
   ensureProjectSaveOption,
@@ -316,7 +330,6 @@ import {
   applyPublicationTemplateToTracks,
   applyVisualTemplateToTracks,
 } from "./features/visual/trackTemplates";
-import { stripLayerFile } from "./features/visual/layerSerialization";
 import { coverLayerFromArtwork } from "./features/visual/coverLayerFactory";
 import { useInteractionDialog } from "./hooks/useInteractionDialog";
 import { useNotifications } from "./hooks/useNotifications";
@@ -326,6 +339,8 @@ import {
   usePanelLayout,
 } from "./hooks/usePanelLayout";
 import { useThemePreference } from "./hooks/useThemePreference";
+import { useObjectUrlLifecycle } from "./hooks/useObjectUrlLifecycle";
+import { useStaticWaveforms } from "./hooks/useStaticWaveforms";
 import type {
   AudioInfo,
   AudioTagDraft,
@@ -373,19 +388,6 @@ declare global {
   }
 }
 
-function revokeObjectUrl(url: string) {
-  try {
-    URL.revokeObjectURL(url);
-  } catch {
-    // Revocation is best-effort; stale or environment-specific blob URLs should
-    // not break the editing session.
-  }
-}
-const defaultFadeIn: LayerFadeInSettings = {
-  enabled: false,
-  startPercent: 0,
-  durationSeconds: 1.5,
-};
 function App() {
   const [tracks, setTracks] = useState<TrackDraft[]>([]);
   const [selectedTrackId, setSelectedTrackId] = useState("");
@@ -545,12 +547,6 @@ function App() {
     normalizationEnabled: false,
   });
   const [audioBands, setAudioBands] = useState<AudioBands>(emptyBands);
-  // Static full-track waveform peaks per track, decoded once on selection so
-  // the technical preview shows the shape without needing playback.
-  const [staticWaveforms, setStaticWaveforms] = useState<
-    Record<string, number[]>
-  >({});
-  const staticWaveformRequestsRef = useRef(new Set<string>());
   const [coverSeriesSettings, setCoverSeriesSettings] =
     useState<CoverSeriesSettings>(() => loadCoverSeriesSettings());
   const [fileNamePattern, setFileNamePattern] = useState<FileNamePattern>(() =>
@@ -597,29 +593,14 @@ function App() {
   const embeddedArtworkRequestsRef = useRef(new Set<string>());
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationRef = useRef(0);
-  const activeObjectUrlsRef = useRef(new Set<string>());
-
-  useEffect(() => {
-    const nextUrls = collectActiveObjectUrls(tracks, cover, layersUndo);
-    for (const url of activeObjectUrlsRef.current) {
-      if (!nextUrls.has(url)) revokeObjectUrl(url);
-    }
-    activeObjectUrlsRef.current = nextUrls;
-  }, [cover, layersUndo, tracks]);
-
-  useEffect(
-    () => () => {
-      for (const url of activeObjectUrlsRef.current) revokeObjectUrl(url);
-      activeObjectUrlsRef.current.clear();
-    },
-    [],
-  );
+  useObjectUrlLifecycle(tracks, cover, layersUndo);
 
   const selectedTrack =
     tracks.find((track) => track.id === selectedTrackId) ?? tracks[0];
   const selectedTrackIndex = selectedTrack
     ? tracks.findIndex((track) => track.id === selectedTrack.id)
     : -1;
+  const staticWaveforms = useStaticWaveforms(selectedTrack);
   const selectedCover = coverForTrack(selectedTrack);
   const embeddedArtworkSrc = selectedTrack
     ? (embeddedArtworkByTrackId[selectedTrack.id] ?? "")
@@ -687,12 +668,7 @@ function App() {
           publicationSelectedPresetIds.includes(preset.id),
         )
       : [selectedPublicationPreset];
-  const audioSrc = selectedTrack
-    ? (selectedTrack.sourceUrl ??
-      (selectedTrack.source === "input"
-        ? `/api/audio/${encodeURIComponent(selectedTrack.sourceKey)}`
-        : ""))
-    : "";
+  const audioSrc = selectedTrack ? trackAudioSrc(selectedTrack) : "";
   const reviewTracks =
     workflowMode === "batch"
       ? tracks.filter((track) => track.selectedForBatch)
@@ -734,65 +710,6 @@ function App() {
     void analyzeSelectedAudio();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTrackId]);
-
-  // Decode a static waveform for the selected track (once) so the technical
-  // preview shows the shape without playback.
-  useEffect(() => {
-    if (!selectedTrack) return;
-    void computeStaticWaveform(selectedTrack);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTrackId]);
-
-  async function computeStaticWaveform(track: TrackDraft) {
-    if (
-      !track ||
-      staticWaveforms[track.id] ||
-      staticWaveformRequestsRef.current.has(track.id)
-    ) {
-      return;
-    }
-    const url =
-      track.sourceUrl ??
-      (track.source === "input"
-        ? `/api/audio/${encodeURIComponent(track.sourceKey)}`
-        : "");
-    if (!track.sourceFile && !url) return;
-    staticWaveformRequestsRef.current.add(track.id);
-    try {
-      const arrayBuffer = track.sourceFile
-        ? await track.sourceFile.arrayBuffer()
-        : await (await fetch(url)).arrayBuffer();
-      const AudioCtx =
-        window.AudioContext ??
-        (window as unknown as { webkitAudioContext: typeof AudioContext })
-          .webkitAudioContext;
-      const context = new AudioCtx();
-      const audio = await context.decodeAudioData(arrayBuffer);
-      void context.close();
-      const channel = audio.getChannelData(0);
-      const buckets = 360;
-      const bucketSize = Math.max(1, Math.floor(channel.length / buckets));
-      const peaks: number[] = [];
-      for (let index = 0; index < buckets; index += 1) {
-        let max = 0;
-        const start = index * bucketSize;
-        for (let offset = 0; offset < bucketSize; offset += 1) {
-          const value = Math.abs(channel[start + offset] ?? 0);
-          if (value > max) max = value;
-        }
-        peaks.push(max);
-      }
-      const norm = Math.max(0.0001, ...peaks);
-      setStaticWaveforms((current) => ({
-        ...current,
-        [track.id]: peaks.map((peak) => peak / norm),
-      }));
-    } catch {
-      // A static waveform is a nice-to-have; ignore decode failures.
-    } finally {
-      staticWaveformRequestsRef.current.delete(track.id);
-    }
-  }
 
   useEffect(() => {
     audioBandsRef.current = audioBands;
@@ -1797,7 +1714,10 @@ function App() {
     quick = false,
     mode: "audio" | "podcast" = "audio",
   ) {
-    const metadataFile = mode === "podcast" ? podcastMetadataSlice(file) : file;
+    const metadataFile =
+      mode === "podcast"
+        ? slicePodcastMetadataFile(file, PODCAST_METADATA_SLICE_BYTES)
+        : file;
     const metadataIsPartial = metadataFile.size !== file.size;
     const formData = new FormData();
     formData.append("audio", metadataFile);
@@ -1838,46 +1758,6 @@ function App() {
       setError(localApiMessage(reason, "ler os metadados do áudio"));
       return undefined;
     }
-  }
-
-  function podcastMetadataSlice(file: File) {
-    if (file.size <= PODCAST_METADATA_SLICE_BYTES) return file;
-    const chunk = file.slice(0, PODCAST_METADATA_SLICE_BYTES, file.type);
-    return new File([chunk], file.name, {
-      lastModified: file.lastModified,
-      type: file.type,
-    });
-  }
-
-  function estimateDurationFromBitrate(
-    sizeBytes: number,
-    bitrate?: number | null,
-  ) {
-    const safeSizeBytes = Number(sizeBytes);
-    const safeBitrate = Number(bitrate);
-    if (
-      !Number.isFinite(safeSizeBytes) ||
-      safeSizeBytes <= 0 ||
-      !Number.isFinite(safeBitrate) ||
-      safeBitrate <= 0
-    ) {
-      return null;
-    }
-    return (safeSizeBytes * 8) / safeBitrate;
-  }
-
-  function appendTrackAudioSource(formData: FormData, track: TrackDraft) {
-    if (track.source === "input") {
-      formData.append("inputAudio", track.sourceKey);
-      return true;
-    }
-    if (!track.sourceFile) return false;
-    formData.append("audio", track.sourceFile);
-    formData.append(
-      "relativePath",
-      track.sourceFile.webkitRelativePath || track.sourceKey,
-    );
-    return true;
   }
 
   async function loadEmbeddedArtwork(track: TrackDraft) {
@@ -2962,34 +2842,7 @@ function App() {
     const analyser = analyserRef.current;
     const audio = audioRef.current;
     if (!analyser || !audio || audio.paused) return;
-    const frequency = new Uint8Array(analyser.frequencyBinCount);
-    const waveform = new Uint8Array(analyser.fftSize);
-    analyser.getByteFrequencyData(frequency);
-    analyser.getByteTimeDomainData(waveform);
-    const average = (from: number, to: number) =>
-      Array.from(frequency.slice(from, to)).reduce(
-        (sum, value) => sum + value,
-        0,
-      ) /
-      Math.max(1, to - from) /
-      255;
-    setAudioBands({
-      energy: average(0, frequency.length),
-      bass: average(0, 18),
-      mid: average(18, 74),
-      high: average(74, frequency.length),
-      samples: Array.from(waveform)
-        .filter((_, index) => index % 6 === 0)
-        .map((value) => (value - 128) / 128),
-      spectrum: Array.from({ length: 24 }, (_, index) => {
-        const start = Math.floor(Math.pow(index / 24, 2.15) * frequency.length);
-        const end = Math.max(
-          start + 1,
-          Math.floor(Math.pow((index + 1) / 24, 2.15) * frequency.length),
-        );
-        return average(start, Math.min(frequency.length, end));
-      }),
-    });
+    setAudioBands(audioBandsFromAnalyser(analyser));
     animationRef.current = window.requestAnimationFrame(readAnalyser);
   }
 
@@ -3189,48 +3042,24 @@ function App() {
       sharedCover: cover,
       showMetadata,
     });
-    const formData = new FormData();
-    if (!appendTrackAudioSource(formData, track)) {
+    const formData = buildRenderFormData({
+      composition,
+      fileNamePattern,
+      outputPreset,
+      qualityProfile,
+      track,
+      workflowMode,
+    });
+    if (!formData) {
       setError("Fonte de áudio indisponível para exportação.");
       return;
-    }
-    for (const layer of composition.layers)
-      formData.append("mediaLayers", layer.file);
-    if (composition.cover) formData.append("cover", composition.cover.file);
-    formData.append("visualSettings", JSON.stringify(composition.scene));
-    formData.append(
-      "compositionSettings",
-      JSON.stringify({
-        mediaLayers: composition.layers.map(stripLayerFile),
-        durationSeconds: track.audioInfo?.durationSeconds ?? null,
-        textSettings: composition.textSettings,
-      }),
-    );
-    formData.append("preset", outputPreset);
-    formData.append("qualityProfile", qualityProfile);
-    formData.append("renderMode", workflowMode);
-    formData.append("showMetadata", String(composition.showMetadata));
-    formData.append("fileNamePattern", JSON.stringify(fileNamePattern));
-    if (composition.metadata) {
-      for (const [key, value] of Object.entries(composition.metadata)) {
-        formData.append(key, String(value));
-      }
     }
     try {
       const data = await fetchJson<{ jobId: string }>("/api/render", {
         method: "POST",
         body: formData,
       });
-      const job: RenderJob = {
-        id: data.jobId,
-        kind: "video-render",
-        status: "queued",
-        progress: 0,
-        message: `Na fila: ${track.metadata.title}`,
-        outputUrl: null,
-        sidecarUrl: null,
-        thumbnailUrl: null,
-      };
+      const job = queuedVideoRenderJob(data.jobId, track);
       setJobs((current) => [job, ...current]);
       pollJob(job.id);
     } catch (reason) {
@@ -3248,54 +3077,19 @@ function App() {
       sharedCover: cover,
       showMetadata,
     });
-    const formData = new FormData();
-    if (!appendTrackAudioSource(formData, track)) {
+    const formData = buildPublicationAssetFormData({
+      assetSettings,
+      composition,
+      generateDataFiles: publicationGenerateDataFiles,
+      outputPreset,
+      preset,
+      qualityProfile,
+      track,
+      workflowMode,
+    });
+    if (!formData) {
       setError("Fonte de áudio indisponível para exportação do asset.");
       return;
-    }
-    for (const layer of composition.layers)
-      formData.append("mediaLayers", layer.file);
-    if (composition.cover) formData.append("cover", composition.cover.file);
-    formData.append("visualSettings", JSON.stringify(composition.scene));
-    formData.append(
-      "compositionSettings",
-      JSON.stringify({
-        mediaLayers: composition.layers.map(stripLayerFile),
-        durationSeconds: track.audioInfo?.durationSeconds ?? null,
-        // Bake the per-asset text override into the exported text settings so
-        // the rendered file matches exactly what the preview showed.
-        textSettings: applyPublicationTextOverride(
-          composition.textSettings,
-          assetSettings,
-        ),
-      }),
-    );
-    formData.append("preset", outputPreset);
-    formData.append("qualityProfile", qualityProfile);
-    formData.append("renderMode", workflowMode);
-    formData.append("showMetadata", String(composition.showMetadata));
-    formData.append("publicationPresetId", preset.id);
-    formData.append("clipStart", String(assetSettings.clipStart));
-    formData.append("clipDuration", String(assetSettings.clipDuration));
-    formData.append(
-      "includeFullLyrics",
-      String(assetSettings.lyricsMode === "full"),
-    );
-    formData.append("lyricsMode", assetSettings.lyricsMode);
-    formData.append("lyricsExcerpt", assetSettings.lyricsExcerpt);
-    formData.append("lyricsHideTags", String(assetSettings.lyricsHideTags));
-    formData.append(
-      "lyricsLineSpacing",
-      String(assetSettings.lyricsLineSpacing),
-    );
-    formData.append("generateDataFiles", String(publicationGenerateDataFiles));
-    formData.append("lyricsPosition", assetSettings.lyricsPosition);
-    formData.append("lyricsStyle", assetSettings.lyricsStyle);
-    formData.append("bookletTheme", assetSettings.bookletTheme);
-    if (composition.metadata) {
-      for (const [key, value] of Object.entries(composition.metadata)) {
-        formData.append(key, String(value));
-      }
     }
     try {
       const data = await fetchJson<{ jobId: string }>(
@@ -3305,19 +3099,7 @@ function App() {
           body: formData,
         },
       );
-      const job: RenderJob = {
-        id: data.jobId,
-        kind: "publication-asset",
-        status: "queued",
-        progress: 0,
-        message: `Divulgação: ${preset.label} · ${track.metadata.title}`,
-        outputUrl: null,
-        sidecarUrl: null,
-        thumbnailUrl: null,
-        markdownUrl: null,
-        assetUrls: [],
-        metadata: track.metadata,
-      };
+      const job = queuedPublicationAssetJob(data.jobId, preset, track);
       setJobs((current) => [job, ...current]);
       pollJob(job.id);
     } catch (reason) {
@@ -3336,22 +3118,7 @@ function App() {
           sidecar,
         }),
       });
-      const job: RenderJob = {
-        id: data.jobId,
-        kind: "podcast-feed",
-        status: "queued",
-        progress: 0,
-        message: `Podcast: ${title}`,
-        outputUrl: null,
-        sidecarUrl: null,
-        thumbnailUrl: null,
-        assetUrls: [],
-        metadata: {
-          title,
-          album: title,
-          artist: sidecar.feed.author,
-        },
-      };
+      const job = queuedPodcastFeedJob(data.jobId, sidecar);
       setJobs((current) => [job, ...current]);
       pollJob(job.id);
     } catch (reason) {
