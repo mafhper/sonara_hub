@@ -17,6 +17,7 @@ export function CoverArtworkWorkspace({
   selectedTrackId,
   seriesSettingsForTrack,
   onChooseCover,
+  onChooseAlbumCover,
   onClearCover,
   onClearCoverSeriesOverride,
   onCoverSeriesPatch,
@@ -24,6 +25,7 @@ export function CoverArtworkWorkspace({
   onSaveCoverSeriesDefault,
   onSelectTrack,
   onSelectSuggestedCover,
+  onUseDetectedAlbumCover,
   tracks,
 }: {
   albumCoverForTrack: (
@@ -34,6 +36,7 @@ export function CoverArtworkWorkspace({
   selectedTrackId: string;
   seriesSettingsForTrack: (track?: TrackDraft) => CoverSeriesSettings;
   onChooseCover: (trackId: string) => void;
+  onChooseAlbumCover: () => void;
   onClearCover: () => void;
   onClearCoverSeriesOverride: (trackId: string) => void;
   onCoverSeriesPatch: (
@@ -45,6 +48,7 @@ export function CoverArtworkWorkspace({
   onSaveCoverSeriesDefault: (settings?: CoverSeriesSettings) => void;
   onSelectTrack: (trackId: string) => void;
   onSelectSuggestedCover: (trackId: string, relativePath: string) => void;
+  onUseDetectedAlbumCover: (trackId?: string) => void;
   tracks: TrackDraft[];
 }) {
   const [showSeries, setShowSeries] = useState(true);
@@ -66,6 +70,10 @@ export function CoverArtworkWorkspace({
       ? seriesSettingsForTrack(artworkTrack)
       : coverSeriesSettings
     : coverSeriesSettings;
+  const trackArtwork = coverForTrack(artworkTrack);
+  const albumArtwork = albumCoverForTrack(artworkTrack);
+  const detectedAlbumArtwork =
+    artworkTrack?.albumCoverSuggestion ?? artworkTrack?.suggestedCover ?? null;
 
   useEffect(() => {
     if (!artworkTrack || previousTrackIdRef.current === artworkTrack.id) return;
@@ -110,11 +118,32 @@ export function CoverArtworkWorkspace({
               </div>
               <div className="artwork-action-bar" role="toolbar">
                 <button
+                  aria-label="Definir capa compartilhada do álbum"
+                  className="quiet-action"
+                  type="button"
+                  onClick={onChooseAlbumCover}
+                >
+                  <Image /> Definir capa do álbum
+                </button>
+                {detectedAlbumArtwork && (
+                  <button
+                    aria-label="Usar capa detectada como capa compartilhada do álbum"
+                    className="quiet-action"
+                    type="button"
+                    onClick={() => onUseDetectedAlbumCover(artworkTrack.id)}
+                  >
+                    <RotateCcw /> Usar detectada no álbum
+                  </button>
+                )}
+                <button
+                  aria-label={`Trocar capa desta faixa: ${
+                    artworkTrack.metadata.title || "faixa sem título"
+                  }`}
                   className="upload-action"
                   type="button"
                   onClick={() => onChooseCover(artworkTrack.id)}
                 >
-                  <Image /> Trocar imagem
+                  <Image /> Trocar capa da faixa
                 </button>
                 {artworkTrack.suggestedCover && (
                   <button
@@ -125,14 +154,16 @@ export function CoverArtworkWorkspace({
                     <RotateCcw /> Usar arte oferecida
                   </button>
                 )}
-                {(artworkTrack.coverOverride ||
-                  coverForTrack(artworkTrack)) && (
+                {(artworkTrack.coverOverride || trackArtwork) && (
                   <button
                     className="quiet-action"
                     type="button"
                     onClick={onClearCover}
                   >
-                    <Trash2 /> Remover capa
+                    <Trash2 />{" "}
+                    {artworkTrack.coverOverride
+                      ? "Remover capa da faixa"
+                      : "Remover capa compartilhada"}
                   </button>
                 )}
                 <button
@@ -147,7 +178,7 @@ export function CoverArtworkWorkspace({
             </div>
             <div className="artwork-canvas-frame">
               <CoverSeriesArtwork
-                artworkSrc={coverForTrack(artworkTrack)?.src}
+                artworkSrc={trackArtwork?.src}
                 className="artwork-canvas"
                 coverSeriesSettings={seriesSettingsForTrack(artworkTrack)}
                 showSeries={showSeries}
@@ -163,16 +194,27 @@ export function CoverArtworkWorkspace({
                 </span>
               </div>
               <div className="artwork-strip-grid">
-                {albumCoverForTrack(artworkTrack)?.src && (
-                  <div className="artwork-strip-item is-album">
+                {albumArtwork?.src && (
+                  <button
+                    aria-label={
+                      detectedAlbumArtwork
+                        ? "Usar capa detectada no álbum"
+                        : "Capa compartilhada do álbum"
+                    }
+                    className="artwork-strip-item is-album"
+                    disabled={!detectedAlbumArtwork}
+                    type="button"
+                    onClick={() => onUseDetectedAlbumCover(artworkTrack.id)}
+                  >
                     <CoverSeriesArtwork
-                      artworkSrc={albumCoverForTrack(artworkTrack)?.src}
+                      artworkSrc={albumArtwork.src}
                       className="catalog-artwork-series-thumb"
                       showSeries={false}
                       track={artworkTrack}
                     />
                     <span>Capa do álbum</span>
-                  </div>
+                    {detectedAlbumArtwork && <em>detectada</em>}
+                  </button>
                 )}
                 {albumTracks.map((track) => (
                   <button

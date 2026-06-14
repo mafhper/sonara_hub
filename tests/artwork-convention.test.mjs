@@ -60,6 +60,39 @@ test("album root artwork is offered across disc folders", () => {
   );
 });
 
+test("generic album artwork names are detected in root and art folders", () => {
+  const audioPaths = [
+    "Matheus Lima/Jardim dos Ventos/Lado A/01 - Abertura.mp3",
+    "Matheus Lima/Jardim dos Ventos/Lado B/02 - Encerramento.mp3",
+  ];
+  const genericNames = [
+    "folder.jpg",
+    "cover.jpg",
+    "front.png",
+    "album.webp",
+    "capa.jpg",
+  ];
+
+  for (const name of genericNames) {
+    assert.equal(
+      chooseAlbumArtworkForTrack({
+        audioPath: audioPaths[1],
+        artworkPaths: [`Matheus Lima/Jardim dos Ventos/${name}`],
+      }),
+      `Matheus Lima/Jardim dos Ventos/${name}`,
+    );
+    assert.equal(
+      chooseArtworkForTrack({
+        audioPath: audioPaths[0],
+        audioPaths,
+        artworkPaths: [`Matheus Lima/Jardim dos Ventos/Art/${name}`],
+        trackNumber: 1,
+      }),
+      `Matheus Lima/Jardim dos Ventos/Art/${name}`,
+    );
+  }
+});
+
 test("album artwork prefers a generic source while track options retain alternates", () => {
   const audioPaths = [
     "Matheus Lima/Jardim dos Ventos/Lado A/01 - Faixa.mp3",

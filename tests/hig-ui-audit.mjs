@@ -85,6 +85,7 @@ try {
 
   await assertUiScaleControls(page);
   await assertResponsiveSettings(page, { width: 390, height: 740 });
+  await assertVisualPresetBrowserA11y(page);
 
   await assertFocusVisible(
     page,
@@ -161,6 +162,22 @@ async function assertUiScaleControls(page) {
   assert.ok(
     extra.controlHeight > standard.controlHeight,
     "extra UI scale should increase control height",
+  );
+}
+
+async function assertVisualPresetBrowserA11y(page) {
+  const browser = page.locator(".visual-preset-browser");
+  if (!(await browser.count())) return;
+
+  const firstTab = browser.getByRole("tab").first();
+  const firstPreset = browser
+    .getByRole("button", { name: /^Selecionar atmosfera / })
+    .first();
+  await assertFocusVisible(page, firstTab);
+  await assertFocusVisible(page, firstPreset);
+  assert.ok(
+    ["true", "false"].includes(await firstPreset.getAttribute("aria-pressed")),
+    "atmosphere card should expose aria-pressed",
   );
 }
 

@@ -39,6 +39,7 @@ import {
   stackItemDescription,
   stackItemIcon,
 } from "./CompositionStack";
+import { VisualPresetBrowser } from "./VisualPresetBrowser";
 
 export type CoverLayerPreset =
   | "background"
@@ -171,16 +172,6 @@ const waveformStylePresets: Array<{
     },
   },
 ];
-function groupPresets(presets: ScenePresetV3[]) {
-  const groups = new Map<string, ScenePresetV3[]>();
-  for (const preset of presets)
-    groups.set(preset.category, [
-      ...(groups.get(preset.category) ?? []),
-      preset,
-    ]);
-  return Array.from(groups.entries());
-}
-
 export function waveformTypeLabel(type: WaveformType) {
   return {
     "mirror-line": "Linha espelhada",
@@ -344,6 +335,7 @@ export function VisualInspector(props: {
   onRemoveLayer: (id: string) => void;
   onSavePreset: () => void;
   onSelectPreset: (id: string) => void;
+  onSelectVariant: (baseId: string, variantId: string) => void;
   onSelectStackKey: (key: string) => void;
   onUndoLayer: () => void;
   onUpdateLayer: (id: string, patch: Partial<MediaLayerV2>) => void;
@@ -491,21 +483,12 @@ export function VisualInspector(props: {
           </header>
           {selectedItem.kind === "atmosphere" && (
             <div className="stack-detail-body">
-              <SelectField
-                label="Preset"
-                value={scene.id}
-                onChange={props.onSelectPreset}
-              >
-                {groupPresets(props.presets).map(([category, presets]) => (
-                  <optgroup key={category} label={category}>
-                    {presets.map((preset) => (
-                      <option key={preset.id} value={preset.id}>
-                        {preset.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </SelectField>
+              <VisualPresetBrowser
+                presets={props.presets}
+                selectedScene={scene}
+                onSelectPreset={props.onSelectPreset}
+                onSelectVariant={props.onSelectVariant}
+              />
               <p className="preset-note">{scene.note}</p>
               <div className="preset-actions">
                 <button type="button" onClick={props.onDuplicatePreset}>

@@ -28,44 +28,6 @@ import type {
   TrackDraft,
 } from "../types";
 
-type PositionPresetId =
-  | "top-left"
-  | "top-center"
-  | "top-right"
-  | "middle-left"
-  | "center"
-  | "middle-right"
-  | "bottom-left"
-  | "bottom-center"
-  | "bottom-right";
-
-const positionPresetOptions: Array<[PositionPresetId, string]> = [
-  ["top-left", "Canto superior esquerdo"],
-  ["top-center", "Topo · centro"],
-  ["top-right", "Canto superior direito"],
-  ["middle-left", "Esquerda · centro"],
-  ["center", "Centro"],
-  ["middle-right", "Direita · centro"],
-  ["bottom-left", "Canto inferior esquerdo"],
-  ["bottom-center", "Base · centro"],
-  ["bottom-right", "Canto inferior direito"],
-];
-
-const coverSeriesPositionPresets: Record<
-  PositionPresetId,
-  Pick<CoverSeriesSettings, "x" | "y">
-> = {
-  "top-left": { x: 5, y: 7 },
-  "top-center": { x: 50, y: 7 },
-  "top-right": { x: 95, y: 7 },
-  "middle-left": { x: 5, y: 50 },
-  center: { x: 50, y: 50 },
-  "middle-right": { x: 95, y: 50 },
-  "bottom-left": { x: 5, y: 93 },
-  "bottom-center": { x: 50, y: 93 },
-  "bottom-right": { x: 95, y: 93 },
-};
-
 export const defaultCoverSeriesSettings: CoverSeriesSettings = {
   enabled: true,
   style: "roman",
@@ -156,11 +118,11 @@ export function coverSeriesMetaStyleForKey(
   );
 }
 
-function coverSeriesAlignForPositionPreset(
-  preset: PositionPresetId,
+export function coverSeriesAlignForPosition(
+  x: number,
 ): CoverSeriesMetaStyle["align"] {
-  if (preset.includes("left")) return "left";
-  if (preset.includes("right")) return "right";
+  if (x <= 33) return "left";
+  if (x >= 67) return "right";
   return "center";
 }
 
@@ -673,34 +635,19 @@ export function CoverSeriesEditor({
     <div className={`cover-series-editor ${compact ? "compact" : ""}`}>
       <div className="cover-series-section">
         <p className="cover-series-section-title">Posição da lista</p>
-        <SelectField
-          label="Posição predefinida"
-          value=""
-          onChange={(preset) => {
-            const presetId = preset as PositionPresetId;
-            const next = coverSeriesPositionPresets[presetId];
-            if (!next) return;
-            applyChange({
-              ...next,
-              metaStyles: coverSeriesAlignedMetaStyles(
-                settings,
-                coverSeriesAlignForPositionPreset(presetId),
-              ),
-            });
-          }}
-        >
-          <option value="">Escolher posição…</option>
-          {positionPresetOptions.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </SelectField>
         <div className="cover-series-editor-grid">
           <RangeField
             label="Horizontal"
             value={settings.x}
-            onChange={(x) => applyChange({ x })}
+            onChange={(x) =>
+              applyChange({
+                x,
+                metaStyles: coverSeriesAlignedMetaStyles(
+                  settings,
+                  coverSeriesAlignForPosition(x),
+                ),
+              })
+            }
           />
           <RangeField
             label="Vertical"

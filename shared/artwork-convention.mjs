@@ -77,10 +77,14 @@ export function chooseAlbumArtworkForTrack({ audioPath, artworkPaths }) {
     .sort(comparePaths);
   return (
     genericArtworkCandidates(
-      artwork.filter((candidate) => directoryOf(candidate) === artDirectory),
+      artwork.filter((candidate) =>
+        samePath(directoryOf(candidate), artDirectory),
+      ),
     )[0] ??
     genericArtworkCandidates(
-      artwork.filter((candidate) => directoryOf(candidate) === albumDirectory),
+      artwork.filter((candidate) =>
+        samePath(directoryOf(candidate), albumDirectory),
+      ),
     )[0] ??
     null
   );
@@ -106,8 +110,8 @@ export function listArtworkOptionsForTrack({
   const audioStem = stemOf(fileNameOf(normalizedAudioPath));
   const effectiveTrackNumber =
     Number(trackNumber) || leadingTrackNumber(audioStem) || 0;
-  const insideArtDirectory = artwork.filter(
-    (candidate) => directoryOf(candidate) === artDirectory,
+  const insideArtDirectory = artwork.filter((candidate) =>
+    samePath(directoryOf(candidate), artDirectory),
   );
 
   const candidates = [
@@ -119,12 +123,14 @@ export function listArtworkOptionsForTrack({
     ),
     ...artwork.filter(
       (candidate) =>
-        directoryOf(candidate) === audioDirectory &&
+        samePath(directoryOf(candidate), audioDirectory) &&
         matchesStem(candidate, audioStem),
     ),
     ...genericArtworkCandidates(insideArtDirectory),
     ...genericArtworkCandidates(
-      artwork.filter((candidate) => directoryOf(candidate) === albumDirectory),
+      artwork.filter((candidate) =>
+        samePath(directoryOf(candidate), albumDirectory),
+      ),
     ),
   ];
 
@@ -132,7 +138,7 @@ export function listArtworkOptionsForTrack({
     candidates.unshift(
       ...artwork.filter(
         (candidate) =>
-          directoryOf(candidate) === audioDirectory &&
+          samePath(directoryOf(candidate), audioDirectory) &&
           matchesStem(candidate, `${audioStem}.cover`),
       ),
     );
@@ -231,6 +237,12 @@ function normalizePath(value) {
     .replaceAll("\\", "/")
     .replace(/\/+/g, "/")
     .replace(/^\/|\/$/g, "");
+}
+
+function samePath(first, second) {
+  return (
+    normalizePath(first).toLowerCase() === normalizePath(second).toLowerCase()
+  );
 }
 
 function unique(values) {

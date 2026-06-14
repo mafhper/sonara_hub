@@ -191,37 +191,19 @@ try {
     .locator(".cover-series-overlay")
     .first()
     .waitFor();
-  await page.getByRole("button", { name: "Trocar imagem" }).waitFor();
+  await page
+    .getByRole("button", { name: /^Trocar capa desta faixa:/ })
+    .waitFor();
+  await page
+    .getByRole("button", { name: "Definir capa compartilhada do álbum" })
+    .waitFor();
   await page.getByRole("button", { name: "Estúdio visual" }).click();
   await ensurePanelOpen(page, "inspector");
 
-  const presetSelect = page.locator('select:has(option[value="vector-aura"])');
-  assert.equal(
-    await presetSelect.locator('option[value="playful-shapes"]').count(),
-    1,
-  );
-  assert.equal(
-    await presetSelect.locator('option[value="color-mesh"]').count(),
-    1,
-  );
-  assert.equal(
-    await presetSelect.locator('option[value="piano-ribbons"]').count(),
-    1,
-  );
-  for (const cloudPresetId of [
-    "volumetric-clouds-dawn",
-    "volumetric-clouds-noon",
-    "volumetric-clouds-sunset",
-    "volumetric-clouds-dusk",
-    "volumetric-clouds-midnight",
-  ]) {
-    assert.equal(
-      await presetSelect.locator(`option[value="${cloudPresetId}"]`).count(),
-      1,
-      `${cloudPresetId} should be available in the atmosphere picker`,
-    );
-  }
-  await presetSelect.selectOption("playful-shapes");
+  await page.getByRole("tab", { name: /Infantil/ }).click();
+  await page
+    .getByRole("button", { name: "Selecionar atmosfera Formas lúdicas" })
+    .click();
   await page.getByText("Conteúdo lúdico", { exact: true }).waitFor();
   await page.getByText("Retângulos", { exact: true }).waitFor();
   await page
@@ -236,14 +218,25 @@ try {
   await page.getByText("PALETAS", { exact: true }).waitFor();
   assert.equal(await page.locator(".palette-option-list button").count(), 4);
   await page.locator(".palette-option-list button").nth(1).click();
-  await presetSelect.selectOption("volumetric-clouds-sunset");
+  await page.getByRole("tab", { name: /Atmosferas/ }).click();
+  await page
+    .getByRole("button", { name: "Selecionar atmosfera Nuvens amplas" })
+    .click();
+  await page
+    .getByRole("button", {
+      name: "Aplicar variante Entardecer em Nuvens amplas",
+    })
+    .click();
   await page.getByText("Foco solar", { exact: true }).click();
   await page
     .locator(".inspector-group", { hasText: "Foco solar" })
     .locator('input[type="checkbox"]')
     .check();
   await page.getByText("Intensidade solar").waitFor();
-  await presetSelect.selectOption("vector-aura");
+  await page.getByRole("tab", { name: /Superficies/ }).click();
+  await page
+    .getByRole("button", { name: "Selecionar atmosfera Aura vetorial" })
+    .click();
   await page.waitForTimeout(450);
   const centerPixel = await page
     .locator("canvas.scene-canvas")
@@ -254,7 +247,7 @@ try {
       );
     });
   assert.ok(centerPixel.slice(0, 3).some((value) => value > 10));
-  await assertInterfaceThemeDoesNotChangeVisualSettings(page, presetSelect);
+  await assertInterfaceThemeDoesNotChangeVisualSettings(page);
 
   await page.getByText("Controles", { exact: true }).waitFor();
   await page.getByText("Presença").waitFor();
@@ -437,7 +430,7 @@ try {
     .getByLabel("Comentário ID3")
     .fill("Feito usando IA com curadoria humana.");
   await batchToolbar
-    .getByRole("button", { name: "Aplicar aos selecionados" })
+    .getByRole("button", { name: /^Aplicar dados comuns aos / })
     .click();
   await page
     .getByRole("status")
@@ -447,7 +440,7 @@ try {
     .getByRole("button", { name: "Sobrescrever informados" })
     .click();
   await batchToolbar
-    .getByRole("button", { name: "Aplicar aos selecionados" })
+    .getByRole("button", { name: /^Aplicar dados comuns aos / })
     .click();
   await page
     .getByRole("status")
@@ -514,8 +507,17 @@ try {
     .first();
   await overlay.waitFor();
   await artworkWorkspace
-    .locator('select:has(option[value="bottom-left"])')
-    .selectOption("bottom-left");
+    .getByLabel("Horizontal", { exact: true })
+    .first()
+    .evaluate((input) => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      ).set;
+      setter.call(input, "12");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
   await page.waitForFunction(
     () =>
       document
@@ -805,9 +807,9 @@ try {
   await duplicatePresetDialog
     .getByRole("button", { name: "Duplicar preset" })
     .click();
-  await page.locator('option:has-text("Aura smoke UI")').waitFor({
-    state: "attached",
-  });
+  await page
+    .getByRole("button", { name: "Selecionar atmosfera Aura smoke UI" })
+    .waitFor();
   const presetPayload = await fetchJsonWithRetry(
     "http://127.0.0.1:4175/api/visual-presets",
     undefined,
@@ -1241,13 +1243,10 @@ async function assertLocalSettings(page) {
   );
 }
 
-async function assertInterfaceThemeDoesNotChangeVisualSettings(
-  page,
-  presetSelect,
-) {
-  const before = await visualSettingsSignature(page, presetSelect);
+async function assertInterfaceThemeDoesNotChangeVisualSettings(page) {
+  const before = await visualSettingsSignature(page);
   await setInterfaceTheme(page, /^Golden/, "golden");
-  const after = await visualSettingsSignature(page, presetSelect);
+  const after = await visualSettingsSignature(page);
   assert.deepEqual(
     after,
     before,
@@ -1270,18 +1269,28 @@ async function setInterfaceTheme(page, buttonName, expectedTheme) {
   await page.getByRole("button", { name: "Fechar configurações" }).click();
 }
 
-async function visualSettingsSignature(page, presetSelect) {
+async function visualSettingsSignature(page) {
   return {
     colorInputs: await page
       .locator(".stack-detail input[type='color']")
       .evaluateAll((inputs) => inputs.map((input) => input.value)),
-    preset: await presetSelect.inputValue(),
+    preset: await page
+      .locator(".visual-preset-card.active .visual-preset-title strong")
+      .first()
+      .textContent(),
     ranges: await page
       .locator(".stack-detail input[type='range']")
       .evaluateAll((inputs) => inputs.map((input) => input.value)),
     selects: await page
       .locator(".stack-detail select")
       .evaluateAll((selects) => selects.map((select) => select.value)),
+    variant: await page
+      .locator(
+        ".visual-preset-card.active .visual-preset-variants button.active",
+      )
+      .first()
+      .textContent()
+      .catch(() => ""),
   };
 }
 

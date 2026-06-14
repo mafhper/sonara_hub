@@ -2091,6 +2091,21 @@ function App() {
     coverInputRef.current?.click();
   }
 
+  function chooseAlbumCover() {
+    setPendingCoverTrackId("");
+    coverInputRef.current?.click();
+  }
+
+  function useDetectedAlbumCover(trackId = selectedTrack?.id) {
+    const track = tracks.find((item) => item.id === trackId);
+    const detectedCover = track?.albumCoverSuggestion ?? track?.suggestedCover;
+    if (!detectedCover) return;
+    setCover({ file: detectedCover.file, src: detectedCover.src });
+    setBatchFeedback(
+      "Capa detectada definida como capa compartilhada do álbum.",
+    );
+  }
+
   function handleCoverFileSelected(file: File | undefined) {
     const trackId = pendingCoverTrackId;
     setPendingCoverTrackId("");
@@ -2280,6 +2295,12 @@ function App() {
     const preset =
       visualPresets.find((item) => item.id === id) ?? builtinVisualPresets[0];
     updateScene(normalizeVisualSettings(preset));
+  }
+
+  function selectPresetVariant(baseId: string, variantId: string) {
+    updateScene(
+      normalizeVisualSettings({ id: baseId, appliedVariantId: variantId }),
+    );
   }
 
   function updateCommon(key: string, value: number) {
@@ -4310,6 +4331,7 @@ function App() {
             selectedTrackId={selectedTrackId}
             seriesSettingsForTrack={seriesSettingsForTrack}
             onChooseCover={chooseCatalogCover}
+            onChooseAlbumCover={chooseAlbumCover}
             onClearCover={clearSelectedCover}
             onClearCoverSeriesOverride={clearCoverSeriesOverride}
             onCoverSeriesPatch={applyCoverSeriesPatch}
@@ -4317,6 +4339,7 @@ function App() {
             onSaveCoverSeriesDefault={saveCoverSeriesDefault}
             onSelectTrack={setSelectedTrackId}
             onSelectSuggestedCover={selectSuggestedCover}
+            onUseDetectedAlbumCover={useDetectedAlbumCover}
             tracks={reviewTracks}
           />
         ) : workspaceMode === "audio" && audioStageView === "podcast" ? (
@@ -4671,6 +4694,7 @@ function App() {
                 onUndoLayer={undoLayers}
                 onUpdateLayer={updateLayer}
                 onSelectPreset={selectPreset}
+                onSelectVariant={selectPresetVariant}
                 onWaveform={updateWaveform}
                 onApplyBatch={
                   workflowMode === "batch" ? applyVisualToBatch : undefined
