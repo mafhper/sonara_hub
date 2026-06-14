@@ -7,6 +7,15 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  createSceneRuntime,
+  type SceneComposition,
+} from "../../shared/canvas-scene-runtime.mjs";
+import {
+  builtinVisualPresets,
+  normalizeVisualSettings,
+  type ScenePresetV3,
+} from "../../shared/visual-effects.mjs";
 import auroraWave from "./assets/aurora-wave.webp";
 import heroAmbient from "./assets/hero-ambient.webp";
 import heroCoverAzul from "./assets/hero-cover-azul.webp";
@@ -48,27 +57,27 @@ type Principle = {
 type Locale = "pt-BR" | "en" | "es";
 type AtmosphereLabId =
   | "neural-haze"
-  | "playful-forms"
+  | "playful-shapes"
   | "starfield"
   | "iridescent-bloom";
-type AtmospherePaletteId = "dawn" | "prism" | "nocturne";
+type AtmospherePaletteId = "original" | "prism" | "deep";
 
 const supportedLocales: Locale[] = ["pt-BR", "en", "es"];
 const atmosphereLabIds: AtmosphereLabId[] = [
   "neural-haze",
-  "playful-forms",
+  "playful-shapes",
   "starfield",
   "iridescent-bloom",
 ];
 const atmospherePaletteIds: AtmospherePaletteId[] = [
-  "dawn",
+  "original",
   "prism",
-  "nocturne",
+  "deep",
 ];
-const atmospherePaletteColors: Record<AtmospherePaletteId, string[]> = {
-  dawn: ["#0b1720", "#3d7f91", "#f0bf74", "#f6e0b4"],
-  prism: ["#090a12", "#7ccfce", "#d69d54", "#c9dbff"],
-  nocturne: ["#06070b", "#1b2440", "#6d7fc8", "#e7ecff"],
+const atmospherePaletteFallbackColors: Record<AtmospherePaletteId, string[]> = {
+  original: ["#0b1026", "#5b3fb0", "#f5b8e0"],
+  prism: ["#090a12", "#7ccfce", "#c9dbff"],
+  deep: ["#020817", "#7dd3fc", "#a78bfa"],
 };
 
 const siteCopy = {
@@ -201,7 +210,7 @@ const siteCopy = {
       lab: {
         label: "Laboratório de atmosferas",
         title: "Experimente o clima antes de abrir o app.",
-        body: "A prévia abaixo é uma versão leve para o site: ela não substitui o renderer do Sonara Hub, mas mostra como as novas famílias variam em paleta, movimento e intensidade.",
+        body: "A prévia abaixo usa os mesmos presets e o mesmo runtime visual do Sonara Hub, em uma cena leve para o site, para mostrar como as famílias variam em paleta, movimento e intensidade.",
         previewAria: "Prévia interativa da atmosfera selecionada",
         controls: {
           atmosphere: "Atmosfera",
@@ -210,9 +219,9 @@ const siteCopy = {
           intensity: "Intensidade",
         },
         palettes: {
-          dawn: "Amanhecer",
+          original: "Original",
           prism: "Prisma",
-          nocturne: "Noturno",
+          deep: "Profunda",
         },
         presets: {
           "neural-haze": {
@@ -220,7 +229,7 @@ const siteCopy = {
             description: "Rede orgânica com contornos suaves e brilho difuso.",
             tags: ["orgânico", "névoa", "rede"],
           },
-          "playful-forms": {
+          "playful-shapes": {
             name: "Formas lúdicas",
             description:
               "Blocos, círculos e órbitas gentis para climas infantis.",
@@ -514,7 +523,7 @@ storage: autosave local`,
       lab: {
         label: "Atmosphere lab",
         title: "Try the mood before opening the app.",
-        body: "The preview below is a lightweight site version: it does not replace the Sonara Hub renderer, but it shows how the new families shift across palette, motion and intensity.",
+        body: "The preview below uses the same presets and visual runtime as Sonara Hub in a lightweight site scene, showing how the families shift across palette, motion and intensity.",
         previewAria: "Interactive preview of the selected atmosphere",
         controls: {
           atmosphere: "Atmosphere",
@@ -523,9 +532,9 @@ storage: autosave local`,
           intensity: "Intensity",
         },
         palettes: {
-          dawn: "Dawn",
+          original: "Original",
           prism: "Prism",
-          nocturne: "Nocturne",
+          deep: "Deep",
         },
         presets: {
           "neural-haze": {
@@ -533,7 +542,7 @@ storage: autosave local`,
             description: "Organic network with soft contours and diffuse glow.",
             tags: ["organic", "haze", "network"],
           },
-          "playful-forms": {
+          "playful-shapes": {
             name: "Playful forms",
             description:
               "Blocks, circles and gentle orbits for childlike moods.",
@@ -832,7 +841,7 @@ storage: local autosave`,
       lab: {
         label: "Laboratorio de atmósferas",
         title: "Prueba el clima antes de abrir la app.",
-        body: "La vista previa de abajo es una versión ligera para el sitio: no reemplaza el renderer de Sonara Hub, pero muestra cómo las nuevas familias cambian con paleta, movimiento e intensidad.",
+        body: "La vista previa de abajo usa los mismos presets y el mismo runtime visual de Sonara Hub en una escena ligera para el sitio, mostrando cómo las familias cambian con paleta, movimiento e intensidad.",
         previewAria: "Vista previa interactiva de la atmósfera seleccionada",
         controls: {
           atmosphere: "Atmósfera",
@@ -841,9 +850,9 @@ storage: local autosave`,
           intensity: "Intensidad",
         },
         palettes: {
-          dawn: "Amanecer",
+          original: "Original",
           prism: "Prisma",
-          nocturne: "Nocturno",
+          deep: "Profunda",
         },
         presets: {
           "neural-haze": {
@@ -851,7 +860,7 @@ storage: local autosave`,
             description: "Red orgánica con contornos suaves y brillo difuso.",
             tags: ["orgánico", "niebla", "red"],
           },
-          "playful-forms": {
+          "playful-shapes": {
             name: "Formas lúdicas",
             description:
               "Bloques, círculos y órbitas suaves para climas infantiles.",
@@ -1655,41 +1664,51 @@ function AtmosphereLab() {
   const [motion, setMotion] = useState(58);
   const [intensity, setIntensity] = useState(68);
   const selectedPreset = copy.visualSystem.lab.presets[selected];
+  const selectedScene = useMemo(
+    () => createSiteAtmosphereScene(selected, palette, motion, intensity),
+    [intensity, motion, palette, selected],
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const context = canvas.getContext("2d");
-    if (!context) return;
 
     const reducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
+    const runtime = createSceneRuntime(canvas, selectedScene, {
+      showMetadata: false,
+    } satisfies SceneComposition);
     let frame = 0;
     let visible = true;
     const startedAt = performance.now();
 
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
-      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
-      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+      runtime.resize(rect.width, rect.height);
     };
 
     const draw = (now: number) => {
-      const rect = canvas.getBoundingClientRect();
       const time = reducedMotion
         ? 0
         : ((now - startedAt) / 1000) * (motion / 60);
-      drawAtmospherePreview(context, {
-        width: rect.width,
-        height: rect.height,
-        time,
-        intensity: intensity / 100,
-        palette: atmospherePaletteColors[palette],
-        selected,
+      const pulse = reducedMotion
+        ? 0.18
+        : 0.22 + Math.sin(time * 0.9) * 0.08 + intensity / 360;
+      runtime.setAudio({
+        energy: pulse,
+        bass: pulse * 0.82,
+        mid: pulse * 0.7,
+        high: pulse * 0.58,
+        centroid: 0.42 + Math.sin(time * 0.17) * 0.08,
+        flux: pulse * 0.34,
+        onset: Math.max(0, Math.sin(time * 0.72)) * 0.18,
+        beat: Math.max(0, Math.sin(time * 0.5)) * 0.22,
+        beatPhase: (time * 0.18) % 1,
+        samples: [],
+        spectrum: [],
       });
+      runtime.render(time, 24);
 
       if (!reducedMotion && visible) {
         frame = window.requestAnimationFrame(draw);
@@ -1717,8 +1736,9 @@ function AtmosphereLab() {
       observer.disconnect();
       window.removeEventListener("resize", resize);
       if (frame) window.cancelAnimationFrame(frame);
+      runtime.destroy();
     };
-  }, [intensity, motion, palette, selected]);
+  }, [intensity, motion, selectedScene]);
 
   return (
     <div className="atmosphere-lab">
@@ -1772,7 +1792,7 @@ function AtmosphereLab() {
                   onClick={() => setPalette(id)}
                 >
                   <span className="palette-swatch" aria-hidden="true">
-                    {atmospherePaletteColors[id].slice(1).map((color) => (
+                    {siteAtmosphereSwatches(selected, id).map((color) => (
                       <i key={color} style={{ background: color }} />
                     ))}
                   </span>
@@ -1816,412 +1836,55 @@ function AtmosphereLab() {
   );
 }
 
-type AtmosphereDrawOptions = {
-  width: number;
-  height: number;
-  time: number;
-  intensity: number;
-  palette: string[];
-  selected: AtmosphereLabId;
-};
-
-function drawAtmospherePreview(
-  context: CanvasRenderingContext2D,
-  options: AtmosphereDrawOptions,
-) {
-  const { width, height, palette, intensity, selected, time } = options;
-  context.clearRect(0, 0, width, height);
-
-  const background = context.createLinearGradient(0, 0, width, height);
-  background.addColorStop(0, palette[0]);
-  background.addColorStop(0.52, mixColor(palette[0], palette[1], 0.38));
-  background.addColorStop(0.82, mixColor(palette[0], palette[2], 0.26));
-  background.addColorStop(1, "#020308");
-  context.fillStyle = background;
-  context.fillRect(0, 0, width, height);
-
-  const bloom = context.createRadialGradient(
-    width * 0.64,
-    height * 0.42,
-    0,
-    width * 0.64,
-    height * 0.42,
-    Math.max(width, height) * 0.68,
-  );
-  bloom.addColorStop(0, withAlpha(palette[1], 0.32 * intensity));
-  bloom.addColorStop(0.44, withAlpha(palette[2], 0.14 * intensity));
-  bloom.addColorStop(1, "rgba(255,255,255,0)");
-  context.fillStyle = bloom;
-  context.fillRect(0, 0, width, height);
-
-  if (selected === "neural-haze") {
-    drawNeuralHaze(context, width, height, time, intensity, palette);
-  } else if (selected === "playful-forms") {
-    drawPlayfulForms(context, width, height, time, intensity, palette);
-  } else if (selected === "starfield") {
-    drawStarfield(context, width, height, time, intensity, palette);
-  } else {
-    drawIridescentBloom(context, width, height, time, intensity, palette);
-  }
-
-  const vignette = context.createRadialGradient(
-    width * 0.5,
-    height * 0.46,
-    0,
-    width * 0.5,
-    height * 0.5,
-    Math.max(width, height) * 0.72,
-  );
-  vignette.addColorStop(0, "rgba(255,255,255,0)");
-  vignette.addColorStop(0.72, "rgba(0,0,0,0.1)");
-  vignette.addColorStop(1, "rgba(0,0,0,0.48)");
-  context.fillStyle = vignette;
-  context.fillRect(0, 0, width, height);
-}
-
-function drawStarfield(
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  time: number,
+function createSiteAtmosphereScene(
+  id: AtmosphereLabId,
+  paletteId: AtmospherePaletteId,
+  motion: number,
   intensity: number,
-  palette: string[],
-) {
-  const centerX = width * 0.5 + Math.sin(time * 0.16) * width * 0.04;
-  const centerY = height * 0.46 + Math.cos(time * 0.12) * height * 0.04;
-  const nebula = context.createRadialGradient(
-    centerX,
-    centerY,
-    0,
-    centerX,
-    centerY,
-    Math.max(width, height) * 0.58,
+): ScenePresetV3 {
+  const base = normalizeVisualSettings(
+    builtinVisualPresets.find((preset) => preset.id === id) ??
+      builtinVisualPresets[0],
   );
-  nebula.addColorStop(0, withAlpha(palette[1], 0.28 * intensity));
-  nebula.addColorStop(0.28, withAlpha(palette[2], 0.12 * intensity));
-  nebula.addColorStop(1, "rgba(255,255,255,0)");
-  context.fillStyle = nebula;
-  context.fillRect(0, 0, width, height);
+  const selectedPalette =
+    base.palettes.find((candidate) => candidate.id === paletteId) ??
+    base.palettes[0];
+  const common = selectedPalette?.common ?? base.common;
 
-  context.save();
-  context.translate(centerX, centerY);
-  context.rotate(-0.18 + Math.sin(time * 0.09) * 0.03);
-  for (let band = 0; band < 5; band += 1) {
-    context.beginPath();
-    context.ellipse(
-      0,
-      0,
-      width * (0.18 + band * 0.075),
-      height * (0.045 + band * 0.014),
-      band * 0.08,
-      0,
-      Math.PI * 2,
-    );
-    context.strokeStyle = withAlpha(
-      band % 2 ? palette[2] : palette[3],
-      0.08 + intensity * 0.05,
-    );
-    context.lineWidth = 1.1 + band * 0.35;
-    context.stroke();
-  }
-  context.restore();
-
-  context.globalCompositeOperation = "lighter";
-  for (let star = 0; star < 130; star += 1) {
-    const depth = 0.35 + ((star * 37) % 100) / 100;
-    const drift = time * (8 + depth * 18);
-    const x = ((star * 83 + drift) % (width + 80)) - 40;
-    const y = (star * 47 + Math.sin(time * 0.12 + star) * 9) % height;
-    const radius = 0.55 + depth * 1.9;
-    const twinkle =
-      0.22 + Math.abs(Math.sin(time * (0.8 + depth) + star)) * 0.46;
-    context.beginPath();
-    context.arc(x, y, radius, 0, Math.PI * 2);
-    context.fillStyle = withAlpha(star % 3 ? palette[3] : palette[2], twinkle);
-    context.fill();
-  }
-  context.globalCompositeOperation = "source-over";
+  return normalizeVisualSettings({
+    ...base,
+    colors: selectedPalette?.colors ?? base.colors,
+    common: {
+      ...base.common,
+      ...common,
+      speed: clampPercent((common.speed ?? base.common.speed) + motion / 8 - 6),
+      brightness: clampPercent(
+        (common.brightness ?? base.common.brightness) + intensity / 10 - 5,
+      ),
+      audioReaction: clampPercent(
+        (common.audioReaction ?? base.common.audioReaction) +
+          intensity / 14 -
+          4,
+      ),
+    },
+    advanced: {
+      ...base.advanced,
+      ...(selectedPalette?.advanced ?? {}),
+    },
+  });
 }
 
-function drawPlayfulForms(
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  time: number,
-  intensity: number,
-  palette: string[],
+function siteAtmosphereSwatches(
+  id: AtmosphereLabId,
+  paletteId: AtmospherePaletteId,
 ) {
-  const centerX = width * 0.52;
-  const centerY = height * 0.52;
-  const core = context.createRadialGradient(
-    centerX,
-    centerY,
-    0,
-    centerX,
-    centerY,
-    width * 0.36,
-  );
-  core.addColorStop(0, withAlpha(palette[2], 0.46 * intensity));
-  core.addColorStop(0.22, withAlpha(palette[3], 0.16 * intensity));
-  core.addColorStop(1, "rgba(255,255,255,0)");
-  context.fillStyle = core;
-  context.fillRect(0, 0, width, height);
-
-  for (let orbit = 0; orbit < 4; orbit += 1) {
-    context.beginPath();
-    context.ellipse(
-      centerX,
-      centerY,
-      width * (0.16 + orbit * 0.08),
-      height * (0.07 + orbit * 0.035),
-      -0.4 + orbit * 0.22,
-      0,
-      Math.PI * 2,
-    );
-    context.strokeStyle = withAlpha(palette[3], 0.08 + intensity * 0.06);
-    context.lineWidth = 1.4;
-    context.stroke();
-  }
-
-  for (let shape = 0; shape < 18; shape += 1) {
-    const angle = shape * 0.82 + time * (0.12 + (shape % 3) * 0.04);
-    const radius = width * (0.09 + (shape % 5) * 0.045);
-    const x = centerX + Math.cos(angle) * radius * 1.3;
-    const y = centerY + Math.sin(angle) * radius * 0.72;
-    const size = 14 + ((shape * 7) % 34) + intensity * 10;
-    const color = palette[(shape % (palette.length - 1)) + 1];
-
-    context.save();
-    context.translate(x, y);
-    context.rotate(angle * 0.4);
-    context.shadowBlur = 14;
-    context.shadowColor = withAlpha(color, 0.44);
-    context.fillStyle = withAlpha(color, 0.22 + intensity * 0.22);
-    if (shape % 3 === 0) {
-      roundedRectPath(
-        context,
-        -size * 0.6,
-        -size * 0.42,
-        size * 1.2,
-        size * 0.84,
-        size * 0.22,
-      );
-      context.fill();
-    } else if (shape % 3 === 1) {
-      context.beginPath();
-      context.arc(0, 0, size * 0.46, 0, Math.PI * 2);
-      context.fill();
-    } else {
-      context.beginPath();
-      context.moveTo(0, -size * 0.56);
-      context.lineTo(size * 0.5, size * 0.36);
-      context.lineTo(-size * 0.5, size * 0.36);
-      context.closePath();
-      context.fill();
-    }
-    context.restore();
-  }
-  context.shadowBlur = 0;
+  const scene = createSiteAtmosphereScene(id, paletteId, 50, 50);
+  const colors = scene.colors ?? {};
+  return [colors.effect, colors.light, colors.base].filter(Boolean).slice(0, 3);
 }
 
-function drawNeuralHaze(
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  time: number,
-  intensity: number,
-  palette: string[],
-) {
-  for (let blob = 0; blob < 26; blob += 1) {
-    const x =
-      width * (0.12 + ((blob * 0.173 + Math.sin(time * 0.05 + blob)) % 0.78));
-    const y =
-      height * (0.14 + ((blob * 0.119 + Math.cos(time * 0.04 + blob)) % 0.72));
-    const radius = 54 + ((blob * 23) % 120);
-    const haze = context.createRadialGradient(x, y, 0, x, y, radius);
-    haze.addColorStop(0, withAlpha(blob % 2 ? palette[1] : palette[2], 0.14));
-    haze.addColorStop(1, "rgba(255,255,255,0)");
-    context.fillStyle = haze;
-    context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-  }
-
-  context.shadowBlur = 10;
-  context.shadowColor = withAlpha(palette[1], 0.35);
-  const nodes = Array.from({ length: 18 }, (_, node) => ({
-    x: width * (0.16 + ((node * 0.197 + Math.sin(time * 0.07 + node)) % 0.68)),
-    y: height * (0.18 + ((node * 0.163 + Math.cos(time * 0.06 + node)) % 0.62)),
-  }));
-  for (let node = 0; node < nodes.length; node += 1) {
-    const current = nodes[node];
-    const next = nodes[(node + 5) % nodes.length];
-    context.beginPath();
-    context.moveTo(current.x, current.y);
-    context.lineTo(next.x, next.y);
-    context.strokeStyle = withAlpha(palette[node % 2 ? 2 : 3], 0.1);
-    context.lineWidth = 1.1;
-    context.stroke();
-  }
-  for (let contour = 0; contour < 14; contour += 1) {
-    context.beginPath();
-    for (let point = 0; point <= 120; point += 1) {
-      const t = point / 120;
-      const angle = t * Math.PI * 2;
-      const base = 72 + contour * 19;
-      const wobble =
-        Math.sin(angle * 3 + time * 0.38 + contour) * 15 +
-        Math.cos(angle * 5 - time * 0.22) * 8;
-      const x = width * 0.5 + Math.cos(angle) * (base + wobble) * 1.45;
-      const y = height * 0.5 + Math.sin(angle) * (base + wobble) * 0.78;
-      if (point === 0) context.moveTo(x, y);
-      else context.lineTo(x, y);
-    }
-    context.closePath();
-    context.strokeStyle = withAlpha(
-      contour % 2 ? palette[3] : palette[1],
-      0.11 + intensity * 0.09,
-    );
-    context.lineWidth = 1.2 + intensity * 1.4;
-    context.stroke();
-  }
-  for (const [index, node] of nodes.entries()) {
-    context.beginPath();
-    context.arc(node.x, node.y, 2.6 + (index % 3), 0, Math.PI * 2);
-    context.fillStyle = withAlpha(index % 2 ? palette[1] : palette[3], 0.5);
-    context.fill();
-  }
-  context.shadowBlur = 0;
-}
-
-function drawIridescentBloom(
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  time: number,
-  intensity: number,
-  palette: string[],
-) {
-  context.globalCompositeOperation = "lighter";
-  for (let beam = 0; beam < 4; beam += 1) {
-    context.save();
-    context.translate(width * (0.18 + beam * 0.19), height * 0.54);
-    context.rotate(-0.62 + beam * 0.34 + Math.sin(time * 0.1) * 0.04);
-    const beamGradient = context.createLinearGradient(
-      -width * 0.44,
-      0,
-      width * 0.44,
-      0,
-    );
-    beamGradient.addColorStop(0, "rgba(255,255,255,0)");
-    beamGradient.addColorStop(
-      0.42,
-      withAlpha(palette[beam % 2 ? 2 : 1], 0.08 + intensity * 0.16),
-    );
-    beamGradient.addColorStop(
-      0.5,
-      withAlpha(palette[3], 0.24 + intensity * 0.2),
-    );
-    beamGradient.addColorStop(
-      0.58,
-      withAlpha(palette[beam % 2 ? 1 : 2], 0.08 + intensity * 0.16),
-    );
-    beamGradient.addColorStop(1, "rgba(255,255,255,0)");
-    context.fillStyle = beamGradient;
-    context.fillRect(
-      -width * 0.56,
-      -height * 0.04,
-      width * 1.12,
-      height * 0.08,
-    );
-    context.restore();
-  }
-
-  for (let flare = 0; flare < 28; flare += 1) {
-    const x = (flare * 83 + time * 42) % width;
-    const y = height * (0.18 + ((flare * 0.137) % 0.66));
-    const radius = 22 + ((flare * 13) % 54);
-    const glow = context.createRadialGradient(x, y, 0, x, y, radius);
-    glow.addColorStop(0, withAlpha(flare % 2 ? palette[2] : palette[3], 0.1));
-    glow.addColorStop(1, "rgba(255,255,255,0)");
-    context.fillStyle = glow;
-    context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-  }
-
-  for (let trail = 0; trail < 13; trail += 1) {
-    const yBase = height * (0.22 + trail * 0.052);
-    const gradient = context.createLinearGradient(0, yBase, width, yBase);
-    gradient.addColorStop(0, "rgba(255,255,255,0)");
-    gradient.addColorStop(
-      0.28,
-      withAlpha(trail % 2 ? palette[1] : palette[2], 0.34),
-    );
-    gradient.addColorStop(0.58, withAlpha(palette[3], 0.52));
-    gradient.addColorStop(0.72, withAlpha(palette[2], 0.28));
-    gradient.addColorStop(1, "rgba(255,255,255,0)");
-    context.beginPath();
-    for (let x = -20; x <= width + 20; x += 12) {
-      const y =
-        yBase +
-        Math.sin(x * 0.012 + time * (0.7 + trail * 0.035) + trail) *
-          (26 + intensity * 26) +
-        Math.sin(x * 0.005 - time * 0.36) * 16;
-      if (x === -20) context.moveTo(x, y);
-      else context.lineTo(x, y);
-    }
-    context.shadowBlur = 18 + intensity * 18;
-    context.shadowColor = withAlpha(trail % 2 ? palette[1] : palette[2], 0.5);
-    context.strokeStyle = gradient;
-    context.lineWidth = 1.8 + intensity * 5.4;
-    context.stroke();
-  }
-  context.shadowBlur = 0;
-  context.globalCompositeOperation = "source-over";
-}
-
-function roundedRectPath(
-  context: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number,
-) {
-  const corner = Math.min(radius, width / 2, height / 2);
-  context.beginPath();
-  context.moveTo(x + corner, y);
-  context.lineTo(x + width - corner, y);
-  context.quadraticCurveTo(x + width, y, x + width, y + corner);
-  context.lineTo(x + width, y + height - corner);
-  context.quadraticCurveTo(
-    x + width,
-    y + height,
-    x + width - corner,
-    y + height,
-  );
-  context.lineTo(x + corner, y + height);
-  context.quadraticCurveTo(x, y + height, x, y + height - corner);
-  context.lineTo(x, y + corner);
-  context.quadraticCurveTo(x, y, x + corner, y);
-  context.closePath();
-}
-
-function withAlpha(hex: string, alpha: number) {
-  const [r, g, b] = hexToRgb(hex);
-  return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
-}
-
-function mixColor(first: string, second: string, amount: number) {
-  const a = hexToRgb(first);
-  const b = hexToRgb(second);
-  const mix = a.map((value, index) =>
-    Math.round(value + (b[index] - value) * amount),
-  );
-  return `rgb(${mix[0]}, ${mix[1]}, ${mix[2]})`;
-}
-
-function hexToRgb(hex: string) {
-  const normalized = hex.replace("#", "");
-  const value = Number.parseInt(normalized, 16);
-  return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+function clampPercent(value: number) {
+  return Math.max(0, Math.min(100, value));
 }
 
 function Workflow() {

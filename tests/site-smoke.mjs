@@ -150,7 +150,7 @@ try {
       }
       let total = 0;
       for (let i = 0; i < image.length; i += 4) {
-        total += image[i] + image[i + 1] + image[i + 2] + image[i + 3];
+        total += image[i] + image[i + 1] + image[i + 2];
       }
       return { width: element.width, height: element.height, pixels: total };
     });
@@ -187,6 +187,10 @@ try {
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await page.waitForTimeout(250);
+  await page.screenshot({
+    path: path.join(screenshotDir, "lab.png"),
+    fullPage: false,
+  });
   const labSample = await page
     .locator('[data-testid="atmosphere-lab-canvas"]')
     .evaluate((canvas) => {
@@ -201,7 +205,7 @@ try {
       const image = ctx.getImageData(sampleX, sampleY, 24, 24).data;
       let total = 0;
       for (let i = 0; i < image.length; i += 4) {
-        total += image[i] + image[i + 1] + image[i + 2] + image[i + 3];
+        total += image[i] + image[i + 1] + image[i + 2];
       }
       return { width: element.width, height: element.height, pixels: total };
     });
