@@ -975,16 +975,18 @@ svg {
 
 .library-footer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-2);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-1);
   padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--border-soft);
 }
 
 .library-footer-mode {
-  justify-self: end;
+  max-width: 100%;
+  justify-self: start;
   border: none;
+  border-radius: 999px;
   background: transparent;
   padding: 0;
   cursor: pointer;
@@ -1682,9 +1684,10 @@ svg {
 }
 
 .batch-toolbar-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(104px, 132px) max-content;
   align-items: end;
+  justify-content: start;
   gap: 9px;
   margin-top: 10px;
 }
@@ -1699,18 +1702,20 @@ svg {
 }
 
 .batch-toolbar-actions .field {
-  flex: 0 0 118px;
+  width: 100%;
 }
 
 .batch-toolbar-actions .primary-action,
 .batch-toolbar-actions .upload-action {
-  flex: 1 1 260px;
-  min-width: 0;
-  min-height: 31px;
+  width: auto;
+  min-width: max-content;
+  max-width: 260px;
+  min-height: var(--control-height);
   justify-content: center;
+  padding-inline: 14px;
   line-height: 1.2;
   text-align: center;
-  white-space: normal;
+  white-space: nowrap;
 }
 
 .batch-toolbar-actions button:disabled {
@@ -4578,16 +4583,20 @@ button:disabled {
 .library-mode-badge {
   display: inline-flex;
   width: fit-content;
-  min-height: 28px;
+  max-width: 100%;
+  min-height: 24px;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--status-ok-border);
   border-radius: 999px;
   background: color-mix(in srgb, var(--status-ok) 14%, transparent);
   color: var(--status-ok);
-  font-size: var(--font-sm);
-  line-height: 1.15;
-  padding: 3px 10px;
+  overflow: hidden;
+  padding: 0 8px;
+  font-size: var(--font-xs);
+  font-weight: 720;
+  line-height: 1;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

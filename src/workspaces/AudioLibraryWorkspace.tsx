@@ -165,6 +165,7 @@ export function AudioLibraryWorkspace({
           <div className="batch-toolbar-body">
             <div className="batch-apply-mode" aria-label="Modo de aplicação">
               <button
+                aria-pressed={batchApplyMode === "fill-empty"}
                 className={batchApplyMode === "fill-empty" ? "active" : ""}
                 type="button"
                 onClick={() => onBatchApplyMode("fill-empty")}
@@ -172,6 +173,7 @@ export function AudioLibraryWorkspace({
                 Preencher vazios
               </button>
               <button
+                aria-pressed={batchApplyMode === "overwrite"}
                 className={batchApplyMode === "overwrite" ? "active" : ""}
                 type="button"
                 onClick={() => onBatchApplyMode("overwrite")}
@@ -252,6 +254,7 @@ export function AudioLibraryWorkspace({
                 }
               />
               <button
+                aria-label={`Aplicar dados comuns aos ${selectedCount} arquivos selecionados`}
                 className="primary-action"
                 disabled={selectedCount === 0}
                 type="button"
