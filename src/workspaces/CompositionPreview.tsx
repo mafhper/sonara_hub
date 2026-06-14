@@ -29,6 +29,11 @@ export type PreviewAudioBands = {
   bass: number;
   mid: number;
   high: number;
+  centroid: number;
+  flux: number;
+  onset: number;
+  beat: number;
+  beatPhase: number;
   samples: number[];
   spectrum: number[];
 };

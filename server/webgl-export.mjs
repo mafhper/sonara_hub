@@ -450,13 +450,21 @@ export function buildRendererHtml({
     runtime.resize(${size.width}, ${size.height});
 
     function audioAt(time) {
-      if (!audioEnvelope.frames.length) return { energy: 0, bass: 0, mid: 0, high: 0, samples: [], spectrum: [] };
+      if (!audioEnvelope.frames.length) return { energy: 0, bass: 0, mid: 0, high: 0, centroid: 0, flux: 0, onset: 0, beat: 0, beatPhase: 0, samples: [], spectrum: [] };
       const position = Math.max(0, time * audioEnvelope.frameRate);
       const leftIndex = Math.min(audioEnvelope.frames.length - 1, Math.floor(position));
       const rightIndex = Math.min(audioEnvelope.frames.length - 1, leftIndex + 1);
       const mix = position - leftIndex;
       const left = audioEnvelope.frames[leftIndex], right = audioEnvelope.frames[rightIndex];
       const lerp = (a, b) => a + (b - a) * mix;
+      const nearest = (a, b) => (mix < 0.5 ? a : b);
+      const lerpPhase = (a, b) => {
+        let rightPhase = b;
+        if (rightPhase - a > 0.5) rightPhase -= 1;
+        if (a - rightPhase > 0.5) rightPhase += 1;
+        const value = lerp(a, rightPhase);
+        return value - Math.floor(value);
+      };
       const lerpArray = (a = [], b = []) => {
         const length = Math.max(a.length, b.length);
         return Array.from({ length }, (_, index) => lerp(a[index] ?? 0, b[index] ?? 0));
@@ -466,6 +474,11 @@ export function buildRendererHtml({
         bass: lerp(left.bass, right.bass),
         mid: lerp(left.mid, right.mid),
         high: lerp(left.high, right.high),
+        centroid: lerp(left.centroid ?? 0, right.centroid ?? 0),
+        flux: lerp(left.flux ?? 0, right.flux ?? 0),
+        onset: lerp(left.onset ?? 0, right.onset ?? 0),
+        beat: nearest(left.beat ?? 0, right.beat ?? 0),
+        beatPhase: lerpPhase(left.beatPhase ?? 0, right.beatPhase ?? 0),
         samples: lerpArray(left.samples, right.samples),
         spectrum: lerpArray(left.spectrum, right.spectrum),
       };

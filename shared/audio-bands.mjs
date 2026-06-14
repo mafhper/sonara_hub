@@ -63,11 +63,32 @@ export function computeAudioBands(frequency, waveform, sampleRate, fftSize) {
     return averageBins(start, end);
   });
 
+  // Spectral centroid (brightness) — stateless, so the live preview can react
+  // to it too. flux/onset/beat/beatPhase need temporal history and are only
+  // computed offline in server/audio-envelope.mjs; here they stay 0 (the shader
+  // uniforms read `?? 0`) while keeping the AudioFrameV2 keys present so preview
+  // and export share one contract.
+  let centroidWeighted = 0;
+  let centroidTotal = 0;
+  for (let index = 0; index < spectrum.length; index += 1) {
+    centroidWeighted += index * spectrum[index];
+    centroidTotal += spectrum[index];
+  }
+  const centroid =
+    centroidTotal > 1e-6
+      ? centroidWeighted / centroidTotal / Math.max(1, spectrum.length - 1)
+      : 0;
+
   return {
     energy,
     bass: band(PREVIEW_BAND_HZ.bass),
     mid: band(PREVIEW_BAND_HZ.mid),
     high: band(PREVIEW_BAND_HZ.high),
+    centroid,
+    flux: 0,
+    onset: 0,
+    beat: 0,
+    beatPhase: 0,
     samples,
     spectrum,
   };

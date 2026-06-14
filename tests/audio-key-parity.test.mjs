@@ -118,3 +118,57 @@ test("samples and spectrum match the export frame array lengths", () => {
   );
   assert.equal(bands.samples.length, Math.ceil(FFT_SIZE / 6));
 });
+
+test("envelope exposes rhythm/timbre features in valid ranges", () => {
+  const length = SAMPLE_RATE * 2;
+  const samples = new Int16Array(length);
+  // Alternating tone bursts so the spectrum changes frame-to-frame (-> flux).
+  for (let index = 0; index < length; index += 1) {
+    const frequency = Math.floor((index / 8000) * 4) % 2 === 0 ? 220 : 1500;
+    samples[index] = Math.round(
+      10000 * Math.sin((2 * Math.PI * frequency * index) / 8000),
+    );
+  }
+  const { frames } = analyzePcmEnvelope(samples, 8000, 12);
+  assert.ok(frames.length > 4, "expected several frames");
+  let sawFlux = false;
+  for (const frame of frames) {
+    for (const key of ["centroid", "flux", "onset", "beatPhase"]) {
+      assert.ok(frame[key] >= 0 && frame[key] <= 1, `${key} in [0,1]`);
+    }
+    assert.ok(frame.beat === 0 || frame.beat === 1, "beat is 0|1");
+    if (frame.flux > 0) sawFlux = true;
+  }
+  assert.ok(sawFlux, "a spectrum-changing signal should produce flux");
+});
+
+test("envelope rhythm features are zero for silence", () => {
+  const { frames } = analyzePcmEnvelope(new Int16Array(SAMPLE_RATE), 8000, 12);
+  for (const frame of frames) {
+    assert.equal(frame.flux, 0);
+    assert.equal(frame.onset, 0);
+    assert.equal(frame.beat, 0);
+    assert.equal(frame.centroid, 0);
+  }
+});
+
+test("preview centroid is in range and zero without spectral energy", () => {
+  const bright = computeAudioBands(
+    frequencyLoudInHz(...PREVIEW_BAND_HZ.high),
+    sineWaveform(3000),
+    SAMPLE_RATE,
+    FFT_SIZE,
+  );
+  assert.ok(bright.centroid > 0 && bright.centroid <= 1, "centroid in (0,1]");
+
+  const silent = computeAudioBands(
+    new Uint8Array(BIN_COUNT),
+    new Uint8Array(FFT_SIZE).fill(128),
+    SAMPLE_RATE,
+    FFT_SIZE,
+  );
+  assert.equal(silent.centroid, 0, "no spectral energy -> centroid 0");
+  // Rhythm features are stateless-zero in the live preview path.
+  assert.equal(silent.flux, 0);
+  assert.equal(silent.beat, 0);
+});

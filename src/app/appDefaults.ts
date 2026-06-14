@@ -7,6 +7,11 @@ export const emptyBands: AudioBands = {
   bass: 0,
   mid: 0,
   high: 0,
+  centroid: 0,
+  flux: 0,
+  onset: 0,
+  beat: 0,
+  beatPhase: 0,
   samples: [],
   spectrum: [],
 };

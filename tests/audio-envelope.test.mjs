@@ -46,7 +46,26 @@ test("audio envelope interpolates stable values between frames", () => {
     bass: 0.4,
     mid: 0.3,
     high: 0.2,
+    centroid: 0,
+    flux: 0,
+    onset: 0,
+    beat: 0,
+    beatPhase: 0,
     samples: [0, 0.5],
     spectrum: [0.1, 0.4],
   });
+});
+
+test("audio envelope interpolates beat phase through wrap", () => {
+  const envelope = {
+    frameRate: 2,
+    frames: [
+      { energy: 0, bass: 0, mid: 0, high: 0, beat: 0, beatPhase: 0.9 },
+      { energy: 0, bass: 0, mid: 0, high: 0, beat: 1, beatPhase: 0.1 },
+    ],
+  };
+
+  assert.equal(interpolateAudioEnvelope(envelope, 0.25).beatPhase, 0);
+  assert.equal(interpolateAudioEnvelope(envelope, 0.1).beat, 0);
+  assert.equal(interpolateAudioEnvelope(envelope, 0.4).beat, 1);
 });
