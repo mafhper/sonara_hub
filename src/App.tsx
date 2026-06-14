@@ -88,11 +88,7 @@ import {
   type ToastTone,
   ToastViewport,
 } from "./ui/Feedback";
-import {
-  BatchJobBoard,
-  formatDurationMs,
-  jobStageLabel,
-} from "./jobs/BatchJobBoard";
+import { BatchJobBoard } from "./jobs/BatchJobBoard";
 import { AudioExportWorkspace } from "./workspaces/AudioExportWorkspace";
 import { AudioLibraryWorkspace } from "./workspaces/AudioLibraryWorkspace";
 import { CatalogPreview } from "./workspaces/CatalogPreview";
@@ -172,8 +168,6 @@ import {
   videoOutputProjectDirectoryName,
 } from "../shared/video-output-folder.mjs";
 import type { VideoOutputConflictMode } from "../shared/video-output-folder.mjs";
-import { listLyricsOptionsForTrack } from "../shared/lyrics-convention.mjs";
-import type { LyricsPathSuggestion } from "../shared/lyrics-convention.mjs";
 import { collectActiveObjectUrls } from "../shared/object-url-lifecycle.mjs";
 import {
   applyPublicationTextOverride,
@@ -194,10 +188,7 @@ import type {
 import type { PodcastFeedSidecar } from "../shared/podcast-feed.mjs";
 import {
   albumArtworkDirectoryPaths,
-  chooseAlbumArtworkForTrack,
-  chooseArtworkForTrack,
   isArtworkName,
-  listArtworkOptionsForTrack,
 } from "../shared/artwork-convention.mjs";
 import {
   loadDirectoryHandle,
@@ -249,6 +240,7 @@ import {
   formatUsage,
   messageOf,
 } from "./app/appFormatters";
+import { copyTextToClipboard, jobErrorReport } from "./app/appClipboard";
 import {
   normalizeSnapshotNavigation,
   stepLabel,
@@ -309,6 +301,10 @@ import {
   isPrivateAssetPath,
   isPrivateAudioPath,
 } from "./features/workspace/workspaceFiles";
+import {
+  attachSuggestedArtwork,
+  attachSuggestedLyrics,
+} from "./features/workspace/trackSuggestions";
 import {
   isBrowserInputProject,
   projectOptionLabel,
@@ -5411,194 +5407,6 @@ function App() {
       )}
     </AppShell>
   );
-}
-
-function attachSuggestedArtwork(
-  tracks: TrackDraft[],
-  artworkEntries: DirectoryAssetEntry[],
-) {
-  const audioPaths = tracks.map((track) => track.sourceKey);
-  const artworkByPath = new Map(
-    artworkEntries.map((entry) => [entry.relativePath, entry]),
-  );
-  const srcByPath = new Map<string, string>();
-  return tracks.map((track) => {
-    const artworkPaths = artworkEntries.map((entry) => entry.relativePath);
-    const relativePath = chooseArtworkForTrack({
-      audioPath: track.sourceKey,
-      audioPaths,
-      artworkPaths,
-      trackNumber: track.metadata.trackNumber,
-    });
-    if (!relativePath) return track;
-    const optionPaths = listArtworkOptionsForTrack({
-      audioPath: track.sourceKey,
-      audioPaths,
-      artworkPaths,
-      trackNumber: track.metadata.trackNumber,
-    });
-    const albumCoverPath = chooseAlbumArtworkForTrack({
-      audioPath: track.sourceKey,
-      artworkPaths,
-    });
-    const suggestionForPath = (
-      candidatePath: string | null,
-    ): ArtworkSuggestion | undefined => {
-      if (!candidatePath) return undefined;
-      const artwork = artworkByPath.get(candidatePath);
-      if (!artwork) return undefined;
-      let src = srcByPath.get(candidatePath);
-      if (!src) {
-        src = URL.createObjectURL(artwork.file);
-        srcByPath.set(candidatePath, src);
-      }
-      return {
-        file: artwork.file,
-        src,
-        relativePath: candidatePath,
-        source: "folder" as const,
-      };
-    };
-    const artworkOptions = optionPaths
-      .map((candidatePath) => suggestionForPath(candidatePath))
-      .filter((candidate): candidate is ArtworkSuggestion =>
-        Boolean(candidate),
-      );
-    const suggestedCover = suggestionForPath(relativePath);
-    if (!suggestedCover) {
-      return track;
-    }
-    return {
-      ...track,
-      suggestedCover,
-      artworkOptions,
-      albumCoverSuggestion: suggestionForPath(albumCoverPath),
-      useSuggestedCover: track.useSuggestedCover ?? true,
-    };
-  });
-}
-
-async function attachSuggestedLyrics(
-  tracks: TrackDraft[],
-  lyricEntries: DirectoryAssetEntry[],
-) {
-  if (!lyricEntries.length) return tracks;
-  const lyricsByPath = new Map(
-    lyricEntries.map((entry) => [entry.relativePath, entry]),
-  );
-  const textByPath = new Map<string, string>();
-  const readLyricsText = async (entry: DirectoryAssetEntry) => {
-    let text = textByPath.get(entry.relativePath);
-    if (text === undefined) {
-      text = await entry.file.text();
-      textByPath.set(entry.relativePath, text);
-    }
-    return text;
-  };
-
-  return Promise.all(
-    tracks.map(async (track) => {
-      const matches = listLyricsOptionsForTrack({
-        audioPath: track.sourceKey,
-        lyricPaths: lyricEntries.map((entry) => entry.relativePath),
-        trackTitle: track.metadata.title,
-        trackNumber: track.metadata.trackNumber,
-      });
-      if (!matches.length) return track;
-      const suggestions = await Promise.all(
-        matches.map(async (match: LyricsPathSuggestion) => {
-          const entry = lyricsByPath.get(match.relativePath);
-          const text = entry ? await readLyricsText(entry) : "";
-          return {
-            file: entry?.file,
-            relativePath: match.relativePath,
-            fileName: match.relativePath.split(/[\\/]+/).at(-1) ?? "letra.txt",
-            preview: lyricPreview(text),
-            confidence: match.confidence,
-            matchedBy: match.matchedBy,
-          } satisfies LyricsSuggestion;
-        }),
-      );
-      const high = suggestions.filter(
-        (suggestion) => suggestion.confidence === "high",
-      );
-      if (high.length !== 1 || track.metadata.lyrics.trim()) {
-        return { ...track, lyricsOptions: suggestions };
-      }
-      const entry = lyricsByPath.get(high[0].relativePath);
-      if (!entry) return { ...track, lyricsOptions: suggestions };
-      return {
-        ...track,
-        metadata: {
-          ...track.metadata,
-          lyrics: await readLyricsText(entry),
-        },
-        lyricsOptions: suggestions.map((suggestion) => ({
-          ...suggestion,
-          autoApplied: suggestion.relativePath === high[0].relativePath,
-        })),
-        lyricsSourcePath: high[0].relativePath,
-      };
-    }),
-  );
-}
-
-function lyricPreview(value: string) {
-  const lines = String(value ?? "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  return lines.slice(0, 3).join(" / ").slice(0, 160);
-}
-
-async function copyTextToClipboard(value: string) {
-  const text = String(value || "").trim();
-  if (!text) return;
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
-  textarea.select();
-  document.execCommand("copy");
-  textarea.remove();
-}
-
-function jobErrorReport(job: RenderJob) {
-  return [
-    `Job: ${job.id}`,
-    `Tipo: ${job.kind ?? "desconhecido"}`,
-    `Status: ${job.status}`,
-    job.maxAttempts && job.maxAttempts > 1
-      ? `Tentativa: ${job.attempt ?? 0}/${job.maxAttempts}`
-      : "",
-    job.stage ? `Etapa atual: ${jobStageLabel(job.stage)}` : "",
-    job.stageTimings?.length
-      ? `Tempos:\n${job.stageTimings
-          .map(
-            (item) =>
-              `- ${jobStageLabel(item.stage)}: ${formatDurationMs(item.durationMs)}${item.interrupted ? " (interrompido)" : ""}`,
-          )
-          .join("\n")}`
-      : "",
-    job.retryHistory?.length
-      ? `Retentativas:\n${job.retryHistory
-          .map(
-            (item) =>
-              `- tentativa ${item.attempt}: ${item.errorCode} em ${item.stage ? jobStageLabel(item.stage) : "job"} (${item.message})`,
-          )
-          .join("\n")}`
-      : "",
-    job.errorCode ? `Código: ${job.errorCode}` : "",
-    `Mensagem: ${job.message}`,
-    job.errorDetail ? `Detalhe:\n${job.errorDetail}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
 }
 
 export default App;
