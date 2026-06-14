@@ -8,7 +8,10 @@ import {
   normalizeVisualSettings,
   parseVisualCollection,
   removedEffectIds,
+  VISUAL_SCHEMA_VERSION,
   visualCommonControlKeys,
+  visualPostDefaults,
+  visualUniforms,
 } from "../shared/visual-effects.mjs";
 
 const expectedIds = [
@@ -40,6 +43,7 @@ const expectedIds = [
 ];
 
 test("catalog exposes the broad families plus the ported shader presets", () => {
+  assert.equal(VISUAL_SCHEMA_VERSION, 5);
   assert.deepEqual(effectIds, expectedIds);
   assert.deepEqual(
     builtinVisualPresets.map((preset) => preset.id),
@@ -48,6 +52,28 @@ test("catalog exposes the broad families plus the ported shader presets", () => 
   assert.ok(removedEffectIds.includes("fire"));
   assert.ok(removedEffectIds.includes("rain-window"));
   assert.equal(new Set(expectedIds).size, builtinVisualPresets.length);
+});
+
+test("visual presets expose V5 catalog metadata with neutral post defaults", () => {
+  for (const preset of builtinVisualPresets) {
+    const visual = normalizeVisualSettings(preset);
+    assert.equal(visual.schemaVersion, 5, preset.id);
+    assert.match(visual.categoryId, /^[a-z0-9-]+$/, preset.id);
+    assert.match(visual.family, /^[a-z0-9-]+$/, preset.id);
+    assert.ok(Array.isArray(visual.tags), preset.id);
+    assert.ok(Array.isArray(visual.variants), preset.id);
+    assert.ok([1, 2, 3].includes(visual.performanceTier), preset.id);
+    assert.deepEqual(visual.post, visualPostDefaults, preset.id);
+  }
+
+  assert.equal(
+    normalizeVisualSettings({ id: "iridescent-bloom" }).categoryId,
+    "light-gradient",
+  );
+  assert.equal(
+    normalizeVisualSettings({ id: "liquid-chrome" }).family,
+    "liquid-chrome",
+  );
 });
 
 test("every visual preset exposes four reusable palettes", () => {
@@ -318,7 +344,7 @@ test("normalizing a real shader preset object preserves its renderer and advance
   }
 });
 
-test("legacy visual fields normalize into the V4 contract", () => {
+test("legacy visual fields normalize into the V5 contract", () => {
   const visual = normalizeVisualSettings({
     effect: "fire",
     intensity: "75",
@@ -330,16 +356,18 @@ test("legacy visual fields normalize into the V4 contract", () => {
     accentColor: "#ffd36b",
   });
 
-  assert.equal(visual.schemaVersion, 4);
+  assert.equal(visual.schemaVersion, 5);
   assert.equal(visual.rendererId, "liquid-mesh");
   assert.equal(visual.common.intensity, 75);
   assert.equal(visual.common.direction, 360);
   assert.equal(visual.colors.light, "#ffd36b");
   assert.equal(visual.waveform.visible, false);
   assert.equal(visual.waveform.type, "mirror-line");
+  assert.equal(visual.categoryId, "surfaces");
+  assert.deepEqual(visual.post, visualPostDefaults);
 });
 
-test("V3 presets normalize into V4 playful and cloud-light defaults", () => {
+test("V3 presets normalize into V5 playful and cloud-light defaults", () => {
   const visual = normalizeVisualSettings({
     schemaVersion: 3,
     rendererId: "playful-shapes",
@@ -349,11 +377,47 @@ test("V3 presets normalize into V4 playful and cloud-light defaults", () => {
     rendererId: "volumetric-clouds",
   });
 
-  assert.equal(visual.schemaVersion, 4);
+  assert.equal(visual.schemaVersion, 5);
   assert.equal(visual.playful.motionMode, "soft-rhythm");
   assert.equal(visual.playful.enabled.emojis, true);
   assert.equal(clouds.cloudLight.enabled, false);
   assert.equal(clouds.cloudLight.intensity, 54);
+});
+
+test("V4 visual metadata upgrades into V5 without changing render uniforms", () => {
+  const visual = normalizeVisualSettings({
+    schemaVersion: 4,
+    id: "endless-shallows",
+    categoryId: "custom-fluid",
+    family: "water-fields",
+    tags: ["ambient", "ambient", "caustics"],
+    performanceTier: 8,
+    appliedVariantId: "dawn",
+    post: {
+      bloom: "12",
+      vignette: -10,
+      grain: 140,
+      scanlines: 6,
+      chromaticAberration: 3,
+    },
+  });
+  const uniforms = visualUniforms(visual);
+
+  assert.equal(visual.schemaVersion, 5);
+  assert.equal(visual.categoryId, "custom-fluid");
+  assert.equal(visual.family, "water-fields");
+  assert.deepEqual(visual.tags, ["ambient", "caustics"]);
+  assert.equal(visual.performanceTier, 3);
+  assert.equal(visual.appliedVariantId, "dawn");
+  assert.deepEqual(visual.post, {
+    bloom: 12,
+    vignette: 0,
+    grain: 100,
+    scanlines: 6,
+    chromaticAberration: 3,
+  });
+  assert.equal(uniforms.rendererId, "endless-shallows");
+  assert.equal(Object.hasOwn(uniforms, "post"), false);
 });
 
 test("playful collections sanitize separators, duplicates and unsafe size", () => {

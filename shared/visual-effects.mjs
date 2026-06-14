@@ -1,4 +1,12 @@
-export const VISUAL_SCHEMA_VERSION = 4;
+export const VISUAL_SCHEMA_VERSION = 5;
+
+export const visualPostDefaults = {
+  bloom: 0,
+  vignette: 0,
+  grain: 0,
+  scanlines: 0,
+  chromaticAberration: 0,
+};
 
 const playfulCollectionDefaults = {
   letters: "A B C D E",
@@ -131,6 +139,18 @@ const commonSupportsByRenderer = new Map([
   ],
 ]);
 
+const visualCategoryIdsByLabel = new Map([
+  ["Atmosferas", "atmospheres"],
+  ["Composicoes", "compositions"],
+  ["Espaço", "space"],
+  ["Fluidos", "fluids"],
+  ["Infantil", "playful"],
+  ["Lava", "lava"],
+  ["Luz & Gradiente", "light-gradient"],
+  ["Minimalista", "minimal"],
+  ["Superficies", "surfaces"],
+]);
+
 const paletteProfiles = [
   { id: "original", name: "Original" },
   {
@@ -175,6 +195,13 @@ function preset({
   rendererId = id,
   name,
   category,
+  categoryId,
+  family,
+  tags,
+  variants,
+  performanceTier,
+  post,
+  appliedVariantId,
   note,
   colors,
   common = {},
@@ -200,6 +227,15 @@ function preset({
     rendererId,
     source: "builtin",
     category,
+    categoryId: normalizeCategoryId(categoryId, category),
+    family: normalizeIdentifier(family, rendererId),
+    tags: normalizeTags(tags),
+    variants: normalizeVariants(variants),
+    performanceTier: normalizePerformanceTier(performanceTier),
+    post: normalizePost(post),
+    ...(normalizeIdentifier(appliedVariantId, "")
+      ? { appliedVariantId: normalizeIdentifier(appliedVariantId, "") }
+      : {}),
     note,
     colors,
     palettes: normalizedPalettes,
@@ -921,6 +957,28 @@ export function normalizeVisualSettings(input = {}) {
     rendererId: base.rendererId,
     source: source.source === "custom" ? "custom" : "builtin",
     category: String(source.category ?? base.category),
+    categoryId: normalizeCategoryId(
+      source.categoryId ?? base.categoryId,
+      source.category ?? base.category,
+    ),
+    family: normalizeIdentifier(source.family ?? base.family, base.rendererId),
+    tags: normalizeTags(source.tags, base.tags),
+    variants: normalizeVariants(source.variants, base.variants),
+    performanceTier: normalizePerformanceTier(
+      source.performanceTier ?? base.performanceTier,
+    ),
+    post: normalizePost(source.post, base.post),
+    ...(normalizeIdentifier(
+      source.appliedVariantId ?? base.appliedVariantId,
+      "",
+    )
+      ? {
+          appliedVariantId: normalizeIdentifier(
+            source.appliedVariantId ?? base.appliedVariantId,
+            "",
+          ),
+        }
+      : {}),
     note: String(source.note ?? base.note),
     colors: {
       base: hex(incomingColors.base ?? source.colorA, base.colors.base),
@@ -1097,6 +1155,92 @@ function normalizeCloudLight(value = {}, fallback = cloudLightDefaults) {
     motion: number(value.motion, fallback.motion),
     speed: number(value.speed, fallback.speed),
     direction: number(value.direction, fallback.direction, 0, 360),
+  };
+}
+
+function normalizeCategoryId(value, fallbackCategory) {
+  const fallback =
+    visualCategoryIdsByLabel.get(String(fallbackCategory ?? "")) ??
+    normalizeIdentifier(fallbackCategory, "atmospheres");
+  return normalizeIdentifier(value, fallback);
+}
+
+function normalizeIdentifier(value, fallback) {
+  if (value === undefined || value === null || value === "") {
+    return String(fallback ?? "");
+  }
+  const normalized = slugifyPaletteId(value);
+  return normalized || String(fallback ?? "");
+}
+
+function normalizeTags(value, fallback = []) {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[,;]+/u)
+      : Array.isArray(fallback)
+        ? fallback
+        : [];
+  const tags = [];
+  for (const item of source) {
+    const tag = String(item ?? "").trim();
+    if (!tag || tags.includes(tag)) continue;
+    tags.push(tag.slice(0, 40));
+    if (tags.length === 12) break;
+  }
+  return tags;
+}
+
+function normalizeVariants(value = [], fallback = []) {
+  const source =
+    Array.isArray(value) && value.length
+      ? value
+      : Array.isArray(fallback)
+        ? fallback
+        : [];
+  const normalized = [];
+  for (const item of source) {
+    const id = normalizeIdentifier(item?.id ?? item?.variantId, "");
+    if (!id || normalized.some((variant) => variant.id === id)) continue;
+    normalized.push({
+      id,
+      name: String(item?.name ?? item?.label ?? id),
+      ...(item?.note ? { note: String(item.note) } : {}),
+      ...(item?.paletteId
+        ? { paletteId: normalizeIdentifier(item.paletteId, "") }
+        : {}),
+      tags: normalizeTags(item?.tags),
+      ...(item?.colors ? { colors: item.colors } : {}),
+      ...(item?.common ? { common: item.common } : {}),
+      ...(item?.advanced ? { advanced: item.advanced } : {}),
+      ...(item?.cloudLight ? { cloudLight: item.cloudLight } : {}),
+    });
+  }
+  return normalized;
+}
+
+function normalizePerformanceTier(value, fallback = 1) {
+  return Math.round(number(value, fallback, 1, 3));
+}
+
+function normalizePost(value = {}, fallback = visualPostDefaults) {
+  const source = value && typeof value === "object" ? value : {};
+  const base = fallback && typeof fallback === "object" ? fallback : {};
+  return {
+    bloom: number(source.bloom, base.bloom ?? visualPostDefaults.bloom),
+    vignette: number(
+      source.vignette,
+      base.vignette ?? visualPostDefaults.vignette,
+    ),
+    grain: number(source.grain, base.grain ?? visualPostDefaults.grain),
+    scanlines: number(
+      source.scanlines,
+      base.scanlines ?? visualPostDefaults.scanlines,
+    ),
+    chromaticAberration: number(
+      source.chromaticAberration,
+      base.chromaticAberration ?? visualPostDefaults.chromaticAberration,
+    ),
   };
 }
 

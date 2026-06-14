@@ -95,33 +95,62 @@ export type RenderStackItem =
   | { kind: "vinyl" }
   | { kind: "media"; layerId: string; order: number };
 
-export type ScenePresetV4 = {
-  schemaVersion: 4;
+export type SceneRendererId =
+  | "liquid-mesh"
+  | "volumetric-clouds"
+  | "aurora-ribbons"
+  | "vector-aura"
+  | "playful-shapes"
+  | "color-mesh"
+  | "piano-ribbons"
+  | "vinyl"
+  | "audio-dark"
+  | "plasma"
+  | "lava"
+  | "vortex"
+  | "galaxy"
+  | "starfield"
+  | "iridescent-bloom"
+  | "ether-birth"
+  | "fluid-volume"
+  | "endless-shallows"
+  | "storybook-dream"
+  | "liquid-chrome";
+
+export type VisualPostSettings = {
+  bloom: number;
+  vignette: number;
+  grain: number;
+  scanlines: number;
+  chromaticAberration: number;
+};
+
+export type VisualVariant = {
   id: string;
   name: string;
-  rendererId:
-    | "liquid-mesh"
-    | "volumetric-clouds"
-    | "aurora-ribbons"
-    | "vector-aura"
-    | "playful-shapes"
-    | "color-mesh"
-    | "piano-ribbons"
-    | "vinyl"
-    | "audio-dark"
-    | "plasma"
-    | "lava"
-    | "vortex"
-    | "galaxy"
-    | "starfield"
-    | "iridescent-bloom"
-    | "ether-birth"
-    | "fluid-volume"
-    | "endless-shallows"
-    | "storybook-dream"
-    | "liquid-chrome";
+  note?: string;
+  paletteId?: string;
+  tags: string[];
+  colors?: { base: string; effect: string; light: string };
+  common?: Record<string, number>;
+  advanced?: Record<string, number>;
+  cloudLight?: Partial<CloudLightSettings>;
+};
+
+export type ScenePresetV5 = {
+  schemaVersion: 5;
+  id: string;
+  name: string;
+  rendererId: SceneRendererId;
   source: "builtin" | "custom";
   category: string;
+  categoryId: string;
+  family: string;
+  tags: string[];
+  variants: VisualVariant[];
+  performanceTier: 1 | 2 | 3;
+  post: VisualPostSettings;
+  appliedVariantId?: string;
   note: string;
   colors: { base: string; effect: string; light: string };
   palettes: VisualPalette[];
@@ -135,22 +164,27 @@ export type ScenePresetV4 = {
   renderOrder?: RenderStackItem[];
 };
 
+export type ScenePresetV4 = Omit<ScenePresetV5, "schemaVersion"> & {
+  schemaVersion: 4 | 5;
+};
+
 export type ScenePresetV3 = ScenePresetV4;
 
 export const VISUAL_SCHEMA_VERSION: number;
+export const visualPostDefaults: VisualPostSettings;
 export const visualCommonControlKeys: VisualCommonControlKey[];
-export const builtinVisualPresets: ScenePresetV4[];
+export const builtinVisualPresets: ScenePresetV5[];
 export const effectIds: string[];
 export const removedEffectIds: string[];
-export function getBuiltinPreset(id: string): ScenePresetV4;
-export function normalizeVisualPresetList(input?: unknown): ScenePresetV4[];
-export function normalizeVisualSettings(input?: unknown): ScenePresetV4;
+export function getBuiltinPreset(id: string): ScenePresetV5;
+export function normalizeVisualPresetList(input?: unknown): ScenePresetV5[];
+export function normalizeVisualSettings(input?: unknown): ScenePresetV5;
 export function parseVisualCollection(
   value: unknown,
   fallback?: string,
 ): string[];
 export function visualUniforms(settings?: unknown): {
-  rendererId: ScenePresetV4["rendererId"];
+  rendererId: ScenePresetV5["rendererId"];
   common: Record<string, number>;
   colors: { base: string; effect: string; light: string };
   advanced: number[];
