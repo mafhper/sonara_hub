@@ -1646,8 +1646,9 @@ function WorkspaceCard({
 function AtmosphereLab() {
   const copy = useSiteCopy();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [selected, setSelected] = useState<AtmosphereLabId>("light-trails");
-  const [palette, setPalette] = useState<AtmospherePaletteId>("prism");
+  const [selected, setSelected] =
+    useState<AtmosphereLabId>("shambhala-passage");
+  const [palette, setPalette] = useState<AtmospherePaletteId>("dawn");
   const [motion, setMotion] = useState(58);
   const [intensity, setIntensity] = useState(68);
   const selectedPreset = copy.visualSystem.lab.presets[selected];
@@ -1831,8 +1832,23 @@ function drawAtmospherePreview(
   const background = context.createLinearGradient(0, 0, width, height);
   background.addColorStop(0, palette[0]);
   background.addColorStop(0.52, mixColor(palette[0], palette[1], 0.38));
+  background.addColorStop(0.82, mixColor(palette[0], palette[2], 0.26));
   background.addColorStop(1, "#020308");
   context.fillStyle = background;
+  context.fillRect(0, 0, width, height);
+
+  const bloom = context.createRadialGradient(
+    width * 0.64,
+    height * 0.42,
+    0,
+    width * 0.64,
+    height * 0.42,
+    Math.max(width, height) * 0.68,
+  );
+  bloom.addColorStop(0, withAlpha(palette[1], 0.32 * intensity));
+  bloom.addColorStop(0.44, withAlpha(palette[2], 0.14 * intensity));
+  bloom.addColorStop(1, "rgba(255,255,255,0)");
+  context.fillStyle = bloom;
   context.fillRect(0, 0, width, height);
 
   if (selected === "stratosphere-flight") {
@@ -1854,7 +1870,8 @@ function drawAtmospherePreview(
     Math.max(width, height) * 0.72,
   );
   vignette.addColorStop(0, "rgba(255,255,255,0)");
-  vignette.addColorStop(1, "rgba(0,0,0,0.62)");
+  vignette.addColorStop(0.72, "rgba(0,0,0,0.1)");
+  vignette.addColorStop(1, "rgba(0,0,0,0.48)");
   context.fillStyle = vignette;
   context.fillRect(0, 0, width, height);
 }
@@ -1868,6 +1885,14 @@ function drawStratosphere(
   palette: string[],
 ) {
   const horizon = height * (0.58 + Math.sin(time * 0.18) * 0.025);
+  const skyBeam = context.createLinearGradient(0, height * 0.15, width, height);
+  skyBeam.addColorStop(0, "rgba(255,255,255,0)");
+  skyBeam.addColorStop(0.46, withAlpha(palette[3], 0.2 * intensity));
+  skyBeam.addColorStop(0.5, withAlpha(palette[1], 0.44 * intensity));
+  skyBeam.addColorStop(0.57, "rgba(255,255,255,0)");
+  context.fillStyle = skyBeam;
+  context.fillRect(0, 0, width, height);
+
   const glow = context.createRadialGradient(
     width * 0.72,
     horizon,
@@ -1881,7 +1906,32 @@ function drawStratosphere(
   context.fillStyle = glow;
   context.fillRect(0, 0, width, height);
 
-  for (let layer = 0; layer < 9; layer += 1) {
+  const sun = context.createRadialGradient(
+    width * 0.73,
+    horizon,
+    0,
+    width * 0.73,
+    horizon,
+    width * 0.22,
+  );
+  sun.addColorStop(0, withAlpha(palette[3], 0.44 * intensity));
+  sun.addColorStop(0.24, withAlpha(palette[2], 0.22 * intensity));
+  sun.addColorStop(1, "rgba(255,255,255,0)");
+  context.fillStyle = sun;
+  context.fillRect(0, 0, width, height);
+
+  for (let cloud = 0; cloud < 22; cloud += 1) {
+    const x = ((cloud * 97 + time * (10 + cloud)) % (width + 160)) - 80;
+    const y = horizon - height * 0.22 + ((cloud * 31) % (height * 0.44));
+    const radius = 58 + ((cloud * 23) % 120);
+    const haze = context.createRadialGradient(x, y, 0, x, y, radius);
+    haze.addColorStop(0, withAlpha(cloud % 2 ? palette[1] : palette[3], 0.07));
+    haze.addColorStop(1, "rgba(255,255,255,0)");
+    context.fillStyle = haze;
+    context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  }
+
+  for (let layer = 0; layer < 11; layer += 1) {
     const y = horizon + layer * height * 0.044;
     const drift = time * (12 + layer * 2);
     context.beginPath();
@@ -1893,10 +1943,13 @@ function drawStratosphere(
       if (x === -40) context.moveTo(x, wave);
       else context.lineTo(x, wave);
     }
-    context.strokeStyle = withAlpha(layer % 2 ? palette[1] : palette[3], 0.18);
-    context.lineWidth = Math.max(1, 3.6 - layer * 0.22);
+    context.shadowBlur = 12;
+    context.shadowColor = withAlpha(layer % 2 ? palette[1] : palette[3], 0.42);
+    context.strokeStyle = withAlpha(layer % 2 ? palette[1] : palette[3], 0.22);
+    context.lineWidth = Math.max(1.2, 4.4 - layer * 0.22);
     context.stroke();
   }
+  context.shadowBlur = 0;
 }
 
 function drawShambhala(
@@ -1910,34 +1963,70 @@ function drawShambhala(
   const centerX = width * 0.5;
   const centerY = height * 0.52;
   const pulse = 1 + Math.sin(time * 0.7) * 0.035 * intensity;
+  const core = context.createRadialGradient(
+    centerX,
+    centerY,
+    0,
+    centerX,
+    centerY,
+    width * 0.36,
+  );
+  core.addColorStop(0, withAlpha(palette[2], 0.46 * intensity));
+  core.addColorStop(0.22, withAlpha(palette[3], 0.16 * intensity));
+  core.addColorStop(1, "rgba(255,255,255,0)");
+  context.fillStyle = core;
+  context.fillRect(0, 0, width, height);
+
   context.save();
   context.translate(centerX, centerY);
-  for (let ring = 0; ring < 8; ring += 1) {
-    const radius = (42 + ring * 34) * pulse;
+  for (let ring = 0; ring < 10; ring += 1) {
+    const radius = (38 + ring * 31) * pulse;
     context.beginPath();
-    for (let side = 0; side < 6; side += 1) {
-      const angle = -Math.PI / 2 + (Math.PI * 2 * side) / 6 + ring * 0.06;
+    const sides = ring % 2 ? 8 : 6;
+    for (let side = 0; side < sides; side += 1) {
+      const angle = -Math.PI / 2 + (Math.PI * 2 * side) / sides + ring * 0.055;
       const x = Math.cos(angle) * radius;
       const y = Math.sin(angle) * radius * 0.74;
       if (side === 0) context.moveTo(x, y);
       else context.lineTo(x, y);
     }
     context.closePath();
+    if (ring % 3 === 0) {
+      context.fillStyle = withAlpha(ring % 2 ? palette[1] : palette[2], 0.04);
+      context.fill();
+    }
+    context.shadowBlur = 18;
+    context.shadowColor = withAlpha(palette[2], 0.44);
     context.strokeStyle = withAlpha(ring % 2 ? palette[2] : palette[3], 0.2);
     context.lineWidth = 1.2 + intensity * 1.3;
     context.stroke();
   }
-  for (let ray = 0; ray < 18; ray += 1) {
-    const angle = (Math.PI * 2 * ray) / 18 + Math.sin(time * 0.25) * 0.08;
+  context.shadowBlur = 0;
+  for (let ray = 0; ray < 24; ray += 1) {
+    const angle = (Math.PI * 2 * ray) / 24 + Math.sin(time * 0.25) * 0.08;
     context.beginPath();
     context.moveTo(Math.cos(angle) * 38, Math.sin(angle) * 28);
     context.lineTo(
       Math.cos(angle) * width * 0.56,
       Math.sin(angle) * height * 0.48,
     );
-    context.strokeStyle = withAlpha(palette[2], 0.08 + intensity * 0.08);
-    context.lineWidth = 1;
+    context.strokeStyle = withAlpha(palette[2], 0.09 + intensity * 0.11);
+    context.lineWidth = 1.2;
     context.stroke();
+  }
+  for (let point = 0; point < 18; point += 1) {
+    const angle = (Math.PI * 2 * point) / 18 + time * 0.08;
+    const radius = width * (0.11 + (point % 3) * 0.035);
+    context.beginPath();
+    context.arc(
+      Math.cos(angle) * radius,
+      Math.sin(angle) * radius * 0.72,
+      2.4 + (point % 3) * 1.1,
+      0,
+      Math.PI * 2,
+    );
+    context.fillStyle = withAlpha(point % 2 ? palette[3] : palette[2], 0.42);
+    context.fill();
   }
   context.restore();
 }
@@ -1950,20 +2039,36 @@ function drawNeuralHaze(
   intensity: number,
   palette: string[],
 ) {
-  for (let blob = 0; blob < 18; blob += 1) {
+  for (let blob = 0; blob < 26; blob += 1) {
     const x =
       width * (0.12 + ((blob * 0.173 + Math.sin(time * 0.05 + blob)) % 0.78));
     const y =
       height * (0.14 + ((blob * 0.119 + Math.cos(time * 0.04 + blob)) % 0.72));
-    const radius = 42 + ((blob * 23) % 90);
+    const radius = 54 + ((blob * 23) % 120);
     const haze = context.createRadialGradient(x, y, 0, x, y, radius);
-    haze.addColorStop(0, withAlpha(blob % 2 ? palette[1] : palette[2], 0.1));
+    haze.addColorStop(0, withAlpha(blob % 2 ? palette[1] : palette[2], 0.14));
     haze.addColorStop(1, "rgba(255,255,255,0)");
     context.fillStyle = haze;
     context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
   }
 
-  for (let contour = 0; contour < 11; contour += 1) {
+  context.shadowBlur = 10;
+  context.shadowColor = withAlpha(palette[1], 0.35);
+  const nodes = Array.from({ length: 18 }, (_, node) => ({
+    x: width * (0.16 + ((node * 0.197 + Math.sin(time * 0.07 + node)) % 0.68)),
+    y: height * (0.18 + ((node * 0.163 + Math.cos(time * 0.06 + node)) % 0.62)),
+  }));
+  for (let node = 0; node < nodes.length; node += 1) {
+    const current = nodes[node];
+    const next = nodes[(node + 5) % nodes.length];
+    context.beginPath();
+    context.moveTo(current.x, current.y);
+    context.lineTo(next.x, next.y);
+    context.strokeStyle = withAlpha(palette[node % 2 ? 2 : 3], 0.1);
+    context.lineWidth = 1.1;
+    context.stroke();
+  }
+  for (let contour = 0; contour < 14; contour += 1) {
     context.beginPath();
     for (let point = 0; point <= 120; point += 1) {
       const t = point / 120;
@@ -1980,11 +2085,18 @@ function drawNeuralHaze(
     context.closePath();
     context.strokeStyle = withAlpha(
       contour % 2 ? palette[3] : palette[1],
-      0.08 + intensity * 0.07,
+      0.11 + intensity * 0.09,
     );
-    context.lineWidth = 1 + intensity * 1.2;
+    context.lineWidth = 1.2 + intensity * 1.4;
     context.stroke();
   }
+  for (const [index, node] of nodes.entries()) {
+    context.beginPath();
+    context.arc(node.x, node.y, 2.6 + (index % 3), 0, Math.PI * 2);
+    context.fillStyle = withAlpha(index % 2 ? palette[1] : palette[3], 0.5);
+    context.fill();
+  }
+  context.shadowBlur = 0;
 }
 
 function drawLightTrails(
@@ -1996,30 +2108,79 @@ function drawLightTrails(
   palette: string[],
 ) {
   context.globalCompositeOperation = "lighter";
-  for (let trail = 0; trail < 10; trail += 1) {
-    const yBase = height * (0.28 + trail * 0.055);
+  for (let beam = 0; beam < 4; beam += 1) {
+    context.save();
+    context.translate(width * (0.18 + beam * 0.19), height * 0.54);
+    context.rotate(-0.62 + beam * 0.34 + Math.sin(time * 0.1) * 0.04);
+    const beamGradient = context.createLinearGradient(
+      -width * 0.44,
+      0,
+      width * 0.44,
+      0,
+    );
+    beamGradient.addColorStop(0, "rgba(255,255,255,0)");
+    beamGradient.addColorStop(
+      0.42,
+      withAlpha(palette[beam % 2 ? 2 : 1], 0.08 + intensity * 0.16),
+    );
+    beamGradient.addColorStop(
+      0.5,
+      withAlpha(palette[3], 0.24 + intensity * 0.2),
+    );
+    beamGradient.addColorStop(
+      0.58,
+      withAlpha(palette[beam % 2 ? 1 : 2], 0.08 + intensity * 0.16),
+    );
+    beamGradient.addColorStop(1, "rgba(255,255,255,0)");
+    context.fillStyle = beamGradient;
+    context.fillRect(
+      -width * 0.56,
+      -height * 0.04,
+      width * 1.12,
+      height * 0.08,
+    );
+    context.restore();
+  }
+
+  for (let flare = 0; flare < 28; flare += 1) {
+    const x = (flare * 83 + time * 42) % width;
+    const y = height * (0.18 + ((flare * 0.137) % 0.66));
+    const radius = 22 + ((flare * 13) % 54);
+    const glow = context.createRadialGradient(x, y, 0, x, y, radius);
+    glow.addColorStop(0, withAlpha(flare % 2 ? palette[2] : palette[3], 0.1));
+    glow.addColorStop(1, "rgba(255,255,255,0)");
+    context.fillStyle = glow;
+    context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  }
+
+  for (let trail = 0; trail < 13; trail += 1) {
+    const yBase = height * (0.22 + trail * 0.052);
     const gradient = context.createLinearGradient(0, yBase, width, yBase);
     gradient.addColorStop(0, "rgba(255,255,255,0)");
     gradient.addColorStop(
-      0.35,
-      withAlpha(trail % 2 ? palette[1] : palette[2], 0.26),
+      0.28,
+      withAlpha(trail % 2 ? palette[1] : palette[2], 0.34),
     );
-    gradient.addColorStop(0.74, withAlpha(palette[3], 0.34));
+    gradient.addColorStop(0.58, withAlpha(palette[3], 0.52));
+    gradient.addColorStop(0.72, withAlpha(palette[2], 0.28));
     gradient.addColorStop(1, "rgba(255,255,255,0)");
     context.beginPath();
     for (let x = -20; x <= width + 20; x += 12) {
       const y =
         yBase +
         Math.sin(x * 0.012 + time * (0.7 + trail * 0.035) + trail) *
-          (22 + intensity * 18) +
+          (26 + intensity * 26) +
         Math.sin(x * 0.005 - time * 0.36) * 16;
       if (x === -20) context.moveTo(x, y);
       else context.lineTo(x, y);
     }
+    context.shadowBlur = 18 + intensity * 18;
+    context.shadowColor = withAlpha(trail % 2 ? palette[1] : palette[2], 0.5);
     context.strokeStyle = gradient;
-    context.lineWidth = 1.2 + intensity * 3.6;
+    context.lineWidth = 1.8 + intensity * 5.4;
     context.stroke();
   }
+  context.shadowBlur = 0;
   context.globalCompositeOperation = "source-over";
 }
 

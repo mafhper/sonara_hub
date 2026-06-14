@@ -882,13 +882,60 @@ svg {
   border-radius: var(--radius-lg);
   background:
     radial-gradient(
-      circle at 24% 48%,
-      rgba(124, 207, 206, 0.18),
-      transparent 18rem
+      circle at 50% 52%,
+      rgba(246, 224, 180, 0.44) 0 0.25rem,
+      transparent 0.34rem 3.4rem,
+      rgba(246, 224, 180, 0.16) 3.55rem 3.72rem,
+      transparent 3.9rem 6.4rem,
+      rgba(214, 157, 84, 0.18) 6.55rem 6.75rem,
+      transparent 7rem 10rem,
+      rgba(124, 207, 206, 0.14) 10.15rem 10.35rem,
+      transparent 10.6rem
+    ),
+    conic-gradient(
+      from 28deg at 50% 52%,
+      rgba(246, 224, 180, 0.24),
+      transparent 13deg,
+      rgba(124, 207, 206, 0.17) 29deg,
+      transparent 48deg,
+      rgba(214, 157, 84, 0.2) 66deg,
+      transparent 92deg,
+      rgba(201, 219, 255, 0.18) 112deg,
+      transparent 140deg,
+      rgba(246, 224, 180, 0.24) 180deg,
+      transparent 214deg,
+      rgba(124, 207, 206, 0.18) 242deg,
+      transparent 300deg,
+      rgba(246, 224, 180, 0.24)
+    ),
+    linear-gradient(
+      118deg,
+      transparent 0 31%,
+      rgba(124, 207, 206, 0.12) 36%,
+      rgba(124, 207, 206, 0.46) 43%,
+      rgba(246, 224, 180, 0.3) 47%,
+      transparent 55%
+    ),
+    linear-gradient(
+      28deg,
+      transparent 0 42%,
+      rgba(214, 157, 84, 0.2) 49%,
+      rgba(201, 219, 255, 0.32) 53%,
+      transparent 61%
     ),
     radial-gradient(
-      circle at 72% 38%,
-      rgba(214, 157, 84, 0.16),
+      circle at 50% 52%,
+      rgba(246, 224, 180, 0.22),
+      transparent 13rem
+    ),
+    radial-gradient(
+      ellipse at 32% 62%,
+      rgba(124, 207, 206, 0.3),
+      transparent 19rem
+    ),
+    radial-gradient(
+      ellipse at 72% 32%,
+      rgba(214, 157, 84, 0.24),
       transparent 20rem
     ),
     linear-gradient(135deg, var(--surface-2), var(--surface-1));

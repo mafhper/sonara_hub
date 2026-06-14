@@ -200,7 +200,7 @@ try {
   await page.getByRole("button", { name: "Estúdio visual" }).click();
   await ensurePanelOpen(page, "inspector");
 
-  await page.getByRole("tab", { name: /Infantil/ }).click();
+  await page.getByLabel("Categoria de atmosfera").selectOption("playful");
   await page
     .getByRole("button", { name: "Selecionar atmosfera Formas lúdicas" })
     .click();
@@ -218,7 +218,7 @@ try {
   await page.getByText("PALETAS", { exact: true }).waitFor();
   assert.equal(await page.locator(".palette-option-list button").count(), 4);
   await page.locator(".palette-option-list button").nth(1).click();
-  await page.getByRole("tab", { name: /Atmosferas/ }).click();
+  await page.getByLabel("Categoria de atmosfera").selectOption("atmospheres");
   await page
     .getByRole("button", { name: "Selecionar atmosfera Nuvens amplas" })
     .click();
@@ -233,7 +233,7 @@ try {
     .locator('input[type="checkbox"]')
     .check();
   await page.getByText("Intensidade solar").waitFor();
-  await page.getByRole("tab", { name: /Superficies/ }).click();
+  await page.getByLabel("Categoria de atmosfera").selectOption("surfaces");
   await page
     .getByRole("button", { name: "Selecionar atmosfera Aura vetorial" })
     .click();

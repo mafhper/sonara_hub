@@ -169,11 +169,11 @@ async function assertVisualPresetBrowserA11y(page) {
   const browser = page.locator(".visual-preset-browser");
   if (!(await browser.count())) return;
 
-  const firstTab = browser.getByRole("tab").first();
+  const categorySelect = browser.getByLabel("Categoria de atmosfera").first();
   const firstPreset = browser
     .getByRole("button", { name: /^Selecionar atmosfera / })
     .first();
-  await assertFocusVisible(page, firstTab);
+  await assertFocusVisible(page, categorySelect);
   await assertFocusVisible(page, firstPreset);
   assert.ok(
     ["true", "false"].includes(await firstPreset.getAttribute("aria-pressed")),

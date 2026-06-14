@@ -36,33 +36,34 @@ export function VisualPresetBrowser({
     categories.find((category) => category.id === activeCategoryId) ??
     categories[0];
   const visiblePresets = activeCategory?.presets ?? [];
+  const categorySummary = activeCategory
+    ? `${activeCategory.presets.length} ${
+        activeCategory.presets.length === 1 ? "atmosfera" : "atmosferas"
+      }`
+    : "Nenhuma atmosfera";
 
   return (
     <div className="visual-preset-browser">
+      <label className="visual-preset-category-field">
+        <span>Categoria</span>
+        <select
+          aria-label="Categoria de atmosfera"
+          value={activeCategory?.id ?? ""}
+          onChange={(event) => setActiveCategoryId(event.target.value)}
+        >
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.label} ({category.presets.length})
+            </option>
+          ))}
+        </select>
+        <small>{categorySummary}</small>
+      </label>
       <div
-        aria-label="Categorias de atmosfera"
-        className="visual-preset-tabs"
-        role="tablist"
-      >
-        {categories.map((category) => (
-          <button
-            aria-controls={`visual-preset-panel-${category.id}`}
-            aria-selected={category.id === activeCategory?.id}
-            className={category.id === activeCategory?.id ? "active" : ""}
-            id={`visual-preset-tab-${category.id}`}
-            key={category.id}
-            role="tab"
-            type="button"
-            onClick={() => setActiveCategoryId(category.id)}
-          >
-            {category.label}
-            <span>{category.presets.length}</span>
-          </button>
-        ))}
-      </div>
-      <div
-        aria-labelledby={
-          activeCategory ? `visual-preset-tab-${activeCategory.id}` : undefined
+        aria-label={
+          activeCategory
+            ? `Atmosferas em ${activeCategory.label}`
+            : "Atmosferas"
         }
         className="visual-preset-grid"
         id={

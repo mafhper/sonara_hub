@@ -483,12 +483,15 @@ export function VisualInspector(props: {
           </header>
           {selectedItem.kind === "atmosphere" && (
             <div className="stack-detail-body">
-              <VisualPresetBrowser
-                presets={props.presets}
-                selectedScene={scene}
-                onSelectPreset={props.onSelectPreset}
-                onSelectVariant={props.onSelectVariant}
-              />
+              <details className="stack-detail-disclosure" open>
+                <summary>Escolher atmosfera</summary>
+                <VisualPresetBrowser
+                  presets={props.presets}
+                  selectedScene={scene}
+                  onSelectPreset={props.onSelectPreset}
+                  onSelectVariant={props.onSelectVariant}
+                />
+              </details>
               <p className="preset-note">{scene.note}</p>
               <div className="preset-actions">
                 <button type="button" onClick={props.onDuplicatePreset}>
