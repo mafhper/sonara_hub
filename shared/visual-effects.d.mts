@@ -108,6 +108,7 @@ export type SceneRendererId =
   | "audio-dark"
   | "plasma"
   | "lava"
+  | "lava-lamp"
   | "vortex"
   | "galaxy"
   | "starfield"
@@ -120,7 +121,12 @@ export type SceneRendererId =
   | "stratosphere-flight"
   | "shambhala-passage"
   | "neural-haze"
-  | "light-trails";
+  | "light-trails"
+  | "holo-topography"
+  | "fractal-sphere"
+  | "fluid-flow"
+  | "terrain-magic"
+  | "terrain-flight";
 
 export type VisualPostSettings = {
   bloom: number;

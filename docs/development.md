@@ -105,8 +105,9 @@ branch `main` recebe push ou quando o workflow é executado manualmente.
 O site é uma aplicação React/Vite estática com detecção automática de idioma via
 `navigator.languages`. A copy pública deve permanecer disponível em `pt-BR`,
 `en` e `es`, incluindo novas seções, CTAs, nomes acessíveis e experiências
-interativas. Hoje a vitrine inclui uma prévia leve de atmosferas em canvas para
-apresentar as famílias V5 sem depender do renderer completo do app.
+interativas. Hoje a vitrine inclui uma prévia controlada de atmosferas em canvas
+para comparar presets, capa opcional, opacidade e modos de mescla sem abrir o
+aplicativo desktop.
 
 Antes de publicar alterações no site:
 

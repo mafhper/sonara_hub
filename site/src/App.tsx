@@ -8,6 +8,16 @@ import {
   useState,
 } from "react";
 import {
+  Gauge,
+  Image as ImageIcon,
+  Layers3,
+  Move,
+  Music2,
+  Palette,
+  SlidersHorizontal,
+  Waves,
+} from "lucide-react";
+import {
   createSceneRuntime,
   type SceneComposition,
 } from "../../shared/canvas-scene-runtime.mjs";
@@ -21,6 +31,10 @@ import heroAmbient from "./assets/hero-ambient.webp";
 import heroCoverAzul from "./assets/hero-cover-azul.webp";
 import heroCoverBeauty from "./assets/hero-cover-beauty.webp";
 import heroCoverJardim from "./assets/hero-cover-jardim.webp";
+import labCoverAzulBlue from "./assets/lab-cover-azul-blue.webp";
+import labCoverAzulLight from "./assets/lab-cover-azul-light.webp";
+import labCoverJardim from "./assets/lab-cover-jardim.webp";
+import labCoverKite from "./assets/lab-cover-kite.webp";
 import liquidFlow from "./assets/liquid-flow.webp";
 import shotAudioLibrary from "./assets/shot-audio-library.webp";
 import shotAzulFrame from "./assets/shot-azul-frame.webp";
@@ -37,16 +51,6 @@ type IconProps = {
   className?: string;
 };
 
-type WorkspaceCardProps = {
-  id: string;
-  eyebrow: string;
-  title: string;
-  description: string;
-  image: string;
-  features: string[];
-  tone: "audio" | "visual";
-};
-
 type Principle = {
   label: string;
   title: string;
@@ -55,14 +59,17 @@ type Principle = {
 };
 
 type Locale = "pt-BR" | "en" | "es";
+type WorkspaceMode = "audio" | "visual";
 type AtmosphereLabId =
   | "neural-haze"
   | "playful-shapes"
   | "starfield"
   | "iridescent-bloom";
 type AtmospherePaletteId = "original" | "prism" | "deep";
+type LabCoverId = "azul-blue" | "azul-light" | "kite" | "jardim";
 
 const supportedLocales: Locale[] = ["pt-BR", "en", "es"];
+const workspaceModes: WorkspaceMode[] = ["audio", "visual"];
 const atmosphereLabIds: AtmosphereLabId[] = [
   "neural-haze",
   "playful-shapes",
@@ -74,6 +81,17 @@ const atmospherePaletteIds: AtmospherePaletteId[] = [
   "prism",
   "deep",
 ];
+const labCoverOptions: Array<{ id: LabCoverId; label: string; image: string }> =
+  [
+    { id: "azul-blue", label: "Azul de Roda - blue", image: labCoverAzulBlue },
+    {
+      id: "azul-light",
+      label: "Azul de Roda - light",
+      image: labCoverAzulLight,
+    },
+    { id: "kite", label: "Jardim - kite", image: labCoverKite },
+    { id: "jardim", label: "Jardim dos Ventos", image: labCoverJardim },
+  ];
 const atmospherePaletteFallbackColors: Record<AtmospherePaletteId, string[]> = {
   original: ["#0b1026", "#5b3fb0", "#f5b8e0"],
   prism: ["#090a12", "#7ccfce", "#c9dbff"],
@@ -141,6 +159,28 @@ const siteCopy = {
       label: "Dois workspaces",
       title: "O áudio vira visual sem sair do estúdio.",
       body: "A mesma pasta, metadados e decisões de capa alimentam a exportação visual. Sem retrabalho, sem uma etapa de publicação desconectada.",
+      demo: {
+        tabsAria: "Escolha o workspace em destaque",
+        stageAria: "Demonstração do workspace selecionado",
+        audio: {
+          proof: "Biblioteca local",
+          summary: "Da pasta ao lote tratado, sem sair da identidade do álbum.",
+          flow: [
+            ["Entrada", "Pasta local, lote ou faixa única."],
+            ["Revisão", "Tags, letras, pico e loudness."],
+            ["Saída", "Capa, cópias tratadas e metadados."],
+          ],
+        },
+        visual: {
+          proof: "Estúdio visual",
+          summary: "A mesma capa e os mesmos metadados entram na atmosfera.",
+          flow: [
+            ["Cena", "Preset, paleta e movimento."],
+            ["Camadas", "Capa, texto e blend mode."],
+            ["Exportação", "Vídeo, frame e sidecar."],
+          ],
+        },
+      },
       audio: {
         eyebrow: "01 - Biblioteca de áudio",
         title: "Prepare o disco.",
@@ -457,6 +497,29 @@ storage: autosave local`,
       label: "Two workspaces",
       title: "Audio becomes visual without leaving the studio.",
       body: "The same folder, metadata and cover decisions feed the visual export. No duplicate entry, no disconnected publishing pass.",
+      demo: {
+        tabsAria: "Choose the featured workspace",
+        stageAria: "Selected workspace demo",
+        audio: {
+          proof: "Local library",
+          summary:
+            "From folder import to treated batch, still inside the album identity.",
+          flow: [
+            ["Input", "Local folder, batch or single track."],
+            ["Review", "Tags, lyrics, peak and loudness."],
+            ["Output", "Cover, treated copies and metadata."],
+          ],
+        },
+        visual: {
+          proof: "Visual studio",
+          summary: "The same cover and metadata move into the atmosphere.",
+          flow: [
+            ["Scene", "Preset, palette and motion."],
+            ["Layers", "Cover, text and blend mode."],
+            ["Export", "Video, frame and sidecar."],
+          ],
+        },
+      },
       audio: {
         eyebrow: "01 - Audio Library",
         title: "Prepare the record.",
@@ -771,6 +834,30 @@ storage: local autosave`,
       label: "Dos workspaces",
       title: "El audio se vuelve visual sin salir del estudio.",
       body: "La misma carpeta, los metadatos y las decisiones de portada alimentan la exportación visual. Sin duplicar datos, sin una etapa de publicación desconectada.",
+      demo: {
+        tabsAria: "Elige el workspace destacado",
+        stageAria: "Demostración del workspace seleccionado",
+        audio: {
+          proof: "Biblioteca local",
+          summary:
+            "De la carpeta al lote tratado, dentro de la identidad del álbum.",
+          flow: [
+            ["Entrada", "Carpeta local, lote o pista única."],
+            ["Revisión", "Tags, letras, pico y loudness."],
+            ["Salida", "Portada, copias tratadas y metadatos."],
+          ],
+        },
+        visual: {
+          proof: "Estudio visual",
+          summary:
+            "La misma portada y los mismos metadatos entran en la atmósfera.",
+          flow: [
+            ["Escena", "Preset, paleta y movimiento."],
+            ["Capas", "Portada, texto y blend mode."],
+            ["Exportación", "Video, frame y sidecar."],
+          ],
+        },
+      },
       audio: {
         eyebrow: "01 - Biblioteca de audio",
         title: "Prepara el disco.",
@@ -1034,6 +1121,7 @@ storage: autosave local`,
 } as const;
 
 type SiteCopy = (typeof siteCopy)[Locale];
+type LabBlendMode = "normal" | "screen" | "overlay" | "multiply";
 
 const SiteCopyContext = createContext<SiteCopy>(siteCopy.en);
 
@@ -1075,7 +1163,7 @@ export function App() {
         <Workflow />
         <ReleaseFormats />
         <ScreenshotGallery />
-        <Principles />
+        <Principles editorial />
         <OpenSource />
         <FutureVision />
         <FinalCta />
@@ -1106,6 +1194,7 @@ function Header() {
         <a href="#visual-system">{copy.header.nav.visualSystem}</a>
         <a href="#workflow">{copy.header.nav.workflow}</a>
         <a href="#release-formats">{copy.header.nav.releaseFormats}</a>
+        <a href="#principles">{copy.principles.label}</a>
         <a href="#roadmap">{copy.header.nav.roadmap}</a>
       </nav>
       <a className="button button-quiet button-compact" href={GITHUB_URL}>
@@ -1540,6 +1629,17 @@ function Story() {
 
 function Workspaces() {
   const copy = useSiteCopy();
+  const [activeWorkspace, setActiveWorkspace] =
+    useState<WorkspaceMode>("audio");
+  const activeCopy = copy.workspaces[activeWorkspace];
+  const activeDemo = copy.workspaces.demo[activeWorkspace];
+  const activeFeatures = activeCopy.features.slice(0, 4);
+  const workspaceShortLabels =
+    copy === siteCopy["pt-BR"]
+      ? { audio: "Áudio", visual: "Visual" }
+      : { audio: "Audio", visual: "Visual" };
+  const activeImage =
+    activeWorkspace === "audio" ? shotAudioLibrary : shotVisualStudio;
 
   return (
     <section id="workspaces" className="section" data-motion-stage="1.4">
@@ -1550,25 +1650,75 @@ function Workspaces() {
         </div>
         <p>{copy.workspaces.body}</p>
       </div>
-      <div className="workspace-grid">
-        <WorkspaceCard
-          id="audio-library"
-          eyebrow={copy.workspaces.audio.eyebrow}
-          title={copy.workspaces.audio.title}
-          description={copy.workspaces.audio.description}
-          image={shotAudioLibrary}
-          tone="audio"
-          features={[...copy.workspaces.audio.features]}
-        />
-        <WorkspaceCard
-          id="visual-studio"
-          eyebrow={copy.workspaces.visual.eyebrow}
-          title={copy.workspaces.visual.title}
-          description={copy.workspaces.visual.description}
-          image={shotVisualStudio}
-          tone="visual"
-          features={[...copy.workspaces.visual.features]}
-        />
+      <div className="feature-panorama" aria-label={copy.workspaces.label}>
+        <div className="feature-panorama-stage workspace-duo">
+          <div
+            className="workspace-switcher"
+            role="tablist"
+            aria-label={copy.workspaces.demo.tabsAria}
+          >
+            {workspaceModes.map((mode, index) => {
+              const workspace = copy.workspaces[mode];
+              const workspaceNumber =
+                workspace.eyebrow.match(/^\d+/)?.[0] ?? String(index + 1);
+              const isActive = activeWorkspace === mode;
+              return (
+                <button
+                  id={`workspace-tab-${mode}`}
+                  key={mode}
+                  type="button"
+                  role="tab"
+                  aria-controls={`workspace-panel-${mode}`}
+                  aria-selected={isActive}
+                  aria-label={workspace.eyebrow}
+                  className={isActive ? "active" : ""}
+                  onClick={() => setActiveWorkspace(mode)}
+                >
+                  <span>{workspaceNumber.padStart(2, "0")}</span>
+                  <strong>{workspaceShortLabels[mode]}</strong>
+                </button>
+              );
+            })}
+          </div>
+
+          <div
+            id={`workspace-panel-${activeWorkspace}`}
+            className={`workspace-duo-panel workspace-duo-panel-${activeWorkspace}`}
+            role="tabpanel"
+            aria-label={copy.workspaces.demo.stageAria}
+            aria-labelledby={`workspace-tab-${activeWorkspace}`}
+          >
+            <div className="workspace-scene">
+              <div className="workspace-scene-screen">
+                <img
+                  src={activeImage}
+                  alt=""
+                  width="1280"
+                  height="800"
+                  loading="lazy"
+                />
+              </div>
+              <ol className="workspace-flow">
+                {activeDemo.flow.map(([title, body], index) => (
+                  <li key={title}>
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    <strong>{title}</strong>
+                    <p>{body}</p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            <div className="workspace-panel-copy">
+              <p className="workspace-panel-summary">{activeDemo.summary}</p>
+              <ul>
+                {activeFeatures.map((feature) => (
+                  <li key={feature}>{feature}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -1591,78 +1741,80 @@ function VisualSystems() {
         <p>{copy.visualSystem.body}</p>
       </div>
 
-      <div className="feature-grid">
-        <article className="feature-panel feature-panel-wide">
-          <div className="section-label">
-            {copy.visualSystem.atmospheres.label}
-          </div>
-          <h3>{copy.visualSystem.atmospheres.title}</h3>
-          <p>{copy.visualSystem.atmospheres.body}</p>
-          <div
-            className="atmosphere-list"
-            aria-label={copy.visualSystem.atmospheres.aria}
-          >
-            {copy.visualSystem.atmospheres.items.map(([name, body]) => (
-              <div key={name}>
-                <strong>{name}</strong>
-                <span>{body}</span>
-              </div>
-            ))}
-          </div>
-        </article>
-
-        <article className="feature-panel">
-          <div className="section-label">{copy.visualSystem.themes.label}</div>
-          <h3>{copy.visualSystem.themes.title}</h3>
-          <p>{copy.visualSystem.themes.body}</p>
-        </article>
-
-        <article className="feature-panel">
-          <div className="section-label">{copy.visualSystem.covers.label}</div>
-          <h3>{copy.visualSystem.covers.title}</h3>
-          <p>{copy.visualSystem.covers.body}</p>
-        </article>
-      </div>
-      <AtmosphereLab />
+      <AtmosphereLab immersive />
     </section>
   );
 }
 
-function WorkspaceCard({
-  id,
-  eyebrow,
-  title,
-  description,
-  image,
-  features,
-  tone,
-}: WorkspaceCardProps) {
-  return (
-    <article id={id} className={`workspace-card workspace-card-${tone}`}>
-      <div className="workspace-media">
-        <img src={image} alt="" width="1280" height="800" loading="lazy" />
-        <div className="workspace-badge">{eyebrow}</div>
-      </div>
-      <div className="workspace-body">
-        <h3>{title}</h3>
-        <p>{description}</p>
-        <ul>
-          {features.map((feature) => (
-            <li key={feature}>{feature}</li>
-          ))}
-        </ul>
-      </div>
-    </article>
-  );
-}
-
-function AtmosphereLab() {
+function AtmosphereLab({ immersive = false }: { immersive?: boolean }) {
   const copy = useSiteCopy();
+  const layerCopy =
+    copy === siteCopy["pt-BR"]
+      ? {
+          title: "Capa na atmosfera",
+          showCover: "Usar capa na cena",
+          opacity: "Transparência",
+          blend: "Mistura",
+          positionX: "Horizontal",
+          positionY: "Vertical",
+          scale: "Tamanho",
+          drawer: "Ajustes",
+          previousCover: "Capa anterior",
+          nextCover: "Próxima capa",
+          note: "Troque nas setas e misture a capa com a atmosfera.",
+        }
+      : copy === siteCopy.es
+        ? {
+            title: "Portada en la atmósfera",
+            showCover: "Usar portada en la escena",
+            opacity: "Transparencia",
+            blend: "Mezcla",
+            positionX: "Horizontal",
+            positionY: "Vertical",
+            scale: "Tamaño",
+            drawer: "Ajustes",
+            previousCover: "Portada anterior",
+            nextCover: "Siguiente portada",
+            note: "Cambia con las flechas y mezcla la portada con la atmósfera.",
+          }
+        : {
+            title: "Cover in the atmosphere",
+            showCover: "Use cover in scene",
+            opacity: "Transparency",
+            blend: "Blend",
+            positionX: "Horizontal",
+            positionY: "Vertical",
+            scale: "Size",
+            drawer: "Controls",
+            previousCover: "Previous cover",
+            nextCover: "Next cover",
+            note: "Switch with the arrows and blend the cover into the atmosphere.",
+          };
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [selected, setSelected] = useState<AtmosphereLabId>("iridescent-bloom");
-  const [palette, setPalette] = useState<AtmospherePaletteId>("prism");
-  const [motion, setMotion] = useState(58);
-  const [intensity, setIntensity] = useState(68);
+  const [selected, setSelected] = useState<AtmosphereLabId>("neural-haze");
+  const [palette, setPalette] = useState<AtmospherePaletteId>("deep");
+  const [motion, setMotion] = useState(42);
+  const [intensity, setIntensity] = useState(55);
+  const [coverEnabled, setCoverEnabled] = useState(true);
+  const [coverImage, setCoverImage] = useState<LabCoverId>("azul-blue");
+  const [coverX, setCoverX] = useState(0);
+  const [coverY, setCoverY] = useState(-9);
+  const [coverScale, setCoverScale] = useState(110);
+  const [coverOpacity, setCoverOpacity] = useState(88);
+  const [coverBlend, setCoverBlend] = useState<LabBlendMode>("normal");
+  const selectedCover =
+    labCoverOptions.find((option) => option.id === coverImage) ??
+    labCoverOptions[0];
+  const selectedCoverIndex = Math.max(
+    0,
+    labCoverOptions.findIndex((option) => option.id === selectedCover.id),
+  );
+  const changeCover = (direction: -1 | 1) => {
+    const nextIndex =
+      (selectedCoverIndex + direction + labCoverOptions.length) %
+      labCoverOptions.length;
+    setCoverImage(labCoverOptions[nextIndex].id);
+  };
   const selectedPreset = copy.visualSystem.lab.presets[selected];
   const selectedScene = useMemo(
     () => createSiteAtmosphereScene(selected, palette, motion, intensity),
@@ -1741,27 +1893,86 @@ function AtmosphereLab() {
   }, [intensity, motion, selectedScene]);
 
   return (
-    <div className="atmosphere-lab">
-      <div className="atmosphere-lab-copy">
-        <div className="section-label">{copy.visualSystem.lab.label}</div>
-        <h3>{copy.visualSystem.lab.title}</h3>
-        <p>{copy.visualSystem.lab.body}</p>
-      </div>
+    <div
+      className={`atmosphere-lab ${immersive ? "atmosphere-lab-immersive" : ""}`}
+    >
+      {!immersive && (
+        <div className="atmosphere-lab-copy">
+          <div className="section-label">{copy.visualSystem.lab.label}</div>
+          <h3>{copy.visualSystem.lab.title}</h3>
+          <p>{copy.visualSystem.lab.body}</p>
+        </div>
+      )}
       <div className="atmosphere-lab-shell">
-        <canvas
-          ref={canvasRef}
-          className="atmosphere-lab-canvas"
-          aria-label={copy.visualSystem.lab.previewAria}
-          data-testid="atmosphere-lab-canvas"
-        />
-        <div className="atmosphere-lab-controls">
-          <section aria-labelledby="atmosphere-control-title">
+        <div className="atmosphere-lab-stage">
+          <canvas
+            ref={canvasRef}
+            className="atmosphere-lab-canvas"
+            aria-label={copy.visualSystem.lab.previewAria}
+            data-testid="atmosphere-lab-canvas"
+          />
+          {coverEnabled && (
+            <div
+              className="lab-cover-layer"
+              style={{
+                left: `calc(50% + ${coverX}%)`,
+                top: `calc(50% + ${coverY}%)`,
+                transform: `translate(-50%, -50%) scale(${coverScale / 100})`,
+              }}
+            >
+              <button
+                type="button"
+                className="lab-cover-arrow lab-cover-arrow-prev"
+                aria-label={layerCopy.previousCover}
+                onClick={() => changeCover(-1)}
+              >
+                ‹
+              </button>
+              <figure
+                className="lab-cover-preview"
+                data-testid="lab-cover-preview"
+                style={{
+                  mixBlendMode: coverBlend,
+                  opacity: coverOpacity / 100,
+                }}
+              >
+                <img src={selectedCover.image} alt="" loading="lazy" />
+                <figcaption>{selectedCover.label}</figcaption>
+              </figure>
+              <button
+                type="button"
+                className="lab-cover-arrow lab-cover-arrow-next"
+                aria-label={layerCopy.nextCover}
+                onClick={() => changeCover(1)}
+              >
+                ›
+              </button>
+            </div>
+          )}
+        </div>
+        <div
+          className="atmosphere-lab-controls"
+          data-control-label={layerCopy.drawer}
+        >
+          <section
+            className="composer-panel composer-atmospheres"
+            aria-labelledby="atmosphere-control-title"
+          >
             <h4 id="atmosphere-control-title">
+              <Waves className="composer-icon" aria-hidden="true" />
               {copy.visualSystem.lab.controls.atmosphere}
             </h4>
             <div className="atmosphere-choice-list">
               {atmosphereLabIds.map((id) => {
                 const preset = copy.visualSystem.lab.presets[id];
+                const PresetIcon =
+                  id === "neural-haze"
+                    ? Waves
+                    : id === "playful-shapes"
+                      ? Music2
+                      : id === "starfield"
+                        ? SlidersHorizontal
+                        : Layers3;
                 return (
                   <button
                     key={id}
@@ -1770,6 +1981,10 @@ function AtmosphereLab() {
                     aria-pressed={selected === id}
                     onClick={() => setSelected(id)}
                   >
+                    <PresetIcon
+                      className="composer-option-icon"
+                      aria-hidden="true"
+                    />
                     <strong>{preset.name}</strong>
                     <span>{preset.description}</span>
                   </button>
@@ -1778,8 +1993,12 @@ function AtmosphereLab() {
             </div>
           </section>
 
-          <section aria-labelledby="palette-control-title">
+          <section
+            className="composer-panel composer-palette"
+            aria-labelledby="palette-control-title"
+          >
             <h4 id="palette-control-title">
+              <Palette className="composer-icon" aria-hidden="true" />
               {copy.visualSystem.lab.controls.palette}
             </h4>
             <div className="palette-choice-list">
@@ -1802,34 +2021,163 @@ function AtmosphereLab() {
             </div>
           </section>
 
-          <div className="lab-range-grid">
-            <label>
-              <span>{copy.visualSystem.lab.controls.motion}</span>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={motion}
-                onChange={(event) => setMotion(Number(event.target.value))}
-              />
-            </label>
-            <label>
-              <span>{copy.visualSystem.lab.controls.intensity}</span>
-              <input
-                type="range"
-                min="20"
-                max="100"
-                value={intensity}
-                onChange={(event) => setIntensity(Number(event.target.value))}
-              />
-            </label>
-          </div>
+          <section
+            className="composer-panel composer-motion"
+            aria-labelledby="motion-control-title"
+          >
+            <h4 id="motion-control-title">
+              <Gauge className="composer-icon" aria-hidden="true" />
+              {copy.visualSystem.lab.controls.motion}
+            </h4>
+            <div className="lab-range-grid">
+              <label>
+                <span>
+                  <Move className="composer-inline-icon" aria-hidden="true" />
+                  {copy.visualSystem.lab.controls.motion}
+                </span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={motion}
+                  onChange={(event) => setMotion(Number(event.target.value))}
+                />
+              </label>
+              <label>
+                <span>
+                  <SlidersHorizontal
+                    className="composer-inline-icon"
+                    aria-hidden="true"
+                  />
+                  {copy.visualSystem.lab.controls.intensity}
+                </span>
+                <input
+                  type="range"
+                  min="20"
+                  max="100"
+                  value={intensity}
+                  onChange={(event) => setIntensity(Number(event.target.value))}
+                />
+              </label>
+            </div>
+          </section>
 
-          <div className="lab-tag-row" aria-label={selectedPreset.name}>
-            {selectedPreset.tags.map((tag) => (
-              <span key={tag}>{tag}</span>
-            ))}
-          </div>
+          {immersive && (
+            <section
+              className="composer-panel composer-cover"
+              aria-labelledby="cover-control-title"
+            >
+              <h4 id="cover-control-title">
+                <ImageIcon className="composer-icon" aria-hidden="true" />
+                {layerCopy.title}
+              </h4>
+              <label className="lab-toggle-row">
+                <input
+                  checked={coverEnabled}
+                  type="checkbox"
+                  onChange={(event) => setCoverEnabled(event.target.checked)}
+                />
+                <span>{layerCopy.showCover}</span>
+              </label>
+              <div className="lab-range-grid">
+                <label>
+                  <span>
+                    <Move className="composer-inline-icon" aria-hidden="true" />
+                    {layerCopy.positionX}
+                  </span>
+                  <input
+                    aria-label={layerCopy.positionX}
+                    type="range"
+                    min="-30"
+                    max="30"
+                    value={coverX}
+                    onChange={(event) => setCoverX(Number(event.target.value))}
+                  />
+                </label>
+                <label>
+                  <span>
+                    <Move className="composer-inline-icon" aria-hidden="true" />
+                    {layerCopy.positionY}
+                  </span>
+                  <input
+                    aria-label={layerCopy.positionY}
+                    type="range"
+                    min="-26"
+                    max="26"
+                    value={coverY}
+                    onChange={(event) => setCoverY(Number(event.target.value))}
+                  />
+                </label>
+                <label>
+                  <span>
+                    <ImageIcon
+                      className="composer-inline-icon"
+                      aria-hidden="true"
+                    />
+                    {layerCopy.scale}
+                  </span>
+                  <input
+                    aria-label={layerCopy.scale}
+                    type="range"
+                    min="55"
+                    max="170"
+                    value={coverScale}
+                    onChange={(event) =>
+                      setCoverScale(Number(event.target.value))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>
+                    <Gauge
+                      className="composer-inline-icon"
+                      aria-hidden="true"
+                    />
+                    {layerCopy.opacity}
+                  </span>
+                  <input
+                    aria-label={layerCopy.opacity}
+                    type="range"
+                    min="20"
+                    max="100"
+                    value={coverOpacity}
+                    onChange={(event) =>
+                      setCoverOpacity(Number(event.target.value))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>
+                    <Layers3
+                      className="composer-inline-icon"
+                      aria-hidden="true"
+                    />
+                    {layerCopy.blend}
+                  </span>
+                  <select
+                    aria-label={layerCopy.blend}
+                    value={coverBlend}
+                    onChange={(event) =>
+                      setCoverBlend(event.target.value as LabBlendMode)
+                    }
+                  >
+                    <option value="normal">Normal</option>
+                    <option value="screen">Screen</option>
+                    <option value="overlay">Overlay</option>
+                    <option value="multiply">Multiply</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+          )}
+
+          {!immersive && (
+            <div className="lab-tag-row" aria-label={selectedPreset.name}>
+              {selectedPreset.tags.map((tag) => (
+                <span key={tag}>{tag}</span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1918,6 +2266,7 @@ function Workflow() {
 
 function ReleaseFormats() {
   const copy = useSiteCopy();
+  const images = [shotVideoGrid, heroCoverBeauty, shotCatalog];
 
   return (
     <section
@@ -1933,11 +2282,16 @@ function ReleaseFormats() {
         <p>{copy.releaseFormats.body}</p>
       </div>
       <div className="release-grid">
-        {copy.releaseFormats.cards.map((card) => (
+        {copy.releaseFormats.cards.map((card, index) => (
           <article key={card.title}>
-            <span>{card.label}</span>
-            <h3>{card.title}</h3>
-            <p>{card.body}</p>
+            <div className="release-card-media">
+              <img src={images[index]} alt="" loading="lazy" />
+            </div>
+            <div className="release-card-copy">
+              <span>{card.label}</span>
+              <h3>{card.title}</h3>
+              <p>{card.body}</p>
+            </div>
           </article>
         ))}
       </div>
@@ -1984,7 +2338,7 @@ function ScreenshotGallery() {
   );
 }
 
-function Principles() {
+function Principles({ editorial = false }: { editorial?: boolean }) {
   const copy = useSiteCopy();
   const principles: Principle[] = useMemo(
     () =>
@@ -2000,7 +2354,7 @@ function Principles() {
   return (
     <section
       id="principles"
-      className="section principles-section"
+      className={`section principles-section ${editorial ? "principles-section-editorial" : ""}`}
       data-motion-stage="3.4"
     >
       <div className="section-heading">

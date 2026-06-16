@@ -26,6 +26,7 @@ const expectedIds = [
   "audio-dark",
   "plasma-nebula",
   "plasma-lava",
+  "lava-lamp",
   "vortex-whirlpool",
   "vortex-galaxy",
   "starfield",
@@ -39,6 +40,11 @@ const expectedIds = [
   "shambhala-passage",
   "neural-haze",
   "light-trails",
+  "holo-topography",
+  "fractal-sphere",
+  "fluid-flow",
+  "terrain-magic",
+  "terrain-flight",
 ];
 
 test("catalog exposes the broad families plus the ported shader presets", () => {

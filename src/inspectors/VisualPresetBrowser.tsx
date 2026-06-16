@@ -1,5 +1,5 @@
-import { Check, Gauge, Palette } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Check, Gauge, Layers, Palette } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import type {
   ScenePresetV3,
@@ -36,29 +36,40 @@ export function VisualPresetBrowser({
     categories.find((category) => category.id === activeCategoryId) ??
     categories[0];
   const visiblePresets = activeCategory?.presets ?? [];
-  const categorySummary = activeCategory
-    ? `${activeCategory.presets.length} ${
-        activeCategory.presets.length === 1 ? "atmosfera" : "atmosferas"
-      }`
-    : "Nenhuma atmosfera";
+  // Variants render in a dedicated row below the grid for whichever preset is
+  // selected — keeping every card uniform instead of stretching one card with a
+  // tall column of variant buttons.
+  const variantPreset = visiblePresets.find(
+    (preset) => preset.id === selectedScene.id && preset.variants.length > 0,
+  );
 
   return (
     <div className="visual-preset-browser">
-      <label className="visual-preset-category-field">
-        <span>Categoria</span>
-        <select
-          aria-label="Categoria de atmosfera"
-          value={activeCategory?.id ?? ""}
-          onChange={(event) => setActiveCategoryId(event.target.value)}
-        >
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.label} ({category.presets.length})
-            </option>
-          ))}
-        </select>
-        <small>{categorySummary}</small>
-      </label>
+      <div
+        aria-label="Categoria de atmosfera"
+        className="visual-preset-chips"
+        role="tablist"
+      >
+        {categories.map((category) => {
+          const active = category.id === activeCategory?.id;
+          return (
+            <button
+              aria-controls={`visual-preset-panel-${category.id}`}
+              aria-selected={active}
+              className={`visual-preset-chip ${active ? "active" : ""}`}
+              key={category.id}
+              role="tab"
+              type="button"
+              onClick={() => setActiveCategoryId(category.id)}
+            >
+              {category.label}
+              <span className="visual-preset-chip-count">
+                {category.presets.length}
+              </span>
+            </button>
+          );
+        })}
+      </div>
       <div
         aria-label={
           activeCategory
@@ -75,53 +86,52 @@ export function VisualPresetBrowser({
       >
         {visiblePresets.map((preset) => {
           const selected = selectedScene.id === preset.id;
+          const tooltip = [preset.name, preset.family, preset.note]
+            .filter(Boolean)
+            .join(" · ");
           return (
-            <div
+            <button
+              aria-label={`Selecionar atmosfera ${preset.name}`}
+              aria-pressed={selected}
               className={`visual-preset-card ${selected ? "active" : ""}`}
               key={preset.id}
+              title={tooltip}
+              type="button"
+              onClick={() => onSelectPreset(preset.id)}
             >
-              <button
-                aria-label={`Selecionar atmosfera ${preset.name}`}
-                aria-pressed={selected && !selectedScene.appliedVariantId}
-                className="visual-preset-card-main"
-                type="button"
-                onClick={() => onSelectPreset(preset.id)}
-              >
-                <span className="visual-preset-card-head">
-                  <span className="visual-preset-title">
-                    <strong>{preset.name}</strong>
-                    <small>{preset.family}</small>
+              <PresetThumb colors={preset.colors} name={preset.name}>
+                {preset.variants.length ? (
+                  <span className="visual-preset-thumb-badge variants">
+                    <Layers /> {preset.variants.length}
                   </span>
-                  {selected && !selectedScene.appliedVariantId ? (
-                    <span className="visual-preset-selected">
-                      <Check /> Ativo
-                    </span>
-                  ) : null}
-                </span>
-                <PresetSwatches colors={preset.colors} name={preset.name} />
-                <span className="visual-preset-note">{preset.note}</span>
-                <span className="visual-preset-meta">
-                  <span>
+                ) : null}
+                {selected ? (
+                  <span className="visual-preset-thumb-badge active">
+                    <Check />
+                  </span>
+                ) : (
+                  <span className="visual-preset-thumb-badge">
                     <Gauge /> T{preset.performanceTier}
                   </span>
-                  {preset.tags.slice(0, 3).map((tag) => (
-                    <span key={tag}>{tag}</span>
-                  ))}
-                </span>
-              </button>
-              {preset.variants.length ? (
-                <VariantPicker
-                  appliedVariantId={
-                    selected ? selectedScene.appliedVariantId : undefined
-                  }
-                  preset={preset}
-                  onSelectVariant={onSelectVariant}
-                />
-              ) : null}
-            </div>
+                )}
+              </PresetThumb>
+              <span className="visual-preset-name">{preset.name}</span>
+            </button>
           );
         })}
       </div>
+      {variantPreset ? (
+        <div className="visual-preset-variants-row">
+          <span className="visual-preset-variants-label">
+            Variações · {variantPreset.name}
+          </span>
+          <VariantPicker
+            appliedVariantId={selectedScene.appliedVariantId}
+            preset={variantPreset}
+            onSelectVariant={onSelectVariant}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -141,25 +151,24 @@ function groupPresetCategories(presets: ScenePresetV3[]): PresetCategory[] {
   return [...groups.values()];
 }
 
-function PresetSwatches({
+function PresetThumb({
   colors,
   name,
+  children,
 }: {
   colors: ScenePresetV3["colors"];
   name: string;
+  children?: ReactNode;
 }) {
   return (
     <span
       aria-label={`Cores da atmosfera ${name}`}
-      className="visual-preset-swatches"
+      className="visual-preset-thumb"
+      style={{
+        backgroundImage: `radial-gradient(120% 120% at 78% 18%, ${colors.light} 0%, transparent 58%), linear-gradient(150deg, ${colors.base} 0%, ${colors.effect} 62%, ${colors.light} 100%)`,
+      }}
     >
-      {(["base", "effect", "light"] as const).map((key) => (
-        <i
-          aria-hidden="true"
-          key={key}
-          style={{ backgroundColor: colors[key] }}
-        />
-      ))}
+      {children}
     </span>
   );
 }

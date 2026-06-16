@@ -342,6 +342,54 @@ void main() {
   color = pow(max(color, 0.0), vec3(0.9));
   gl_FragColor = vec4(finish(color, frag), 1.0);
 }`,
+  // Lâmpada de lava: metaballs de cera quente subindo/descendo num líquido
+  // translúcido. Sem veios (distinto da "lava" vulcânica) e sem fbm nebuloso
+  // (distinto do "plasma"). Os graves empurram os blobs e pulsam o brilho.
+  "lava-lamp": `${shaderPrelude}
+void main() {
+  vec2 frag = gl_FragCoord.xy / u_resolution.xy;
+  float aspect = u_resolution.x / u_resolution.y;
+  vec2 uv = vec2((frag.x - 0.5) * aspect, frag.y - 0.5);
+  float t = u_time * (0.16 + u_speed * 0.6);
+  float bass = u_audioBass * u_audioReaction;
+  // Poucos blobs grandes, empilhados no eixo vertical como num tubo. Campo
+  // gaussiano (cai rápido) -> blobs redondos e discretos que se fundem ao se
+  // tocar, sem a espuma de iso-contornos do 1/dist^2.
+  float count = floor(mix(3.0, 6.0, u_param0) + 0.5);
+  float visc = 0.7 + u_param1 * 0.9;
+  float field = 0.0;
+  float merge = 0.0;
+  for (int i = 0; i < 6; i++) {
+    if (float(i) >= count) break;
+    float fi = float(i);
+    float seed = hash(vec2(fi * 1.37, 7.13));
+    float seed2 = hash(vec2(fi, 2.0));
+    float rate = 0.45 + seed * 0.8;
+    float phase = seed * 6.2831;
+    float y = sin(t * rate + phase) * 0.36 + bass * 0.1 * sin(phase + t);
+    float x = (seed - 0.5) * aspect * 0.42 + sin(t * 0.35 * rate + phase) * 0.06;
+    float sigma = (0.16 + seed2 * 0.09) * visc * (1.0 + bass * 0.18);
+    vec2 d = uv - vec2(x, y);
+    float contrib = exp(-dot(d, d) / (sigma * sigma));
+    field += contrib;
+    merge += contrib * contrib;
+  }
+  // contraste -> nitidez da membrana; inner -> núcleo quente onde blobs se somam.
+  float edge = 0.5;
+  float soft = mix(0.24, 0.05, u_param3);
+  float blob = smoothstep(edge - soft, edge + soft, field);
+  float inner = smoothstep(1.3, 2.6, field + merge * 0.6);
+  float rim = exp(-abs(field - edge) * mix(4.0, 9.0, u_param3));
+  float glow = 0.3 + u_param2 * 0.9;
+  vec3 liquid = mix(u_colorA * 0.5, u_colorA, frag.y);
+  vec3 wax = mix(u_colorB, u_accentColor, inner);
+  vec3 color = mix(liquid, wax, blob);
+  color += u_accentColor * rim * glow * 0.6 * pulse(u_audioBass, 0.4);
+  color += u_accentColor * inner * glow * 0.5;
+  color *= 0.62 + u_intensity * 1.05;
+  color = pow(max(color, 0.0), vec3(0.92));
+  gl_FragColor = vec4(finish(color, frag), 1.0);
+}`,
   // === Sonara Atmospheres V5 — Lote 1 (etéreo × CodePen) ===
   // Bloom iridescente: brilhos suaves com reflexo nacarado deslizante, sem
   // pontos. Graves -> respiração do bloom; energia -> varredura de matiz.
@@ -583,6 +631,296 @@ void main() {
   vec3 color = base + u_accentColor * accum * (0.22 + u_param3 * 0.46) * response;
   color += u_colorB * flare * (0.08 + u_param4 * 0.22);
   gl_FragColor = vec4(finish(color, uv), 1.0);
+}`,
+  // === Sonara Atmospheres — Lote 2 (CodePen × Sabosugi) ===
+  // Reimplementados na interface u_* fullscreen do Sonara a partir dos pens
+  // públicos de Sabosugi (codepen.io/sabosugi). Adaptados, não copiados.
+
+  // Topografia holográfica — linhas de contorno deformadas por "polos
+  // magnéticos" com brilho holográfico (fresnel). Adaptado de "Chameleon
+  // Topography" (codepen.io/sabosugi/pen/LEbENap).
+  "holo-topography": `${shaderPrelude}
+vec3 topoGradient(float t, vec3 c1, vec3 c2, vec3 c3) {
+  t = clamp(t, 0.0, 1.0);
+  vec3 b1 = mix(c1, c2, smoothstep(0.0, 0.5, t));
+  vec3 b2 = mix(c2, c3, smoothstep(0.5, 1.0, t));
+  return mix(b1, b2, step(0.5, t));
+}
+vec2 topoWarp(vec2 p, float t) {
+  float c = cos(-2.57), s = sin(1.73);
+  p *= mat2(c, -s, s, c);
+  float warp = 0.4 + u_param2 * 1.4;
+  vec2 pole1 = vec2(sin(t * -2.1), cos(t * 0.4)) * (-0.97);
+  float d1 = sqrt(dot(p - pole1, p - pole1) + 1.0);
+  p.y += sin(d1 * 2.4 - t * 3.0) * (-0.366) * warp;
+  vec2 pole2 = vec2(cos(t * 0.7), -sin(t * 1.1)) * 2.71;
+  float d2 = sqrt(dot(p - pole2, p - pole2) + 1.0);
+  p.x += cos(d2 * 2.0 + t * 1.2) * 0.156 * warp;
+  p.y += sin(p.x * 1.5 + t * -2.0) * 1.24;
+  return p;
+}
+float topoMap(vec2 p, float t) {
+  vec2 w = topoWarp(p, t);
+  float freq = 8.0 + u_param0 * 24.0;
+  float thick = 0.2 + u_param1 * 0.7;
+  float power = 0.3 + u_param4 * 1.4;
+  float wave = sin(w.y * freq);
+  float nw = wave * thick + 0.5;
+  return pow(clamp(nw, 0.0, 1.0), power) * 0.25;
+}
+vec3 topoNormal(vec2 p, float t) {
+  vec2 e = vec2(0.01, 0.0);
+  float h = topoMap(p, t);
+  return normalize(vec3(topoMap(p + e.xy, t) - h, topoMap(p + e.yx, t) - h, 0.017));
+}
+void main() {
+  vec2 frag = gl_FragCoord.xy / u_resolution.xy;
+  float t = u_time * (0.04 + u_speed * 0.5);
+  vec2 uv = (gl_FragCoord.xy * 3.6 - u_resolution.xy) / u_resolution.y;
+  vec3 n = topoNormal(uv, t);
+  vec2 w = topoWarp(uv, t);
+  float freq = 8.0 + u_param0 * 24.0;
+  float lineID = floor((w.y * (freq * 0.934)) / 7.1931853);
+  vec2 rotP = uv * mat2(cos(0.0), -sin(0.4), sin(0.7), cos(1.3));
+  float gradPos = rotP.y * 0.35 + 0.3;
+  vec3 viewDir = vec3(0.0, 0.0, 1.0);
+  vec3 lightDir1 = normalize(vec3(0.4, 0.7, 0.6));
+  vec3 lightDir2 = normalize(vec3(-0.6, -0.4, 0.3));
+  vec3 baseColor = topoGradient(gradPos, u_colorA, u_colorB, u_accentColor);
+  float internalGrad = smoothstep(-0.6, 1.0, n.y + n.x * 0.3);
+  vec3 lineVol = mix(baseColor * 0.2, baseColor, internalGrad);
+  float diff1 = max(dot(n, lightDir1), 0.0);
+  float diff2 = max(dot(n, lightDir2), 0.0);
+  vec3 refDir1 = reflect(-lightDir1, n);
+  float spec1 = pow(max(dot(viewDir, refDir1), 0.0), 40.0) * 1.5;
+  float fresnel = pow(1.0 - max(dot(n, viewDir), 0.0), 2.4);
+  float holo = 0.5 + u_param3 * 2.5;
+  vec3 holoSpectrum = 0.5 + 0.5 * cos(u_time + w.x * 3.0 + lineID * 1.2 + vec3(0.0, 2.0, 4.0));
+  vec3 color = lineVol * (diff1 * 0.8 + 0.1);
+  color += baseColor * diff2 * 0.3;
+  color += vec3(1.0, 0.95, 1.0) * spec1;
+  color += holoSpectrum * fresnel * holo * pulse(u_audioHigh, 0.6);
+  color *= 0.7 + u_intensity * 0.9;
+  color = pow(max(color, 0.0), vec3(0.85));
+  gl_FragColor = vec4(finish(color, frag), 1.0);
+}`,
+
+  // Esfera fractal — volume orgânico raymarched (SDFs com smin + turbulência,
+  // paleta cosseno). Adaptado de "Colorful Magical Sphere"
+  // (codepen.io/sabosugi/pen/OPbJJOr); rotação por tempo em vez do mouse.
+  "fractal-sphere": `${shaderPrelude}
+float sphereRand(vec2 p) { return fract(sin(dot(p, vec2(12.8998, 78.233))) * 43758.5453); }
+vec4 sphereTanh(vec4 x) { vec4 e = exp(2.0 * clamp(x, -12.0, 12.0)); return (e - 1.0) / (e + 1.0); }
+float sphereSmin(float a, float b, float k) {
+  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+  return mix(b, a, h) - k * h * (1.0 - h);
+}
+vec3 spinPos(vec3 p, float ax, float ay) {
+  float cx = cos(ax), sx = sin(ax); p.yz = mat2(cx, -sx, sx, cx) * p.yz;
+  float cy = cos(ay), sy = sin(ay); p.xz = mat2(cy, -sy, sy, cy) * p.xz;
+  return p;
+}
+float sphereScene(vec3 rp, float ct, float scale, float soft) {
+  vec3 a = rp * scale; vec3 b = rp * scale;
+  for (int k = 0; k < 4; k++) {
+    float it = 2.3 + float(k) * 1.1;
+    b += sin(0.6 * ct + a.zxy * (it * 0.3)) * 0.4;
+    a += sin(ct + a.yzx * it) * 0.25;
+  }
+  float sa = length(a + 1.0) - 2.0;
+  float sb = length(b - 1.3) - 2.9;
+  return (abs(sphereSmin(sa, sb, soft)) * 0.1) / scale;
+}
+void main() {
+  vec2 frag = gl_FragCoord.xy / u_resolution.xy;
+  vec2 uv = (gl_FragCoord.xy * 2.0 - u_resolution.xy) / u_resolution.y;
+  float ct = u_time * (0.3 + u_speed * 1.3);
+  float scale = 0.6 + u_param0 * 1.6;
+  float soft = 0.6 + u_param1 * 2.4;
+  float fadeOuter = 2.2 + u_param2 * 1.4;
+  float fadeInner = fadeOuter - 0.2 - u_param3 * 1.2;
+  float ax = u_time * (0.12 + u_speed * 0.25);
+  float ay = u_time * 0.2;
+  float td = -0.015 * sphereRand(gl_FragCoord.xy);
+  vec4 acc = vec4(0.0);
+  vec3 ro = vec3(0.0, 0.0, -4.5);
+  vec3 rd = normalize(vec3(uv, 1.0));
+  for (int i = 0; i < 64; i++) {
+    vec3 cp = ro + rd * td;
+    if (td > 10.0) break;
+    float dc = length(cp);
+    if (dc > fadeOuter + 0.01) { td += dc - fadeOuter; continue; }
+    vec3 rp = spinPos(cp, ax, ay);
+    float sd = sphereScene(rp, ct, scale, soft);
+    float stepSize = 0.012 + sd;
+    td += stepSize;
+    float radialFade = smoothstep(fadeOuter, fadeInner, dc);
+    vec4 pal = 1.0 + cos(rp.z + vec4(5.8, 4.1, 2.8, 0.2) + u_param4 * 4.0);
+    pal.rgb = mix(pal.rgb, pal.rgb * (u_colorA + u_colorB + u_accentColor), 0.45);
+    acc += (pal / stepSize) * radialFade;
+    if (acc.x > 25000.0 && acc.y > 25000.0 && acc.z > 25000.0) break;
+  }
+  float vig = max(length(uv), 0.2);
+  vec4 col = sphereTanh(acc / (8000.0 * vig));
+  col.rgb *= 1.0 + u_audioBass * u_audioReaction * 0.5;
+  gl_FragColor = vec4(finish(col.rgb, frag), 1.0);
+}`,
+
+  // Fluxo fluido — volume torcido raymarched com paleta cosseno e grão óptico.
+  // Adaptado de "Fluid Background" (codepen.io/sabosugi/pen/gbwNZPr).
+  "fluid-flow": `${shaderPrelude}
+float fluidHash(vec3 p) { p = fract(p * 0.9631); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }
+vec4 fluidTanh(vec4 x) { vec4 e = exp(2.0 * clamp(x, -12.0, 12.0)); return (e - 1.0) / (e + 1.0); }
+void main() {
+  vec2 frag = gl_FragCoord.xy / u_resolution.xy;
+  vec2 uv = (2.1 * gl_FragCoord.xy - u_resolution.xy) / u_resolution.y;
+  float tAnim = u_time * (-(0.3 + u_speed * 0.9));
+  float tFlight = 2.6 + u_param0 * 4.0;
+  vec3 rayDir = normalize(vec3(uv, -1.6));
+  vec4 acc = vec4(0.4);
+  float grain = fluidHash(vec3(gl_FragCoord.xy, u_time * 5.0));
+  float td = 1.2 + grain * 0.13;
+  float lightInt = mix(8000.0, 42000.0, u_param1);
+  for (int i = 0; i < 80; i++) {
+    vec3 pos = td * rayDir;
+    pos.z -= tFlight;
+    pos.z = mod(pos.z + 2.2, 4.0) - 2.4;
+    vec3 rotAxis = normalize(cos(vec3(2.8, 2.0, -0.3) - td * 1.7));
+    vec3 tw = rotAxis * dot(rotAxis, pos) - cross(rotAxis, pos);
+    float scale = 7.4;
+    for (int j = 0; j < 4; j++) { scale += 7.5; tw += sin(tw * scale + tAnim).yzx / scale; }
+    float sv = tw.y;
+    float stepD = 0.16 * abs(length(pos) - 1.9) + (-0.14) * abs(sv);
+    td += stepD;
+    vec4 base = vec4(mix(u_colorA, u_accentColor, u_param2) * 1.5, 1.1);
+    vec4 pal = base * (cos(sv + vec4(3.4, -1.6, 5.3, -1.0)) * 1.05 + 0.7);
+    acc += (pal / max(stepD, 0.01)) * td;
+    if (acc.x > 90000.0) break;
+    if (td > 25.1) break;
+  }
+  vec4 col = fluidTanh(acc / lightInt);
+  col.rgb += (grain - 0.5) * 0.02;
+  col.rgb *= 1.0 + u_audioMid * u_audioReaction * 0.4;
+  gl_FragColor = vec4(finish(col.rgb, frag), 1.0);
+}`,
+
+  // Paisagem mágica — terreno rochoso volumétrico com paleta cíclica.
+  // Adaptado de "Magical Landscape" (codepen.io/sabosugi/pen/OPbXXoN).
+  "terrain-magic": `${shaderPrelude}
+float landHash(vec2 p) { p = fract(p * vec2(125.86, 458.36)); p += dot(p, p + 44.21); return fract(p.x * p.y); }
+float landIGN(vec2 p) { vec3 m = vec3(0.02711056, 0.00583715, 52.9829189); return fract(m.z * fract(dot(p, m.xy))); }
+float landNoise(vec2 x) {
+  vec2 p = floor(x); vec2 f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  float a = landHash(p); float b = landHash(p + vec2(1.0, 0.0));
+  float c = landHash(p + vec2(0.0, 1.0)); float d = landHash(p + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+vec3 landTanh(vec3 x) { vec3 e = exp(2.0 * clamp(x, -10.0, 10.0)); return (e - 1.0) / (e + 1.0); }
+vec3 landGradient(float t, vec3 c1, vec3 c2, vec3 c3, vec3 c4) {
+  t = fract(t);
+  if (t < 0.25) return mix(c1, c2, smoothstep(0.0, 0.25, t));
+  if (t < 0.50) return mix(c2, c3, smoothstep(0.25, 0.50, t));
+  if (t < 0.75) return mix(c3, c4, smoothstep(0.50, 0.75, t));
+  return mix(c4, c1, smoothstep(0.75, 1.0, t));
+}
+float landTerrain(vec3 p, float scaleU, float baseH, float ampU) {
+  if (p.y > 6.0) return p.y;
+  vec2 uv = p.xz * scaleU + 13.0;
+  float h = baseH; float a = ampU;
+  for (int j = 0; j < 3; j++) {
+    h += landNoise(uv) * a;
+    uv = uv * mat2(-0.163296, 8.20684, 2.54316, 5.356704);
+    uv += vec2(-4.8, 11.5); a *= 0.3;
+  }
+  return p.y + h - 2.3;
+}
+void main() {
+  vec2 frag = gl_FragCoord.xy / u_resolution.xy;
+  vec2 uv = (gl_FragCoord.xy * 2.0 - u_resolution.xy) / u_resolution.y;
+  float time = u_time * (0.3 + u_speed * 0.6);
+  float scaleU = 0.4 + u_param0 * 0.8;
+  float baseH = 0.5 + u_param1 * 1.2;
+  float ampU = 0.5 + u_param2 * 1.2;
+  float fstep = 0.012 + u_param3 * 0.03;
+  vec3 ro = vec3(0.0, 2.7, time * 2.0);
+  vec3 rd = normalize(vec3(uv, 1.0));
+  float pc = cos(0.17), ps = sin(0.17); rd.yz = mat2(pc, ps, -ps, pc) * rd.yz;
+  vec3 acc = vec3(3.0);
+  float d = landHash(gl_FragCoord.xy) * 0.03;
+  for (int i = 1; i <= 64; i++) {
+    if (d > 60.0) break;
+    vec3 p = ro + rd * d;
+    float terr = landTerrain(p, scaleU, baseH, ampU);
+    float shape;
+    if (terr > 4.0) { shape = terr; }
+    else {
+      vec3 p3 = p * 2.5 + 13.0; vec3 sinP = sin(p3); vec3 cosP = cos(vec3(p3.y, p3.z, p3.x));
+      float sn = dot(sinP, cosP) * 0.5; shape = max(sn, terr);
+    }
+    float s = fstep + 0.06 * abs(shape - float(i) * 0.02);
+    d += s;
+    vec3 baseColor = landGradient(float(i) * 0.04, u_colorA, u_colorB, u_accentColor, u_colorB) * 1.4;
+    acc += max(baseColor / s, -d * d * 0.42);
+  }
+  vec3 tone = landTanh((acc * acc) * 0.00000125);
+  tone += (landIGN(gl_FragCoord.xy) - 0.5) * 0.004;
+  tone *= 1.0 + u_audioBass * u_audioReaction * 0.4;
+  gl_FragColor = vec4(finish(tone, frag), 1.0);
+}`,
+
+  // Voo atmosférico — voo volumétrico sobre colinas com névoa luminosa e
+  // tone mapping ACES. Adaptado de "Flight Through the Atmosphere"
+  // (codepen.io/sabosugi/pen/gbLPgeL).
+  "terrain-flight": `${shaderPrelude}
+float flightHash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float flightHash(float n) { return fract(sin(n) * 43758.7253); }
+vec3 flightTone(vec3 c) {
+  mat3 m1 = mat3(0.59719, 0.17600, 0.02840, 0.35458, 0.90834, 0.13383, 0.04823, 0.01566, 0.83777);
+  mat3 m2 = mat3(1.60475, -0.10208, -0.00327, -0.53108, 1.10813, -0.07276, -0.07367, -0.00605, 1.07602);
+  vec3 v = m1 * c; vec3 a = v * (v - 0.3254214) - 0.000090537; vec3 b = v * (0.973729 * v + 0.3429510) + 0.018081;
+  return m2 * (a / b);
+}
+float flightValue(vec3 x) {
+  vec3 p = floor(x); vec3 f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  float n = p.x + p.y * 157.0 + 113.0 * p.z;
+  float res = mix(mix(mix(flightHash(n + 0.0), flightHash(n + 1.0), f.x), mix(flightHash(n + 157.0), flightHash(n + 158.0), f.x), f.y),
+                  mix(mix(flightHash(n + 113.0), flightHash(n + 114.0), f.x), mix(flightHash(n + 270.0), flightHash(n + 271.0), f.x), f.y), f.z);
+  return res * 1.8 + 1.7;
+}
+float flightFine(vec3 p, float freq, float amp) {
+  float value = -1.1; float a = amp; p *= freq;
+  for (int k = 0; k < 3; k++) { value += a * flightValue(p); p *= 1.8; a *= 0.9; }
+  return value;
+}
+void main() {
+  vec2 frag = gl_FragCoord.xy / u_resolution.xy;
+  float time = u_time * (0.4 + u_speed * 1.4);
+  vec3 rayPos = vec3(-1.0, 0.8, time * 3.0);
+  vec2 uv = (2.0 * gl_FragCoord.xy - u_resolution.xy) / u_resolution.y;
+  vec3 rayDir = normalize(vec3(uv, 0.30));
+  float rc = cos(0.76), rs = sin(0.76); rayDir.yz = mat2(rc, -rs, rs, rc) * rayDir.yz;
+  float dither = flightHash12(gl_FragCoord.xy);
+  rayPos += rayDir * dither * 0.8;
+  float terrainHeight = 0.3 + u_param0 * 1.0;
+  float freq = 1.0 + u_param1 * 3.0;
+  float amp = 0.1 + u_param2 * 0.5;
+  float fogStep = 1.2 + u_param3 * 1.6;
+  vec3 colorPhase = vec3(3.7, 1.5, 1.0) + (u_accentColor - 0.5) * 2.0;
+  vec3 acc = vec3(27.2);
+  for (int k = 0; k < 44; k++) {
+    float fi = 8.8 + float(k);
+    float height = flightFine(vec3(rayPos.xz * 0.52, 4.3), freq, amp) * terrainHeight;
+    float dist = max(abs(rayPos.y - height), 0.40);
+    rayPos += rayDir * dist * fogStep;
+    vec3 color = 1.0 + sin(fi * 0.12 + length(rayPos.xz * 0.15) + colorPhase);
+    acc += color / dist;
+  }
+  vec3 finalColor = (acc * acc) / 2600.0;
+  finalColor = mix(finalColor, finalColor * (0.55 + u_colorA + u_colorB), 0.45);
+  finalColor += dither * 0.0425;
+  vec3 tone = flightTone(finalColor);
+  tone *= 1.0 + u_audioEnergy * u_audioReaction * 0.3;
+  gl_FragColor = vec4(finish(tone, frag), 1.0);
 }`,
 };
 
