@@ -110,6 +110,23 @@ test("mediaLayerBounds mirrors drawMediaLayer geometry", () => {
   );
 });
 
+test("mediaLayerBounds can reuse precomputed layer opacity", () => {
+  const layer = {
+    element: { naturalWidth: 100, naturalHeight: 100 },
+    fit: "contain",
+    opacity: 0,
+    scale: 50,
+  };
+
+  assert.equal(mediaLayerBounds(200, 200, layer), null);
+  const bounds = mediaLayerBounds(200, 200, layer, 0, null, {
+    precomputedOpacity: 0.4,
+  });
+  assert.equal(bounds.opacity, 0.4);
+  assert.equal(bounds.drawWidth, 100);
+  assert.equal(bounds.drawHeight, 100);
+});
+
 test("mediaTextAvoidanceBounds skips hidden and transparent layers", () => {
   const layers = [
     {
@@ -517,13 +534,478 @@ test("WebGL scene runtime uploads static uniforms only when scene or size change
   }
 });
 
+test("scene runtime reuses grain post buffers between frames", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const canvas = fakeCanvas(context);
+    const runtime = createSceneRuntime(
+      canvas,
+      normalizeVisualSettings({
+        id: "vector-aura",
+        post: { grain: 50 },
+      }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0, 24);
+    assert.equal(context.calls.createImageData.length, 1);
+    assert.equal(cleanup.createdCanvases.length, 2);
+    const grainContext = cleanup.canvasContexts.at(-1);
+    assert.equal(grainContext.calls.putImageData.length, 1);
+
+    runtime.render(1 / 24, 24);
+    assert.equal(context.calls.createImageData.length, 1);
+    assert.equal(cleanup.createdCanvases.length, 2);
+    assert.equal(grainContext.calls.putImageData.length, 2);
+
+    canvas.clientWidth = 160;
+    canvas.clientHeight = 90;
+    runtime.render(2 / 24, 24);
+    assert.equal(context.calls.createImageData.length, 2);
+    assert.equal(cleanup.createdCanvases.length, 3);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime reuses scanline post buffers between frames", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const canvas = fakeCanvas(context);
+    const runtime = createSceneRuntime(
+      canvas,
+      normalizeVisualSettings({
+        id: "vector-aura",
+        post: { scanlines: 50 },
+      }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0, 24);
+    assert.equal(cleanup.createdCanvases.length, 2);
+    const scanlineContext = cleanup.canvasContexts.at(-1);
+    const firstScanlineRectCount = scanlineContext.calls.fillRect.length;
+    assert.ok(firstScanlineRectCount > 0);
+
+    runtime.render(1 / 24, 24);
+    assert.equal(cleanup.createdCanvases.length, 2);
+    assert.equal(scanlineContext.calls.fillRect.length, firstScanlineRectCount);
+
+    canvas.clientWidth = 160;
+    canvas.clientHeight = 90;
+    runtime.render(2 / 24, 24);
+    assert.equal(cleanup.createdCanvases.length, 3);
+    assert.ok(cleanup.canvasContexts.at(-1).calls.fillRect.length > 0);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime reuses vignette post buffers between frames", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const canvas = fakeCanvas(context);
+    const runtime = createSceneRuntime(
+      canvas,
+      normalizeVisualSettings({
+        id: "vector-aura",
+        post: { vignette: 50 },
+      }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0, 24);
+    assert.equal(cleanup.createdCanvases.length, 2);
+    const vignetteContext = cleanup.canvasContexts.at(-1);
+    assert.equal(vignetteContext.calls.createRadialGradient.length, 1);
+    assert.equal(vignetteContext.calls.fillRect.length, 1);
+
+    runtime.render(1 / 24, 24);
+    assert.equal(cleanup.createdCanvases.length, 2);
+    assert.equal(vignetteContext.calls.createRadialGradient.length, 1);
+    assert.equal(vignetteContext.calls.fillRect.length, 1);
+
+    canvas.clientWidth = 160;
+    canvas.clientHeight = 90;
+    runtime.render(2 / 24, 24);
+    assert.equal(cleanup.createdCanvases.length, 3);
+    assert.equal(
+      cleanup.canvasContexts.at(-1).calls.createRadialGradient.length,
+      1,
+    );
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime reuses metadata layout between frames", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const canvas = fakeCanvas(context);
+    const runtime = createSceneRuntime(
+      canvas,
+      normalizeVisualSettings({ id: "vector-aura" }),
+      {
+        metadata: {
+          title: "A title long enough to require measurement",
+          artist: "Sonara Artist",
+        },
+        textSettings: {
+          fields: { title: true, artist: true },
+          order: ["title", "artist"],
+        },
+      },
+    );
+
+    runtime.render(0, 24);
+    const firstMeasureCount = context.calls.measureText.length;
+    const firstTextDrawCount = context.calls.fillText.length;
+    assert.ok(firstMeasureCount > 0);
+    assert.ok(firstTextDrawCount > 0);
+
+    runtime.render(1 / 24, 24);
+    assert.equal(context.calls.measureText.length, firstMeasureCount);
+    assert.ok(context.calls.fillText.length > firstTextDrawCount);
+
+    canvas.clientWidth = 160;
+    canvas.clientHeight = 90;
+    runtime.render(2 / 24, 24);
+    const resizedMeasureCount = context.calls.measureText.length;
+    assert.ok(resizedMeasureCount > firstMeasureCount);
+
+    runtime.setComposition({
+      metadata: {
+        title: "A replacement title should rebuild layout",
+        artist: "Sonara Artist",
+      },
+      textSettings: {
+        fields: { title: true, artist: true },
+        order: ["title", "artist"],
+      },
+    });
+    runtime.render(3 / 24, 24);
+    assert.ok(context.calls.measureText.length > resizedMeasureCount);
+    assert.ok(
+      context.calls.fillText.some(([text]) =>
+        String(text).includes("replacement title"),
+      ),
+    );
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime invalidates metadata layout when duration changes", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const canvas = fakeCanvas(context);
+    const composition = {
+      durationSeconds: 10,
+      layers: [
+        {
+          ...fakeMediaLayer("duration-media"),
+          fadeIn: { enabled: true, durationSeconds: 2 },
+        },
+      ],
+      metadata: {
+        title: "Duration-sensitive metadata",
+        artist: "Sonara Artist",
+      },
+      textSettings: {
+        fields: { title: true, artist: true },
+        order: ["title", "artist"],
+      },
+    };
+    const runtime = createSceneRuntime(
+      canvas,
+      normalizeVisualSettings({ id: "vector-aura" }),
+      composition,
+    );
+
+    runtime.render(0, 24);
+    const firstMeasureCount = context.calls.measureText.length;
+    assert.ok(firstMeasureCount > 0);
+
+    composition.durationSeconds = 20;
+    runtime.render(1 / 24, 24);
+    assert.ok(context.calls.measureText.length > firstMeasureCount);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime draws filled ribbon waveform without mutating samples", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const samples = [0, 0.4, -0.2, 0.65, -0.35, 0.1];
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({
+        id: "liquid-mesh",
+        waveform: {
+          visible: true,
+          type: "filled-ribbon",
+          smoothing: 0,
+          audioReaction: 0,
+          opacity: 80,
+          position: 50,
+          height: 28,
+          width: 80,
+          thickness: 2,
+          colorMode: "single",
+          color: "#ffffff",
+        },
+      }),
+      { showMetadata: false },
+    );
+    runtime.setAudio({ samples });
+
+    runtime.render(0, 24);
+
+    assert.deepEqual(samples, [0, 0.4, -0.2, 0.65, -0.35, 0.1]);
+    assert.ok(context.calls.moveTo.length > 0);
+    assert.ok(context.calls.lineTo.length >= samples.length * 2 - 1);
+    assert.ok(context.calls.closePath.length > 0);
+    assert.deepEqual(context.calls.moveTo[0], [10, 25]);
+    assert.equal(context.calls.lineTo[0][0], 26);
+    assert.ok(Math.abs(context.calls.lineTo[0][1] - 24.02) < 0.001);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime paints spectrum bars with the precomputed waveform palette", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({
+        id: "liquid-mesh",
+        waveform: {
+          visible: true,
+          type: "spectrum-bars",
+          smoothing: 0,
+          audioReaction: 0,
+          opacity: 50,
+          position: 50,
+          height: 28,
+          width: 80,
+          thickness: 2,
+          colorMode: "gradient",
+          color: "#ff0000",
+          secondaryColor: "#00ff00",
+          tertiaryColor: "#0000ff",
+          advanced: {
+            barGap: 0,
+            barPeakHold: 0,
+            barRadius: 0,
+          },
+        },
+      }),
+      { showMetadata: false },
+    );
+    runtime.setAudio({ spectrum: [0.2, 0.4, 0.6] });
+
+    runtime.render(0, 24);
+
+    assert.deepEqual(context.calls.fill.slice(-3), [
+      "rgba(255,0,0,0.5)",
+      "rgba(0,255,0,0.5)",
+      "rgba(0,0,255,0.5)",
+    ]);
+    assert.equal(context.calls.createLinearGradient.length, 0);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime skips sample processing for spectrum bars", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const hostileSamples = {
+      get length() {
+        throw new Error("spectrum bars should not read waveform samples");
+      },
+    };
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({
+        id: "liquid-mesh",
+        waveform: {
+          visible: true,
+          type: "spectrum-bars",
+          opacity: 50,
+          position: 50,
+          height: 28,
+          width: 80,
+          thickness: 2,
+          colorMode: "single",
+          color: "#ffffff",
+          advanced: {
+            barGap: 0,
+            barPeakHold: 0,
+            barRadius: 0,
+          },
+        },
+      }),
+      { showMetadata: false },
+    );
+    runtime.setAudio({ samples: hostileSamples, spectrum: [0.2, 0.4, 0.6] });
+
+    runtime.render(0, 24);
+
+    assert.ok(context.calls.fill.length >= 3);
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime skips sample processing for radial ring", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const hostileSamples = {
+      get length() {
+        throw new Error("radial ring should not read waveform samples");
+      },
+    };
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({
+        id: "liquid-mesh",
+        waveform: {
+          visible: true,
+          type: "radial-ring",
+          opacity: 50,
+          position: 50,
+          height: 28,
+          width: 80,
+          thickness: 2,
+          colorMode: "bands",
+          color: "#ff0000",
+          secondaryColor: "#00ff00",
+          tertiaryColor: "#0000ff",
+          advanced: {
+            radialArc: 100,
+            radialGlow: 0,
+            radialRadius: 20,
+            radialRotation: 0,
+          },
+        },
+      }),
+      { showMetadata: false },
+    );
+    runtime.setAudio({ samples: hostileSamples, spectrum: [0.2, 0.4, 0.6] });
+
+    runtime.render(0, 24);
+
+    assert.ok(context.calls.arc.length >= 2);
+    assert.ok(context.calls.stroke.includes("rgba(255,0,0,0.5)"));
+    assert.ok(context.calls.stroke.includes("rgba(0,255,0,0.5)"));
+    assert.ok(context.calls.stroke.includes("rgba(0,0,255,0.5)"));
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime draws waveform synthetic fallbacks", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const lineContext = fakeCanvasContext();
+    const lineRuntime = createSceneRuntime(
+      fakeCanvas(lineContext),
+      normalizeVisualSettings({
+        id: "liquid-mesh",
+        waveform: {
+          visible: true,
+          type: "single-line",
+          smoothing: 0,
+          opacity: 70,
+          position: 50,
+          height: 28,
+          width: 80,
+          thickness: 2,
+          colorMode: "single",
+          color: "#ffffff",
+        },
+      }),
+      { showMetadata: false },
+    );
+    lineRuntime.setAudio({ energy: 0.4, samples: [], spectrum: [] });
+    lineRuntime.render(0.25, 24);
+    assert.ok(lineContext.calls.lineTo.length > 80);
+    lineRuntime.destroy();
+
+    const barsContext = fakeCanvasContext();
+    const barsRuntime = createSceneRuntime(
+      fakeCanvas(barsContext),
+      normalizeVisualSettings({
+        id: "liquid-mesh",
+        waveform: {
+          visible: true,
+          type: "spectrum-bars",
+          opacity: 50,
+          position: 50,
+          height: 28,
+          width: 80,
+          thickness: 2,
+          colorMode: "single",
+          color: "#ffffff",
+          advanced: {
+            barGap: 0,
+            barPeakHold: 0,
+            barRadius: 0,
+          },
+        },
+      }),
+      { showMetadata: false },
+    );
+    barsRuntime.setAudio({ energy: 0.4, samples: [], spectrum: [] });
+    barsRuntime.render(0.25, 24);
+    assert.ok(barsContext.calls.fill.length >= 24);
+    barsRuntime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
 function installFakeDocument() {
   const originalDocument = globalThis.document;
   const gl = fakeWebglContext();
+  const canvasContexts = [];
+  const createdCanvases = [];
   globalThis.document = {
     createElement(tagName) {
       assert.equal(tagName, "canvas");
-      return fakeWebglCanvas(gl);
+      const context = fakePostCanvasContext();
+      const canvas = fakeDocumentCanvas(gl, context);
+      canvasContexts.push(context);
+      createdCanvases.push(canvas);
+      return canvas;
     },
   };
   const cleanup = () => {
@@ -534,17 +1016,43 @@ function installFakeDocument() {
     }
   };
   cleanup.gl = gl;
+  cleanup.canvasContexts = canvasContexts;
+  cleanup.createdCanvases = createdCanvases;
   return cleanup;
 }
 
-function fakeWebglCanvas(gl) {
+function fakeDocumentCanvas(gl, context2d) {
   return {
     width: 1,
     height: 1,
     addEventListener() {},
     getContext(type) {
-      assert.equal(type, "webgl");
-      return gl;
+      if (type === "webgl") return gl;
+      if (type === "2d") return context2d;
+      assert.fail(`unexpected canvas context type: ${type}`);
+    },
+  };
+}
+
+function fakePostCanvasContext() {
+  const calls = {
+    createRadialGradient: [],
+    fillRect: [],
+    putImageData: [],
+  };
+  const gradient = { addColorStop() {} };
+  return {
+    calls,
+    fillStyle: "",
+    createRadialGradient(...args) {
+      calls.createRadialGradient.push(args);
+      return gradient;
+    },
+    fillRect(x, y, width, height) {
+      calls.fillRect.push([this.fillStyle, x, y, width, height]);
+    },
+    putImageData(image, x, y) {
+      calls.putImageData.push([image, x, y]);
     },
   };
 }
@@ -611,7 +1119,20 @@ function fakeCanvas(context) {
 }
 
 function fakeCanvasContext() {
-  const calls = { drawImage: [], fillRect: [] };
+  const calls = {
+    arc: [],
+    createImageData: [],
+    createLinearGradient: [],
+    drawImage: [],
+    fill: [],
+    fillRect: [],
+    fillText: [],
+    closePath: [],
+    lineTo: [],
+    measureText: [],
+    moveTo: [],
+    stroke: [],
+  };
   const gradient = { addColorStop() {} };
   return {
     calls,
@@ -625,26 +1146,54 @@ function fakeCanvasContext() {
     shadowOffsetX: 0,
     shadowOffsetY: 0,
     strokeStyle: "",
+    arc(...args) {
+      calls.arc.push(args);
+    },
     beginPath() {},
     bezierCurveTo() {},
     clearRect() {},
-    createLinearGradient: () => gradient,
+    closePath() {
+      calls.closePath.push(true);
+    },
+    createLinearGradient(...args) {
+      calls.createLinearGradient.push(args);
+      return gradient;
+    },
     createRadialGradient: () => gradient,
+    createImageData(width, height) {
+      calls.createImageData.push([width, height]);
+      return { data: new Uint8ClampedArray(width * height * 4) };
+    },
     drawImage(element) {
       calls.drawImage.push(element.id ?? "canvas");
     },
     ellipse() {},
-    fill() {},
+    fill() {
+      calls.fill.push(this.fillStyle);
+    },
     fillRect() {
       calls.fillRect.push(this.fillStyle);
     },
-    lineTo() {},
-    measureText: (value) => ({ width: String(value).length * 8 }),
-    moveTo() {},
+    fillText(text, x, y) {
+      calls.fillText.push([text, x, y]);
+    },
+    lineTo(x, y) {
+      calls.lineTo.push([x, y]);
+    },
+    measureText(value) {
+      calls.measureText.push(value);
+      return { width: String(value).length * 8 };
+    },
+    moveTo(x, y) {
+      calls.moveTo.push([x, y]);
+    },
     restore() {},
+    rect() {},
     rotate() {},
     save() {},
-    stroke() {},
+    stroke() {
+      calls.stroke.push(this.strokeStyle);
+    },
     translate() {},
   };
 }

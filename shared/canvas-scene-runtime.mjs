@@ -1022,7 +1022,47 @@ function createRenderCache(scene, composition) {
     mediaLayerMap: new Map(
       (composition.layers ?? []).map((layer) => [layer.id, layer]),
     ),
+    metadata: createMetadataRenderCache(),
+    post: createPostRenderCache(),
     stack,
+  };
+}
+
+function createMetadataRenderCache() {
+  return {
+    layout: undefined,
+    width: 0,
+    height: 0,
+    durationKey: "",
+    mediaKey: "",
+    fontStatus: "",
+  };
+}
+
+function createPostRenderCache() {
+  return {
+    grain: {
+      canvas: null,
+      context: null,
+      image: null,
+      width: 0,
+      height: 0,
+    },
+    scanlines: {
+      canvas: null,
+      context: null,
+      width: 0,
+      height: 0,
+      alpha: 0,
+      step: 0,
+    },
+    vignette: {
+      canvas: null,
+      context: null,
+      width: 0,
+      height: 0,
+      intensity: 0,
+    },
   };
 }
 
@@ -1158,7 +1198,7 @@ export function createSceneRuntime(
           }
           break;
         case "post":
-          drawPost(context, width, height, scene.post, time, fps);
+          drawPost(context, width, height, scene.post, time, fps, cache.post);
           break;
         case "waveform":
           if (scene.waveform?.visible) {
@@ -1199,21 +1239,18 @@ export function createSceneRuntime(
     // Text and global shade always render last — they are not part of the
     // reorderable stack because text overlay is conceptually always on top.
     if (composition.showMetadata !== false) {
-      const textAvoidanceBounds = mediaTextAvoidanceBounds(
-        width,
-        height,
-        composition.layers ?? [],
-        composition.durationSeconds,
-      );
-      drawMetadata(
+      const metadataLayout = resolveMetadataLayout(
         context,
         width,
         height,
-        composition.metadata ?? {},
-        composition.textSettings ?? {},
+        composition,
+        cache.metadata,
+      );
+      drawMetadataLayout(
+        context,
+        metadataLayout,
         time,
         composition.durationSeconds,
-        { blockingRects: textAvoidanceBounds },
       );
     }
     if (scene.common?.shade) {
@@ -2048,7 +2085,9 @@ function drawMediaLayer(
   if (!element) return;
   const opacity = effectiveLayerOpacity(layer, time, durationSeconds);
   if (opacity <= 0) return;
-  const bounds = mediaLayerBounds(width, height, layer, time, durationSeconds);
+  const bounds = mediaLayerBounds(width, height, layer, time, durationSeconds, {
+    precomputedOpacity: opacity,
+  });
   if (!bounds) return;
   const drawWidth = bounds.drawWidth;
   const drawHeight = bounds.drawHeight;
@@ -2087,10 +2126,13 @@ export function mediaLayerBounds(
   layer,
   time = 0,
   durationSeconds = null,
+  options = {},
 ) {
   const element = layer?.element;
   if (!element || layer.visible === false) return null;
-  const opacity = effectiveLayerOpacity(layer, time, durationSeconds);
+  const opacity = Number.isFinite(options.precomputedOpacity)
+    ? options.precomputedOpacity
+    : effectiveLayerOpacity(layer, time, durationSeconds);
   if (opacity <= 0) return null;
   const naturalWidth = element.videoWidth || element.naturalWidth || width;
   const naturalHeight = element.videoHeight || element.naturalHeight || height;
@@ -2112,6 +2154,7 @@ export function mediaLayerBounds(
       y,
       drawWidth,
       drawHeight,
+      opacity,
       left: x,
       top: y,
       right: x + drawWidth,
@@ -2129,6 +2172,7 @@ export function mediaLayerBounds(
     y,
     drawWidth,
     drawHeight,
+    opacity,
     left: cx - boxWidth / 2,
     top: cy - boxHeight / 2,
     right: cx + boxWidth / 2,
@@ -2147,7 +2191,15 @@ export function mediaTextAvoidanceBounds(
     .filter(Boolean);
 }
 
-function drawPost(context, width, height, post, time = 0, fps = 24) {
+function drawPost(
+  context,
+  width,
+  height,
+  post,
+  time = 0,
+  fps = 24,
+  cache = null,
+) {
   const vignette = clampNumber(Number(post?.vignette ?? 0), 0, 100) / 100;
   const grain = clampNumber(Number(post?.grain ?? 0), 0, 100) / 100;
   const scanlines = clampNumber(Number(post?.scanlines ?? 0), 0, 100) / 100;
@@ -2155,59 +2207,193 @@ function drawPost(context, width, height, post, time = 0, fps = 24) {
   // framebuffer passes, so V5 keeps them inert instead of faking the behavior.
   if (vignette <= 0 && grain <= 0 && scanlines <= 0) return;
 
-  if (vignette > 0) {
-    context.save();
-    context.globalCompositeOperation = "multiply";
-    const radius = Math.hypot(width, height) * (0.48 + vignette * 0.18);
-    const gradient = context.createRadialGradient(
-      width * 0.5,
-      height * 0.5,
-      radius * 0.16,
-      width * 0.5,
-      height * 0.5,
-      radius,
-    );
-    gradient.addColorStop(0, "rgba(255,255,255,1)");
-    gradient.addColorStop(0.64, "rgba(245,245,245,1)");
-    gradient.addColorStop(1, `rgba(0,0,0,${0.42 * vignette})`);
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, width, height);
-    context.restore();
-  }
+  if (vignette > 0) drawPostVignette(context, width, height, vignette, cache);
 
-  if (grain > 0 && typeof document !== "undefined") {
-    const frameSeed = Math.floor(Math.max(0, time) * Math.max(1, fps));
-    const image = context.createImageData(width, height);
-    const data = image.data;
-    const alpha = Math.round(28 * grain);
-    for (let index = 0; index < data.length; index += 4) {
-      const pixel = index / 4;
-      const value = seeded(frameSeed + 17, pixel, 29) > 0.5 ? 255 : 0;
-      data[index] = value;
-      data[index + 1] = value;
-      data[index + 2] = value;
-      data[index + 3] = alpha;
-    }
-    const grainCanvas = document.createElement("canvas");
-    grainCanvas.width = width;
-    grainCanvas.height = height;
-    grainCanvas.getContext("2d").putImageData(image, 0, 0);
-    context.save();
-    context.globalCompositeOperation = "overlay";
-    context.drawImage(grainCanvas, 0, 0);
-    context.restore();
-  }
+  if (grain > 0) drawPostGrain(context, width, height, grain, time, fps, cache);
 
-  if (scanlines > 0) {
-    const step = Math.max(2, Math.round(height / 360));
-    context.save();
-    context.globalCompositeOperation = "multiply";
-    context.fillStyle = `rgba(0,0,0,${0.2 * scanlines})`;
+  if (scanlines > 0)
+    drawPostScanlines(context, width, height, scanlines, cache);
+}
+
+function drawPostGrain(
+  context,
+  width,
+  height,
+  grain,
+  time = 0,
+  fps = 24,
+  cache = null,
+) {
+  if (typeof document === "undefined") return;
+  const surface = getPostGrainSurface(context, width, height, cache?.grain);
+  if (!surface) return;
+  const frameSeed = Math.floor(Math.max(0, time) * Math.max(1, fps));
+  const data = surface.image.data;
+  const alpha = Math.round(28 * grain);
+  for (let index = 0; index < data.length; index += 4) {
+    const pixel = index / 4;
+    const value = seeded(frameSeed + 17, pixel, 29) > 0.5 ? 255 : 0;
+    data[index] = value;
+    data[index + 1] = value;
+    data[index + 2] = value;
+    data[index + 3] = alpha;
+  }
+  surface.context.putImageData(surface.image, 0, 0);
+  context.save();
+  context.globalCompositeOperation = "overlay";
+  context.drawImage(surface.canvas, 0, 0);
+  context.restore();
+}
+
+function getPostGrainSurface(context, width, height, cache = null) {
+  if (
+    cache?.canvas &&
+    cache.context &&
+    cache.image &&
+    cache.width === width &&
+    cache.height === height
+  ) {
+    return cache;
+  }
+  const baseSurface = createPostSurface(width, height);
+  if (!baseSurface) return null;
+  const surface = {
+    ...baseSurface,
+    image: context.createImageData(width, height),
+  };
+  if (cache) Object.assign(cache, surface);
+  return surface;
+}
+
+function drawPostScanlines(context, width, height, scanlines, cache = null) {
+  const step = Math.max(2, Math.round(height / 360));
+  const alpha = 0.2 * scanlines;
+  const surface = getPostScanlineSurface(
+    width,
+    height,
+    alpha,
+    step,
+    cache?.scanlines,
+  );
+  context.save();
+  context.globalCompositeOperation = "multiply";
+  if (surface) {
+    context.drawImage(surface.canvas, 0, 0);
+  } else {
+    context.fillStyle = `rgba(0,0,0,${alpha})`;
     for (let y = 0; y < height; y += step * 2) {
       context.fillRect(0, y, width, step);
     }
-    context.restore();
   }
+  context.restore();
+}
+
+function getPostScanlineSurface(width, height, alpha, step, cache = null) {
+  if (
+    typeof document === "undefined" ||
+    !Number.isFinite(alpha) ||
+    !(alpha > 0)
+  ) {
+    return null;
+  }
+  if (
+    cache?.canvas &&
+    cache.context &&
+    cache.width === width &&
+    cache.height === height &&
+    cache.alpha === alpha &&
+    cache.step === step
+  ) {
+    return cache;
+  }
+  const surface = createPostSurface(width, height);
+  if (!surface) return null;
+  surface.context.fillStyle = `rgba(0,0,0,${alpha})`;
+  for (let y = 0; y < height; y += step * 2) {
+    surface.context.fillRect(0, y, width, step);
+  }
+  Object.assign(surface, {
+    alpha,
+    step,
+  });
+  if (cache) Object.assign(cache, surface);
+  return surface;
+}
+
+function drawPostVignette(context, width, height, vignette, cache = null) {
+  const surface = getPostVignetteSurface(
+    width,
+    height,
+    vignette,
+    cache?.vignette,
+  );
+  context.save();
+  context.globalCompositeOperation = "multiply";
+  if (surface) {
+    context.drawImage(surface.canvas, 0, 0);
+  } else {
+    fillPostVignette(context, width, height, vignette);
+  }
+  context.restore();
+}
+
+function getPostVignetteSurface(width, height, vignette, cache = null) {
+  if (
+    typeof document === "undefined" ||
+    !Number.isFinite(vignette) ||
+    !(vignette > 0)
+  ) {
+    return null;
+  }
+  if (
+    cache?.canvas &&
+    cache.context &&
+    cache.width === width &&
+    cache.height === height &&
+    cache.intensity === vignette
+  ) {
+    return cache;
+  }
+  const surface = createPostSurface(width, height);
+  if (!surface) return null;
+  fillPostVignette(surface.context, width, height, vignette);
+  Object.assign(surface, {
+    intensity: vignette,
+  });
+  if (cache) Object.assign(cache, surface);
+  return surface;
+}
+
+function createPostSurface(width, height) {
+  if (typeof document === "undefined") return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const surfaceContext = canvas.getContext("2d");
+  if (!surfaceContext) return null;
+  return {
+    canvas,
+    context: surfaceContext,
+    width,
+    height,
+  };
+}
+
+function fillPostVignette(context, width, height, vignette) {
+  const radius = Math.hypot(width, height) * (0.48 + vignette * 0.18);
+  const gradient = context.createRadialGradient(
+    width * 0.5,
+    height * 0.5,
+    radius * 0.16,
+    width * 0.5,
+    height * 0.5,
+    radius,
+  );
+  gradient.addColorStop(0, "rgba(255,255,255,1)");
+  gradient.addColorStop(0.64, "rgba(245,245,245,1)");
+  gradient.addColorStop(1, `rgba(0,0,0,${0.42 * vignette})`);
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, width, height);
 }
 
 // Generic, renderer-agnostic sun/light overlay. Drawn after the base scene so
@@ -2346,25 +2532,36 @@ function drawWaveform(context, width, height, waveform, audio, time) {
   const amplitude = ((height * waveform.height) / 200) * reaction;
   const visualWidth = width * ((waveform.width ?? 100) / 100);
   const startX = (width - visualWidth) / 2;
-  const samples = smoothSamples(
-    audio.samples?.length ? audio.samples : syntheticSamples(audio, time),
-    waveform.smoothing,
-  );
-  const spectrum = audio.spectrum?.length
-    ? audio.spectrum
-    : syntheticSpectrum(audio, time);
+  const needsSpectrum =
+    waveform.type === "spectrum-bars" || waveform.type === "radial-ring";
+  const samples = needsSpectrum
+    ? null
+    : smoothSamples(
+        audio.samples?.length ? audio.samples : syntheticSamples(audio, time),
+        waveform.smoothing,
+      );
+  const spectrum = needsSpectrum
+    ? audio.spectrum?.length
+      ? audio.spectrum
+      : syntheticSpectrum(audio, time)
+    : null;
+  const waveformPalette = needsSpectrum
+    ? resolveWaveformPalette(waveform)
+    : null;
   context.save();
-  const lineStyle = waveformPaint(
-    context,
-    waveform,
-    startX,
-    centerY - amplitude,
-    startX + visualWidth,
-    centerY + amplitude,
-    waveform.opacity / 100,
-  );
-  context.strokeStyle = lineStyle;
-  context.fillStyle = lineStyle;
+  if (waveform.type !== "spectrum-bars") {
+    const lineStyle = waveformPaint(
+      context,
+      waveform,
+      startX,
+      centerY - amplitude,
+      startX + visualWidth,
+      centerY + amplitude,
+      waveform.opacity / 100,
+    );
+    context.strokeStyle = lineStyle;
+    context.fillStyle = lineStyle;
+  }
   context.lineWidth = waveform.thickness;
   context.lineJoin = "round";
   context.lineCap = "round";
@@ -2401,6 +2598,7 @@ function drawWaveform(context, width, height, waveform, audio, time) {
         amplitude,
         waveform,
         time,
+        waveformPalette,
       );
       break;
     case "radial-ring":
@@ -2413,6 +2611,7 @@ function drawWaveform(context, width, height, waveform, audio, time) {
         amplitude,
         waveform,
         time,
+        waveformPalette,
       );
       break;
     default:
@@ -2448,12 +2647,15 @@ function drawWaveLine(
   direction,
 ) {
   context.beginPath();
-  samples.forEach((sample, index) => {
-    const x = startX + (index / Math.max(1, samples.length - 1)) * width;
+  const sampleCount = samples.length;
+  const denominator = Math.max(1, sampleCount - 1);
+  for (let index = 0; index < sampleCount; index += 1) {
+    const sample = samples[index];
+    const x = startX + (index / denominator) * width;
     const y = centerY + direction * sample * amplitude;
     if (index === 0) context.moveTo(x, y);
     else context.lineTo(x, y);
-  });
+  }
   context.stroke();
 }
 
@@ -2467,17 +2669,20 @@ function drawFilledRibbon(
   waveform,
 ) {
   context.beginPath();
-  samples.forEach((sample, index) => {
-    const x = startX + (index / Math.max(1, samples.length - 1)) * width;
+  const sampleCount = samples.length;
+  const denominator = Math.max(1, sampleCount - 1);
+  for (let index = 0; index < sampleCount; index += 1) {
+    const sample = samples[index];
+    const x = startX + (index / denominator) * width;
     const y = centerY - sample * amplitude;
     if (index === 0) context.moveTo(x, y);
     else context.lineTo(x, y);
-  });
-  [...samples].reverse().forEach((sample, reverseIndex) => {
-    const index = samples.length - reverseIndex - 1;
-    const x = startX + (index / Math.max(1, samples.length - 1)) * width;
+  }
+  for (let index = sampleCount - 1; index >= 0; index -= 1) {
+    const sample = samples[index];
+    const x = startX + (index / denominator) * width;
     context.lineTo(x, centerY + sample * amplitude);
-  });
+  }
   context.closePath();
   context.fillStyle = waveformPaint(
     context,
@@ -2501,12 +2706,14 @@ function drawSpectrumBars(
   amplitude,
   waveform,
   time,
+  palette,
 ) {
   const gap = Math.max(
     1,
     width * 0.002 + (waveform.advanced?.barGap ?? 42) * 0.04,
   );
-  const barWidth = Math.max(2, width / Math.max(1, spectrum.length) - gap);
+  const spectrumLength = spectrum.length;
+  const barWidth = Math.max(2, width / Math.max(1, spectrumLength) - gap);
   const radius = Math.min(
     barWidth / 2,
     (waveform.advanced?.barRadius ?? 62) / 10,
@@ -2515,13 +2722,15 @@ function drawSpectrumBars(
     Math.max(0, Math.min(100, waveform.advanced?.barPeakHold ?? 0)) / 100;
   const peakDecay =
     Math.max(0, Math.min(100, waveform.advanced?.barPeakDecay ?? 56)) / 100;
-  spectrum.forEach((value, index) => {
+  for (let index = 0; index < spectrumLength; index += 1) {
+    const value = spectrum[index];
     const x = startX + index * (barWidth + gap);
     const barHeight = Math.max(waveform.thickness, value * amplitude * 2);
     context.fillStyle = waveformBandPaint(
       waveform,
+      palette,
       index,
-      spectrum.length,
+      spectrumLength,
       waveform.opacity / 100,
     );
     roundedRect(
@@ -2541,8 +2750,9 @@ function drawSpectrumBars(
       const capHeight = Math.max(2, waveform.thickness * 1.2);
       context.fillStyle = waveformBandPaint(
         waveform,
+        palette,
         index,
-        spectrum.length,
+        spectrumLength,
         Math.min(1, waveform.opacity / 70),
       );
       roundedRect(
@@ -2562,7 +2772,7 @@ function drawSpectrumBars(
         Math.min(radius, capHeight / 2),
       );
     }
-  });
+  }
 }
 
 function drawRadialRing(
@@ -2574,6 +2784,7 @@ function drawRadialRing(
   amplitude,
   waveform,
   time,
+  palette,
 ) {
   const arc = ((waveform.advanced?.radialArc ?? 100) / 100) * Math.PI * 2;
   const rotation =
@@ -2585,7 +2796,7 @@ function drawRadialRing(
   context.translate(width / 2, centerY);
   if (glow > 0) {
     context.shadowBlur = (glow / 100) * Math.min(width, height) * 0.045;
-    context.shadowColor = waveformBandPaint(waveform, 1, 3, 0.72);
+    context.shadowColor = waveformBandPaint(waveform, palette, 1, 3, 0.72);
   }
   context.strokeStyle = waveformPaint(
     context,
@@ -2614,26 +2825,29 @@ function drawRadialRing(
   context.arc(0, 0, radius * 0.965, rotation, rotation + arc);
   context.stroke();
   context.lineWidth = waveform.thickness;
-  spectrum.forEach((value, index) => {
-    const angle = rotation + (index / Math.max(1, spectrum.length - 1)) * arc;
+  const spectrumLength = spectrum.length;
+  const denominator = Math.max(1, spectrumLength - 1);
+  for (let index = 0; index < spectrumLength; index += 1) {
+    const value = spectrum[index];
+    const angle = rotation + (index / denominator) * arc;
     const barHeight = Math.max(
       waveform.thickness,
       value * amplitude * (1 + Math.sin(time * 0.65 + index * 0.37) * 0.06),
     );
     context.strokeStyle = waveformBandPaint(
       waveform,
+      palette,
       index,
-      spectrum.length,
+      spectrumLength,
       waveform.opacity / 100,
     );
     context.beginPath();
-    context.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
-    context.lineTo(
-      Math.cos(angle) * (radius + barHeight),
-      Math.sin(angle) * (radius + barHeight),
-    );
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    context.moveTo(cos * radius, sin * radius);
+    context.lineTo(cos * (radius + barHeight), sin * (radius + barHeight));
     context.stroke();
-  });
+  }
   context.restore();
 }
 
@@ -2648,34 +2862,45 @@ function waveformPaint(context, waveform, x0, y0, x1, y1, alpha) {
   return gradient;
 }
 
-function waveformBandPaint(waveform, index, total, alpha) {
-  if (waveform.colorMode === "single") return hexToRgba(waveform.color, alpha);
-  const palette = [
-    waveform.color,
-    waveform.secondaryColor,
-    waveform.tertiaryColor,
-  ];
+function resolveWaveformPalette(waveform) {
+  return {
+    rgbs: [
+      hexToRgb(waveform.color),
+      hexToRgb(waveform.secondaryColor),
+      hexToRgb(waveform.tertiaryColor),
+    ],
+  };
+}
+
+function waveformBandPaint(waveform, palette, index, total, alpha) {
+  if (waveform.colorMode === "single") return rgbToRgba(palette.rgbs[0], alpha);
   if (waveform.colorMode === "bands") {
-    return hexToRgba(palette[index % palette.length], alpha);
+    return rgbToRgba(palette.rgbs[index % palette.rgbs.length], alpha);
   }
   const t = total <= 1 ? 0 : index / (total - 1);
-  const first = t < 0.5 ? palette[0] : palette[1];
-  const second = t < 0.5 ? palette[1] : palette[2];
-  return rgbToRgba(
-    mixRgb(hexToRgb(first), hexToRgb(second), t < 0.5 ? t * 2 : (t - 0.5) * 2),
+  const first = t < 0.5 ? palette.rgbs[0] : palette.rgbs[1];
+  const second = t < 0.5 ? palette.rgbs[1] : palette.rgbs[2];
+  return mixRgbToRgba(first, second, t < 0.5 ? t * 2 : (t - 0.5) * 2, alpha);
+}
+
+function mixRgbToRgba(first, second, amount, alpha) {
+  const t = Math.max(0, Math.min(1, amount));
+  return rgbComponentsToRgba(
+    first[0] + (second[0] - first[0]) * t,
+    first[1] + (second[1] - first[1]) * t,
+    first[2] + (second[2] - first[2]) * t,
     alpha,
   );
 }
 
-function mixRgb(first, second, amount) {
-  const t = Math.max(0, Math.min(1, amount));
-  return first.map((value, index) => value + (second[index] - value) * t);
+function rgbToRgba(rgb, alpha) {
+  return rgbComponentsToRgba(rgb[0], rgb[1], rgb[2], alpha);
 }
 
-function rgbToRgba(rgb, alpha) {
-  const [red, green, blue] = rgb.map((value) =>
-    Math.round(Math.max(0, Math.min(1, value)) * 255),
-  );
+function rgbComponentsToRgba(redValue, greenValue, blueValue, alpha) {
+  const red = Math.round(Math.max(0, Math.min(1, redValue)) * 255);
+  const green = Math.round(Math.max(0, Math.min(1, greenValue)) * 255);
+  const blue = Math.round(Math.max(0, Math.min(1, blueValue)) * 255);
   return `rgba(${red},${green},${blue},${alpha})`;
 }
 
@@ -2691,39 +2916,46 @@ function roundedRect(context, x, y, width, height, radius) {
 
 function smoothSamples(values, smoothing = 72) {
   const weight = Math.min(0.92, Math.max(0, smoothing / 100));
+  if (weight <= 0) return values;
+  const smoothed = new Array(values.length);
   let previous = values[0] ?? 0;
-  return values.map((value) => {
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index];
     previous = previous * weight + value * (1 - weight);
-    return previous;
-  });
+    smoothed[index] = previous;
+  }
+  return smoothed;
 }
 
 function syntheticSamples(audio, time) {
-  return Array.from({ length: 96 }, (_, index) => {
+  const samples = new Array(96);
+  const energyScale = 0.28 + (audio.energy ?? 0) * 0.72;
+  for (let index = 0; index < samples.length; index += 1) {
     const x = index / 95;
     const envelope = Math.sin(Math.PI * x);
     const wave =
       Math.sin(index * 0.46 + time * 1.6) * 0.42 +
       Math.sin(index * 0.18 - time * 0.72) * 0.28 +
       Math.sin(index * 0.08 + time * 0.34) * 0.18;
-    return wave * envelope * (0.28 + (audio.energy ?? 0) * 0.72);
-  });
+    samples[index] = wave * envelope * energyScale;
+  }
+  return samples;
 }
 
 function syntheticSpectrum(audio, time) {
-  return Array.from({ length: 24 }, (_, index) => {
+  const spectrum = new Array(24);
+  const bass = audio.bass ?? audio.energy ?? 0;
+  const mid = audio.mid ?? audio.energy ?? 0;
+  const high = audio.high ?? audio.energy ?? 0;
+  for (let index = 0; index < spectrum.length; index += 1) {
     const position = index / 23;
-    const band =
-      position < 0.28
-        ? (audio.bass ?? audio.energy ?? 0)
-        : position < 0.68
-          ? (audio.mid ?? audio.energy ?? 0)
-          : (audio.high ?? audio.energy ?? 0);
-    return Math.max(
+    const band = position < 0.28 ? bass : position < 0.68 ? mid : high;
+    spectrum[index] = Math.max(
       0.04,
       band * (0.68 + Math.sin(index * 0.83 + time * 1.8) * 0.18),
     );
-  });
+  }
+  return spectrum;
 }
 
 const defaultTextFadeOut = {
@@ -2829,6 +3061,72 @@ function drawMetadata(
   durationSeconds = null,
   options = {},
 ) {
+  const layout = prepareMetadataLayout(
+    context,
+    width,
+    height,
+    metadata,
+    settings,
+    options,
+  );
+  drawMetadataLayout(context, layout, time, durationSeconds);
+}
+
+function resolveMetadataLayout(
+  context,
+  width,
+  height,
+  composition,
+  cache = null,
+) {
+  const layers = composition.layers ?? [];
+  const durationKey = metadataDurationKey(composition.durationSeconds);
+  const mediaKey = metadataMediaKey(layers, durationKey);
+  const fontStatus = documentFontStatus();
+  if (
+    cache &&
+    cache.layout !== undefined &&
+    cache.width === width &&
+    cache.height === height &&
+    cache.durationKey === durationKey &&
+    cache.mediaKey === mediaKey &&
+    cache.fontStatus === fontStatus
+  ) {
+    return cache.layout;
+  }
+  const textAvoidanceBounds = mediaTextAvoidanceBounds(
+    width,
+    height,
+    layers,
+    composition.durationSeconds,
+  );
+  const layout = prepareMetadataLayout(
+    context,
+    width,
+    height,
+    composition.metadata ?? {},
+    composition.textSettings ?? {},
+    { blockingRects: textAvoidanceBounds },
+  );
+  if (cache) {
+    cache.layout = layout;
+    cache.width = width;
+    cache.height = height;
+    cache.durationKey = durationKey;
+    cache.mediaKey = mediaKey;
+    cache.fontStatus = fontStatus;
+  }
+  return layout;
+}
+
+function prepareMetadataLayout(
+  context,
+  width,
+  height,
+  metadata,
+  settings = {},
+  options = {},
+) {
   const textSettings = {
     ...defaultTextSettings,
     ...settings,
@@ -2872,7 +3170,7 @@ function drawMetadata(
         requestedLineHeight,
       };
     });
-  if (!baseLines.length) return;
+  if (!baseLines.length) return null;
   let y = (height * textSettings.y) / 100;
   const requestedBlockHeight = baseLines.reduce(
     (sum, line) => sum + line.requestedLineHeight,
@@ -2913,12 +3211,23 @@ function drawMetadata(
   y = (height * textSettings.y) / 100;
   if (textSettings.verticalAnchor === "middle") y -= blockHeight / 2;
   if (textSettings.verticalAnchor === "bottom") y -= blockHeight;
+  return {
+    lines,
+    scale,
+    shadow: textSettings.shadow,
+    x,
+    y,
+  };
+}
+
+function drawMetadataLayout(context, layout, time = 0, durationSeconds = null) {
+  if (!layout) return;
   context.save();
   context.textBaseline = "top";
-  context.shadowColor = `rgba(0,0,0,${Math.max(0, Math.min(100, textSettings.shadow)) / 100})`;
-  context.shadowBlur = Math.max(0, textSettings.shadow * scale * 0.4);
-  let cursorY = y;
-  for (const line of lines) {
+  context.shadowColor = `rgba(0,0,0,${Math.max(0, Math.min(100, layout.shadow)) / 100})`;
+  context.shadowBlur = Math.max(0, layout.shadow * layout.scale * 0.4);
+  let cursorY = layout.y;
+  for (const line of layout.lines) {
     const opacity = effectiveTextOpacity(line.style, time, durationSeconds);
     if (opacity <= 0) {
       cursorY += line.lineHeight;
@@ -2928,10 +3237,63 @@ function drawMetadata(
     context.textAlign =
       line.style.align === "justify" ? "left" : line.style.align;
     context.font = metadataFont(line.style, line.fontSize);
-    drawMetadataLine(context, line.text, x, cursorY, line.maxWidth, line.style);
+    drawMetadataLine(
+      context,
+      line.text,
+      layout.x,
+      cursorY,
+      line.maxWidth,
+      line.style,
+    );
     cursorY += line.lineHeight;
   }
   context.restore();
+}
+
+function documentFontStatus() {
+  return typeof document !== "undefined" && document.fonts?.status
+    ? document.fonts.status
+    : "unavailable";
+}
+
+function metadataDurationKey(durationSeconds = null) {
+  const duration = Number(durationSeconds);
+  return duration > 0 ? String(duration) : "";
+}
+
+function metadataMediaKey(layers = [], durationKey = "") {
+  return layers
+    .map((layer) => {
+      const element = layer?.element;
+      const fadeOut = layer?.coverFadeOut;
+      const fadeIn = layer?.fadeIn;
+      const zoom = layer?.zoom;
+      return [
+        layer?.id ?? "",
+        durationKey,
+        layer?.visible === false ? 0 : 1,
+        layer?.opacity ?? "",
+        layer?.scale ?? "",
+        layer?.x ?? "",
+        layer?.y ?? "",
+        layer?.rotation ?? "",
+        layer?.fit ?? "",
+        fadeOut?.enabled ? 1 : 0,
+        fadeOut?.mode ?? "",
+        fadeOut?.startPercent ?? "",
+        fadeOut?.endPercent ?? "",
+        fadeOut?.durationSeconds ?? "",
+        fadeIn?.enabled ? 1 : 0,
+        fadeIn?.startPercent ?? "",
+        fadeIn?.durationSeconds ?? "",
+        zoom?.enabled ? 1 : 0,
+        zoom?.from ?? "",
+        zoom?.to ?? "",
+        element?.videoWidth || element?.naturalWidth || "",
+        element?.videoHeight || element?.naturalHeight || "",
+      ].join(":");
+    })
+    .join("|");
 }
 
 export function effectiveTextOpacity(style, time = 0, durationSeconds = null) {
@@ -3245,10 +3607,7 @@ function safeGlyph(value) {
 }
 
 function hexToRgb(hex) {
-  const safeHex = /^#[0-9a-f]{6}$/i.test(String(hex ?? ""))
-    ? String(hex)
-    : "#ffffff";
-  const value = Number.parseInt(safeHex.slice(1), 16);
+  const value = hexColorValue(hex);
   return [
     ((value >> 16) & 255) / 255,
     ((value >> 8) & 255) / 255,
@@ -3256,9 +3615,14 @@ function hexToRgb(hex) {
   ];
 }
 
+function hexColorValue(hex) {
+  const safeHex = /^#[0-9a-f]{6}$/i.test(String(hex ?? ""))
+    ? String(hex)
+    : "#ffffff";
+  return Number.parseInt(safeHex.slice(1), 16);
+}
+
 function hexToRgba(hex, alpha) {
-  const [red, green, blue] = hexToRgb(hex).map((value) =>
-    Math.round(value * 255),
-  );
-  return `rgba(${red},${green},${blue},${alpha})`;
+  const value = hexColorValue(hex);
+  return `rgba(${(value >> 16) & 255},${(value >> 8) & 255},${value & 255},${alpha})`;
 }
