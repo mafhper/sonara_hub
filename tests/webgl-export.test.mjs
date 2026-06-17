@@ -36,6 +36,33 @@ test("canvas exporter requests deterministic frames instead of relying on headle
   assert.doesNotMatch(html, /requestAnimationFrame/);
 });
 
+test("canvas exporter reuses interpolated audio frame buffers", () => {
+  const html = buildRendererHtml({
+    runtimeUrl: "data:text/javascript;base64,AA==",
+    size: { width: 1280, height: 720 },
+    scene: {},
+    audioEnvelope: {
+      frameRate: 12,
+      frames: [
+        { energy: 0, bass: 0, mid: 0, high: 0, samples: [0], spectrum: [0] },
+        { energy: 1, bass: 1, mid: 1, high: 1, samples: [1], spectrum: [1] },
+      ],
+    },
+    composition: {},
+  });
+
+  assert.match(html, /const audioSamples = \[\]/);
+  assert.match(html, /const audioSpectrum = \[\]/);
+  assert.match(html, /const audioFrame = \{/);
+  assert.match(html, /samples: audioSamples/);
+  assert.match(html, /spectrum: audioSpectrum/);
+  assert.match(html, /function audioAt\(time\)/);
+  assert.match(html, /function lerpArrayInto|const lerpArrayInto/);
+  assert.match(html, /target\.length = length/);
+  assert.match(html, /return audioFrame/);
+  assert.doesNotMatch(html, /Array\.from\(\{ length \}/);
+});
+
 test("canvas exporter rejects a truncated WebM before mux", () => {
   assert.throws(
     () =>

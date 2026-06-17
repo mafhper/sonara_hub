@@ -448,9 +448,37 @@ export function buildRendererHtml({
     const canvas = document.getElementById("scene");
     const runtime = createSceneRuntime(canvas, scene, composition);
     runtime.resize(${size.width}, ${size.height});
+    const audioSamples = [];
+    const audioSpectrum = [];
+    const audioFrame = {
+      energy: 0,
+      bass: 0,
+      mid: 0,
+      high: 0,
+      centroid: 0,
+      flux: 0,
+      onset: 0,
+      beat: 0,
+      beatPhase: 0,
+      samples: audioSamples,
+      spectrum: audioSpectrum,
+    };
 
     function audioAt(time) {
-      if (!audioEnvelope.frames.length) return { energy: 0, bass: 0, mid: 0, high: 0, centroid: 0, flux: 0, onset: 0, beat: 0, beatPhase: 0, samples: [], spectrum: [] };
+      if (!audioEnvelope.frames.length) {
+        audioFrame.energy = 0;
+        audioFrame.bass = 0;
+        audioFrame.mid = 0;
+        audioFrame.high = 0;
+        audioFrame.centroid = 0;
+        audioFrame.flux = 0;
+        audioFrame.onset = 0;
+        audioFrame.beat = 0;
+        audioFrame.beatPhase = 0;
+        audioSamples.length = 0;
+        audioSpectrum.length = 0;
+        return audioFrame;
+      }
       const position = Math.max(0, time * audioEnvelope.frameRate);
       const leftIndex = Math.min(audioEnvelope.frames.length - 1, Math.floor(position));
       const rightIndex = Math.min(audioEnvelope.frames.length - 1, leftIndex + 1);
@@ -465,23 +493,26 @@ export function buildRendererHtml({
         const value = lerp(a, rightPhase);
         return value - Math.floor(value);
       };
-      const lerpArray = (a = [], b = []) => {
+      const lerpArrayInto = (target, a = [], b = []) => {
         const length = Math.max(a.length, b.length);
-        return Array.from({ length }, (_, index) => lerp(a[index] ?? 0, b[index] ?? 0));
+        target.length = length;
+        for (let index = 0; index < length; index += 1) {
+          target[index] = lerp(a[index] ?? 0, b[index] ?? 0);
+        }
+        return target;
       };
-      return {
-        energy: lerp(left.energy, right.energy),
-        bass: lerp(left.bass, right.bass),
-        mid: lerp(left.mid, right.mid),
-        high: lerp(left.high, right.high),
-        centroid: lerp(left.centroid ?? 0, right.centroid ?? 0),
-        flux: lerp(left.flux ?? 0, right.flux ?? 0),
-        onset: lerp(left.onset ?? 0, right.onset ?? 0),
-        beat: nearest(left.beat ?? 0, right.beat ?? 0),
-        beatPhase: lerpPhase(left.beatPhase ?? 0, right.beatPhase ?? 0),
-        samples: lerpArray(left.samples, right.samples),
-        spectrum: lerpArray(left.spectrum, right.spectrum),
-      };
+      audioFrame.energy = lerp(left.energy, right.energy);
+      audioFrame.bass = lerp(left.bass, right.bass);
+      audioFrame.mid = lerp(left.mid, right.mid);
+      audioFrame.high = lerp(left.high, right.high);
+      audioFrame.centroid = lerp(left.centroid ?? 0, right.centroid ?? 0);
+      audioFrame.flux = lerp(left.flux ?? 0, right.flux ?? 0);
+      audioFrame.onset = lerp(left.onset ?? 0, right.onset ?? 0);
+      audioFrame.beat = nearest(left.beat ?? 0, right.beat ?? 0);
+      audioFrame.beatPhase = lerpPhase(left.beatPhase ?? 0, right.beatPhase ?? 0);
+      lerpArrayInto(audioSamples, left.samples, right.samples);
+      lerpArrayInto(audioSpectrum, left.spectrum, right.spectrum);
+      return audioFrame;
     }
 
     const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
