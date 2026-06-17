@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import type {
+  AtmosphereBlendMode,
+  AtmosphereLayerV1,
   CloudLightSettings,
   PlayfulContent,
   RenderStackItem,
@@ -21,6 +23,7 @@ import type {
   WaveformType,
   WaveformV1,
 } from "../../shared/visual-effects.mjs";
+import { resolveAtmosphereLayers } from "../../shared/visual-effects.mjs";
 import type { MediaLayerV2 } from "../types";
 import {
   CheckField,
@@ -316,6 +319,7 @@ export function VisualInspector(props: {
   renderStack: RenderStackItem[];
   scene: ScenePresetV3;
   batchTargetCount?: number;
+  performanceWarning?: string;
   selectedStackKey: string;
   onAddLayer: () => void;
   onAdvanced: (key: string, value: number) => void;
@@ -324,6 +328,13 @@ export function VisualInspector(props: {
   onApplyCoverLayerBatch?: (preset: CoverLayerPreset) => void;
   onApplyLayersBatch?: () => void;
   onApplyLayerSet: (layers: MediaLayerV2[]) => void;
+  onAddAtmosphere: () => void;
+  onAtmosphereLayer: (
+    id: string,
+    patch: Partial<
+      Pick<AtmosphereLayerV1, "visible" | "opacity" | "blendMode">
+    >,
+  ) => void;
   onCloudLight: (patch: Partial<CloudLightSettings>) => void;
   onColors: (key: "base" | "effect" | "light", value: string) => void;
   onCommon: (key: string, value: number) => void;
@@ -332,6 +343,7 @@ export function VisualInspector(props: {
   onMoveRenderStack: (key: string, direction: "forward" | "backward") => void;
   onPalette: (palette: VisualPalette) => void;
   onPlayful: (patch: PlayfulPatch) => void;
+  onRemoveAtmosphere: (id: string) => void;
   onRemoveLayer: (id: string) => void;
   onSavePreset: () => void;
   onSelectPreset: (id: string) => void;
@@ -342,15 +354,17 @@ export function VisualInspector(props: {
   onWaveform: (patch: Partial<WaveformV1>) => void;
 }) {
   const { scene } = props;
-  const paletteId = selectedPaletteId(scene);
   const [coverPreset, setCoverPreset] =
     useState<CoverLayerPreset>("background");
+  const atmosphereLayers = resolveAtmosphereLayers(scene);
   const stackItems = buildRenderStackItems(
     scene,
     props.layers,
     props.renderStack,
     props.onWaveform,
     props.onCloudLight,
+    props.onAtmosphereLayer,
+    props.onRemoveAtmosphere,
     props.onUpdateLayer,
   );
   // Se o item selecionado saiu da pilha (troca de faixa, camada removida),
@@ -363,15 +377,19 @@ export function VisualInspector(props: {
     selectedItem?.kind === "media"
       ? props.layers.find((layer) => layer.id === selectedItem.layerId)
       : undefined;
+  const activeAtmosphereLayer =
+    selectedItem?.kind === "atmosphere" && selectedItem.atmosphereLayer
+      ? selectedItem.atmosphereLayer
+      : atmosphereLayers[0];
+  const activeScene = activeAtmosphereLayer?.scene ?? scene;
+  const paletteId = selectedPaletteId(activeScene);
   const batchScopeCopy =
     props.batchTargetCount && props.batchTargetCount >= 2
       ? `${props.batchTargetCount} vídeos selecionados no lote`
       : "Lote selecionado";
-  // volumetric-clouds desenha o sol dentro do próprio shader da atmosfera (não
-  // há item "Foco solar" na pilha); os controles entram no pane da atmosfera.
-  const sunInsideAtmosphere =
-    scene.rendererId === "volumetric-clouds" && Boolean(scene.cloudLight);
-  const supportedCommonControls = commonControlsForScene(scene);
+  const sunInsideAtmosphere = Boolean(activeScene.cloudLight);
+  const supportedCommonControls = commonControlsForScene(activeScene);
+  const canAddAtmosphere = atmosphereLayers.length < 2;
   return (
     <>
       <section className="composition-section">
@@ -387,12 +405,29 @@ export function VisualInspector(props: {
           onRemoveLayer={props.onRemoveLayer}
           onSelect={props.onSelectStackKey}
         />
+        {props.performanceWarning && (
+          <p className="helper-copy atmosphere-performance-warning">
+            {props.performanceWarning}
+          </p>
+        )}
         <details className="stack-add-menu">
           <summary>
             <Plus /> Adicionar à composição
           </summary>
           <div className="stack-add-menu-body">
             <div className="inline-actions">
+              <button
+                disabled={!canAddAtmosphere}
+                title={
+                  canAddAtmosphere
+                    ? "Duplica a atmosfera selecionada como segunda camada."
+                    : "A composição já tem duas atmosferas."
+                }
+                type="button"
+                onClick={props.onAddAtmosphere}
+              >
+                <Layers3 /> Adicionar atmosfera
+              </button>
               <button
                 disabled={props.layers.length >= 3}
                 title="Adiciona uma imagem, SVG ou vídeo como camada sobreposta."
@@ -479,6 +514,14 @@ export function VisualInspector(props: {
                   <Trash2 />
                 </IconButton>
               )}
+              {selectedItem.removable && selectedItem.onRemove && (
+                <IconButton
+                  label={`Remover ${selectedItem.label}`}
+                  onClick={selectedItem.onRemove}
+                >
+                  <Trash2 />
+                </IconButton>
+              )}
             </span>
           </header>
           {selectedItem.kind === "atmosphere" && (
@@ -487,12 +530,39 @@ export function VisualInspector(props: {
                 <summary>Escolher atmosfera</summary>
                 <VisualPresetBrowser
                   presets={props.presets}
-                  selectedScene={scene}
+                  selectedScene={activeScene}
                   onSelectPreset={props.onSelectPreset}
                   onSelectVariant={props.onSelectVariant}
                 />
               </details>
-              <p className="preset-note">{scene.note}</p>
+              <p className="preset-note">{activeScene.note}</p>
+              <div className="inspector-subsection atmosphere-layer-controls">
+                <p className="inspector-kicker">Camada</p>
+                <RangeField
+                  label="Opacidade"
+                  value={activeAtmosphereLayer.opacity}
+                  onChange={(opacity) =>
+                    props.onAtmosphereLayer(activeAtmosphereLayer.id, {
+                      opacity,
+                    })
+                  }
+                />
+                <SelectField
+                  label="Mescla"
+                  value={activeAtmosphereLayer.blendMode}
+                  onChange={(blendMode) =>
+                    props.onAtmosphereLayer(activeAtmosphereLayer.id, {
+                      blendMode: blendMode as AtmosphereBlendMode,
+                    })
+                  }
+                >
+                  <option value="normal">Normal</option>
+                  <option value="screen">Screen</option>
+                  <option value="overlay">Overlay</option>
+                  <option value="multiply">Multiply</option>
+                  <option value="lighter">Lighter</option>
+                </SelectField>
+              </div>
               <div className="preset-actions">
                 <button type="button" onClick={props.onDuplicatePreset}>
                   <Copy /> Duplicar
@@ -500,7 +570,7 @@ export function VisualInspector(props: {
                 <button
                   type="button"
                   title={
-                    scene.source === "custom"
+                    activeScene.source === "custom"
                       ? "Salvar os ajustes neste preset"
                       : "Criar um preset novo a partir dos ajustes atuais"
                   }
@@ -509,7 +579,7 @@ export function VisualInspector(props: {
                   <Save /> Salvar
                 </button>
                 <button
-                  disabled={scene.source !== "custom"}
+                  disabled={activeScene.source !== "custom"}
                   type="button"
                   onClick={props.onDeletePreset}
                 >
@@ -526,7 +596,7 @@ export function VisualInspector(props: {
                     type="button"
                     onClick={props.onApplyBatch}
                   >
-                    <Layers3 /> Aplicar fundo visual ao lote
+                    <Layers3 /> Aplicar visual ao lote
                   </button>
                 </div>
               )}
@@ -536,7 +606,7 @@ export function VisualInspector(props: {
                   className="palette-option-list"
                   aria-label="Cores das paletas"
                 >
-                  {scene.palettes.map((palette) => (
+                  {activeScene.palettes.map((palette) => (
                     <button
                       aria-pressed={palette.id === paletteId}
                       className={palette.id === paletteId ? "active" : ""}
@@ -560,21 +630,21 @@ export function VisualInspector(props: {
                     <ColorInput
                       key={key}
                       label={visualColorLabels[key]}
-                      value={scene.colors[key]}
+                      value={activeScene.colors[key]}
                       onChange={(value) => props.onColors(key, value)}
                     />
                   ))}
                 </div>
               </div>
               <InspectorGroup title="Controles" open>
-                {scene.controls.map((control) => (
+                {activeScene.controls.map((control) => (
                   <RangeField
                     key={control.key}
                     label={control.label}
                     min={control.min}
                     max={control.max}
                     unit={control.unit}
-                    value={scene.advanced[control.key]}
+                    value={activeScene.advanced[control.key]}
                     onChange={(value) => props.onAdvanced(control.key, value)}
                   />
                 ))}
@@ -584,121 +654,123 @@ export function VisualInspector(props: {
                     label={control.label}
                     max={control.max}
                     unit={control.unit}
-                    value={scene.common[control.key]}
+                    value={activeScene.common[control.key]}
                     onChange={(value) => props.onCommon(control.key, value)}
                   />
                 ))}
               </InspectorGroup>
-              {sunInsideAtmosphere && scene.cloudLight && (
+              {sunInsideAtmosphere && activeScene.cloudLight && (
                 <InspectorGroup title="Foco solar">
                   <CheckField
                     label="Mostrar foco solar"
-                    checked={scene.cloudLight.enabled}
+                    checked={activeScene.cloudLight.enabled}
                     onChange={(enabled) => props.onCloudLight({ enabled })}
                   />
-                  {scene.cloudLight.enabled && (
+                  {activeScene.cloudLight.enabled && (
                     <SunFocusFields
-                      cloudLight={scene.cloudLight}
+                      cloudLight={activeScene.cloudLight}
                       onCloudLight={props.onCloudLight}
                     />
                   )}
                 </InspectorGroup>
               )}
-              {scene.rendererId === "playful-shapes" && scene.playful && (
-                <InspectorGroup title="Conteúdo lúdico" open>
-                  <SelectField
-                    label="Movimento"
-                    value={scene.playful.motionMode}
-                    onChange={(motionMode) =>
-                      props.onPlayful({
-                        motionMode: motionMode as PlayfulContent["motionMode"],
-                      })
-                    }
-                  >
-                    <option value="calm">Calmo</option>
-                    <option value="soft-rhythm">Ritmo suave</option>
-                    <option value="play">Brincadeira</option>
-                  </SelectField>
-                  <RangeField
-                    label="Seed"
-                    max={999999}
-                    value={scene.playful.seed}
-                    onChange={(seed) => props.onPlayful({ seed })}
-                  />
-                  <div className="check-stack">
-                    <CheckField
-                      label="Retângulos"
-                      checked={scene.playful.enabled.rectangles}
-                      onChange={(rectangles) =>
-                        props.onPlayful({ enabled: { rectangles } })
+              {activeScene.rendererId === "playful-shapes" &&
+                activeScene.playful && (
+                  <InspectorGroup title="Conteúdo lúdico" open>
+                    <SelectField
+                      label="Movimento"
+                      value={activeScene.playful.motionMode}
+                      onChange={(motionMode) =>
+                        props.onPlayful({
+                          motionMode:
+                            motionMode as PlayfulContent["motionMode"],
+                        })
                       }
+                    >
+                      <option value="calm">Calmo</option>
+                      <option value="soft-rhythm">Ritmo suave</option>
+                      <option value="play">Brincadeira</option>
+                    </SelectField>
+                    <RangeField
+                      label="Seed"
+                      max={999999}
+                      value={activeScene.playful.seed}
+                      onChange={(seed) => props.onPlayful({ seed })}
                     />
-                    <CheckField
-                      label="Letras"
-                      checked={scene.playful.enabled.letters}
-                      onChange={(letters) =>
-                        props.onPlayful({ enabled: { letters } })
+                    <div className="check-stack">
+                      <CheckField
+                        label="Retângulos"
+                        checked={activeScene.playful.enabled.rectangles}
+                        onChange={(rectangles) =>
+                          props.onPlayful({ enabled: { rectangles } })
+                        }
+                      />
+                      <CheckField
+                        label="Letras"
+                        checked={activeScene.playful.enabled.letters}
+                        onChange={(letters) =>
+                          props.onPlayful({ enabled: { letters } })
+                        }
+                      />
+                      <CheckField
+                        label="Números"
+                        checked={activeScene.playful.enabled.numbers}
+                        onChange={(numbers) =>
+                          props.onPlayful({ enabled: { numbers } })
+                        }
+                      />
+                      <CheckField
+                        label="Emojis"
+                        checked={activeScene.playful.enabled.emojis}
+                        onChange={(emojis) =>
+                          props.onPlayful({ enabled: { emojis } })
+                        }
+                      />
+                    </div>
+                    {activeScene.playful.enabled.letters && (
+                      <TextField
+                        label="Letras personalizadas"
+                        value={activeScene.playful.collections.letters}
+                        onChange={(letters) =>
+                          props.onPlayful({ collections: { letters } })
+                        }
+                      />
+                    )}
+                    {activeScene.playful.enabled.numbers && (
+                      <TextField
+                        label="Números personalizados"
+                        value={activeScene.playful.collections.numbers}
+                        onChange={(numbers) =>
+                          props.onPlayful({ collections: { numbers } })
+                        }
+                      />
+                    )}
+                    {activeScene.playful.enabled.emojis && (
+                      <TextField
+                        label="Emojis personalizados"
+                        value={activeScene.playful.collections.emojis}
+                        onChange={(emojis) =>
+                          props.onPlayful({ collections: { emojis } })
+                        }
+                      />
+                    )}
+                    <button
+                      className="quiet-action"
+                      type="button"
+                      onClick={() =>
+                        props.onPlayful({
+                          collections: {
+                            letters: "A B C D E",
+                            numbers: "1 2 3 4 5",
+                            emojis: "☀️ 🎈 🌱 ⭐ 🎵",
+                          },
+                        })
                       }
-                    />
-                    <CheckField
-                      label="Números"
-                      checked={scene.playful.enabled.numbers}
-                      onChange={(numbers) =>
-                        props.onPlayful({ enabled: { numbers } })
-                      }
-                    />
-                    <CheckField
-                      label="Emojis"
-                      checked={scene.playful.enabled.emojis}
-                      onChange={(emojis) =>
-                        props.onPlayful({ enabled: { emojis } })
-                      }
-                    />
-                  </div>
-                  {scene.playful.enabled.letters && (
-                    <TextField
-                      label="Letras personalizadas"
-                      value={scene.playful.collections.letters}
-                      onChange={(letters) =>
-                        props.onPlayful({ collections: { letters } })
-                      }
-                    />
-                  )}
-                  {scene.playful.enabled.numbers && (
-                    <TextField
-                      label="Números personalizados"
-                      value={scene.playful.collections.numbers}
-                      onChange={(numbers) =>
-                        props.onPlayful({ collections: { numbers } })
-                      }
-                    />
-                  )}
-                  {scene.playful.enabled.emojis && (
-                    <TextField
-                      label="Emojis personalizados"
-                      value={scene.playful.collections.emojis}
-                      onChange={(emojis) =>
-                        props.onPlayful({ collections: { emojis } })
-                      }
-                    />
-                  )}
-                  <button
-                    className="quiet-action"
-                    type="button"
-                    onClick={() =>
-                      props.onPlayful({
-                        collections: {
-                          letters: "A B C D E",
-                          numbers: "1 2 3 4 5",
-                          emojis: "☀️ 🎈 🌱 ⭐ 🎵",
-                        },
-                      })
-                    }
-                  >
-                    <RotateCcw /> Restaurar coleções
-                  </button>
-                </InspectorGroup>
-              )}
+                    >
+                      <RotateCcw /> Restaurar coleções
+                    </button>
+                  </InspectorGroup>
+                )}
             </div>
           )}
           {selectedItem.kind === "sun-focus" && scene.cloudLight && (

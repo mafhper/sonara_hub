@@ -88,8 +88,32 @@ export type VisualPalette = {
   advanced: Record<string, number>;
 };
 
+export type AtmosphereBlendMode =
+  | "normal"
+  | "screen"
+  | "multiply"
+  | "overlay"
+  | "lighter";
+
+export type AtmosphereLayerV1 = {
+  id: string;
+  name: string;
+  visible: boolean;
+  opacity: number;
+  blendMode: AtmosphereBlendMode;
+  scene: ScenePresetV3;
+};
+
+export type AtmosphereStackPerformance = {
+  activeCount: number;
+  tierTotal: number;
+  tierThreeCount: number;
+  moderate: boolean;
+  heavy: boolean;
+};
+
 export type RenderStackItem =
-  | { kind: "atmosphere" }
+  | { kind: "atmosphere"; layerId?: string }
   | { kind: "sun-focus" }
   | { kind: "post" }
   | { kind: "waveform" }
@@ -172,6 +196,7 @@ export type ScenePresetV5 = {
   waveform: WaveformV2;
   playful?: PlayfulContent;
   cloudLight?: CloudLightSettings;
+  atmosphereLayers?: AtmosphereLayerV1[];
   renderOrder?: RenderStackItem[];
 };
 
@@ -182,6 +207,8 @@ export type ScenePresetV4 = Omit<ScenePresetV5, "schemaVersion"> & {
 export type ScenePresetV3 = ScenePresetV4;
 
 export const VISUAL_SCHEMA_VERSION: number;
+export const ATMOSPHERE_BASE_LAYER_ID: string;
+export const ATMOSPHERE_EXTRA_LAYER_ID: string;
 export const visualPostDefaults: VisualPostSettings;
 export const visualCommonControlKeys: VisualCommonControlKey[];
 export const builtinVisualPresets: ScenePresetV5[];
@@ -190,6 +217,18 @@ export const removedEffectIds: string[];
 export function getBuiltinPreset(id: string): ScenePresetV5;
 export function normalizeVisualPresetList(input?: unknown): ScenePresetV5[];
 export function normalizeVisualSettings(input?: unknown): ScenePresetV5;
+export function normalizeAtmosphereLayers(
+  input: unknown,
+  baseScene?: unknown,
+): AtmosphereLayerV1[];
+export function resolveAtmosphereLayers(input?: unknown): AtmosphereLayerV1[];
+export function atmosphereLayerIdFromStackItem(item?: RenderStackItem): string;
+export function normalizeAtmosphereBlendMode(
+  input: unknown,
+): AtmosphereBlendMode;
+export function atmosphereStackPerformance(
+  input?: unknown,
+): AtmosphereStackPerformance;
 export function parseVisualCollection(
   value: unknown,
   fallback?: string,

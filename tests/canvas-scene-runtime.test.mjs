@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  createSceneRuntime,
   effectiveLayerOpacity,
   effectiveTextOpacity,
   effectiveZoomScale,
@@ -11,6 +12,7 @@ import {
   metadataSafeWidth,
   shaderAudioUniformNames,
 } from "../shared/canvas-scene-runtime.mjs";
+import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
 
 // Minimal 2D context stand-in: width proportional to char count and font px so
 // fontSize scaling is observable without a real canvas.
@@ -303,6 +305,31 @@ test("legacy render stack includes sun-focus when cloudLight is enabled and not 
   assert.equal(stack[2].kind, "post");
 });
 
+test("stacked atmosphere scenes render one atmosphere item per layer", () => {
+  const scene = normalizeVisualSettings({
+    id: "liquid-mesh",
+    atmosphereLayers: [
+      { scene: { id: "liquid-mesh" } },
+      {
+        opacity: 55,
+        blendMode: "screen",
+        scene: { id: "fractal-sphere" },
+      },
+    ],
+  });
+  const stack = legacyRenderStack(scene, { layers: [] });
+  const atmosphereItems = stack.filter((item) => item.kind === "atmosphere");
+
+  assert.equal(atmosphereItems.length, 2);
+  assert.equal(atmosphereItems[0].layerId, "atmosphere-base");
+  assert.equal(atmosphereItems[1].layerId, "atmosphere-2");
+  assert.equal(
+    stack.some((item) => item.kind === "sun-focus"),
+    false,
+  );
+  assert.equal(stack[2].kind, "post");
+});
+
 test("legacy render stack places post after volumetric-clouds atmosphere", () => {
   const scene = {
     rendererId: "volumetric-clouds",
@@ -389,3 +416,164 @@ test("WebGL runtime registers every scalar audio uniform used by shaders", () =>
     "beatPhase",
   ]);
 });
+
+test("scene runtime refreshes cached atmosphere and media stack on updates", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({ id: "vector-aura" }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0);
+    const singleAtmosphereFillRects = context.calls.fillRect.length;
+    assert.ok(singleAtmosphereFillRects > 0);
+
+    runtime.setScene(
+      normalizeVisualSettings({
+        id: "vector-aura",
+        atmosphereLayers: [
+          { scene: { id: "vector-aura" } },
+          {
+            opacity: 55,
+            blendMode: "screen",
+            scene: { id: "vector-aura" },
+          },
+        ],
+      }),
+    );
+    runtime.render(0);
+    const stackedAtmosphereFillRects =
+      context.calls.fillRect.length - singleAtmosphereFillRects;
+    assert.ok(stackedAtmosphereFillRects > singleAtmosphereFillRects);
+
+    runtime.setComposition({
+      showMetadata: false,
+      renderOrder: [{ kind: "media", layerId: "media-a", order: 0 }],
+      layers: [fakeMediaLayer("media-a")],
+    });
+    runtime.render(0);
+    assert.equal(context.calls.drawImage.at(-1), "media-a");
+
+    runtime.setComposition({
+      showMetadata: false,
+      renderOrder: [{ kind: "media", layerId: "media-b", order: 0 }],
+      layers: [fakeMediaLayer("media-b")],
+    });
+    runtime.render(0);
+    assert.equal(context.calls.drawImage.at(-1), "media-b");
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+function installFakeDocument() {
+  const originalDocument = globalThis.document;
+  globalThis.document = {
+    createElement(tagName) {
+      assert.equal(tagName, "canvas");
+      return fakeWebglCanvas();
+    },
+  };
+  return () => {
+    if (originalDocument === undefined) {
+      delete globalThis.document;
+    } else {
+      globalThis.document = originalDocument;
+    }
+  };
+}
+
+function fakeWebglCanvas() {
+  return {
+    width: 1,
+    height: 1,
+    addEventListener() {},
+    getContext(type) {
+      assert.equal(type, "webgl");
+      return {
+        ARRAY_BUFFER: 0x8892,
+        STATIC_DRAW: 0x88e4,
+        createBuffer: () => ({}),
+        bindBuffer() {},
+        bufferData() {},
+        deleteBuffer() {},
+      };
+    },
+  };
+}
+
+function fakeCanvas(context) {
+  return {
+    width: 100,
+    height: 50,
+    clientWidth: 100,
+    clientHeight: 50,
+    getContext(type) {
+      assert.equal(type, "2d");
+      return context;
+    },
+  };
+}
+
+function fakeCanvasContext() {
+  const calls = { drawImage: [], fillRect: [] };
+  const gradient = { addColorStop() {} };
+  return {
+    calls,
+    fillStyle: "",
+    filter: "none",
+    globalAlpha: 1,
+    globalCompositeOperation: "source-over",
+    lineWidth: 1,
+    shadowBlur: 0,
+    shadowColor: "transparent",
+    shadowOffsetX: 0,
+    shadowOffsetY: 0,
+    strokeStyle: "",
+    beginPath() {},
+    bezierCurveTo() {},
+    clearRect() {},
+    createLinearGradient: () => gradient,
+    createRadialGradient: () => gradient,
+    drawImage(element) {
+      calls.drawImage.push(element.id ?? "canvas");
+    },
+    ellipse() {},
+    fill() {},
+    fillRect() {
+      calls.fillRect.push(this.fillStyle);
+    },
+    lineTo() {},
+    measureText: (value) => ({ width: String(value).length * 8 }),
+    moveTo() {},
+    restore() {},
+    rotate() {},
+    save() {},
+    stroke() {},
+    translate() {},
+  };
+}
+
+function fakeMediaLayer(id) {
+  return {
+    id,
+    kind: "image",
+    element: { id, naturalWidth: 20, naturalHeight: 20 },
+    visible: true,
+    opacity: 100,
+    scale: 50,
+    x: 50,
+    y: 50,
+    rotation: 0,
+    shadow: { opacity: 0, blur: 0, x: 0, y: 0 },
+    fit: "contain",
+    blendMode: "normal",
+    loop: true,
+    order: 0,
+  };
+}

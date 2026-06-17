@@ -125,11 +125,17 @@ import {
   waveformTypeLabel,
 } from "./inspectors/VisualInspector";
 import {
+  ATMOSPHERE_BASE_LAYER_ID,
+  ATMOSPHERE_EXTRA_LAYER_ID,
+  atmosphereStackPerformance,
+  atmosphereLayerIdFromStackItem,
   builtinVisualPresets,
   normalizeVisualPresetList,
   normalizeVisualSettings,
+  resolveAtmosphereLayers,
 } from "../shared/visual-effects.mjs";
 import type {
+  AtmosphereLayerV1,
   CloudLightSettings,
   RenderStackItem,
   ScenePresetV3,
@@ -386,6 +392,74 @@ declare global {
     ): Promise<FileSystemDirectoryHandle>;
     removeEntry(name: string, options?: { recursive?: boolean }): Promise<void>;
   }
+}
+
+function atmosphereStackKey(layerId: string) {
+  return renderStackKey({ kind: "atmosphere", layerId });
+}
+
+function normalizeLayerScene(scene: unknown): ScenePresetV3 {
+  const normalized = normalizeVisualSettings(scene);
+  const {
+    atmosphereLayers: _atmosphereLayers,
+    renderOrder: _renderOrder,
+    ...layerScene
+  } = normalized;
+  return layerScene as ScenePresetV3;
+}
+
+function sceneWithAtmosphereLayers(
+  scene: ScenePresetV3,
+  layers: AtmosphereLayerV1[],
+  renderOrder = scene.renderOrder,
+): ScenePresetV3 {
+  const fallbackBase = resolveAtmosphereLayers(scene)[0];
+  const normalizedLayers = (layers.length ? layers : [fallbackBase])
+    .slice(0, 2)
+    .map((layer, index) => ({
+      ...layer,
+      id: index === 0 ? ATMOSPHERE_BASE_LAYER_ID : ATMOSPHERE_EXTRA_LAYER_ID,
+      name: index === 0 ? "Fundo visual" : layer.name || "Atmosfera 2",
+      scene: normalizeLayerScene(layer.scene),
+    }));
+  const baseLayer = normalizedLayers[0];
+  const next: ScenePresetV3 = {
+    ...baseLayer.scene,
+    post: scene.post,
+    waveform: scene.waveform,
+    atmosphereLayers: normalizedLayers,
+  };
+  if (renderOrder?.length) next.renderOrder = renderOrder;
+  return normalizeVisualSettings(next);
+}
+
+function patchAtmosphereLayer(
+  scene: ScenePresetV3,
+  layerId: string,
+  patch: Partial<AtmosphereLayerV1>,
+) {
+  const layers = resolveAtmosphereLayers(scene);
+  const nextLayers = layers.map((layer) =>
+    layer.id === layerId
+      ? {
+          ...layer,
+          ...patch,
+          scene: patch.scene ? normalizeLayerScene(patch.scene) : layer.scene,
+        }
+      : layer,
+  );
+  return sceneWithAtmosphereLayers(scene, nextLayers);
+}
+
+function heavyAtmosphereWarning(scene: ScenePresetV3) {
+  const performance = atmosphereStackPerformance(scene);
+  if (performance.heavy) {
+    return "Duas atmosferas pesadas podem aumentar o tempo de renderização. A pré-visualização usa modo adaptativo; o export final não reduz qualidade automaticamente.";
+  }
+  if (performance.moderate) {
+    return "Pré-visualização em modo adaptativo para manter a edição fluida. O export final preserva qualidade, FPS e resolução.";
+  }
+  return "";
 }
 
 function App() {
@@ -2291,29 +2365,52 @@ function App() {
     updateSelectedTrack({ scene });
   }
 
+  function selectedAtmosphereLayer() {
+    const layers = resolveAtmosphereLayers(selectedScene);
+    const stackItem = computeRenderStack().find(
+      (item) => renderStackKey(item) === selectedStackKey,
+    );
+    const layerId =
+      stackItem?.kind === "atmosphere"
+        ? atmosphereLayerIdFromStackItem(stackItem)
+        : ATMOSPHERE_BASE_LAYER_ID;
+    return layers.find((layer) => layer.id === layerId) ?? layers[0];
+  }
+
+  function updateSelectedAtmosphereLayer(patch: Partial<AtmosphereLayerV1>) {
+    const layer = selectedAtmosphereLayer();
+    updateScene(patchAtmosphereLayer(selectedScene, layer.id, patch));
+  }
+
+  function updateSelectedAtmosphereScene(scene: ScenePresetV3) {
+    updateSelectedAtmosphereLayer({ scene: normalizeLayerScene(scene) });
+  }
+
   function selectPreset(id: string) {
     const preset =
       visualPresets.find((item) => item.id === id) ?? builtinVisualPresets[0];
-    updateScene(normalizeVisualSettings(preset));
+    updateSelectedAtmosphereScene(normalizeVisualSettings(preset));
   }
 
   function selectPresetVariant(baseId: string, variantId: string) {
-    updateScene(
+    updateSelectedAtmosphereScene(
       normalizeVisualSettings({ id: baseId, appliedVariantId: variantId }),
     );
   }
 
   function updateCommon(key: string, value: number) {
-    updateScene({
-      ...selectedScene,
-      common: { ...selectedScene.common, [key]: value },
+    const scene = selectedAtmosphereLayer().scene;
+    updateSelectedAtmosphereScene({
+      ...scene,
+      common: { ...scene.common, [key]: value },
     });
   }
 
   function updateAdvanced(key: string, value: number) {
-    updateScene({
-      ...selectedScene,
-      advanced: { ...selectedScene.advanced, [key]: value },
+    const scene = selectedAtmosphereLayer().scene;
+    updateSelectedAtmosphereScene({
+      ...scene,
+      advanced: { ...scene.advanced, [key]: value },
     });
   }
 
@@ -2325,18 +2422,19 @@ function App() {
   }
 
   function updatePlayful(patch: PlayfulPatch) {
-    updateScene(
+    const scene = selectedAtmosphereLayer().scene;
+    updateSelectedAtmosphereScene(
       normalizeVisualSettings({
-        ...selectedScene,
+        ...scene,
         playful: {
-          ...selectedScene.playful,
+          ...scene.playful,
           ...patch,
           enabled: {
-            ...selectedScene.playful?.enabled,
+            ...scene.playful?.enabled,
             ...patch.enabled,
           },
           collections: {
-            ...selectedScene.playful?.collections,
+            ...scene.playful?.collections,
             ...patch.collections,
           },
         },
@@ -2345,12 +2443,58 @@ function App() {
   }
 
   function updateCloudLight(patch: Partial<CloudLightSettings>) {
-    updateScene(
+    const scene = selectedAtmosphereLayer().scene;
+    updateSelectedAtmosphereScene(
       normalizeVisualSettings({
-        ...selectedScene,
-        cloudLight: { ...selectedScene.cloudLight, ...patch },
+        ...scene,
+        cloudLight: { ...scene.cloudLight, ...patch },
       }),
     );
+  }
+
+  function updateAtmosphereLayer(
+    layerId: string,
+    patch: Partial<
+      Pick<AtmosphereLayerV1, "visible" | "opacity" | "blendMode">
+    >,
+  ) {
+    updateScene(patchAtmosphereLayer(selectedScene, layerId, patch));
+  }
+
+  function addAtmosphereLayer() {
+    if (!selectedTrack) return;
+    const layers = resolveAtmosphereLayers(selectedScene);
+    if (layers.length >= 2) {
+      setSelectedStackKey(atmosphereStackKey(ATMOSPHERE_EXTRA_LAYER_ID));
+      return;
+    }
+    const source = selectedAtmosphereLayer() ?? layers[0];
+    const extra: AtmosphereLayerV1 = {
+      id: ATMOSPHERE_EXTRA_LAYER_ID,
+      name: "Atmosfera 2",
+      visible: true,
+      opacity: 55,
+      blendMode: "screen",
+      scene: normalizeLayerScene(source.scene),
+    };
+    updateScene(sceneWithAtmosphereLayers(selectedScene, [layers[0], extra]));
+    setSelectedStackKey(atmosphereStackKey(ATMOSPHERE_EXTRA_LAYER_ID));
+  }
+
+  function removeAtmosphereLayer(layerId: string) {
+    if (layerId === ATMOSPHERE_BASE_LAYER_ID) return;
+    const layers = resolveAtmosphereLayers(selectedScene).filter(
+      (layer) => layer.id !== layerId,
+    );
+    const nextRenderOrder = computeRenderStack().filter(
+      (item) =>
+        item.kind !== "atmosphere" ||
+        atmosphereLayerIdFromStackItem(item) !== layerId,
+    );
+    updateScene(
+      sceneWithAtmosphereLayers(selectedScene, layers, nextRenderOrder),
+    );
+    setSelectedStackKey(atmosphereStackKey(ATMOSPHERE_BASE_LAYER_ID));
   }
 
   function computeRenderStack(): RenderStackItem[] {
@@ -2368,8 +2512,18 @@ function App() {
     layers: MediaLayerV2[],
   ): RenderStackItem[] {
     const stack: RenderStackItem[] = [];
-    stack.push({ kind: "atmosphere" });
-    if (scene.cloudLight && scene.rendererId !== "volumetric-clouds") {
+    const atmosphereLayers = resolveAtmosphereLayers(scene);
+    const explicitAtmosphereLayers =
+      Array.isArray(scene.atmosphereLayers) &&
+      scene.atmosphereLayers.length > 0;
+    for (const layer of atmosphereLayers) {
+      stack.push({ kind: "atmosphere", layerId: layer.id });
+    }
+    if (
+      !explicitAtmosphereLayers &&
+      scene.cloudLight &&
+      scene.rendererId !== "volumetric-clouds"
+    ) {
       stack.push({ kind: "sun-focus" });
     }
     for (const layer of [...layers].reverse()) {
@@ -2459,12 +2613,13 @@ function App() {
   }
 
   function applyPalette(palette: VisualPalette) {
-    updateScene(
+    const scene = selectedAtmosphereLayer().scene;
+    updateSelectedAtmosphereScene(
       normalizeVisualSettings({
-        ...selectedScene,
+        ...scene,
         colors: palette.colors,
-        common: { ...selectedScene.common, ...palette.common },
-        advanced: { ...selectedScene.advanced, ...palette.advanced },
+        common: { ...scene.common, ...palette.common },
+        advanced: { ...scene.advanced, ...palette.advanced },
       }),
     );
   }
@@ -2596,19 +2751,21 @@ function App() {
   }
 
   function updateColors(key: "base" | "effect" | "light", value: string) {
-    updateScene({
-      ...selectedScene,
-      colors: { ...selectedScene.colors, [key]: value },
+    const scene = selectedAtmosphereLayer().scene;
+    updateSelectedAtmosphereScene({
+      ...scene,
+      colors: { ...scene.colors, [key]: value },
     });
   }
 
   async function duplicatePreset() {
+    const scene = selectedAtmosphereLayer().scene;
     const name = await requestTextInput({
       title: "Duplicar preset",
       message:
         "Crie uma cópia reutilizável com a atmosfera, a paleta e os ajustes atuais.",
       label: "Nome do preset personalizado",
-      value: `${selectedScene.name} personalizado`,
+      value: `${scene.name} personalizado`,
       confirmLabel: "Duplicar preset",
     });
     if (!name) return;
@@ -2616,30 +2773,29 @@ function App() {
       const created = await fetchJson<ScenePresetV3>("/api/visual-presets", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...selectedScene, name, source: "custom" }),
+        body: JSON.stringify({ ...scene, name, source: "custom" }),
       });
       setVisualPresets((current) => [...current, created]);
-      updateScene(created);
+      updateSelectedAtmosphereScene(created);
     } catch (reason) {
       setError(localApiMessage(reason, "duplicar o preset"));
     }
   }
 
   async function savePreset() {
+    const scene = selectedAtmosphereLayer().scene;
     // Editing a custom preset: persist the current adjustments in place.
-    if (selectedScene.source === "custom") {
+    if (scene.source === "custom") {
       try {
-        await fetchJson(`/api/visual-presets/${selectedScene.id}`, {
+        await fetchJson(`/api/visual-presets/${scene.id}`, {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(selectedScene),
+          body: JSON.stringify(scene),
         });
         setVisualPresets((current) =>
-          current.map((preset) =>
-            preset.id === selectedScene.id ? selectedScene : preset,
-          ),
+          current.map((preset) => (preset.id === scene.id ? scene : preset)),
         );
-        setBatchFeedback(`Preset "${selectedScene.name}" salvo.`);
+        setBatchFeedback(`Preset "${scene.name}" salvo.`);
       } catch (reason) {
         setError(localApiMessage(reason, "salvar o preset"));
       }
@@ -2654,13 +2810,13 @@ function App() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          ...selectedScene,
-          name: `${selectedScene.name} personalizado`,
+          ...scene,
+          name: `${scene.name} personalizado`,
           source: "custom",
         }),
       });
       setVisualPresets((current) => [...current, created]);
-      updateScene(created);
+      updateSelectedAtmosphereScene(created);
       setBatchFeedback(`Preset "${created.name}" criado a partir dos ajustes.`);
     } catch (reason) {
       setError(localApiMessage(reason, "criar o preset"));
@@ -2668,15 +2824,16 @@ function App() {
   }
 
   async function deletePreset() {
-    if (selectedScene.source !== "custom") return;
+    const scene = selectedAtmosphereLayer().scene;
+    if (scene.source !== "custom") return;
     try {
-      await fetchJson(`/api/visual-presets/${selectedScene.id}`, {
+      await fetchJson(`/api/visual-presets/${scene.id}`, {
         method: "DELETE",
       });
       setVisualPresets((current) =>
-        current.filter((preset) => preset.id !== selectedScene.id),
+        current.filter((preset) => preset.id !== scene.id),
       );
-      updateScene(builtinVisualPresets[0]);
+      updateSelectedAtmosphereScene(builtinVisualPresets[0]);
     } catch (reason) {
       setError(localApiMessage(reason, "excluir o preset"));
     }
@@ -3782,6 +3939,8 @@ function App() {
         ? "Podcast"
         : "Biblioteca"
       : visualStageLabel(visualStageView, activeStep);
+  const activeAtmosphereScene = selectedAtmosphereLayer().scene;
+  const atmospherePerformanceWarning = heavyAtmosphereWarning(selectedScene);
 
   return (
     <AppShell
@@ -4463,19 +4622,19 @@ function App() {
                   onUpdateLayer={updateLayer}
                   onUpdateTextSettings={updateTextSettings}
                   cloudLight={
-                    selectedScene.cloudLight?.enabled &&
-                    selectedScene.rendererId !== "volumetric-clouds"
+                    activeAtmosphereScene.cloudLight?.enabled &&
+                    activeAtmosphereScene.rendererId !== "volumetric-clouds"
                       ? {
-                          x: selectedScene.cloudLight.x,
-                          y: selectedScene.cloudLight.y,
+                          x: activeAtmosphereScene.cloudLight.x,
+                          y: activeAtmosphereScene.cloudLight.y,
                           enabled: true,
                         }
                       : null
                   }
                   onCloudLight={(patch) =>
-                    selectedScene.cloudLight &&
+                    activeAtmosphereScene.cloudLight &&
                     updateCloudLight({
-                      ...selectedScene.cloudLight,
+                      ...activeAtmosphereScene.cloudLight,
                       ...patch,
                     })
                   }
@@ -4667,9 +4826,11 @@ function App() {
                 renderStack={computeRenderStack()}
                 scene={selectedScene}
                 batchTargetCount={selectedForBatchCount}
+                performanceWarning={atmospherePerformanceWarning}
                 selectedStackKey={selectedStackKey}
                 onSelectStackKey={setSelectedStackKey}
                 onAddLayer={() => layerInputRef.current?.click()}
+                onAddAtmosphere={addAtmosphereLayer}
                 onAdvanced={updateAdvanced}
                 onApplyCoverLayer={addCoverLayerPreset}
                 onApplyCoverLayerBatch={
@@ -4681,6 +4842,7 @@ function App() {
                   workflowMode === "batch" ? applyLayersToBatch : undefined
                 }
                 onApplyLayerSet={applyLayerSet}
+                onAtmosphereLayer={updateAtmosphereLayer}
                 onCloudLight={updateCloudLight}
                 onColors={updateColors}
                 onCommon={updateCommon}
@@ -4689,6 +4851,7 @@ function App() {
                 onMoveRenderStack={moveCompositionItem}
                 onPalette={applyPalette}
                 onPlayful={updatePlayful}
+                onRemoveAtmosphere={removeAtmosphereLayer}
                 onRemoveLayer={removeLayer}
                 onSavePreset={() => void savePreset()}
                 onUndoLayer={undoLayers}

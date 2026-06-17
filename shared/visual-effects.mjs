@@ -1,4 +1,14 @@
 export const VISUAL_SCHEMA_VERSION = 5;
+export const ATMOSPHERE_BASE_LAYER_ID = "atmosphere-base";
+export const ATMOSPHERE_EXTRA_LAYER_ID = "atmosphere-2";
+
+const atmosphereBlendModes = new Set([
+  "normal",
+  "screen",
+  "multiply",
+  "overlay",
+  "lighter",
+]);
 
 export const visualPostDefaults = {
   bloom: 0,
@@ -1274,7 +1284,7 @@ export function normalizeVisualSettings(input = {}) {
   const incomingWaveform = source.waveform ?? {};
   const incomingWaveformAdvanced = incomingWaveform.advanced ?? {};
 
-  return {
+  const visual = {
     schemaVersion: VISUAL_SCHEMA_VERSION,
     id: source.source === "custom" && source.id ? String(source.id) : base.id,
     name:
@@ -1404,6 +1414,94 @@ export function normalizeVisualSettings(input = {}) {
       ? { renderOrder: source.renderOrder }
       : {}),
   };
+  if (
+    Array.isArray(source.atmosphereLayers) &&
+    source.atmosphereLayers.length
+  ) {
+    visual.atmosphereLayers = normalizeAtmosphereLayers(
+      source.atmosphereLayers,
+      visual,
+    );
+  }
+  return visual;
+}
+
+export function normalizeAtmosphereLayers(input = [], baseScene = {}) {
+  const base = normalizeLayerScene(baseScene);
+  const source = Array.isArray(input) ? input.slice(0, 2) : [];
+  if (!source.length) return [createAtmosphereLayer({}, base, 0)];
+  return source.map((item, index) =>
+    createAtmosphereLayer(
+      item,
+      index === 0 ? base : (source[0]?.scene ?? base),
+      index,
+    ),
+  );
+}
+
+export function resolveAtmosphereLayers(input = {}) {
+  const scene = normalizeVisualSettings(input);
+  return Array.isArray(scene.atmosphereLayers) && scene.atmosphereLayers.length
+    ? scene.atmosphereLayers
+    : [createAtmosphereLayer({}, scene, 0)];
+}
+
+export function atmosphereLayerIdFromStackItem(item = {}) {
+  return item.kind === "atmosphere" && item.layerId
+    ? String(item.layerId)
+    : ATMOSPHERE_BASE_LAYER_ID;
+}
+
+export function normalizeAtmosphereBlendMode(input) {
+  const value = String(input ?? "normal");
+  return atmosphereBlendModes.has(value) ? value : "normal";
+}
+
+export function atmosphereStackPerformance(input = {}) {
+  const activeLayers = resolveAtmosphereLayers(input).filter(
+    (layer) => layer.visible !== false && layer.opacity > 0,
+  );
+  const tiers = activeLayers.map((layer) =>
+    normalizePerformanceTier(layer.scene?.performanceTier ?? 1),
+  );
+  const tierTotal = tiers.reduce((total, tier) => total + tier, 0);
+  const tierThreeCount = tiers.filter((tier) => tier >= 3).length;
+  const moderate = activeLayers.length >= 2;
+  const heavy = moderate && (tierThreeCount >= 2 || tierTotal >= 5);
+  return {
+    activeCount: activeLayers.length,
+    tierTotal,
+    tierThreeCount,
+    moderate,
+    heavy,
+  };
+}
+
+function createAtmosphereLayer(item = {}, fallbackScene, index) {
+  const isBase = index === 0;
+  const id = isBase ? ATMOSPHERE_BASE_LAYER_ID : ATMOSPHERE_EXTRA_LAYER_ID;
+  const scene = normalizeLayerScene(item?.scene ?? fallbackScene);
+  return {
+    id,
+    name: String(item?.name || (isBase ? "Fundo visual" : "Atmosfera 2")).slice(
+      0,
+      80,
+    ),
+    visible: boolean(item?.visible, true),
+    opacity: number(item?.opacity, isBase ? 100 : 55),
+    blendMode: normalizeAtmosphereBlendMode(
+      item?.blendMode ?? (isBase ? "normal" : "screen"),
+    ),
+    scene,
+  };
+}
+
+function normalizeLayerScene(input = {}) {
+  const source =
+    input && typeof input === "object"
+      ? { ...input, atmosphereLayers: undefined, renderOrder: undefined }
+      : input;
+  return normalizeVisualSettings(source);
 }
 
 export function visualUniforms(settings) {

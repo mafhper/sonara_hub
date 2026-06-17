@@ -929,11 +929,63 @@ const blendModes = {
   screen: "screen",
   multiply: "multiply",
   overlay: "overlay",
+  lighter: "lighter",
 };
 
+const ATMOSPHERE_BASE_LAYER_ID = "atmosphere-base";
+const ATMOSPHERE_EXTRA_LAYER_ID = "atmosphere-2";
+
+function atmosphereLayerIdFromStackItem(item = {}) {
+  return item.kind === "atmosphere" && item.layerId
+    ? String(item.layerId)
+    : ATMOSPHERE_BASE_LAYER_ID;
+}
+
+function resolveAtmosphereLayers(scene = {}) {
+  const source = Array.isArray(scene.atmosphereLayers)
+    ? scene.atmosphereLayers.slice(0, 2)
+    : [];
+  if (!source.length) {
+    return [createRuntimeAtmosphereLayer({}, scene, 0)];
+  }
+  return source.map((layer, index) =>
+    createRuntimeAtmosphereLayer(
+      layer,
+      index === 0 ? scene : (source[0]?.scene ?? scene),
+      index,
+    ),
+  );
+}
+
+function createRuntimeAtmosphereLayer(item = {}, fallbackScene = {}, index) {
+  const isBase = index === 0;
+  const blendMode = blendModes[item.blendMode] ? item.blendMode : undefined;
+  return {
+    id: isBase ? ATMOSPHERE_BASE_LAYER_ID : ATMOSPHERE_EXTRA_LAYER_ID,
+    name: String(item.name || (isBase ? "Fundo visual" : "Atmosfera 2")),
+    visible: item.visible !== false,
+    opacity: clampNumber(Number(item.opacity ?? (isBase ? 100 : 55)), 0, 100),
+    blendMode: blendMode ?? (isBase ? "normal" : "screen"),
+    scene:
+      item.scene && typeof item.scene === "object" ? item.scene : fallbackScene,
+  };
+}
+
 export function legacyRenderStack(scene, composition) {
-  const stack = [{ kind: "atmosphere" }];
-  if (scene.cloudLight?.enabled && scene.rendererId !== "volumetric-clouds") {
+  const atmosphereLayers = resolveAtmosphereLayers(scene);
+  const explicitAtmosphereLayers =
+    Array.isArray(scene.atmosphereLayers) && scene.atmosphereLayers.length > 0;
+  const stack = explicitAtmosphereLayers
+    ? atmosphereLayers.map((layer) => ({
+        kind: "atmosphere",
+        layerId: layer.id,
+      }))
+    : [{ kind: "atmosphere" }];
+  if (
+    !explicitAtmosphereLayers &&
+    scene.cloudLight?.enabled &&
+    scene.rendererId !== "volumetric-clouds"
+  ) {
     stack.push({ kind: "sun-focus" });
   }
   stack.push({ kind: "post" });
@@ -949,6 +1001,29 @@ export function legacyRenderStack(scene, composition) {
     stack.push({ kind: "waveform" });
   }
   return stack;
+}
+
+function createRenderCache(scene, composition) {
+  const atmosphereLayers = resolveAtmosphereLayers(scene);
+  const explicitAtmosphereLayers =
+    Array.isArray(scene.atmosphereLayers) && scene.atmosphereLayers.length > 0;
+  const stack =
+    Array.isArray(composition.renderOrder) && composition.renderOrder.length > 0
+      ? composition.renderOrder
+      : Array.isArray(scene.renderOrder) && scene.renderOrder.length > 0
+        ? scene.renderOrder
+        : legacyRenderStack(scene, composition);
+  return {
+    atmosphereLayers,
+    atmosphereLayerMap: new Map(
+      atmosphereLayers.map((layer) => [layer.id, layer]),
+    ),
+    explicitAtmosphereLayers,
+    mediaLayerMap: new Map(
+      (composition.layers ?? []).map((layer) => [layer.id, layer]),
+    ),
+    stack,
+  };
 }
 
 export function createSceneRuntime(
@@ -976,6 +1051,7 @@ export function createSceneRuntime(
       spectrum: [],
     },
   };
+  let renderCache = createRenderCache(state.scene, state.composition);
 
   function resize(width = canvas.clientWidth, height = canvas.clientHeight) {
     const MAX_DIM = 4096;
@@ -1006,6 +1082,39 @@ export function createSceneRuntime(
     }
   }
 
+  function renderAtmosphereLayer(
+    context,
+    width,
+    height,
+    layer,
+    audio,
+    time,
+    includeLayerLightFocus,
+  ) {
+    if (!layer || layer.visible === false || layer.opacity <= 0) return;
+    const layerScene = layer.scene ?? state.scene;
+    context.save();
+    context.globalCompositeOperation =
+      blendModes[layer.blendMode] ?? "source-over";
+    context.globalAlpha = Math.max(0, Math.min(100, layer.opacity)) / 100;
+    renderAtmosphere(context, width, height, layerScene, audio, time);
+    if (
+      includeLayerLightFocus &&
+      layerScene.cloudLight?.enabled &&
+      layerScene.rendererId !== "volumetric-clouds"
+    ) {
+      drawLightFocus(
+        context,
+        width,
+        height,
+        layerScene.cloudLight,
+        audio,
+        time,
+      );
+    }
+    context.restore();
+  }
+
   function render(time = 0, fps = 24) {
     resize(
       canvas.clientWidth || canvas.width,
@@ -1014,22 +1123,28 @@ export function createSceneRuntime(
     const { scene, composition, audio } = state;
     const width = canvas.width;
     const height = canvas.height;
+    const cache = renderCache;
     context.save();
     context.clearRect(0, 0, width, height);
 
-    const stack =
-      Array.isArray(composition.renderOrder) &&
-      composition.renderOrder.length > 0
-        ? composition.renderOrder
-        : Array.isArray(scene.renderOrder) && scene.renderOrder.length > 0
-          ? scene.renderOrder
-          : legacyRenderStack(scene, composition);
-
-    for (const item of stack) {
+    for (const item of cache.stack) {
       switch (item.kind) {
-        case "atmosphere":
-          renderAtmosphere(context, width, height, scene, audio, time);
+        case "atmosphere": {
+          const layer =
+            cache.atmosphereLayerMap.get(
+              atmosphereLayerIdFromStackItem(item),
+            ) ?? cache.atmosphereLayers[0];
+          renderAtmosphereLayer(
+            context,
+            width,
+            height,
+            layer,
+            audio,
+            time,
+            cache.explicitAtmosphereLayers,
+          );
           break;
+        }
         case "sun-focus":
           if (scene.cloudLight?.enabled) {
             drawLightFocus(
@@ -1065,9 +1180,7 @@ export function createSceneRuntime(
           }
           break;
         case "media": {
-          const layer = (composition.layers ?? []).find(
-            (l) => l.id === item.layerId,
-          );
+          const layer = cache.mediaLayerMap.get(item.layerId);
           if (layer && layer.visible !== false && layer.element) {
             drawMediaLayer(
               context,
@@ -1115,9 +1228,11 @@ export function createSceneRuntime(
     resize,
     setScene(scene) {
       state.scene = scene;
+      renderCache = createRenderCache(state.scene, state.composition);
     },
     setComposition(composition) {
       state.composition = composition;
+      renderCache = createRenderCache(state.scene, state.composition);
     },
     setAudio(audio) {
       state.audio = { ...state.audio, ...audio };

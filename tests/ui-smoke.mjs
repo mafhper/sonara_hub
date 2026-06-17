@@ -200,7 +200,7 @@ try {
   await page.getByRole("button", { name: "Estúdio visual" }).click();
   await ensurePanelOpen(page, "inspector");
 
-  await page.getByLabel("Categoria de atmosfera").selectOption("playful");
+  await page.getByRole("tab", { name: /Infantil/ }).click();
   await page
     .getByRole("button", { name: "Selecionar atmosfera Formas lúdicas" })
     .click();
@@ -218,7 +218,7 @@ try {
   await page.getByText("PALETAS", { exact: true }).waitFor();
   assert.equal(await page.locator(".palette-option-list button").count(), 4);
   await page.locator(".palette-option-list button").nth(1).click();
-  await page.getByLabel("Categoria de atmosfera").selectOption("atmospheres");
+  await page.getByRole("tab", { name: /Atmosferas/ }).click();
   await page
     .getByRole("button", { name: "Selecionar atmosfera Nuvens amplas" })
     .click();
@@ -233,7 +233,7 @@ try {
     .locator('input[type="checkbox"]')
     .check();
   await page.getByText("Intensidade solar").waitFor();
-  await page.getByLabel("Categoria de atmosfera").selectOption("surfaces");
+  await page.getByRole("tab", { name: /Superficies/ }).click();
   await page
     .getByRole("button", { name: "Selecionar atmosfera Aura vetorial" })
     .click();
@@ -797,6 +797,38 @@ try {
     .first()
     .getByRole("option")
     .click();
+  await page.locator("details.stack-add-menu summary").click();
+  await page.getByRole("button", { name: "Adicionar atmosfera" }).click();
+  await page
+    .locator(".composition-stack-row", { hasText: "Atmosfera 2" })
+    .waitFor();
+  await page
+    .getByText(/Pré-visualização em modo adaptativo|Duas atmosferas pesadas/)
+    .waitFor();
+  await page
+    .locator(".stack-detail label.field", { hasText: "Mescla" })
+    .locator("select")
+    .selectOption("lighter");
+  await page
+    .getByRole("button", { name: "Ocultar Atmosfera 2" })
+    .first()
+    .click();
+  await page
+    .getByRole("button", { name: "Mostrar Atmosfera 2" })
+    .first()
+    .click();
+  await page
+    .getByRole("button", { name: "Remover Atmosfera 2" })
+    .first()
+    .click();
+  await page
+    .locator(".composition-stack-row", { hasText: "Atmosfera 2" })
+    .waitFor({ state: "detached" });
+  await page
+    .locator(".composition-stack-row", { hasText: "Fundo visual" })
+    .first()
+    .getByRole("option")
+    .click();
   await page.getByRole("button", { name: "Duplicar" }).click();
   const duplicatePresetDialog = page.getByRole("dialog", {
     name: "Duplicar preset",
@@ -1275,7 +1307,7 @@ async function visualSettingsSignature(page) {
       .locator(".stack-detail input[type='color']")
       .evaluateAll((inputs) => inputs.map((input) => input.value)),
     preset: await page
-      .locator(".visual-preset-card.active .visual-preset-title strong")
+      .locator(".visual-preset-card.active .visual-preset-name")
       .first()
       .textContent(),
     ranges: await page
@@ -1285,9 +1317,7 @@ async function visualSettingsSignature(page) {
       .locator(".stack-detail select")
       .evaluateAll((selects) => selects.map((select) => select.value)),
     variant: await page
-      .locator(
-        ".visual-preset-card.active .visual-preset-variants button.active",
-      )
+      .locator(".visual-preset-variants button.active")
       .first()
       .textContent()
       .catch(() => ""),

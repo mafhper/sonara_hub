@@ -11,6 +11,7 @@ import {
   resolveEffectiveComposition,
   resolveTrackArtwork,
 } from "../shared/composition-scope.mjs";
+import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
 
 const sharedCover = { id: "shared-cover" };
 const suggestedCover = { id: "track-cover" };
@@ -341,6 +342,32 @@ test("effective composition reads scene/text/layers/metadata from the track and 
   assert.equal(comp.metadata, track.metadata);
   assert.equal(comp.cover, suggestedCover);
   assert.equal(comp.showMetadata, true);
+});
+
+test("effective composition carries stacked atmosphere scene unchanged", () => {
+  const scene = normalizeVisualSettings({
+    id: "liquid-mesh",
+    atmosphereLayers: [
+      { scene: { id: "liquid-mesh" } },
+      {
+        scene: { id: "volumetric-clouds" },
+        opacity: 55,
+        blendMode: "screen",
+      },
+    ],
+  });
+  const track = {
+    scene,
+    textSettings: { order: [] },
+    layers: [],
+    metadata: { title: "Stacked" },
+  };
+
+  const comp = resolveEffectiveComposition(track, {});
+
+  assert.equal(comp.scene, scene);
+  assert.equal(comp.scene.atmosphereLayers.length, 2);
+  assert.equal(comp.scene.atmosphereLayers[1].blendMode, "screen");
 });
 
 test("effective composition prefers the shared cover and honors a disabled cover", () => {

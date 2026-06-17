@@ -12,10 +12,16 @@ import {
   Trash2,
 } from "lucide-react";
 import type {
+  AtmosphereLayerV1,
   CloudLightSettings,
   RenderStackItem,
   ScenePresetV3,
   WaveformV1,
+} from "../../shared/visual-effects.mjs";
+import {
+  ATMOSPHERE_BASE_LAYER_ID,
+  atmosphereLayerIdFromStackItem,
+  resolveAtmosphereLayers,
 } from "../../shared/visual-effects.mjs";
 import type { MediaLayerV2 } from "../types";
 
@@ -28,6 +34,10 @@ export type CompositionStackItem = {
   visible: boolean;
   toggleDisabled?: boolean;
   onToggle: () => void;
+  onRemove?: () => void;
+  removable?: boolean;
+  atmosphereLayer?: AtmosphereLayerV1;
+  atmosphereLayerId?: string;
   layerId?: string;
   mediaKind?: MediaLayerV2["kind"];
 };
@@ -44,7 +54,14 @@ export function stackItemDescription(item: CompositionStackItem) {
 }
 
 export function renderStackKey(item: RenderStackItem) {
-  return item.kind === "media" ? `media-${item.layerId}` : item.kind;
+  if (item.kind === "media") return `media-${item.layerId}`;
+  if (item.kind === "atmosphere") {
+    const layerId = atmosphereLayerIdFromStackItem(item);
+    return layerId === ATMOSPHERE_BASE_LAYER_ID
+      ? "atmosphere"
+      : `atmosphere-${layerId}`;
+  }
+  return item.kind;
 }
 
 export function buildRenderStackItems(
@@ -53,20 +70,37 @@ export function buildRenderStackItems(
   renderStack: RenderStackItem[],
   onWaveform: (patch: Partial<WaveformV1>) => void,
   onCloudLight: (patch: Partial<CloudLightSettings>) => void,
+  onAtmosphereLayer: (
+    id: string,
+    patch: Partial<
+      Pick<AtmosphereLayerV1, "visible" | "opacity" | "blendMode">
+    >,
+  ) => void,
+  onRemoveAtmosphereLayer: (id: string) => void,
   onUpdateLayer: (id: string, patch: Partial<MediaLayerV2>) => void,
 ): CompositionStackItem[] {
   const stack: CompositionStackItem[] = [];
+  const atmosphereLayers = resolveAtmosphereLayers(scene);
 
   for (const item of renderStack) {
     if (item.kind === "atmosphere") {
+      const layerId = atmosphereLayerIdFromStackItem(item);
+      const layer =
+        atmosphereLayers.find((candidate) => candidate.id === layerId) ??
+        atmosphereLayers[0];
+      const visible = layer.visible !== false;
+      const isBase = layer.id === ATMOSPHERE_BASE_LAYER_ID;
       stack.push({
         key: renderStackKey(item),
-        label: "Fundo visual",
-        tag: scene.name ?? "Atmosfera",
+        label: isBase ? "Fundo visual" : layer.name || "Atmosfera 2",
+        tag: layer.scene.name ?? "Atmosfera",
         kind: item.kind,
-        visible: true,
-        toggleDisabled: true,
-        onToggle: () => {},
+        visible,
+        onToggle: () => onAtmosphereLayer(layer.id, { visible: !visible }),
+        onRemove: isBase ? undefined : () => onRemoveAtmosphereLayer(layer.id),
+        removable: !isBase,
+        atmosphereLayer: layer,
+        atmosphereLayerId: layer.id,
       });
     } else if (item.kind === "sun-focus") {
       stack.push({
@@ -222,6 +256,17 @@ export function CompositionStackList({
                   title="Remover camada"
                   type="button"
                   onClick={() => onRemoveLayer(item.layerId as string)}
+                >
+                  <Trash2 />
+                </button>
+              )}
+              {item.removable && item.onRemove && (
+                <button
+                  aria-label={`Remover ${item.label}`}
+                  className="icon-button-sm"
+                  title="Remover camada"
+                  type="button"
+                  onClick={() => item.onRemove?.()}
                 >
                   <Trash2 />
                 </button>

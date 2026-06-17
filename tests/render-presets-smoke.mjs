@@ -43,12 +43,51 @@ const postOutput = await renderAndCheck({
   size: { width: 1280, height: 720 },
   duration: 1,
   fps: 12,
+  minFrames: 12,
 });
 assert.notEqual(
   await firstFrameHash(path.join(outputDir, "liquid-mesh-720p.webm")),
   await firstFrameHash(postOutput),
   "post overlay should alter the rendered frame when enabled",
 );
+
+await renderAndCheck({
+  name: "stacked-atmospheres-moderate-720p",
+  preset: normalizeVisualSettings({
+    id: "liquid-mesh",
+    atmosphereLayers: [
+      { scene: { id: "liquid-mesh" } },
+      {
+        opacity: 55,
+        blendMode: "screen",
+        scene: { id: "fractal-sphere" },
+      },
+    ],
+  }),
+  size: { width: 1280, height: 720 },
+  duration: 2,
+  fps: 12,
+  assertAnimated: true,
+  minFrames: 24,
+});
+
+await renderAndCheck({
+  name: "stacked-atmospheres-heavy-720p",
+  preset: normalizeVisualSettings({
+    id: "holo-topography",
+    atmosphereLayers: [
+      { scene: { id: "holo-topography" } },
+      {
+        opacity: 55,
+        blendMode: "screen",
+        scene: { id: "fluid-flow" },
+      },
+    ],
+  }),
+  size: { width: 1280, height: 720 },
+  duration: 1,
+  fps: 12,
+});
 
 const broadClouds = builtinVisualPresets.find(
   (preset) => preset.id === "volumetric-clouds",
@@ -345,6 +384,7 @@ async function renderAndCheck({
   duration,
   fps,
   assertAnimated = false,
+  minFrames = 0,
   composition,
 }) {
   const outputPath = path.join(outputDir, `${name}.webm`);
@@ -358,10 +398,37 @@ async function renderAndCheck({
     onProgress: () => {},
   });
   await openWithFfmpeg(outputPath);
+  if (minFrames) await assertFrameCountAtLeast(outputPath, minFrames);
   if (assertAnimated) await assertFrameVariation(outputPath);
   const stat = await fs.stat(outputPath);
   console.log(`${name}: ${stat.size} bytes`);
   return outputPath;
+}
+
+function assertFrameCountAtLeast(filePath, minFrames) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      ffmpegPath,
+      ["-v", "error", "-i", filePath, "-f", "framemd5", "-"],
+      { windowsHide: true },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
+    child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) return reject(new Error(stderr || `ffmpeg ${code}`));
+      const frameCount = stdout
+        .split(/\r?\n/u)
+        .filter((line) => line && !line.startsWith("#")).length;
+      assert.ok(
+        frameCount >= minFrames,
+        `${path.basename(filePath)} should contain at least ${minFrames} frames`,
+      );
+      resolve();
+    });
+  });
 }
 
 function assertFrameVariation(filePath) {

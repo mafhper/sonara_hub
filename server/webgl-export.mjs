@@ -526,6 +526,7 @@ export function buildRendererHtml({
         throw new Error("Captura determinística do canvas indisponível no Chromium");
       }
       const frameDuration = 1000 / fps;
+      const captureFrameDelayMs = Math.min(frameDuration, 32);
       const totalFrames = Math.max(2, Math.ceil(durationSeconds * fps));
       const roundMs = (value) => Math.round(value * 100) / 100;
       const captureMetrics = {
@@ -551,6 +552,7 @@ export function buildRendererHtml({
         fps,
         height: canvas.height,
         mimeType,
+        targetDelayMs: roundMs(captureFrameDelayMs),
         totalFrames,
         width: canvas.width,
       });
@@ -568,7 +570,7 @@ export function buildRendererHtml({
         captureMetrics.requestFrameMs += performance.now() - requestFrameStarted;
         window.reportSceneProgress(((index + 1) / totalFrames) * 88 + 4);
         const delayStarted = performance.now();
-        await delay(frameDuration);
+        await delay(captureFrameDelayMs);
         captureMetrics.delayMs += performance.now() - delayStarted;
       }
       await reportPhase("canvas-frame-loop-complete", {
@@ -576,6 +578,7 @@ export function buildRendererHtml({
         frameLoopMs: roundMs(captureMetrics.renderMs + captureMetrics.requestFrameMs + captureMetrics.delayMs),
         renderMs: roundMs(captureMetrics.renderMs),
         requestFrameMs: roundMs(captureMetrics.requestFrameMs),
+        targetDelayMs: roundMs(captureFrameDelayMs),
         totalFrames,
       });
       await reportPhase("canvas-capture-complete", { totalFrames });

@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ATMOSPHERE_BASE_LAYER_ID,
+  ATMOSPHERE_EXTRA_LAYER_ID,
+  atmosphereLayerIdFromStackItem,
+  atmosphereStackPerformance,
   builtinPresetMap,
   builtinVisualPresets,
   effectIds,
+  normalizeAtmosphereBlendMode,
+  normalizeAtmosphereLayers,
   normalizeVisualPresetList,
   normalizeVisualSettings,
   parseVisualCollection,
+  resolveAtmosphereLayers,
   removedEffectIds,
   VISUAL_SCHEMA_VERSION,
   visualCommonControlKeys,
@@ -581,4 +588,135 @@ test("renderOrder is preserved when present and omitted when absent", () => {
     rendererId: "audio-dark",
   });
   assert.equal(withoutOrder.renderOrder, undefined);
+});
+
+test("legacy scenes resolve to one base atmosphere layer without changing the scene payload", () => {
+  const scene = normalizeVisualSettings({ rendererId: "audio-dark" });
+  const layers = resolveAtmosphereLayers(scene);
+
+  assert.equal(scene.atmosphereLayers, undefined);
+  assert.equal(layers.length, 1);
+  assert.equal(layers[0].id, ATMOSPHERE_BASE_LAYER_ID);
+  assert.equal(layers[0].opacity, 100);
+  assert.equal(layers[0].blendMode, "normal");
+  assert.equal(layers[0].scene.rendererId, "audio-dark");
+});
+
+test("atmosphere layers normalize to a base plus one optional overlay", () => {
+  const scene = normalizeVisualSettings({
+    id: "liquid-mesh",
+    atmosphereLayers: [
+      {
+        id: "ignored-base-id",
+        name: "Base antiga",
+        visible: false,
+        opacity: 140,
+        blendMode: "unknown",
+        scene: { id: "volumetric-clouds" },
+      },
+      {
+        id: "custom-extra-id",
+        name: "Névoa",
+        visible: true,
+        opacity: 55,
+        blendMode: "lighter",
+        scene: { id: "fractal-sphere" },
+      },
+      {
+        id: "third",
+        scene: { id: "terrain-flight" },
+      },
+    ],
+  });
+
+  assert.equal(scene.atmosphereLayers.length, 2);
+  assert.equal(scene.atmosphereLayers[0].id, ATMOSPHERE_BASE_LAYER_ID);
+  assert.equal(scene.atmosphereLayers[0].visible, false);
+  assert.equal(scene.atmosphereLayers[0].opacity, 100);
+  assert.equal(scene.atmosphereLayers[0].blendMode, "normal");
+  assert.equal(scene.atmosphereLayers[0].scene.rendererId, "volumetric-clouds");
+  assert.equal(scene.atmosphereLayers[1].id, ATMOSPHERE_EXTRA_LAYER_ID);
+  assert.equal(scene.atmosphereLayers[1].name, "Névoa");
+  assert.equal(scene.atmosphereLayers[1].opacity, 55);
+  assert.equal(scene.atmosphereLayers[1].blendMode, "lighter");
+  assert.equal(scene.atmosphereLayers[1].scene.rendererId, "fractal-sphere");
+});
+
+test("atmosphere layer helpers preserve legacy stack aliases", () => {
+  assert.equal(
+    atmosphereLayerIdFromStackItem({ kind: "atmosphere" }),
+    ATMOSPHERE_BASE_LAYER_ID,
+  );
+  assert.equal(
+    atmosphereLayerIdFromStackItem({
+      kind: "atmosphere",
+      layerId: ATMOSPHERE_EXTRA_LAYER_ID,
+    }),
+    ATMOSPHERE_EXTRA_LAYER_ID,
+  );
+  assert.equal(normalizeAtmosphereBlendMode("lighter"), "lighter");
+  assert.equal(normalizeAtmosphereBlendMode("bad-mode"), "normal");
+
+  const layers = normalizeAtmosphereLayers(
+    [{ scene: { id: "plasma-nebula" } }],
+    { id: "audio-dark" },
+  );
+  assert.equal(layers.length, 1);
+  assert.equal(layers[0].id, ATMOSPHERE_BASE_LAYER_ID);
+  assert.equal(layers[0].scene.rendererId, "plasma");
+});
+
+test("atmosphere stack performance ignores hidden layers and classifies heavy stacks", () => {
+  const inactive = normalizeVisualSettings({
+    id: "liquid-mesh",
+    atmosphereLayers: [
+      { visible: false, scene: { id: "liquid-mesh" } },
+      { opacity: 0, scene: { id: "fractal-sphere" } },
+    ],
+  });
+  assert.deepEqual(atmosphereStackPerformance(inactive), {
+    activeCount: 0,
+    tierTotal: 0,
+    tierThreeCount: 0,
+    moderate: false,
+    heavy: false,
+  });
+
+  const moderate = atmosphereStackPerformance(
+    normalizeVisualSettings({
+      id: "liquid-mesh",
+      atmosphereLayers: [
+        { scene: { id: "liquid-mesh" } },
+        { opacity: 55, scene: { id: "fractal-sphere" } },
+      ],
+    }),
+  );
+  assert.equal(moderate.activeCount, 2);
+  assert.equal(moderate.moderate, true);
+  assert.equal(moderate.heavy, false);
+
+  const heavyByTotal = atmosphereStackPerformance(
+    normalizeVisualSettings({
+      id: "holo-topography",
+      atmosphereLayers: [
+        { scene: { id: "holo-topography" } },
+        { opacity: 55, scene: { id: "fluid-flow" } },
+      ],
+    }),
+  );
+  assert.equal(heavyByTotal.tierTotal, 5);
+  assert.equal(heavyByTotal.tierThreeCount, 1);
+  assert.equal(heavyByTotal.heavy, true);
+
+  const heavyByTierThreeCount = atmosphereStackPerformance(
+    normalizeVisualSettings({
+      id: "fractal-sphere",
+      atmosphereLayers: [
+        { scene: { id: "fractal-sphere" } },
+        { opacity: 55, scene: { id: "fluid-flow" } },
+      ],
+    }),
+  );
+  assert.equal(heavyByTierThreeCount.tierThreeCount, 2);
+  assert.equal(heavyByTierThreeCount.heavy, true);
 });

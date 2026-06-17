@@ -12,6 +12,7 @@ import {
   loadMediaElements,
 } from "../../shared/canvas-scene-runtime.mjs";
 import type { SceneComposition } from "../../shared/canvas-scene-runtime.mjs";
+import { atmosphereStackPerformance } from "../../shared/visual-effects.mjs";
 import type { ScenePresetV3 } from "../../shared/visual-effects.mjs";
 import { audioBandsFromAnalyser } from "../features/audio/audioPlayback";
 import type {
@@ -23,6 +24,13 @@ import { ArtworkFrame } from "./ReviewPrimitives";
 
 const compositionThumbnailCache = new Map<string, string>();
 const COMPOSITION_THUMBNAIL_CACHE_LIMIT = 60;
+
+function scenePreviewPolicy(scene: ScenePresetV3) {
+  const performance = atmosphereStackPerformance(scene);
+  if (performance.heavy) return { maxFps: 12, maxScale: 1 };
+  if (performance.moderate) return { maxFps: 24, maxScale: 1.25 };
+  return { maxFps: 0, maxScale: 1.5 };
+}
 
 export type PreviewAudioBands = {
   energy: number;
@@ -64,10 +72,12 @@ export function ScenePreview({
     undefined,
   );
   const sceneRef = useRef(scene);
+  const previewPolicyRef = useRef(scenePreviewPolicy(scene));
   const compositionRef = useRef<SceneComposition>({});
 
   useEffect(() => {
     sceneRef.current = scene;
+    previewPolicyRef.current = scenePreviewPolicy(scene);
     runtimeRef.current?.setScene(scene);
   }, [scene]);
 
@@ -100,9 +110,17 @@ export function ScenePreview({
     );
     runtimeRef.current = runtime;
     let frame = 0;
+    let lastRenderAt = 0;
     const started = performance.now();
-    const draw = () => {
-      const scale = Math.min(1.5, window.devicePixelRatio || 1);
+    const draw = (now = performance.now()) => {
+      const policy = previewPolicyRef.current;
+      const minFrameMs = policy.maxFps > 0 ? 1000 / policy.maxFps : 0;
+      if (minFrameMs && now - lastRenderAt < minFrameMs * 0.9) {
+        frame = window.requestAnimationFrame(draw);
+        return;
+      }
+      lastRenderAt = now;
+      const scale = Math.min(policy.maxScale, window.devicePixelRatio || 1);
       const audioTime = audioRef.current?.currentTime;
       const renderTime =
         Number.isFinite(audioTime) && (audioRef.current?.duration ?? 0) > 0

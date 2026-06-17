@@ -11,7 +11,10 @@ import { buildWebglMuxArgs } from "../server/video-mux.mjs";
 import { renderCanvasSize, renderTiming } from "../server/render-profile.mjs";
 import { sampleAudioEnvelope } from "../server/audio-envelope.mjs";
 import { renderWebglBackgroundVideo } from "../server/webgl-export.mjs";
-import { builtinVisualPresets } from "../shared/visual-effects.mjs";
+import {
+  builtinVisualPresets,
+  normalizeVisualSettings,
+} from "../shared/visual-effects.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const benchRoot = path.join(root, ".dev", "bench");
@@ -288,6 +291,16 @@ function buildCases(selectedProfile) {
       compositionKey: "text-simple",
     },
     {
+      id: "stacked-atmospheres-720p-fast",
+      category: "shader+atmosphere-stack",
+      scene: stackedAtmospheres("liquid-mesh", "fractal-sphere"),
+      outputSize: { width: 1280, height: 720 },
+      duration: 2,
+      qualityProfile: "fast",
+      composition: textComposition(),
+      compositionKey: "text-simple",
+    },
+    {
       id: "starfield-layers-720p-fast",
       category: "shader+layers",
       scene: withWaveform(preset("starfield"), { type: "radial-ring" }),
@@ -350,6 +363,20 @@ function preset(id) {
   const found = builtinVisualPresets.find((item) => item.id === id);
   assert.ok(found, `Missing visual preset ${id}`);
   return structuredClone(found);
+}
+
+function stackedAtmospheres(baseId, extraId) {
+  return normalizeVisualSettings({
+    id: baseId,
+    atmosphereLayers: [
+      { scene: { id: baseId } },
+      {
+        opacity: 55,
+        blendMode: "screen",
+        scene: { id: extraId },
+      },
+    ],
+  });
 }
 
 function withWaveform(scene, patch) {
@@ -696,6 +723,7 @@ function compactWebglTelemetry(events) {
       "reason",
       "renderMs",
       "requestFrameMs",
+      "targetDelayMs",
       "totalFrames",
       "width",
     ]) {
