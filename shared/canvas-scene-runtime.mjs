@@ -1309,6 +1309,8 @@ function createWebglRenderer(canvas) {
     false,
   );
   const programs = new Map();
+  const sceneUniformCache = new WeakMap();
+  let activeStaticUniforms = null;
   const buffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(
@@ -1365,22 +1367,50 @@ function createWebglRenderer(canvas) {
 
   function render(scene, audio, time) {
     const compiled = getProgram(scene.rendererId);
-    const values = scene.controls.map(
-      ({ key }) => (scene.advanced[key] ?? 0) / 100,
-    );
+    const uniforms = getSceneUniformData(scene);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.useProgram(compiled.program);
     gl.enableVertexAttribArray(compiled.position);
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.vertexAttribPointer(compiled.position, 2, gl.FLOAT, false, 0, 0);
-    set2f("resolution", canvas.width, canvas.height);
+    if (
+      !activeStaticUniforms ||
+      activeStaticUniforms.program !== compiled.program ||
+      activeStaticUniforms.scene !== scene ||
+      activeStaticUniforms.width !== canvas.width ||
+      activeStaticUniforms.height !== canvas.height
+    ) {
+      set2f("resolution", canvas.width, canvas.height);
+      set1f("intensity", uniforms.intensity);
+      set1f("speed", uniforms.speed);
+      set1f("brightness", uniforms.brightness);
+      set1f("direction", uniforms.direction);
+      set1f("audioReaction", uniforms.audioReaction);
+      set1f("shade", uniforms.shade);
+      set3fv("colorA", uniforms.colorA);
+      set3fv("colorB", uniforms.colorB);
+      set3fv("accentColor", uniforms.accentColor);
+      for (let index = 0; index < 6; index += 1) {
+        set1f(`param${index}`, uniforms.params[index] ?? 0);
+      }
+      set1f("cloudSunEnabled", uniforms.cloudSunEnabled);
+      set1f("cloudSunIntensity", uniforms.cloudSunIntensity);
+      set1f("cloudSunX", uniforms.cloudSunX);
+      set1f("cloudSunY", uniforms.cloudSunY);
+      set1f("cloudSunRadius", uniforms.cloudSunRadius);
+      set1f("cloudSunDiffusion", uniforms.cloudSunDiffusion);
+      set1f("cloudSunMotion", uniforms.cloudSunMotion);
+      set1f("cloudSunSpeed", uniforms.cloudSunSpeed);
+      set1f("cloudSunDirection", uniforms.cloudSunDirection);
+      set3fv("cloudSunColor", uniforms.cloudSunColor);
+      activeStaticUniforms = {
+        program: compiled.program,
+        scene,
+        width: canvas.width,
+        height: canvas.height,
+      };
+    }
     set1f("time", time);
-    set1f("intensity", scene.common.intensity / 100);
-    set1f("speed", scene.common.speed / 100);
-    set1f("brightness", scene.common.brightness / 100);
-    set1f("direction", scene.common.direction);
-    set1f("audioReaction", scene.common.audioReaction / 100);
-    set1f("shade", scene.common.shade / 100);
     set1f("audioEnergy", audio.energy ?? 0);
     set1f("audioBass", audio.bass ?? 0);
     set1f("audioMid", audio.mid ?? 0);
@@ -1390,23 +1420,6 @@ function createWebglRenderer(canvas) {
     set1f("audioOnset", audio.onset ?? 0);
     set1f("audioBeat", audio.beat ?? 0);
     set1f("beatPhase", audio.beatPhase ?? 0);
-    set3fv("colorA", hexToRgb(scene.colors.base));
-    set3fv("colorB", hexToRgb(scene.colors.effect));
-    set3fv("accentColor", hexToRgb(scene.colors.light));
-    for (let index = 0; index < 6; index += 1) {
-      set1f(`param${index}`, values[index] ?? 0);
-    }
-    const cloudLight = scene.cloudLight ?? {};
-    set1f("cloudSunEnabled", cloudLight.enabled ? 1 : 0);
-    set1f("cloudSunIntensity", (cloudLight.intensity ?? 0) / 100);
-    set1f("cloudSunX", (cloudLight.x ?? 28) / 100);
-    set1f("cloudSunY", (cloudLight.y ?? 24) / 100);
-    set1f("cloudSunRadius", (cloudLight.radius ?? 32) / 100);
-    set1f("cloudSunDiffusion", (cloudLight.diffusion ?? 68) / 100);
-    set1f("cloudSunMotion", (cloudLight.motion ?? 0) / 100);
-    set1f("cloudSunSpeed", (cloudLight.speed ?? 36) / 100);
-    set1f("cloudSunDirection", cloudLight.direction ?? 18);
-    set3fv("cloudSunColor", hexToRgb(cloudLight.color ?? scene.colors.light));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     function set1f(name, value) {
@@ -1418,6 +1431,39 @@ function createWebglRenderer(canvas) {
     function set3fv(name, value) {
       gl.uniform3fv(compiled.uniforms[name], value);
     }
+  }
+
+  function getSceneUniformData(scene) {
+    const cached = sceneUniformCache.get(scene);
+    if (cached) return cached;
+    const cloudLight = scene.cloudLight ?? {};
+    const values = scene.controls.map(
+      ({ key }) => (scene.advanced[key] ?? 0) / 100,
+    );
+    const uniforms = {
+      intensity: scene.common.intensity / 100,
+      speed: scene.common.speed / 100,
+      brightness: scene.common.brightness / 100,
+      direction: scene.common.direction,
+      audioReaction: scene.common.audioReaction / 100,
+      shade: scene.common.shade / 100,
+      colorA: hexToRgb(scene.colors.base),
+      colorB: hexToRgb(scene.colors.effect),
+      accentColor: hexToRgb(scene.colors.light),
+      params: Array.from({ length: 6 }, (_, index) => values[index] ?? 0),
+      cloudSunEnabled: cloudLight.enabled ? 1 : 0,
+      cloudSunIntensity: (cloudLight.intensity ?? 0) / 100,
+      cloudSunX: (cloudLight.x ?? 28) / 100,
+      cloudSunY: (cloudLight.y ?? 24) / 100,
+      cloudSunRadius: (cloudLight.radius ?? 32) / 100,
+      cloudSunDiffusion: (cloudLight.diffusion ?? 68) / 100,
+      cloudSunMotion: (cloudLight.motion ?? 0) / 100,
+      cloudSunSpeed: (cloudLight.speed ?? 36) / 100,
+      cloudSunDirection: cloudLight.direction ?? 18,
+      cloudSunColor: hexToRgb(cloudLight.color ?? scene.colors.light),
+    };
+    sceneUniformCache.set(scene, uniforms);
+    return uniforms;
   }
 
   return {

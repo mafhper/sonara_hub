@@ -471,39 +471,129 @@ test("scene runtime refreshes cached atmosphere and media stack on updates", () 
   }
 });
 
+test("WebGL scene runtime uploads static uniforms only when scene or size changes", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const canvas = fakeCanvas(context);
+    const runtime = createSceneRuntime(
+      canvas,
+      normalizeVisualSettings({ id: "liquid-mesh" }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0);
+    const firstUniform1fCount = cleanup.gl.calls.uniform1f.length;
+    const firstUniform2fCount = cleanup.gl.calls.uniform2f.length;
+    const firstUniform3fvCount = cleanup.gl.calls.uniform3fv.length;
+    assert.ok(firstUniform1fCount > 10);
+    assert.equal(firstUniform2fCount, 1);
+    assert.equal(firstUniform3fvCount, 4);
+
+    runtime.render(0.5);
+    const secondUniform1fCount =
+      cleanup.gl.calls.uniform1f.length - firstUniform1fCount;
+    const secondUniform2fCount =
+      cleanup.gl.calls.uniform2f.length - firstUniform2fCount;
+    const secondUniform3fvCount =
+      cleanup.gl.calls.uniform3fv.length - firstUniform3fvCount;
+    assert.equal(secondUniform1fCount, 10);
+    assert.equal(secondUniform2fCount, 0);
+    assert.equal(secondUniform3fvCount, 0);
+
+    canvas.clientWidth = 160;
+    canvas.clientHeight = 90;
+    runtime.render(1);
+    const resizedUniform1fCount =
+      cleanup.gl.calls.uniform1f.length -
+      firstUniform1fCount -
+      secondUniform1fCount;
+    assert.ok(resizedUniform1fCount > secondUniform1fCount);
+    assert.equal(cleanup.gl.calls.uniform2f.length, 2);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
 function installFakeDocument() {
   const originalDocument = globalThis.document;
+  const gl = fakeWebglContext();
   globalThis.document = {
     createElement(tagName) {
       assert.equal(tagName, "canvas");
-      return fakeWebglCanvas();
+      return fakeWebglCanvas(gl);
     },
   };
-  return () => {
+  const cleanup = () => {
     if (originalDocument === undefined) {
       delete globalThis.document;
     } else {
       globalThis.document = originalDocument;
     }
   };
+  cleanup.gl = gl;
+  return cleanup;
 }
 
-function fakeWebglCanvas() {
+function fakeWebglCanvas(gl) {
   return {
     width: 1,
     height: 1,
     addEventListener() {},
     getContext(type) {
       assert.equal(type, "webgl");
-      return {
-        ARRAY_BUFFER: 0x8892,
-        STATIC_DRAW: 0x88e4,
-        createBuffer: () => ({}),
-        bindBuffer() {},
-        bufferData() {},
-        deleteBuffer() {},
-      };
+      return gl;
     },
+  };
+}
+
+function fakeWebglContext() {
+  const calls = { uniform1f: [], uniform2f: [], uniform3fv: [] };
+  return {
+    ARRAY_BUFFER: 0x8892,
+    COMPILE_STATUS: 0x8b81,
+    FLOAT: 0x1406,
+    FRAGMENT_SHADER: 0x8b30,
+    LINK_STATUS: 0x8b82,
+    STATIC_DRAW: 0x88e4,
+    TRIANGLES: 0x0004,
+    VERTEX_SHADER: 0x8b31,
+    calls,
+    attachShader() {},
+    bindBuffer() {},
+    bufferData() {},
+    compileShader() {},
+    createBuffer: () => ({}),
+    createProgram: () => ({}),
+    createShader: () => ({}),
+    deleteBuffer() {},
+    deleteProgram() {},
+    deleteShader() {},
+    drawArrays() {},
+    enableVertexAttribArray() {},
+    getAttribLocation: () => 0,
+    getProgramInfoLog: () => "",
+    getProgramParameter: () => true,
+    getShaderInfoLog: () => "",
+    getShaderParameter: () => true,
+    getUniformLocation: (_program, name) => name,
+    isContextLost: () => false,
+    linkProgram() {},
+    shaderSource() {},
+    uniform1f(location, value) {
+      calls.uniform1f.push([location, value]);
+    },
+    uniform2f(location, first, second) {
+      calls.uniform2f.push([location, first, second]);
+    },
+    uniform3fv(location, value) {
+      calls.uniform3fv.push([location, Array.from(value)]);
+    },
+    useProgram() {},
+    vertexAttribPointer() {},
+    viewport() {},
   };
 }
 
