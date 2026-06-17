@@ -1456,6 +1456,7 @@ function createWebglRenderer(canvas) {
   );
   const programs = new Map();
   const sceneUniformCache = new WeakMap();
+  const dynamicUniformStates = new Map();
   const staticUniformStates = new Map();
   let activeProgram = null;
   let viewportWidth = 0;
@@ -1565,16 +1566,54 @@ function createWebglRenderer(canvas) {
         height: canvas.height,
       });
     }
-    set1f("time", time);
-    set1f("audioEnergy", audio.energy ?? 0);
-    set1f("audioBass", audio.bass ?? 0);
-    set1f("audioMid", audio.mid ?? 0);
-    set1f("audioHigh", audio.high ?? 0);
-    set1f("audioCentroid", audio.centroid ?? 0);
-    set1f("audioFlux", audio.flux ?? 0);
-    set1f("audioOnset", audio.onset ?? 0);
-    set1f("audioBeat", audio.beat ?? 0);
-    set1f("beatPhase", audio.beatPhase ?? 0);
+    const audioEnergy = audio.energy ?? 0;
+    const audioBass = audio.bass ?? 0;
+    const audioMid = audio.mid ?? 0;
+    const audioHigh = audio.high ?? 0;
+    const audioCentroid = audio.centroid ?? 0;
+    const audioFlux = audio.flux ?? 0;
+    const audioOnset = audio.onset ?? 0;
+    const audioBeat = audio.beat ?? 0;
+    const beatPhase = audio.beatPhase ?? 0;
+    let dynamicUniforms = dynamicUniformStates.get(compiled.program);
+    if (
+      !dynamicUniforms ||
+      dynamicUniforms.time !== time ||
+      dynamicUniforms.audioEnergy !== audioEnergy ||
+      dynamicUniforms.audioBass !== audioBass ||
+      dynamicUniforms.audioMid !== audioMid ||
+      dynamicUniforms.audioHigh !== audioHigh ||
+      dynamicUniforms.audioCentroid !== audioCentroid ||
+      dynamicUniforms.audioFlux !== audioFlux ||
+      dynamicUniforms.audioOnset !== audioOnset ||
+      dynamicUniforms.audioBeat !== audioBeat ||
+      dynamicUniforms.beatPhase !== beatPhase
+    ) {
+      set1f("time", time);
+      set1f("audioEnergy", audioEnergy);
+      set1f("audioBass", audioBass);
+      set1f("audioMid", audioMid);
+      set1f("audioHigh", audioHigh);
+      set1f("audioCentroid", audioCentroid);
+      set1f("audioFlux", audioFlux);
+      set1f("audioOnset", audioOnset);
+      set1f("audioBeat", audioBeat);
+      set1f("beatPhase", beatPhase);
+      if (!dynamicUniforms) {
+        dynamicUniforms = {};
+        dynamicUniformStates.set(compiled.program, dynamicUniforms);
+      }
+      dynamicUniforms.time = time;
+      dynamicUniforms.audioEnergy = audioEnergy;
+      dynamicUniforms.audioBass = audioBass;
+      dynamicUniforms.audioMid = audioMid;
+      dynamicUniforms.audioHigh = audioHigh;
+      dynamicUniforms.audioCentroid = audioCentroid;
+      dynamicUniforms.audioFlux = audioFlux;
+      dynamicUniforms.audioOnset = audioOnset;
+      dynamicUniforms.audioBeat = audioBeat;
+      dynamicUniforms.beatPhase = beatPhase;
+    }
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     function set1f(name, value) {

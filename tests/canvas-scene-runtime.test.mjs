@@ -668,9 +668,35 @@ test("WebGL scene runtime reuses static uniforms for equivalent same-shader laye
     const firstUniform3fvCount = cleanup.gl.calls.uniform3fv.length;
 
     runtime.render(0.5);
-    assert.equal(cleanup.gl.calls.uniform1f.length - firstUniform1fCount, 20);
+    assert.equal(cleanup.gl.calls.uniform1f.length - firstUniform1fCount, 10);
     assert.equal(cleanup.gl.calls.uniform2f.length - firstUniform2fCount, 0);
     assert.equal(cleanup.gl.calls.uniform3fv.length - firstUniform3fvCount, 0);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("WebGL scene runtime refreshes dynamic uniforms only when frame input changes", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({ id: "liquid-mesh" }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0.5);
+    const initialUniform1fCount = cleanup.gl.calls.uniform1f.length;
+
+    runtime.render(0.5);
+    assert.equal(cleanup.gl.calls.uniform1f.length, initialUniform1fCount);
+
+    runtime.setAudio({ energy: 0.75 });
+    runtime.render(0.5);
+    assert.equal(cleanup.gl.calls.uniform1f.length - initialUniform1fCount, 10);
 
     runtime.destroy();
   } finally {
