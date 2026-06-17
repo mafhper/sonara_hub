@@ -1100,6 +1100,7 @@ function createMediaLayerRenderState(layer) {
   const blur = layer.blur;
   const maskOpacity = layer.maskOpacity;
   return {
+    bounds: {},
     compositeOperation: blendModes[layer.blendMode] ?? "source-over",
     coverFadeOut: layer.coverFadeOut,
     element,
@@ -2450,6 +2451,7 @@ function drawMediaLayer(
   const opacity = effectiveLayerOpacity(prepared, time, durationSeconds);
   if (opacity <= 0) return;
   const bounds = mediaLayerBounds(width, height, layer, time, durationSeconds, {
+    output: prepared.bounds,
     precomputedOpacity: opacity,
     preparedLayer: prepared,
   });
@@ -2522,18 +2524,19 @@ export function mediaLayerBounds(
   const rotation =
     (prepared ? prepared.rotation : ((layer.rotation ?? 0) * Math.PI) / 180) %
     (Math.PI * 2);
+  const output =
+    options.output && typeof options.output === "object" ? options.output : {};
+  output.x = x;
+  output.y = y;
+  output.drawWidth = drawWidth;
+  output.drawHeight = drawHeight;
+  output.opacity = opacity;
   if (!rotation) {
-    return {
-      x,
-      y,
-      drawWidth,
-      drawHeight,
-      opacity,
-      left: x,
-      top: y,
-      right: x + drawWidth,
-      bottom: y + drawHeight,
-    };
+    output.left = x;
+    output.top = y;
+    output.right = x + drawWidth;
+    output.bottom = y + drawHeight;
+    return output;
   }
   const cx = x + drawWidth / 2;
   const cy = y + drawHeight / 2;
@@ -2541,17 +2544,11 @@ export function mediaLayerBounds(
   const sin = Math.abs(Math.sin(rotation));
   const boxWidth = drawWidth * cos + drawHeight * sin;
   const boxHeight = drawWidth * sin + drawHeight * cos;
-  return {
-    x,
-    y,
-    drawWidth,
-    drawHeight,
-    opacity,
-    left: cx - boxWidth / 2,
-    top: cy - boxHeight / 2,
-    right: cx + boxWidth / 2,
-    bottom: cy + boxHeight / 2,
-  };
+  output.left = cx - boxWidth / 2;
+  output.top = cy - boxHeight / 2;
+  output.right = cx + boxWidth / 2;
+  output.bottom = cy + boxHeight / 2;
+  return output;
 }
 
 export function mediaTextAvoidanceBounds(

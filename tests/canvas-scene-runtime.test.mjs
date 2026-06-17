@@ -127,6 +127,41 @@ test("mediaLayerBounds can reuse precomputed layer opacity", () => {
   assert.equal(bounds.drawHeight, 100);
 });
 
+test("mediaLayerBounds can write into a reusable output object", () => {
+  const layer = {
+    element: { naturalWidth: 100, naturalHeight: 50 },
+    fit: "contain",
+    opacity: 100,
+    rotation: 0,
+    scale: 50,
+    x: 50,
+    y: 50,
+  };
+  const output = {};
+
+  const first = mediaLayerBounds(200, 100, layer, 0, null, { output });
+  assert.equal(first, output);
+  assert.deepEqual(output, {
+    x: 50,
+    y: 25,
+    drawWidth: 100,
+    drawHeight: 50,
+    opacity: 1,
+    left: 50,
+    top: 25,
+    right: 150,
+    bottom: 75,
+  });
+
+  layer.rotation = 90;
+  const rotated = mediaLayerBounds(200, 100, layer, 0, null, { output });
+  assert.equal(rotated, output);
+  assert.equal(output.left, 75);
+  assert.equal(output.top, 0);
+  assert.equal(output.right, 125);
+  assert.equal(output.bottom, 100);
+});
+
 test("mediaTextAvoidanceBounds skips hidden and transparent layers", () => {
   const layers = [
     {
