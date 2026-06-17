@@ -488,6 +488,48 @@ test("scene runtime refreshes cached atmosphere and media stack on updates", () 
   }
 });
 
+test("scene runtime renders the pre-resolved stack without per-frame map lookups", () => {
+  const cleanup = installFakeDocument();
+  const originalMapGet = Map.prototype.get;
+  let runtime = null;
+  try {
+    const context = fakeCanvasContext();
+    runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({
+        id: "vector-aura",
+        atmosphereLayers: [
+          { scene: { id: "vector-aura" } },
+          {
+            opacity: 55,
+            blendMode: "screen",
+            scene: { id: "vector-aura" },
+          },
+        ],
+      }),
+      {
+        showMetadata: false,
+        renderOrder: [
+          { kind: "atmosphere", layerId: "atmosphere-2" },
+          { kind: "media", layerId: "media-a", order: 0 },
+        ],
+        layers: [fakeMediaLayer("media-a")],
+      },
+    );
+
+    Map.prototype.get = function forbiddenFrameLookup() {
+      throw new Error("Map.get should not run during frame render");
+    };
+
+    runtime.render(0);
+    assert.equal(context.calls.drawImage.at(-1), "media-a");
+  } finally {
+    Map.prototype.get = originalMapGet;
+    runtime?.destroy();
+    cleanup();
+  }
+});
+
 test("WebGL scene runtime uploads static uniforms only when scene or size changes", () => {
   const cleanup = installFakeDocument();
   try {

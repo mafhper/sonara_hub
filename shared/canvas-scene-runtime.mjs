@@ -1040,20 +1040,51 @@ function createRenderCache(scene, composition) {
       : Array.isArray(scene.renderOrder) && scene.renderOrder.length > 0
         ? scene.renderOrder
         : legacyRenderStack(scene, composition);
+  const atmosphereLayerMap = new Map(
+    atmosphereLayers.map((layer) => [layer.id, layer]),
+  );
+  const mediaLayerMap = new Map(
+    (composition.layers ?? []).map((layer) => [layer.id, layer]),
+  );
   return {
     atmosphereLayers,
-    atmosphereLayerMap: new Map(
-      atmosphereLayers.map((layer) => [layer.id, layer]),
-    ),
     explicitAtmosphereLayers,
-    mediaLayerMap: new Map(
-      (composition.layers ?? []).map((layer) => [layer.id, layer]),
-    ),
     metadata: createMetadataRenderCache(),
     post: createPostRenderCache(),
+    resolvedStack: resolveRenderStackItems(
+      stack,
+      atmosphereLayers,
+      atmosphereLayerMap,
+      mediaLayerMap,
+    ),
     stack,
     waveform: createWaveformRenderCache(),
   };
+}
+
+function resolveRenderStackItems(
+  stack,
+  atmosphereLayers,
+  atmosphereLayerMap,
+  mediaLayerMap,
+) {
+  return stack.map((item) => {
+    if (item.kind === "atmosphere") {
+      return {
+        ...item,
+        layer:
+          atmosphereLayerMap.get(atmosphereLayerIdFromStackItem(item)) ??
+          atmosphereLayers[0],
+      };
+    }
+    if (item.kind === "media") {
+      return {
+        ...item,
+        layer: mediaLayerMap.get(item.layerId),
+      };
+    }
+    return item;
+  });
 }
 
 function createMetadataRenderCache() {
@@ -1239,18 +1270,14 @@ export function createSceneRuntime(
     context.save();
     context.clearRect(0, 0, width, height);
 
-    for (const item of cache.stack) {
+    for (const item of cache.resolvedStack) {
       switch (item.kind) {
         case "atmosphere": {
-          const layer =
-            cache.atmosphereLayerMap.get(
-              atmosphereLayerIdFromStackItem(item),
-            ) ?? cache.atmosphereLayers[0];
           renderAtmosphereLayer(
             context,
             width,
             height,
-            layer,
+            item.layer,
             audio,
             time,
             cache.explicitAtmosphereLayers,
@@ -1300,7 +1327,7 @@ export function createSceneRuntime(
           }
           break;
         case "media": {
-          const layer = cache.mediaLayerMap.get(item.layerId);
+          const layer = item.layer;
           if (layer && layer.visible !== false && layer.element) {
             drawMediaLayer(
               context,
