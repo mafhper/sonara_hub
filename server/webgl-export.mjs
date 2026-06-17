@@ -202,8 +202,9 @@ async function runWebglRenderAttempt(options, size, attempt) {
   });
 
   await page.exposeFunction("reportSceneProgress", async (progress) => {
-    // Cancellation is honored here (called once per frame): close the page so the
-    // in-flight page.evaluate rejects promptly instead of finishing the render.
+    // Cancellation is also polled by the server-side watcher below. This callback
+    // still closes the page promptly when the throttled in-page progress update
+    // reaches Node between frames.
     if (typeof shouldCancel === "function" && shouldCancel()) {
       canceled = true;
       await page.close().catch(() => {});
@@ -589,6 +590,7 @@ export function buildRendererHtml({
       });
       recorder.start(250);
       await reportPhase("canvas-capture-start", { totalFrames });
+      let nextProgressReport = 4;
       for (let index = 0; index < totalFrames; index += 1) {
         if (contextLost) throw new Error("Falha ao renderizar: contexto perdido: true (WEBGL_CONTEXT_LOST)");
         const time = Math.max(0, startTime) + Math.min(durationSeconds, index / fps);
@@ -599,7 +601,11 @@ export function buildRendererHtml({
         const requestFrameStarted = performance.now();
         track.requestFrame();
         captureMetrics.requestFrameMs += performance.now() - requestFrameStarted;
-        window.reportSceneProgress(((index + 1) / totalFrames) * 88 + 4);
+        const progress = ((index + 1) / totalFrames) * 88 + 4;
+        if (progress >= nextProgressReport || index === totalFrames - 1) {
+          window.reportSceneProgress(progress);
+          nextProgressReport = Math.floor(progress) + 1;
+        }
         const delayStarted = performance.now();
         await delay(captureFrameDelayMs);
         captureMetrics.delayMs += performance.now() - delayStarted;

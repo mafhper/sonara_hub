@@ -36,6 +36,28 @@ test("canvas exporter requests deterministic frames instead of relying on headle
   assert.doesNotMatch(html, /requestAnimationFrame/);
 });
 
+test("canvas exporter throttles per-frame progress bridge calls", () => {
+  const html = buildRendererHtml({
+    runtimeUrl: "data:text/javascript;base64,AA==",
+    size: { width: 1280, height: 720 },
+    scene: {},
+    audioEnvelope: { frameRate: 12, frames: [] },
+    composition: {},
+  });
+
+  assert.match(html, /let nextProgressReport = 4/);
+  assert.match(
+    html,
+    /if \(progress >= nextProgressReport \|\| index === totalFrames - 1\)/,
+  );
+  assert.match(html, /window\.reportSceneProgress\(progress\)/);
+  assert.match(html, /nextProgressReport = Math\.floor\(progress\) \+ 1/);
+  assert.doesNotMatch(
+    html,
+    /window\.reportSceneProgress\(\(\(index \+ 1\) \/ totalFrames\) \* 88 \+ 4\)/,
+  );
+});
+
 test("canvas exporter reuses interpolated audio frame buffers", () => {
   const html = buildRendererHtml({
     runtimeUrl: "data:text/javascript;base64,AA==",
