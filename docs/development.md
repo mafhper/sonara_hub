@@ -23,7 +23,8 @@ npm run app              # modo estável: build + serve o app pela API em :4175
 npm run build            # build do app
 npm run test:ui          # smoke Playwright do app
 npm run test:flow        # jornada local completa
-npm run test:render      # smoke dos renderizadores
+npm run test:render      # smoke rápido dos renderizadores
+npm run test:render:full # matriz completa dos renderizadores
 npm run bench:render     # benchmark local de render/export
 npm run test:release     # gate ampliado de release
 npm run site:dev         # promo-site
@@ -67,6 +68,11 @@ npm run bench:render
 npm run bench:render -- --audio=input
 npm run test:release
 ```
+
+`npm run test:render` roda uma matriz curta em 360p para validar rapidamente os
+renderizadores e os fluxos de composição principais. A matriz longa anterior
+continua disponível em `npm run test:render:full` e é usada por
+`npm run test:release`.
 
 A matriz exploratória fica em
 [`release-test-bench.md`](release-test-bench.md).

@@ -16,6 +16,43 @@ const root = path.resolve(
 const outputDir = path.join(root, ".dev", "render-smoke");
 await fs.mkdir(outputDir, { recursive: true });
 
+const smokeProfile = normalizeSmokeProfile(
+  option("profile") ?? process.env.SONARA_RENDER_SMOKE_PROFILE ?? "quick",
+);
+const fullSmoke = smokeProfile === "full";
+const defaultRenderCase = fullSmoke
+  ? {
+      duration: 3,
+      fps: 12,
+      size: { width: 1280, height: 720 },
+      suffix: "720p",
+    }
+  : {
+      duration: 1,
+      fps: 8,
+      size: { width: 640, height: 360 },
+      suffix: "360p",
+    };
+const quickPresetIds = new Set([
+  "liquid-mesh",
+  "volumetric-clouds",
+  "vector-aura",
+  "playful-shapes",
+  "piano-ribbons",
+  "audio-dark",
+  "lava-lamp",
+  "starfield",
+  "holo-topography",
+  "fluid-flow",
+]);
+const presetSmokeCases = fullSmoke
+  ? builtinVisualPresets
+  : builtinVisualPresets.filter((preset) => quickPresetIds.has(preset.id));
+
+console.log(
+  `Render preset smoke: ${smokeProfile} (${presetSmokeCases.length} base presets)`,
+);
+
 const audioEnvelope = {
   frameRate: 2,
   frames: [
@@ -25,34 +62,35 @@ const audioEnvelope = {
   ],
 };
 
-for (const preset of builtinVisualPresets) {
+for (const preset of presetSmokeCases) {
   await renderAndCheck({
-    name: `${preset.id}-720p`,
+    name: `${preset.id}-${defaultRenderCase.suffix}`,
     preset,
-    size: { width: 1280, height: 720 },
-    duration: 3,
-    fps: 12,
+    ...defaultRenderCase,
   });
 }
 
 const postScene = structuredClone(builtinVisualPresets[0]);
 postScene.post = { ...postScene.post, vignette: 58, scanlines: 30 };
+const liquidBaseOutput = path.join(
+  outputDir,
+  `liquid-mesh-${defaultRenderCase.suffix}.webm`,
+);
 const postOutput = await renderAndCheck({
-  name: "liquid-mesh-post-overlay-720p",
+  name: `liquid-mesh-post-overlay-${defaultRenderCase.suffix}`,
   preset: postScene,
-  size: { width: 1280, height: 720 },
+  ...defaultRenderCase,
   duration: 1,
-  fps: 12,
-  minFrames: 12,
+  minFrames: expectedFrameCount({ ...defaultRenderCase, duration: 1 }),
 });
 assert.notEqual(
-  await firstFrameHash(path.join(outputDir, "liquid-mesh-720p.webm")),
+  await firstFrameHash(liquidBaseOutput),
   await firstFrameHash(postOutput),
   "post overlay should alter the rendered frame when enabled",
 );
 
 await renderAndCheck({
-  name: "stacked-atmospheres-moderate-720p",
+  name: `stacked-atmospheres-moderate-${defaultRenderCase.suffix}`,
   preset: normalizeVisualSettings({
     id: "liquid-mesh",
     atmosphereLayers: [
@@ -64,15 +102,16 @@ await renderAndCheck({
       },
     ],
   }),
-  size: { width: 1280, height: 720 },
+  ...defaultRenderCase,
   duration: 2,
-  fps: 12,
   assertAnimated: true,
-  minFrames: 24,
+  minFrames: fullSmoke
+    ? 24
+    : expectedFrameCount({ ...defaultRenderCase, duration: 2 }),
 });
 
 await renderAndCheck({
-  name: "stacked-atmospheres-heavy-720p",
+  name: `stacked-atmospheres-heavy-${defaultRenderCase.suffix}`,
   preset: normalizeVisualSettings({
     id: "holo-topography",
     atmosphereLayers: [
@@ -84,9 +123,8 @@ await renderAndCheck({
       },
     ],
   }),
-  size: { width: 1280, height: 720 },
+  ...defaultRenderCase,
   duration: 1,
-  fps: 12,
 });
 
 const broadClouds = builtinVisualPresets.find(
@@ -99,11 +137,9 @@ for (const variant of broadClouds.variants) {
     appliedVariantId: variant.id,
   });
   const outputPath = await renderAndCheck({
-    name: `${broadClouds.id}-${variant.id}-720p`,
+    name: `${broadClouds.id}-${variant.id}-${defaultRenderCase.suffix}`,
     preset,
-    size: { width: 1280, height: 720 },
-    duration: 3,
-    fps: 12,
+    ...defaultRenderCase,
   });
   cloudTimelineHashes.push(await firstFrameHash(outputPath));
 }
@@ -113,26 +149,28 @@ assert.equal(
   "cloud timeline variants should render visibly distinct first frames",
 );
 
-for (const type of [
-  "mirror-line",
-  "single-line",
-  "filled-ribbon",
-  "spectrum-bars",
-  "radial-ring",
-]) {
+const waveformTypes = fullSmoke
+  ? [
+      "mirror-line",
+      "single-line",
+      "filled-ribbon",
+      "spectrum-bars",
+      "radial-ring",
+    ]
+  : ["spectrum-bars", "radial-ring"];
+for (const type of waveformTypes) {
   const preset = structuredClone(builtinVisualPresets[0]);
   preset.waveform = { ...preset.waveform, visible: true, type };
   await renderAndCheck({
-    name: `waveform-${type}-720p`,
+    name: `waveform-${type}-${defaultRenderCase.suffix}`,
     preset,
-    size: { width: 1280, height: 720 },
-    duration: 2,
-    fps: 12,
+    ...defaultRenderCase,
+    duration: fullSmoke ? 2 : defaultRenderCase.duration,
   });
 }
 
 const waveformVariantHashes = [];
-for (const variant of [
+const waveformVariants = [
   {
     name: "spectrum-bars-gradient-peak",
     type: "spectrum-bars",
@@ -151,7 +189,10 @@ for (const variant of [
     colorMode: "gradient",
     advanced: { radialGlow: 82, radialRadius: 36, radialArc: 92 },
   },
-]) {
+];
+for (const variant of fullSmoke
+  ? waveformVariants
+  : waveformVariants.slice(0, 2)) {
   const preset = structuredClone(builtinVisualPresets[0]);
   preset.waveform = {
     ...preset.waveform,
@@ -164,11 +205,10 @@ for (const variant of [
     advanced: { ...preset.waveform.advanced, ...variant.advanced },
   };
   const outputPath = await renderAndCheck({
-    name: `waveform-${variant.name}-720p`,
+    name: `waveform-${variant.name}-${defaultRenderCase.suffix}`,
     preset,
-    size: { width: 1280, height: 720 },
+    ...defaultRenderCase,
     duration: 2,
-    fps: 12,
     assertAnimated: true,
   });
   waveformVariantHashes.push(await firstFrameHash(outputPath));
@@ -193,18 +233,16 @@ const textBaseComposition = {
   showMetadata: true,
 };
 const textBaseline = await renderAndCheck({
-  name: "text-control-720p",
+  name: `text-control-${defaultRenderCase.suffix}`,
   preset: textScene,
-  size: { width: 1280, height: 720 },
+  ...defaultRenderCase,
   duration: 1,
-  fps: 12,
 });
 const textLeft = await renderAndCheck({
-  name: "text-side-left-justify-720p",
+  name: `text-side-left-justify-${defaultRenderCase.suffix}`,
   preset: textScene,
-  size: { width: 1280, height: 720 },
+  ...defaultRenderCase,
   duration: 1,
-  fps: 12,
   composition: {
     ...textBaseComposition,
     textSettings: {
@@ -232,11 +270,10 @@ const textLeft = await renderAndCheck({
   },
 });
 const textRight = await renderAndCheck({
-  name: "text-side-right-720p",
+  name: `text-side-right-${defaultRenderCase.suffix}`,
   preset: textScene,
-  size: { width: 1280, height: 720 },
+  ...defaultRenderCase,
   duration: 1,
-  fps: 12,
   composition: {
     ...textBaseComposition,
     textSettings: {
@@ -322,21 +359,23 @@ assert.notEqual(
   "side-right metadata should render in a distinct position",
 );
 
-for (const sample of [
-  { name: "liquid-mesh-1080p", width: 1920, height: 1080 },
-  { name: "volumetric-clouds-2k", width: 2560, height: 1440 },
-  { name: "aurora-ribbons-4k", width: 3840, height: 2160 },
-  { name: "color-mesh-1080p", width: 1920, height: 1080 },
-]) {
-  await renderAndCheck({
-    name: sample.name,
-    preset: builtinVisualPresets.find((preset) =>
-      sample.name.startsWith(preset.id),
-    ),
-    size: { width: sample.width, height: sample.height },
-    duration: 3,
-    fps: 12,
-  });
+if (fullSmoke) {
+  for (const sample of [
+    { name: "liquid-mesh-1080p", width: 1920, height: 1080 },
+    { name: "volumetric-clouds-2k", width: 2560, height: 1440 },
+    { name: "aurora-ribbons-4k", width: 3840, height: 2160 },
+    { name: "color-mesh-1080p", width: 1920, height: 1080 },
+  ]) {
+    await renderAndCheck({
+      name: sample.name,
+      preset: builtinVisualPresets.find((preset) =>
+        sample.name.startsWith(preset.id),
+      ),
+      size: { width: sample.width, height: sample.height },
+      duration: 3,
+      fps: 12,
+    });
+  }
 }
 
 const playful = structuredClone(
@@ -351,11 +390,10 @@ playful.playful.enabled = {
 };
 playful.playful.collections.emojis = "🎈 🎵 🌱";
 await renderAndCheck({
-  name: "playful-shapes-custom-emoji-720p",
+  name: `playful-shapes-custom-emoji-${defaultRenderCase.suffix}`,
   preset: playful,
-  size: { width: 1280, height: 720 },
+  ...defaultRenderCase,
   duration: 2,
-  fps: 12,
   assertAnimated: true,
 });
 
@@ -369,11 +407,10 @@ cloudsWithSun.cloudLight.motion = 38;
 cloudsWithSun.cloudLight.speed = 46;
 cloudsWithSun.cloudLight.direction = 24;
 await renderAndCheck({
-  name: "volumetric-clouds-sun-720p",
+  name: `volumetric-clouds-sun-${defaultRenderCase.suffix}`,
   preset: cloudsWithSun,
-  size: { width: 1280, height: 720 },
+  ...defaultRenderCase,
   duration: 2,
-  fps: 12,
   assertAnimated: true,
 });
 
@@ -399,7 +436,8 @@ async function renderAndCheck({
   });
   await openWithFfmpeg(outputPath);
   if (minFrames) await assertFrameCountAtLeast(outputPath, minFrames);
-  if (assertAnimated) await assertFrameVariation(outputPath);
+  if (assertAnimated)
+    await assertFrameVariation(outputPath, animationSampleFrame(duration, fps));
   const stat = await fs.stat(outputPath);
   console.log(`${name}: ${stat.size} bytes`);
   return outputPath;
@@ -514,6 +552,26 @@ function firstFrameHash(filePath) {
       hash ? resolve(hash) : reject(new Error(`No frame hash for ${filePath}`));
     });
   });
+}
+
+function animationSampleFrame(duration, fps) {
+  return Math.max(1, Math.floor((duration * fps) / 2));
+}
+
+function expectedFrameCount({ duration, fps }) {
+  return Math.max(1, Math.floor(duration * fps));
+}
+
+function normalizeSmokeProfile(value) {
+  return value === "full" ? "full" : "quick";
+}
+
+function option(name) {
+  const prefix = `--${name}=`;
+  return process.argv
+    .slice(2)
+    .find((argument) => argument.startsWith(prefix))
+    ?.slice(prefix.length);
 }
 
 function frame(energy, bass, mid, high) {

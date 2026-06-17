@@ -81,7 +81,10 @@ performance e degradação ao longo do desenvolvimento:
   Entrada, projetos, catálogo, vídeo e divulgação.
 - `npm run test:flow` executa um fluxo completo curto com áudio, capa, camada,
   texto, fade, sidecar e validação do vídeo final.
-- `npm run test:render` valida presets representativos no renderer WebGL.
+- `npm run test:render` valida rapidamente presets representativos no renderer
+  WebGL em uma matriz curta.
+- `npm run test:render:full` executa a matriz completa de presets e resoluções
+  de render.
 - `npm run site:build` e `npm run site:test` validam o promo-site publicado via
   GitHub Pages.
 - `npm run test:scale` valida o comportamento de catálogo, presets, histórico e
