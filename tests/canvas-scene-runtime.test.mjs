@@ -642,6 +642,79 @@ test("WebGL scene runtime keeps static uniforms cached per shader program", () =
   }
 });
 
+test("WebGL scene runtime reuses static uniforms for equivalent same-shader layers", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({
+        id: "liquid-mesh",
+        atmosphereLayers: [
+          { scene: { id: "liquid-mesh" } },
+          {
+            opacity: 55,
+            blendMode: "screen",
+            scene: { id: "liquid-mesh" },
+          },
+        ],
+      }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0);
+    const firstUniform1fCount = cleanup.gl.calls.uniform1f.length;
+    const firstUniform2fCount = cleanup.gl.calls.uniform2f.length;
+    const firstUniform3fvCount = cleanup.gl.calls.uniform3fv.length;
+
+    runtime.render(0.5);
+    assert.equal(cleanup.gl.calls.uniform1f.length - firstUniform1fCount, 20);
+    assert.equal(cleanup.gl.calls.uniform2f.length - firstUniform2fCount, 0);
+    assert.equal(cleanup.gl.calls.uniform3fv.length - firstUniform3fvCount, 0);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("WebGL scene runtime preserves static uploads for distinct same-shader layers", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({
+        id: "liquid-mesh",
+        atmosphereLayers: [
+          { scene: { id: "liquid-mesh" } },
+          {
+            opacity: 55,
+            blendMode: "screen",
+            scene: {
+              id: "liquid-mesh",
+              colors: { effect: "#ff3366" },
+            },
+          },
+        ],
+      }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0);
+    const firstUniform1fCount = cleanup.gl.calls.uniform1f.length;
+    const firstUniform3fvCount = cleanup.gl.calls.uniform3fv.length;
+
+    runtime.render(0.5);
+    assert.ok(cleanup.gl.calls.uniform1f.length - firstUniform1fCount > 20);
+    assert.equal(cleanup.gl.calls.uniform3fv.length - firstUniform3fvCount, 8);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
 test("scene runtime reuses grain post buffers between frames", () => {
   const cleanup = installFakeDocument();
   try {

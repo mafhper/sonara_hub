@@ -1532,7 +1532,7 @@ function createWebglRenderer(canvas) {
     const staticUniforms = staticUniformStates.get(compiled.program);
     if (
       !staticUniforms ||
-      staticUniforms.scene !== scene ||
+      staticUniforms.key !== uniforms.staticKey ||
       staticUniforms.width !== canvas.width ||
       staticUniforms.height !== canvas.height
     ) {
@@ -1560,7 +1560,7 @@ function createWebglRenderer(canvas) {
       set1f("cloudSunDirection", uniforms.cloudSunDirection);
       set3fv("cloudSunColor", uniforms.cloudSunColor);
       staticUniformStates.set(compiled.program, {
-        scene,
+        key: uniforms.staticKey,
         width: canvas.width,
         height: canvas.height,
       });
@@ -1617,6 +1617,28 @@ function createWebglRenderer(canvas) {
       cloudSunDirection: cloudLight.direction ?? 18,
       cloudSunColor: hexToRgb(cloudLight.color ?? scene.colors.light),
     };
+    uniforms.staticKey = JSON.stringify([
+      uniforms.intensity,
+      uniforms.speed,
+      uniforms.brightness,
+      uniforms.direction,
+      uniforms.audioReaction,
+      uniforms.shade,
+      uniforms.colorA,
+      uniforms.colorB,
+      uniforms.accentColor,
+      uniforms.params,
+      uniforms.cloudSunEnabled,
+      uniforms.cloudSunIntensity,
+      uniforms.cloudSunX,
+      uniforms.cloudSunY,
+      uniforms.cloudSunRadius,
+      uniforms.cloudSunDiffusion,
+      uniforms.cloudSunMotion,
+      uniforms.cloudSunSpeed,
+      uniforms.cloudSunDirection,
+      uniforms.cloudSunColor,
+    ]);
     sceneUniformCache.set(scene, uniforms);
     return uniforms;
   }
