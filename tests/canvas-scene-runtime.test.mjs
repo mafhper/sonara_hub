@@ -844,6 +844,98 @@ test("scene runtime renders canvas 2d atmosphere renderers", () => {
   }
 });
 
+test("scene runtime reuses static 2d gradients until the canvas resizes", () => {
+  const cleanup = installFakeDocument();
+  try {
+    for (const id of ["vector-aura", "playful-shapes", "piano-ribbons"]) {
+      const context = fakeCanvasContext();
+      const canvas = fakeCanvas(context);
+      const runtime = createSceneRuntime(
+        canvas,
+        normalizeVisualSettings({ id }),
+        { showMetadata: false },
+      );
+      runtime.setAudio({
+        bass: 0.35,
+        energy: 0.42,
+        high: 0.22,
+        mid: 0.3,
+        spectrum: [0.12, 0.28, 0.38, 0.24],
+      });
+
+      runtime.render(0.5, 24);
+      const firstFrameGradients = context.calls.createLinearGradient.length;
+      assert.ok(firstFrameGradients > 0, `${id} should create gradients`);
+
+      runtime.render(1, 24);
+      const secondFrameGradients =
+        context.calls.createLinearGradient.length - firstFrameGradients;
+      assert.ok(
+        secondFrameGradients < firstFrameGradients,
+        `${id} should reuse its static gradients`,
+      );
+
+      canvas.clientWidth = 160;
+      canvas.clientHeight = 90;
+      runtime.render(1.5, 24);
+      const resizedFrameGradients =
+        context.calls.createLinearGradient.length -
+        firstFrameGradients -
+        secondFrameGradients;
+      assert.ok(
+        resizedFrameGradients > secondFrameGradients,
+        `${id} should rebuild gradients after resize`,
+      );
+      runtime.destroy();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime parses playful glyph collections once per scene", () => {
+  const cleanup = installFakeDocument();
+  const originalSplit = String.prototype.split;
+  let runtime = null;
+  try {
+    const context = fakeCanvasContext();
+    const scene = normalizeVisualSettings({
+      id: "playful-shapes",
+      playful: {
+        collections: {
+          letters: "A B C D",
+          numbers: "1 2 3 4",
+          emojis: "⭐ 🎵 🌱 🎈",
+        },
+      },
+    });
+    const collectionValues = new Set(Object.values(scene.playful.collections));
+    let collectionSplitCount = 0;
+    String.prototype.split = function countedCollectionSplit(...args) {
+      if (collectionValues.has(String(this))) collectionSplitCount += 1;
+      return originalSplit.apply(this, args);
+    };
+    runtime = createSceneRuntime(fakeCanvas(context), scene, {
+      showMetadata: false,
+    });
+
+    runtime.render(0.5, 24);
+    const firstFrameSplitCount = collectionSplitCount;
+    assert.equal(firstFrameSplitCount, 3);
+
+    runtime.render(1, 24);
+    assert.equal(collectionSplitCount, firstFrameSplitCount);
+
+    runtime.setScene(structuredClone(scene));
+    runtime.render(1.5, 24);
+    assert.equal(collectionSplitCount, firstFrameSplitCount * 2);
+  } finally {
+    String.prototype.split = originalSplit;
+    runtime?.destroy();
+    cleanup();
+  }
+});
+
 test("scene runtime caches parsed hex colors between frames", () => {
   const cleanup = installFakeDocument();
   const originalParseInt = Number.parseInt;

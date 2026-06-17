@@ -1077,6 +1077,7 @@ function resolveRenderStackItems(
         layer:
           atmosphereLayerMap.get(atmosphereLayerIdFromStackItem(item)) ??
           atmosphereLayers[0],
+        rendererCache: createAtmosphereRendererCache(),
       };
     }
     if (item.kind === "media") {
@@ -1087,6 +1088,13 @@ function resolveRenderStackItems(
     }
     return item;
   });
+}
+
+function createAtmosphereRendererCache() {
+  return {
+    linearGradients: [],
+    playfulState: null,
+  };
 }
 
 function createMetadataRenderCache() {
@@ -1212,16 +1220,40 @@ export function createSceneRuntime(
     }
   }
 
-  function renderAtmosphere(context, width, height, scene, audio, time) {
+  function renderAtmosphere(
+    context,
+    width,
+    height,
+    scene,
+    audio,
+    time,
+    rendererCache,
+  ) {
     if (fragmentShaders[scene.rendererId]) {
       webgl.render(scene, audio, time);
       context.drawImage(webglCanvas, 0, 0, width, height);
     } else if (scene.rendererId === "vector-aura") {
-      drawVectorAura(context, width, height, scene, audio, time);
+      drawVectorAura(context, width, height, scene, audio, time, rendererCache);
     } else if (scene.rendererId === "playful-shapes") {
-      drawPlayfulShapes(context, width, height, scene, audio, time);
+      drawPlayfulShapes(
+        context,
+        width,
+        height,
+        scene,
+        audio,
+        time,
+        rendererCache,
+      );
     } else if (scene.rendererId === "piano-ribbons") {
-      drawPianoRibbons(context, width, height, scene, audio, time);
+      drawPianoRibbons(
+        context,
+        width,
+        height,
+        scene,
+        audio,
+        time,
+        rendererCache,
+      );
     } else {
       drawDarkSurface(context, width, height, scene, audio, time);
     }
@@ -1235,6 +1267,7 @@ export function createSceneRuntime(
     audio,
     time,
     includeLayerLightFocus,
+    rendererCache,
   ) {
     if (!layer || layer.visible === false || layer.opacity <= 0) return;
     const layerScene = layer.scene ?? state.scene;
@@ -1242,7 +1275,15 @@ export function createSceneRuntime(
     context.globalCompositeOperation =
       blendModes[layer.blendMode] ?? "source-over";
     context.globalAlpha = Math.max(0, Math.min(100, layer.opacity)) / 100;
-    renderAtmosphere(context, width, height, layerScene, audio, time);
+    renderAtmosphere(
+      context,
+      width,
+      height,
+      layerScene,
+      audio,
+      time,
+      rendererCache,
+    );
     if (
       includeLayerLightFocus &&
       layerScene.cloudLight?.enabled &&
@@ -1283,6 +1324,7 @@ export function createSceneRuntime(
             audio,
             time,
             cache.explicitAtmosphereLayers,
+            item.rendererCache,
           );
           break;
         }
@@ -1730,7 +1772,33 @@ function createShader(gl, type, source) {
   return shader;
 }
 
-function drawVectorAura(context, width, height, scene, audio, time) {
+function getCachedAtmosphereLinearGradient(cache, index, width, height) {
+  const entry = cache?.linearGradients[index];
+  return entry?.width === width && entry.height === height
+    ? entry.gradient
+    : null;
+}
+
+function setCachedAtmosphereLinearGradient(
+  cache,
+  index,
+  width,
+  height,
+  gradient,
+) {
+  if (!cache) return;
+  cache.linearGradients[index] = { width, height, gradient };
+}
+
+function drawVectorAura(
+  context,
+  width,
+  height,
+  scene,
+  audio,
+  time,
+  rendererCache,
+) {
   const base = scene.colors.base;
   context.fillStyle = base;
   context.fillRect(0, 0, width, height);
@@ -1751,16 +1819,31 @@ function drawVectorAura(context, width, height, scene, audio, time) {
     const phase = time * speed * (0.72 + index * 0.16) + index * 2.18;
     const center = height * (0.24 + index * 0.24);
     const swing = height * (0.08 + drift * 0.11);
-    const gradient = context.createLinearGradient(0, 0, width, height);
-    gradient.addColorStop(0, hexToRgba(scene.colors.effect, 0.04 * presence));
-    gradient.addColorStop(
-      0.46,
-      hexToRgba(
-        index === 1 ? scene.colors.light : scene.colors.effect,
-        0.38 * presence,
-      ),
+    let gradient = getCachedAtmosphereLinearGradient(
+      rendererCache,
+      index,
+      width,
+      height,
     );
-    gradient.addColorStop(1, hexToRgba(scene.colors.light, 0.07 * presence));
+    if (!gradient) {
+      gradient = context.createLinearGradient(0, 0, width, height);
+      gradient.addColorStop(0, hexToRgba(scene.colors.effect, 0.04 * presence));
+      gradient.addColorStop(
+        0.46,
+        hexToRgba(
+          index === 1 ? scene.colors.light : scene.colors.effect,
+          0.38 * presence,
+        ),
+      );
+      gradient.addColorStop(1, hexToRgba(scene.colors.light, 0.07 * presence));
+      setCachedAtmosphereLinearGradient(
+        rendererCache,
+        index,
+        width,
+        height,
+        gradient,
+      );
+    }
     context.strokeStyle = gradient;
     context.lineWidth = height * (0.15 + presence * 0.08 + index * 0.025);
     context.beginPath();
@@ -1807,31 +1890,35 @@ function drawVectorAura(context, width, height, scene, audio, time) {
   context.restore();
 }
 
-function drawPlayfulShapes(context, width, height, scene, audio, time) {
-  drawPlayfulBackground(context, width, height, scene, audio);
-  const playful = scene.playful ?? {};
-  const categories = playfulCategories(playful);
-  const glyphCollections = categories.some(
-    (category) => category !== "rectangle",
-  )
-    ? playfulGlyphCollections(playful)
-    : null;
-  const quantity = Math.round(4 + ((scene.advanced.quantity ?? 48) / 100) * 10);
-  const direction = ((scene.common.direction ?? 0) * Math.PI) / 180;
-  const speed = 0.12 + (scene.common.speed ?? 22) / 72;
-  const depthAmount = (scene.advanced.depth ?? 54) / 100;
-  const randomness = (scene.advanced.randomness ?? 56) / 100;
-  const diversity = (scene.advanced.diversity ?? 72) / 100;
-  const rotation = (scene.advanced.rotation ?? 42) / 100;
-  const drift = (scene.advanced.drift ?? 38) / 100;
-  const scale = 0.72 + (scene.advanced.scale ?? 56) / 150;
-  const directionCos = Math.cos(direction);
-  const directionSin = Math.sin(direction);
+function drawPlayfulShapes(
+  context,
+  width,
+  height,
+  scene,
+  audio,
+  time,
+  rendererCache,
+) {
+  drawPlayfulBackground(context, width, height, scene, audio, rendererCache);
+  const {
+    categories,
+    depthAmount,
+    directionCos,
+    directionSin,
+    diversity,
+    drift,
+    glyphCollections,
+    mode,
+    palette,
+    quantity,
+    randomness,
+    rotation,
+    scale,
+    seed,
+    speed,
+  } = getPlayfulRenderState(scene, rendererCache);
   const reaction =
     ((scene.common.audioReaction ?? 22) / 100) * (audio.energy ?? 0);
-  const mode = playfulMotion(playful.motionMode);
-  const seed = Math.round(playful.seed ?? 37);
-  const palette = [scene.colors.light, scene.colors.effect, "#ffffff"];
   const minDimension = Math.min(width, height);
 
   context.save();
@@ -1899,11 +1986,61 @@ function drawPlayfulShapes(context, width, height, scene, audio, time) {
   context.restore();
 }
 
-function drawPlayfulBackground(context, width, height, scene, audio) {
-  const gradient = context.createLinearGradient(0, 0, width, height);
-  gradient.addColorStop(0, scene.colors.base);
-  gradient.addColorStop(0.58, hexToRgba(scene.colors.effect, 0.82));
-  gradient.addColorStop(1, hexToRgba(scene.colors.light, 0.92));
+function getPlayfulRenderState(scene, rendererCache) {
+  if (rendererCache?.playfulState) return rendererCache.playfulState;
+  const playful = scene.playful ?? {};
+  const categories = playfulCategories(playful);
+  const direction = ((scene.common.direction ?? 0) * Math.PI) / 180;
+  const state = {
+    categories,
+    depthAmount: (scene.advanced.depth ?? 54) / 100,
+    directionCos: Math.cos(direction),
+    directionSin: Math.sin(direction),
+    diversity: (scene.advanced.diversity ?? 72) / 100,
+    drift: (scene.advanced.drift ?? 38) / 100,
+    glyphCollections: categories.some((category) => category !== "rectangle")
+      ? playfulGlyphCollections(playful)
+      : null,
+    mode: playfulMotion(playful.motionMode),
+    palette: [scene.colors.light, scene.colors.effect, "#ffffff"],
+    quantity: Math.round(4 + ((scene.advanced.quantity ?? 48) / 100) * 10),
+    randomness: (scene.advanced.randomness ?? 56) / 100,
+    rotation: (scene.advanced.rotation ?? 42) / 100,
+    scale: 0.72 + (scene.advanced.scale ?? 56) / 150,
+    seed: Math.round(playful.seed ?? 37),
+    speed: 0.12 + (scene.common.speed ?? 22) / 72,
+  };
+  if (rendererCache) rendererCache.playfulState = state;
+  return state;
+}
+
+function drawPlayfulBackground(
+  context,
+  width,
+  height,
+  scene,
+  audio,
+  rendererCache,
+) {
+  let gradient = getCachedAtmosphereLinearGradient(
+    rendererCache,
+    0,
+    width,
+    height,
+  );
+  if (!gradient) {
+    gradient = context.createLinearGradient(0, 0, width, height);
+    gradient.addColorStop(0, scene.colors.base);
+    gradient.addColorStop(0.58, hexToRgba(scene.colors.effect, 0.82));
+    gradient.addColorStop(1, hexToRgba(scene.colors.light, 0.92));
+    setCachedAtmosphereLinearGradient(
+      rendererCache,
+      0,
+      width,
+      height,
+      gradient,
+    );
+  }
   context.fillStyle = gradient;
   context.fillRect(0, 0, width, height);
   const glow = context.createRadialGradient(
@@ -1985,11 +2122,34 @@ function drawPlayfulElement(
   context.fillText(glyph, 0, size * 0.02, size * 0.88);
 }
 
-function drawPianoRibbons(context, width, height, scene, audio, time) {
-  const background = context.createLinearGradient(0, 0, width, height);
-  background.addColorStop(0, hexToRgba(scene.colors.base, 1));
-  background.addColorStop(0.58, hexToRgba(scene.colors.effect, 0.34));
-  background.addColorStop(1, hexToRgba(scene.colors.base, 0.96));
+function drawPianoRibbons(
+  context,
+  width,
+  height,
+  scene,
+  audio,
+  time,
+  rendererCache,
+) {
+  let background = getCachedAtmosphereLinearGradient(
+    rendererCache,
+    0,
+    width,
+    height,
+  );
+  if (!background) {
+    background = context.createLinearGradient(0, 0, width, height);
+    background.addColorStop(0, hexToRgba(scene.colors.base, 1));
+    background.addColorStop(0.58, hexToRgba(scene.colors.effect, 0.34));
+    background.addColorStop(1, hexToRgba(scene.colors.base, 0.96));
+    setCachedAtmosphereLinearGradient(
+      rendererCache,
+      0,
+      width,
+      height,
+      background,
+    );
+  }
   context.fillStyle = background;
   context.fillRect(0, 0, width, height);
 
