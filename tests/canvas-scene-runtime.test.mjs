@@ -571,6 +571,106 @@ test("scene runtime reuses grain post buffers between frames", () => {
   }
 });
 
+test("scene runtime writes grain bytes with the same seeded pattern", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const canvas = fakeCanvas(context);
+    canvas.clientWidth = 2;
+    canvas.clientHeight = 2;
+    const runtime = createSceneRuntime(
+      canvas,
+      normalizeVisualSettings({
+        id: "vector-aura",
+        post: { grain: 50 },
+      }),
+      { showMetadata: false },
+    );
+
+    runtime.render(1 / 24, 24);
+
+    const grainContext = cleanup.canvasContexts.at(-1);
+    const image = grainContext.calls.putImageData.at(-1)[0];
+    assert.deepEqual(
+      Array.from(image.data),
+      expectedGrainBytes({ alpha: 14, frameSeed: 1, pixels: 4 }),
+    );
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime renders canvas 2d atmosphere renderers", () => {
+  const cleanup = installFakeDocument();
+  try {
+    for (const id of ["vector-aura", "playful-shapes", "piano-ribbons"]) {
+      const context = fakeCanvasContext();
+      const runtime = createSceneRuntime(
+        fakeCanvas(context),
+        normalizeVisualSettings({ id }),
+        { showMetadata: false },
+      );
+      runtime.setAudio({
+        bass: 0.35,
+        energy: 0.42,
+        high: 0.22,
+        mid: 0.3,
+        spectrum: [0.12, 0.28, 0.38, 0.24],
+      });
+
+      runtime.render(0.5, 24);
+
+      assert.ok(
+        context.calls.fill.length +
+          context.calls.fillRect.length +
+          context.calls.fillText.length +
+          context.calls.stroke.length >
+          0,
+        `${id} should draw into the 2d context`,
+      );
+      runtime.destroy();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime preserves playful custom glyph collections", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({
+        id: "playful-shapes",
+        playful: {
+          collections: { letters: "Q R" },
+          enabled: {
+            emojis: false,
+            letters: true,
+            numbers: false,
+            rectangles: false,
+          },
+          seed: 19,
+        },
+      }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0.5, 24);
+
+    const glyphs = context.calls.fillText.map(([text]) => text);
+    assert.ok(glyphs.length > 0);
+    assert.equal(glyphs.includes("•"), false);
+    assert.ok(glyphs.every((text) => ["Q", "R"].includes(text)));
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
 test("scene runtime reuses scanline post buffers between frames", () => {
   const cleanup = installFakeDocument();
   try {
@@ -840,6 +940,298 @@ test("scene runtime paints spectrum bars with the precomputed waveform palette",
   }
 });
 
+test("scene runtime preserves waveform audio arrays across partial updates", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const samples = [0, 0.5, -0.25];
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({
+        id: "liquid-mesh",
+        waveform: {
+          visible: true,
+          type: "single-line",
+          smoothing: 0,
+          audioReaction: 0,
+          opacity: 80,
+          position: 50,
+          height: 28,
+          width: 80,
+          thickness: 2,
+          colorMode: "single",
+          color: "#ffffff",
+        },
+      }),
+      { showMetadata: false },
+    );
+
+    runtime.setAudio({ samples, spectrum: [] });
+    runtime.render(0, 24);
+    const firstLineCount = context.calls.lineTo.length;
+    assert.equal(firstLineCount, samples.length - 1);
+
+    const partialAudio = Object.create({ samples: [1, 1, 1, 1, 1] });
+    partialAudio.energy = 1;
+    runtime.setAudio(partialAudio);
+    runtime.render(1 / 24, 24);
+    assert.equal(
+      context.calls.lineTo.length - firstLineCount,
+      samples.length - 1,
+    );
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime reuses waveform gradient paints between frames", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const canvas = fakeCanvas(context);
+    const gradientWaveform = {
+      visible: true,
+      type: "single-line",
+      smoothing: 0,
+      audioReaction: 0,
+      opacity: 80,
+      position: 50,
+      height: 28,
+      width: 80,
+      thickness: 2,
+      colorMode: "gradient",
+      color: "#ff0000",
+      secondaryColor: "#00ff00",
+      tertiaryColor: "#0000ff",
+    };
+    const runtime = createSceneRuntime(
+      canvas,
+      normalizeVisualSettings({
+        id: "liquid-mesh",
+        waveform: gradientWaveform,
+      }),
+      { showMetadata: false },
+    );
+    runtime.setAudio({ samples: [0, 0.5, -0.25] });
+
+    runtime.render(0, 24);
+    assert.equal(context.calls.createLinearGradient.length, 1);
+
+    runtime.render(1 / 24, 24);
+    assert.equal(context.calls.createLinearGradient.length, 1);
+
+    canvas.clientWidth = 160;
+    canvas.clientHeight = 90;
+    runtime.render(2 / 24, 24);
+    assert.equal(context.calls.createLinearGradient.length, 2);
+
+    runtime.setScene(
+      normalizeVisualSettings({
+        id: "liquid-mesh",
+        waveform: {
+          ...gradientWaveform,
+          color: "#ffffff",
+        },
+      }),
+    );
+    runtime.render(3 / 24, 24);
+    assert.equal(context.calls.createLinearGradient.length, 3);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime reuses radial waveform ring gradients", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({
+        id: "liquid-mesh",
+        waveform: {
+          visible: true,
+          type: "radial-ring",
+          smoothing: 0,
+          audioReaction: 0,
+          opacity: 70,
+          position: 50,
+          height: 28,
+          width: 80,
+          thickness: 2,
+          colorMode: "gradient",
+          color: "#ff0000",
+          secondaryColor: "#00ff00",
+          tertiaryColor: "#0000ff",
+          advanced: {
+            radialArc: 100,
+            radialGlow: 0,
+            radialRadius: 20,
+            radialRotation: 0,
+          },
+        },
+      }),
+      { showMetadata: false },
+    );
+    runtime.setAudio({ spectrum: [0.2, 0.4, 0.6] });
+
+    runtime.render(0, 24);
+    assert.equal(context.calls.createLinearGradient.length, 2);
+
+    runtime.render(1 / 24, 24);
+    assert.equal(context.calls.createLinearGradient.length, 2);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime reuses radial waveform angle geometry", () => {
+  const cleanup = installFakeDocument();
+  const originalCos = Math.cos;
+  const originalSin = Math.sin;
+  try {
+    const context = fakeCanvasContext();
+    const spectrum = [0.2, 0.4, 0.6, 0.3];
+    let cosCalls = 0;
+    let sinCalls = 0;
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({
+        id: "liquid-mesh",
+        waveform: {
+          visible: true,
+          type: "radial-ring",
+          smoothing: 0,
+          audioReaction: 0,
+          opacity: 70,
+          position: 50,
+          height: 28,
+          width: 80,
+          thickness: 2,
+          colorMode: "single",
+          color: "#ffffff",
+          advanced: {
+            radialArc: 100,
+            radialGlow: 0,
+            radialRadius: 20,
+            radialRotation: 0,
+          },
+        },
+      }),
+      { showMetadata: false },
+    );
+    runtime.setAudio({ spectrum });
+    Math.cos = (...args) => {
+      cosCalls += 1;
+      return originalCos(...args);
+    };
+    Math.sin = (...args) => {
+      sinCalls += 1;
+      return originalSin(...args);
+    };
+
+    runtime.render(0, 24);
+    assert.equal(cosCalls, spectrum.length);
+    assert.equal(sinCalls, spectrum.length * 2);
+    const firstCosCalls = cosCalls;
+    const firstSinCalls = sinCalls;
+
+    runtime.render(1 / 24, 24);
+    assert.equal(cosCalls, firstCosCalls);
+    assert.equal(sinCalls - firstSinCalls, spectrum.length);
+
+    runtime.destroy();
+  } finally {
+    Math.cos = originalCos;
+    Math.sin = originalSin;
+    cleanup();
+  }
+});
+
+test("scene runtime refreshes cached waveform paints when spectrum or scene changes", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const spectrumScene = {
+      id: "liquid-mesh",
+      waveform: {
+        visible: true,
+        type: "spectrum-bars",
+        smoothing: 0,
+        audioReaction: 0,
+        opacity: 50,
+        position: 50,
+        height: 28,
+        width: 80,
+        thickness: 2,
+        colorMode: "gradient",
+        color: "#ff0000",
+        secondaryColor: "#00ff00",
+        tertiaryColor: "#0000ff",
+        advanced: {
+          barGap: 0,
+          barPeakHold: 0,
+          barRadius: 0,
+        },
+      },
+    };
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings(spectrumScene),
+      { showMetadata: false },
+    );
+
+    runtime.setAudio({ spectrum: [0.2, 0.4, 0.6] });
+    runtime.render(0, 24);
+    assert.deepEqual(context.calls.fill.slice(-3), [
+      "rgba(255,0,0,0.5)",
+      "rgba(0,255,0,0.5)",
+      "rgba(0,0,255,0.5)",
+    ]);
+
+    runtime.setAudio({ spectrum: [0.2, 0.3, 0.4, 0.5, 0.6] });
+    runtime.render(1 / 24, 24);
+    assert.deepEqual(context.calls.fill.slice(-5), [
+      "rgba(255,0,0,0.5)",
+      "rgba(128,128,0,0.5)",
+      "rgba(0,255,0,0.5)",
+      "rgba(0,128,128,0.5)",
+      "rgba(0,0,255,0.5)",
+    ]);
+
+    runtime.setScene(
+      normalizeVisualSettings({
+        ...spectrumScene,
+        waveform: {
+          ...spectrumScene.waveform,
+          colorMode: "single",
+          color: "#ffffff",
+          secondaryColor: "#ffffff",
+          tertiaryColor: "#ffffff",
+        },
+      }),
+    );
+    runtime.render(2 / 24, 24);
+    assert.deepEqual(context.calls.fill.slice(-5), [
+      "rgba(255,255,255,0.5)",
+      "rgba(255,255,255,0.5)",
+      "rgba(255,255,255,0.5)",
+      "rgba(255,255,255,0.5)",
+      "rgba(255,255,255,0.5)",
+    ]);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
 test("scene runtime skips sample processing for spectrum bars", () => {
   const cleanup = installFakeDocument();
   try {
@@ -992,6 +1384,21 @@ test("scene runtime draws waveform synthetic fallbacks", () => {
     cleanup();
   }
 });
+
+function expectedGrainBytes({ alpha, frameSeed, pixels }) {
+  const bytes = [];
+  for (let pixel = 0; pixel < pixels; pixel += 1) {
+    const value = testSeeded(frameSeed + 17, pixel, 29) > 0.5 ? 255 : 0;
+    bytes.push(value, value, value, alpha);
+  }
+  return bytes;
+}
+
+function testSeeded(seed, index, salt = 0) {
+  const value =
+    Math.sin(seed * 12.9898 + index * 78.233 + salt * 37.719) * 43758.5453;
+  return value - Math.floor(value);
+}
 
 function installFakeDocument() {
   const originalDocument = globalThis.document;
@@ -1188,6 +1595,7 @@ function fakeCanvasContext() {
       calls.moveTo.push([x, y]);
     },
     restore() {},
+    quadraticCurveTo() {},
     rect() {},
     rotate() {},
     save() {},

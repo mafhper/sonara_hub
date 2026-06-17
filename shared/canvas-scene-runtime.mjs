@@ -3,6 +3,33 @@ attribute vec2 a_position;
 void main() { gl_Position = vec4(a_position, 0.0, 1.0); }
 `;
 
+const LITTLE_ENDIAN =
+  new Uint8Array(new Uint32Array([0x11223344]).buffer)[0] === 0x44;
+const HAS_OWN_PROPERTY = Object.prototype.hasOwnProperty;
+const PIANO_BLACK_KEY_PATTERN = new Set([0, 1, 3, 4, 5]);
+const PLAYFUL_FALLBACK_GLYPHS = ["•"];
+const PLAYFUL_MOTION_CALM = {
+  travel: 0.64,
+  rotation: 0.58,
+  bassPulse: 0.42,
+  energy: 0.48,
+  highlight: 0.58,
+};
+const PLAYFUL_MOTION_PLAY = {
+  travel: 1.34,
+  rotation: 1.24,
+  bassPulse: 0.94,
+  energy: 1.12,
+  highlight: 1.08,
+};
+const PLAYFUL_MOTION_FLOAT = {
+  travel: 0.92,
+  rotation: 0.84,
+  bassPulse: 0.68,
+  energy: 0.78,
+  highlight: 0.82,
+};
+
 const shaderPrelude = `
 precision highp float;
 uniform vec2 u_resolution;
@@ -1025,6 +1052,7 @@ function createRenderCache(scene, composition) {
     metadata: createMetadataRenderCache(),
     post: createPostRenderCache(),
     stack,
+    waveform: createWaveformRenderCache(),
   };
 }
 
@@ -1064,6 +1092,50 @@ function createPostRenderCache() {
       intensity: 0,
     },
   };
+}
+
+function createWaveformRenderCache() {
+  return {
+    bandPaints: createWaveformPaintCache(),
+    fillPaint: createWaveformStyleCache(),
+    palette: null,
+    paletteKey: "",
+    peakPaints: createWaveformPaintCache(),
+    primaryPaint: createWaveformStyleCache(),
+    radialGeometry: {
+      arc: 0,
+      radius: 0,
+      rotation: 0,
+      total: 0,
+      values: [],
+    },
+    radialInnerPaint: createWaveformStyleCache(),
+    radialOuterPaint: createWaveformStyleCache(),
+    smoothedSamples: [],
+    syntheticSamples: [],
+    syntheticSpectrum: [],
+  };
+}
+
+function createWaveformPaintCache() {
+  return {
+    key: "",
+    values: [],
+  };
+}
+
+function createWaveformStyleCache() {
+  return {
+    key: "",
+    value: null,
+  };
+}
+
+function assignAudioState(target, audio = {}) {
+  if (!audio || typeof audio !== "object") return;
+  for (const key in audio) {
+    if (HAS_OWN_PROPERTY.call(audio, key)) target[key] = audio[key];
+  }
 }
 
 export function createSceneRuntime(
@@ -1202,7 +1274,15 @@ export function createSceneRuntime(
           break;
         case "waveform":
           if (scene.waveform?.visible) {
-            drawWaveform(context, width, height, scene.waveform, audio, time);
+            drawWaveform(
+              context,
+              width,
+              height,
+              scene.waveform,
+              audio,
+              time,
+              cache.waveform,
+            );
           }
           break;
         case "vinyl":
@@ -1272,7 +1352,7 @@ export function createSceneRuntime(
       renderCache = createRenderCache(state.scene, state.composition);
     },
     setAudio(audio) {
-      state.audio = { ...state.audio, ...audio };
+      assignAudioState(state.audio, audio);
     },
     destroy() {
       webgl.destroy();
@@ -1556,6 +1636,8 @@ function drawVectorAura(context, width, height, scene, audio, time) {
   context.fillStyle = base;
   context.fillRect(0, 0, width, height);
   const direction = (scene.common.direction * Math.PI) / 180;
+  const directionCos = Math.cos(direction);
+  const directionSinOffset = Math.sin(direction + 1);
   const speed = 0.04 + scene.common.speed / 220;
   const presence = scene.advanced.shapes / 100;
   const scale = 0.28 + scene.advanced.scale / 150;
@@ -1598,14 +1680,12 @@ function drawVectorAura(context, width, height, scene, audio, time) {
     const phase = time * speed + index * 1.73;
     const x =
       width *
-      (0.22 +
-        index * 0.2 +
-        Math.sin(phase) * 0.1 * drift * Math.cos(direction));
+      (0.22 + index * 0.2 + Math.sin(phase) * 0.1 * drift * directionCos);
     const y =
       height *
       (0.24 +
         (index % 2) * 0.34 +
-        Math.cos(phase * 0.82) * 0.11 * drift * Math.sin(direction + 1));
+        Math.cos(phase * 0.82) * 0.11 * drift * directionSinOffset);
     const radius = width * scale * (0.58 + index * 0.08) * pulse;
     const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
     gradient.addColorStop(
@@ -1632,6 +1712,11 @@ function drawPlayfulShapes(context, width, height, scene, audio, time) {
   drawPlayfulBackground(context, width, height, scene, audio);
   const playful = scene.playful ?? {};
   const categories = playfulCategories(playful);
+  const glyphCollections = categories.some(
+    (category) => category !== "rectangle",
+  )
+    ? playfulGlyphCollections(playful)
+    : null;
   const quantity = Math.round(4 + ((scene.advanced.quantity ?? 48) / 100) * 10);
   const direction = ((scene.common.direction ?? 0) * Math.PI) / 180;
   const speed = 0.12 + (scene.common.speed ?? 22) / 72;
@@ -1641,6 +1726,8 @@ function drawPlayfulShapes(context, width, height, scene, audio, time) {
   const rotation = (scene.advanced.rotation ?? 42) / 100;
   const drift = (scene.advanced.drift ?? 38) / 100;
   const scale = 0.72 + (scene.advanced.scale ?? 56) / 150;
+  const directionCos = Math.cos(direction);
+  const directionSin = Math.sin(direction);
   const reaction =
     ((scene.common.audioReaction ?? 22) / 100) * (audio.energy ?? 0);
   const mode = playfulMotion(playful.motionMode);
@@ -1666,8 +1753,8 @@ function drawPlayfulShapes(context, width, height, scene, audio, time) {
       width * (0.08 + seeded(seed, index, 3) * (0.84 + randomness * 0.04));
     const baseY =
       height * (0.1 + seeded(seed, index, 4) * (0.76 + randomness * 0.04));
-    const x = baseX + sway * Math.cos(direction) - lift * Math.sin(direction);
-    const y = baseY + sway * Math.sin(direction) + lift * Math.cos(direction);
+    const x = baseX + sway * directionCos - lift * directionSin;
+    const y = baseY + sway * directionSin + lift * directionCos;
     const size =
       minDimension *
       (0.07 + seeded(seed, index, 5) * 0.065) *
@@ -1704,7 +1791,7 @@ function drawPlayfulShapes(context, width, height, scene, audio, time) {
       category,
       size * (1 + reaction * mode.energy * 0.1),
       color,
-      playful,
+      glyphCollections,
       seed,
       index,
     );
@@ -1745,30 +1832,16 @@ function playfulCategories(playful) {
 }
 
 function playfulMotion(value) {
-  if (value === "calm") {
-    return {
-      travel: 0.64,
-      rotation: 0.58,
-      bassPulse: 0.42,
-      energy: 0.48,
-      highlight: 0.58,
-    };
-  }
-  if (value === "play") {
-    return {
-      travel: 1.34,
-      rotation: 1.24,
-      bassPulse: 0.94,
-      energy: 1.12,
-      highlight: 1.08,
-    };
-  }
+  if (value === "calm") return PLAYFUL_MOTION_CALM;
+  if (value === "play") return PLAYFUL_MOTION_PLAY;
+  return PLAYFUL_MOTION_FLOAT;
+}
+
+function playfulGlyphCollections(playful) {
   return {
-    travel: 0.92,
-    rotation: 0.84,
-    bassPulse: 0.68,
-    energy: 0.78,
-    highlight: 0.82,
+    emoji: splitVisualCollection(playful.collections?.emojis, "☀️ 🎈 🌱 ⭐ 🎵"),
+    letter: splitVisualCollection(playful.collections?.letters, "A B C D E"),
+    number: splitVisualCollection(playful.collections?.numbers, "1 2 3 4 5"),
   };
 }
 
@@ -1777,7 +1850,7 @@ function drawPlayfulElement(
   category,
   size,
   color,
-  playful,
+  glyphCollections,
   seed,
   index,
 ) {
@@ -1796,13 +1869,8 @@ function drawPlayfulElement(
     context.fill();
     return;
   }
-  const collection =
-    category === "letter"
-      ? splitVisualCollection(playful.collections?.letters, "A B C D E")
-      : category === "number"
-        ? splitVisualCollection(playful.collections?.numbers, "1 2 3 4 5")
-        : splitVisualCollection(playful.collections?.emojis, "☀️ 🎈 🌱 ⭐ 🎵");
-  const glyph = safeGlyph(collection[index % collection.length]);
+  const collection = glyphCollections?.[category] ?? PLAYFUL_FALLBACK_GLYPHS;
+  const glyph = collection[index % collection.length];
   context.fillStyle =
     category === "emoji" ? "rgba(255,255,255,0.2)" : hexToRgba(color, 0.88);
   context.beginPath();
@@ -1850,6 +1918,7 @@ function drawPianoRibbons(context, width, height, scene, audio, time) {
   const drift = (scene.advanced.drift ?? 34) / 100;
   const speed = 0.08 + (scene.common.speed ?? 24) / 120;
   const direction = ((scene.common.direction ?? 0) * Math.PI) / 180;
+  const directionWaveOffset = Math.cos(direction) * 0.6;
   const reaction = ((scene.common.audioReaction ?? 28) / 100) * 0.32;
   const palette = [
     scene.colors.light,
@@ -1886,7 +1955,7 @@ function drawPianoRibbons(context, width, height, scene, audio, time) {
       0;
     const phase = time * speed + index * 0.62;
     const wave =
-      Math.sin(phase + Math.cos(direction) * 0.6) *
+      Math.sin(phase + directionWaveOffset) *
         curvature *
         (0.32 + drift * 0.58) +
       spectrum * curvature * reaction;
@@ -1959,9 +2028,8 @@ function drawPianoKeyboard(context, width, height, scene, audio) {
     context.lineWidth = 1;
     context.stroke();
   }
-  const blackPattern = new Set([0, 1, 3, 4, 5]);
   for (let index = 0; index < keys - 1; index += 1) {
-    if (!blackPattern.has(index % 7)) continue;
+    if (!PIANO_BLACK_KEY_PATTERN.has(index % 7)) continue;
     const x = left + (index + 0.68) * keyWidth;
     const heightOffset = (index % 4) * keyboardHeight * 0.012;
     roundedRectPath(
@@ -2228,16 +2296,8 @@ function drawPostGrain(
   const surface = getPostGrainSurface(context, width, height, cache?.grain);
   if (!surface) return;
   const frameSeed = Math.floor(Math.max(0, time) * Math.max(1, fps));
-  const data = surface.image.data;
   const alpha = Math.round(28 * grain);
-  for (let index = 0; index < data.length; index += 4) {
-    const pixel = index / 4;
-    const value = seeded(frameSeed + 17, pixel, 29) > 0.5 ? 255 : 0;
-    data[index] = value;
-    data[index + 1] = value;
-    data[index + 2] = value;
-    data[index + 3] = alpha;
-  }
+  fillPostGrainImage(surface, frameSeed, alpha);
   surface.context.putImageData(surface.image, 0, 0);
   context.save();
   context.globalCompositeOperation = "overlay";
@@ -2257,12 +2317,49 @@ function getPostGrainSurface(context, width, height, cache = null) {
   }
   const baseSurface = createPostSurface(width, height);
   if (!baseSurface) return null;
+  const image = context.createImageData(width, height);
   const surface = {
     ...baseSurface,
-    image: context.createImageData(width, height),
+    data32: imageData32(image),
+    image,
   };
   if (cache) Object.assign(cache, surface);
   return surface;
+}
+
+function fillPostGrainImage(surface, frameSeed, alpha) {
+  const data32 = surface.data32;
+  if (data32) {
+    const black = grainPixel32(0, alpha);
+    const white = grainPixel32(255, alpha);
+    for (let pixel = 0; pixel < data32.length; pixel += 1) {
+      data32[pixel] = seeded(frameSeed + 17, pixel, 29) > 0.5 ? white : black;
+    }
+    return;
+  }
+  const data = surface.image.data;
+  for (let index = 0; index < data.length; index += 4) {
+    const pixel = index / 4;
+    const value = seeded(frameSeed + 17, pixel, 29) > 0.5 ? 255 : 0;
+    data[index] = value;
+    data[index + 1] = value;
+    data[index + 2] = value;
+    data[index + 3] = alpha;
+  }
+}
+
+function imageData32(image) {
+  const data = image?.data;
+  if (!data?.buffer || data.byteLength % 4 !== 0 || data.byteOffset % 4 !== 0) {
+    return null;
+  }
+  return new Uint32Array(data.buffer, data.byteOffset, data.byteLength / 4);
+}
+
+function grainPixel32(value, alpha) {
+  return LITTLE_ENDIAN
+    ? ((alpha << 24) | (value << 16) | (value << 8) | value) >>> 0
+    : ((value << 24) | (value << 16) | (value << 8) | alpha) >>> 0;
 }
 
 function drawPostScanlines(context, width, height, scanlines, cache = null) {
@@ -2526,7 +2623,15 @@ function drawVinyl(
   context.restore();
 }
 
-function drawWaveform(context, width, height, waveform, audio, time) {
+function drawWaveform(
+  context,
+  width,
+  height,
+  waveform,
+  audio,
+  time,
+  cache = null,
+) {
   const centerY = (height * waveform.position) / 100;
   const reaction = 0.35 + (waveform.audioReaction ?? 54) / 100;
   const amplitude = ((height * waveform.height) / 200) * reaction;
@@ -2537,20 +2642,23 @@ function drawWaveform(context, width, height, waveform, audio, time) {
   const samples = needsSpectrum
     ? null
     : smoothSamples(
-        audio.samples?.length ? audio.samples : syntheticSamples(audio, time),
+        audio.samples?.length
+          ? audio.samples
+          : syntheticSamples(audio, time, cache?.syntheticSamples),
         waveform.smoothing,
+        cache?.smoothedSamples,
       );
   const spectrum = needsSpectrum
     ? audio.spectrum?.length
       ? audio.spectrum
-      : syntheticSpectrum(audio, time)
+      : syntheticSpectrum(audio, time, cache?.syntheticSpectrum)
     : null;
   const waveformPalette = needsSpectrum
-    ? resolveWaveformPalette(waveform)
+    ? resolveWaveformPalette(waveform, cache)
     : null;
   context.save();
-  if (waveform.type !== "spectrum-bars") {
-    const lineStyle = waveformPaint(
+  if (waveform.type !== "spectrum-bars" && waveform.type !== "radial-ring") {
+    const lineStyle = cachedWaveformPaint(
       context,
       waveform,
       startX,
@@ -2558,6 +2666,7 @@ function drawWaveform(context, width, height, waveform, audio, time) {
       startX + visualWidth,
       centerY + amplitude,
       waveform.opacity / 100,
+      cache?.primaryPaint,
     );
     context.strokeStyle = lineStyle;
     context.fillStyle = lineStyle;
@@ -2586,6 +2695,7 @@ function drawWaveform(context, width, height, waveform, audio, time) {
         centerY,
         amplitude,
         waveform,
+        cache?.fillPaint,
       );
       break;
     case "spectrum-bars":
@@ -2599,6 +2709,7 @@ function drawWaveform(context, width, height, waveform, audio, time) {
         waveform,
         time,
         waveformPalette,
+        cache,
       );
       break;
     case "radial-ring":
@@ -2612,6 +2723,7 @@ function drawWaveform(context, width, height, waveform, audio, time) {
         waveform,
         time,
         waveformPalette,
+        cache,
       );
       break;
     default:
@@ -2667,6 +2779,7 @@ function drawFilledRibbon(
   centerY,
   amplitude,
   waveform,
+  paintCache = null,
 ) {
   context.beginPath();
   const sampleCount = samples.length;
@@ -2684,7 +2797,7 @@ function drawFilledRibbon(
     context.lineTo(x, centerY + sample * amplitude);
   }
   context.closePath();
-  context.fillStyle = waveformPaint(
+  context.fillStyle = cachedWaveformPaint(
     context,
     waveform,
     startX,
@@ -2692,6 +2805,7 @@ function drawFilledRibbon(
     startX + width,
     centerY + amplitude,
     (waveform.opacity / 100) * ((waveform.advanced?.fillOpacity ?? 28) / 100),
+    paintCache,
   );
   context.fill();
   context.stroke();
@@ -2707,6 +2821,7 @@ function drawSpectrumBars(
   waveform,
   time,
   palette,
+  cache = null,
 ) {
   const gap = Math.max(
     1,
@@ -2722,17 +2837,28 @@ function drawSpectrumBars(
     Math.max(0, Math.min(100, waveform.advanced?.barPeakHold ?? 0)) / 100;
   const peakDecay =
     Math.max(0, Math.min(100, waveform.advanced?.barPeakDecay ?? 56)) / 100;
+  const bandPaints = resolveWaveformBandPaints(
+    waveform,
+    palette,
+    spectrumLength,
+    waveform.opacity / 100,
+    cache?.bandPaints,
+  );
+  const peakPaints =
+    peakHold > 0.02
+      ? resolveWaveformBandPaints(
+          waveform,
+          palette,
+          spectrumLength,
+          Math.min(1, waveform.opacity / 70),
+          cache?.peakPaints,
+        )
+      : null;
   for (let index = 0; index < spectrumLength; index += 1) {
     const value = spectrum[index];
     const x = startX + index * (barWidth + gap);
     const barHeight = Math.max(waveform.thickness, value * amplitude * 2);
-    context.fillStyle = waveformBandPaint(
-      waveform,
-      palette,
-      index,
-      spectrumLength,
-      waveform.opacity / 100,
-    );
+    context.fillStyle = bandPaints[index];
     roundedRect(
       context,
       x,
@@ -2748,13 +2874,7 @@ function drawSpectrumBars(
         barHeight + amplitude * peakHold * (0.45 + phase * 0.18),
       );
       const capHeight = Math.max(2, waveform.thickness * 1.2);
-      context.fillStyle = waveformBandPaint(
-        waveform,
-        palette,
-        index,
-        spectrumLength,
-        Math.min(1, waveform.opacity / 70),
-      );
+      context.fillStyle = peakPaints[index];
       roundedRect(
         context,
         x,
@@ -2785,6 +2905,7 @@ function drawRadialRing(
   waveform,
   time,
   palette,
+  cache = null,
 ) {
   const arc = ((waveform.advanced?.radialArc ?? 100) / 100) * Math.PI * 2;
   const rotation =
@@ -2798,7 +2919,7 @@ function drawRadialRing(
     context.shadowBlur = (glow / 100) * Math.min(width, height) * 0.045;
     context.shadowColor = waveformBandPaint(waveform, palette, 1, 3, 0.72);
   }
-  context.strokeStyle = waveformPaint(
+  context.strokeStyle = cachedWaveformPaint(
     context,
     waveform,
     -radius,
@@ -2806,12 +2927,13 @@ function drawRadialRing(
     radius,
     0,
     Math.min(0.46, waveform.opacity / 210),
+    cache?.radialOuterPaint,
   );
   context.lineWidth = Math.max(1, waveform.thickness * 0.74);
   context.beginPath();
   context.arc(0, 0, radius, rotation, rotation + arc);
   context.stroke();
-  context.strokeStyle = waveformPaint(
+  context.strokeStyle = cachedWaveformPaint(
     context,
     waveform,
     -radius,
@@ -2819,6 +2941,7 @@ function drawRadialRing(
     radius,
     0,
     Math.min(0.28, waveform.opacity / 320),
+    cache?.radialInnerPaint,
   );
   context.lineWidth = Math.max(1, waveform.thickness * 0.42);
   context.beginPath();
@@ -2826,26 +2949,35 @@ function drawRadialRing(
   context.stroke();
   context.lineWidth = waveform.thickness;
   const spectrumLength = spectrum.length;
-  const denominator = Math.max(1, spectrumLength - 1);
+  const radialGeometry = resolveRadialGeometry(
+    spectrumLength,
+    rotation,
+    arc,
+    radius,
+    cache?.radialGeometry,
+  );
+  const bandPaints = resolveWaveformBandPaints(
+    waveform,
+    palette,
+    spectrumLength,
+    waveform.opacity / 100,
+    cache?.bandPaints,
+  );
   for (let index = 0; index < spectrumLength; index += 1) {
     const value = spectrum[index];
-    const angle = rotation + (index / denominator) * arc;
     const barHeight = Math.max(
       waveform.thickness,
       value * amplitude * (1 + Math.sin(time * 0.65 + index * 0.37) * 0.06),
     );
-    context.strokeStyle = waveformBandPaint(
-      waveform,
-      palette,
-      index,
-      spectrumLength,
-      waveform.opacity / 100,
-    );
+    context.strokeStyle = bandPaints[index];
     context.beginPath();
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    context.moveTo(cos * radius, sin * radius);
-    context.lineTo(cos * (radius + barHeight), sin * (radius + barHeight));
+    const geometryIndex = index * 4;
+    const startX = radialGeometry[geometryIndex];
+    const startY = radialGeometry[geometryIndex + 1];
+    const unitX = radialGeometry[geometryIndex + 2];
+    const unitY = radialGeometry[geometryIndex + 3];
+    context.moveTo(startX, startY);
+    context.lineTo(startX + unitX * barHeight, startY + unitY * barHeight);
     context.stroke();
   }
   context.restore();
@@ -2862,14 +2994,113 @@ function waveformPaint(context, waveform, x0, y0, x1, y1, alpha) {
   return gradient;
 }
 
-function resolveWaveformPalette(waveform) {
-  return {
+function cachedWaveformPaint(
+  context,
+  waveform,
+  x0,
+  y0,
+  x1,
+  y1,
+  alpha,
+  cache = null,
+) {
+  if (!cache) return waveformPaint(context, waveform, x0, y0, x1, y1, alpha);
+  const key = [
+    waveform.colorMode,
+    waveform.color,
+    waveform.secondaryColor,
+    waveform.tertiaryColor,
+    x0,
+    y0,
+    x1,
+    y1,
+    alpha,
+  ].join("|");
+  if (cache.key === key && cache.value) return cache.value;
+  cache.key = key;
+  cache.value = waveformPaint(context, waveform, x0, y0, x1, y1, alpha);
+  return cache.value;
+}
+
+function resolveRadialGeometry(total, rotation, arc, radius, cache = null) {
+  if (
+    cache &&
+    cache.total === total &&
+    cache.rotation === rotation &&
+    cache.arc === arc &&
+    cache.radius === radius &&
+    cache.values.length === total * 4
+  ) {
+    return cache.values;
+  }
+  const values = cache?.values ?? [];
+  values.length = total * 4;
+  const denominator = Math.max(1, total - 1);
+  for (let index = 0; index < total; index += 1) {
+    const angle = rotation + (index / denominator) * arc;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const valueIndex = index * 4;
+    values[valueIndex] = cos * radius;
+    values[valueIndex + 1] = sin * radius;
+    values[valueIndex + 2] = cos;
+    values[valueIndex + 3] = sin;
+  }
+  if (cache) {
+    cache.total = total;
+    cache.rotation = rotation;
+    cache.arc = arc;
+    cache.radius = radius;
+    cache.values = values;
+  }
+  return values;
+}
+
+function resolveWaveformPalette(waveform, cache = null) {
+  const key = [
+    waveform.color,
+    waveform.secondaryColor,
+    waveform.tertiaryColor,
+  ].join("|");
+  if (cache?.palette && cache.paletteKey === key) return cache.palette;
+  const palette = {
+    key,
     rgbs: [
       hexToRgb(waveform.color),
       hexToRgb(waveform.secondaryColor),
       hexToRgb(waveform.tertiaryColor),
     ],
   };
+  if (cache) {
+    cache.palette = palette;
+    cache.paletteKey = key;
+    cache.bandPaints.key = "";
+    cache.peakPaints.key = "";
+  }
+  return palette;
+}
+
+function resolveWaveformBandPaints(
+  waveform,
+  palette,
+  total,
+  alpha,
+  cache = null,
+) {
+  const key = `${palette.key}|${waveform.colorMode}|${total}|${alpha}`;
+  if (cache?.key === key && cache.values.length === total) {
+    return cache.values;
+  }
+  const values = cache?.values ?? [];
+  values.length = total;
+  for (let index = 0; index < total; index += 1) {
+    values[index] = waveformBandPaint(waveform, palette, index, total, alpha);
+  }
+  if (cache) {
+    cache.key = key;
+    cache.values = values;
+  }
+  return values;
 }
 
 function waveformBandPaint(waveform, palette, index, total, alpha) {
@@ -2914,10 +3145,11 @@ function roundedRect(context, x, y, width, height, radius) {
   context.fill();
 }
 
-function smoothSamples(values, smoothing = 72) {
+function smoothSamples(values, smoothing = 72, output = null) {
   const weight = Math.min(0.92, Math.max(0, smoothing / 100));
   if (weight <= 0) return values;
-  const smoothed = new Array(values.length);
+  const smoothed = output ?? new Array(values.length);
+  smoothed.length = values.length;
   let previous = values[0] ?? 0;
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
@@ -2927,8 +3159,9 @@ function smoothSamples(values, smoothing = 72) {
   return smoothed;
 }
 
-function syntheticSamples(audio, time) {
-  const samples = new Array(96);
+function syntheticSamples(audio, time, output = null) {
+  const samples = output ?? new Array(96);
+  samples.length = 96;
   const energyScale = 0.28 + (audio.energy ?? 0) * 0.72;
   for (let index = 0; index < samples.length; index += 1) {
     const x = index / 95;
@@ -2942,8 +3175,9 @@ function syntheticSamples(audio, time) {
   return samples;
 }
 
-function syntheticSpectrum(audio, time) {
-  const spectrum = new Array(24);
+function syntheticSpectrum(audio, time, output = null) {
+  const spectrum = output ?? new Array(24);
+  spectrum.length = 24;
   const bass = audio.bass ?? audio.energy ?? 0;
   const mid = audio.mid ?? audio.energy ?? 0;
   const high = audio.high ?? audio.energy ?? 0;
