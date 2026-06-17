@@ -7,7 +7,10 @@ import {
   builtinVisualPresets,
   normalizeVisualSettings,
 } from "../shared/visual-effects.mjs";
-import { renderWebglBackgroundVideo } from "../server/webgl-export.mjs";
+import {
+  createWebglRenderSession,
+  renderWebglBackgroundVideo,
+} from "../server/webgl-export.mjs";
 
 const root = path.resolve(
   path.dirname(new URL(import.meta.url).pathname.slice(1)),
@@ -61,6 +64,7 @@ const audioEnvelope = {
     frame(0.2, 0.18, 0.22, 0.14),
   ],
 };
+const renderSession = createWebglRenderSession();
 
 for (const preset of presetSmokeCases) {
   await renderAndCheck({
@@ -413,6 +417,7 @@ await renderAndCheck({
   duration: 2,
   assertAnimated: true,
 });
+await renderSession.close();
 
 async function renderAndCheck({
   name,
@@ -432,9 +437,9 @@ async function renderAndCheck({
     settings: { visualSettings: preset, webglFps: fps },
     audioEnvelope,
     composition,
+    renderSession,
     onProgress: () => {},
   });
-  await openWithFfmpeg(outputPath);
   if (minFrames) await assertFrameCountAtLeast(outputPath, minFrames);
   if (assertAnimated)
     await assertFrameVariation(outputPath, animationSampleFrame(duration, fps));
@@ -508,24 +513,6 @@ function assertFrameVariation(filePath) {
         reject(error);
       }
     });
-  });
-}
-
-function openWithFfmpeg(filePath) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      ffmpegPath,
-      ["-v", "error", "-i", filePath, "-f", "null", "-"],
-      {
-        windowsHide: true,
-      },
-    );
-    let stderr = "";
-    child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-    child.on("error", reject);
-    child.on("close", (code) =>
-      code === 0 ? resolve() : reject(new Error(stderr || `ffmpeg ${code}`)),
-    );
   });
 }
 

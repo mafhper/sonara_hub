@@ -14,6 +14,67 @@ const runtimePath = fileURLToPath(
   new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
 );
 
+export function createWebglRenderSession({
+  launchBrowser = launchWebglBrowser,
+} = {}) {
+  let browserPromise = null;
+  let closed = false;
+
+  async function getBrowser() {
+    if (closed) throw new Error("Sessão de renderização WebGL encerrada.");
+    if (!browserPromise) {
+      browserPromise = Promise.resolve().then(launchBrowser);
+    }
+    let browser;
+    try {
+      browser = await browserPromise;
+    } catch (error) {
+      browserPromise = null;
+      throw error;
+    }
+    if (typeof browser.isConnected === "function" && !browser.isConnected()) {
+      browserPromise = Promise.resolve().then(launchBrowser);
+      try {
+        browser = await browserPromise;
+      } catch (error) {
+        browserPromise = null;
+        throw error;
+      }
+    }
+    return browser;
+  }
+
+  return {
+    getBrowser,
+    async close() {
+      if (closed) return;
+      closed = true;
+      const activeBrowser = browserPromise;
+      browserPromise = null;
+      const browser = await activeBrowser?.catch(() => null);
+      await browser?.close();
+    },
+  };
+}
+
+function launchWebglBrowser() {
+  return chromium.launch({
+    headless: true,
+    args: [
+      "--allow-file-access-from-files",
+      "--autoplay-policy=no-user-gesture-required",
+      // Keep the software (SwiftShader) path usable and ignore the GPU blocklist
+      // so headless Chromium does not refuse to start a WebGL context. Forcing a
+      // real GPU is opt-in because it can fail in a Windows service context.
+      "--enable-unsafe-swiftshader",
+      "--ignore-gpu-blocklist",
+      ...(process.env.SONARA_FORCE_GPU === "1"
+        ? ["--use-angle=gl", "--enable-gpu"]
+        : []),
+    ],
+  });
+}
+
 export async function renderWebglBackgroundVideo(options) {
   const { size, onProgress, onTelemetry } = options;
   try {
@@ -166,23 +227,12 @@ async function runWebglRenderAttempt(options, size, attempt) {
   let browser;
   let context;
   let page;
-  browser = await timedTelemetryPhase(emitTelemetry, "browser-launch", () =>
-    chromium.launch({
-      headless: true,
-      args: [
-        "--allow-file-access-from-files",
-        "--autoplay-policy=no-user-gesture-required",
-        // Keep the software (SwiftShader) path usable and ignore the GPU blocklist
-        // so headless Chromium does not refuse to start a WebGL context. Forcing a
-        // real GPU is opt-in (SONARA_FORCE_GPU=1) since it can fail to launch in a
-        // non-interactive/service context on Windows.
-        "--enable-unsafe-swiftshader",
-        "--ignore-gpu-blocklist",
-        ...(process.env.SONARA_FORCE_GPU === "1"
-          ? ["--use-angle=gl", "--enable-gpu"]
-          : []),
-      ],
-    }),
+  const renderSession = options.renderSession;
+  const ownsBrowser = !renderSession;
+  browser = await timedTelemetryPhase(
+    emitTelemetry,
+    renderSession ? "browser-acquire" : "browser-launch",
+    () => (renderSession ? renderSession.getBrowser() : launchWebglBrowser()),
   );
   await timedTelemetryPhase(emitTelemetry, "page-open", async () => {
     context = await browser.newContext({
@@ -231,8 +281,8 @@ async function runWebglRenderAttempt(options, size, attempt) {
 
   // Server-side cancel watcher: a slow per-frame render can block the page's JS
   // thread, so the in-page reportSceneProgress callback (and page.close) may not
-  // run. Polling here and force-closing the browser process aborts the render
-  // even when the page is wedged.
+  // run. Polling here force-closes the owned browser or the current shared
+  // context, aborting the render even when the page is wedged.
   let cancelWatcher = null;
   if (typeof shouldCancel === "function") {
     cancelWatcher = setInterval(() => {
@@ -240,7 +290,7 @@ async function runWebglRenderAttempt(options, size, attempt) {
         canceled = true;
         clearInterval(cancelWatcher);
         cancelWatcher = null;
-        browser.close().catch(() => {});
+        (ownsBrowser ? browser : context).close().catch(() => {});
       }
     }, 400);
   }
@@ -280,7 +330,7 @@ async function runWebglRenderAttempt(options, size, attempt) {
     if (cancelWatcher) clearInterval(cancelWatcher);
     await file.close();
     await context.close().catch(() => {});
-    await browser.close().catch(() => {});
+    if (ownsBrowser) await browser.close().catch(() => {});
   }
 
   if (canceled) throw canceledRenderError();
@@ -318,18 +368,7 @@ async function runWebglPosterAttempt(options, size) {
     "utf8",
   );
 
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      "--allow-file-access-from-files",
-      "--autoplay-policy=no-user-gesture-required",
-      "--enable-unsafe-swiftshader",
-      "--ignore-gpu-blocklist",
-      ...(process.env.SONARA_FORCE_GPU === "1"
-        ? ["--use-angle=gl", "--enable-gpu"]
-        : []),
-    ],
-  });
+  const browser = await launchWebglBrowser();
   const context = await browser.newContext({
     deviceScaleFactor: 1,
     viewport: { width: size.width, height: size.height },

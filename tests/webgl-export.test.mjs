@@ -3,8 +3,35 @@ import test from "node:test";
 import {
   assertWebmDecodeReport,
   buildRendererHtml,
+  createWebglRenderSession,
   describeSceneRenderError,
 } from "../server/webgl-export.mjs";
+
+test("WebGL render session reuses and closes its browser", async () => {
+  let launchCount = 0;
+  let closeCount = 0;
+  const browser = {
+    isConnected: () => true,
+    close: async () => {
+      closeCount += 1;
+    },
+  };
+  const session = createWebglRenderSession({
+    launchBrowser: async () => {
+      launchCount += 1;
+      return browser;
+    },
+  });
+
+  assert.equal(await session.getBrowser(), browser);
+  assert.equal(await session.getBrowser(), browser);
+  assert.equal(launchCount, 1);
+
+  await session.close();
+  await session.close();
+  assert.equal(closeCount, 1);
+  await assert.rejects(() => session.getBrowser(), /encerrada/i);
+});
 
 test("canvas exporter requests deterministic frames instead of relying on headless animation", () => {
   const html = buildRendererHtml({
