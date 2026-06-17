@@ -1081,13 +1081,47 @@ function resolveRenderStackItems(
       };
     }
     if (item.kind === "media") {
+      const layer = mediaLayerMap.get(item.layerId);
       return {
         ...item,
-        layer: mediaLayerMap.get(item.layerId),
+        layer,
+        mediaState: createMediaLayerRenderState(layer),
       };
     }
     return item;
   });
+}
+
+function createMediaLayerRenderState(layer) {
+  if (!layer) return null;
+  const element = layer.element;
+  const visible = layer.visible !== false;
+  const shadow = layer.shadow ?? {};
+  const blur = layer.blur;
+  const maskOpacity = layer.maskOpacity;
+  return {
+    compositeOperation: blendModes[layer.blendMode] ?? "source-over",
+    coverFadeOut: layer.coverFadeOut,
+    element,
+    enabled: visible && Boolean(element),
+    fadeIn: layer.fadeIn,
+    filter: blur ? `blur(${Math.max(0, blur)}px)` : null,
+    fitCover: layer.fit === "cover",
+    maskFillStyle: maskOpacity
+      ? `rgba(0,0,0,${Math.max(0, Math.min(100, maskOpacity)) / 100})`
+      : null,
+    opacity: layer.opacity,
+    rotation: ((layer.rotation ?? 0) * Math.PI) / 180,
+    scale: (layer.scale ?? 100) / 100,
+    shadowBlur: shadow.blur ?? 0,
+    shadowColor: `rgba(0,0,0,${(shadow.opacity ?? 0) / 100})`,
+    shadowOffsetX: shadow.x ?? 0,
+    shadowOffsetY: shadow.y ?? 0,
+    visible,
+    x: (layer.x ?? 50) / 100,
+    y: (layer.y ?? 50) / 100,
+    zoom: layer.zoom,
+  };
 }
 
 function createAtmosphereRendererCache() {
@@ -1372,7 +1406,7 @@ export function createSceneRuntime(
           break;
         case "media": {
           const layer = item.layer;
-          if (layer && layer.visible !== false && layer.element) {
+          if (layer && item.mediaState?.enabled) {
             drawMediaLayer(
               context,
               width,
@@ -1380,6 +1414,7 @@ export function createSceneRuntime(
               layer,
               time,
               composition.durationSeconds,
+              item.mediaState,
             );
           }
           break;
@@ -2407,31 +2442,32 @@ function drawMediaLayer(
   layer,
   time = 0,
   durationSeconds = null,
+  mediaState = null,
 ) {
-  const element = layer.element;
-  if (!element) return;
-  const opacity = effectiveLayerOpacity(layer, time, durationSeconds);
+  const prepared = mediaState ?? createMediaLayerRenderState(layer);
+  if (!prepared?.enabled) return;
+  const element = prepared.element;
+  const opacity = effectiveLayerOpacity(prepared, time, durationSeconds);
   if (opacity <= 0) return;
   const bounds = mediaLayerBounds(width, height, layer, time, durationSeconds, {
     precomputedOpacity: opacity,
+    preparedLayer: prepared,
   });
   if (!bounds) return;
   const drawWidth = bounds.drawWidth;
   const drawHeight = bounds.drawHeight;
   const x = bounds.x;
   const y = bounds.y;
-  const shadow = layer.shadow ?? {};
   context.save();
-  context.globalCompositeOperation =
-    blendModes[layer.blendMode] ?? "source-over";
+  context.globalCompositeOperation = prepared.compositeOperation;
   context.globalAlpha = opacity;
-  context.shadowColor = `rgba(0,0,0,${(shadow.opacity ?? 0) / 100})`;
-  context.shadowBlur = shadow.blur ?? 0;
-  context.shadowOffsetX = shadow.x ?? 0;
-  context.shadowOffsetY = shadow.y ?? 0;
+  context.shadowColor = prepared.shadowColor;
+  context.shadowBlur = prepared.shadowBlur;
+  context.shadowOffsetX = prepared.shadowOffsetX;
+  context.shadowOffsetY = prepared.shadowOffsetY;
   context.translate(x + drawWidth / 2, y + drawHeight / 2);
-  context.rotate(((layer.rotation ?? 0) * Math.PI) / 180);
-  if (layer.blur) context.filter = `blur(${Math.max(0, layer.blur)}px)`;
+  context.rotate(prepared.rotation);
+  if (prepared.filter) context.filter = prepared.filter;
   context.drawImage(
     element,
     -drawWidth / 2,
@@ -2440,8 +2476,8 @@ function drawMediaLayer(
     drawHeight,
   );
   context.filter = "none";
-  if (layer.maskOpacity) {
-    context.fillStyle = `rgba(0,0,0,${Math.max(0, Math.min(100, layer.maskOpacity)) / 100})`;
+  if (prepared.maskFillStyle) {
+    context.fillStyle = prepared.maskFillStyle;
     context.fillRect(-drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
   }
   context.restore();
@@ -2455,26 +2491,37 @@ export function mediaLayerBounds(
   durationSeconds = null,
   options = {},
 ) {
-  const element = layer?.element;
-  if (!element || layer.visible === false) return null;
+  const prepared = options.preparedLayer;
+  const element = prepared ? prepared.element : layer?.element;
+  const visible = prepared ? prepared.visible : layer?.visible !== false;
+  if (!element || !visible) return null;
   const opacity = Number.isFinite(options.precomputedOpacity)
     ? options.precomputedOpacity
     : effectiveLayerOpacity(layer, time, durationSeconds);
   if (opacity <= 0) return null;
   const naturalWidth = element.videoWidth || element.naturalWidth || width;
   const naturalHeight = element.videoHeight || element.naturalHeight || height;
-  const zoom = effectiveZoomScale(layer.zoom, time, durationSeconds);
-  const targetWidth = width * ((layer.scale ?? 100) / 100) * zoom;
-  const targetHeight = height * ((layer.scale ?? 100) / 100) * zoom;
-  const factor =
-    layer.fit === "cover"
-      ? Math.max(targetWidth / naturalWidth, targetHeight / naturalHeight)
-      : Math.min(targetWidth / naturalWidth, targetHeight / naturalHeight);
+  const zoom = effectiveZoomScale(
+    prepared ? prepared.zoom : layer.zoom,
+    time,
+    durationSeconds,
+  );
+  const scale = prepared ? prepared.scale : (layer.scale ?? 100) / 100;
+  const targetWidth = width * scale * zoom;
+  const targetHeight = height * scale * zoom;
+  const fitCover = prepared ? prepared.fitCover : layer.fit === "cover";
+  const factor = fitCover
+    ? Math.max(targetWidth / naturalWidth, targetHeight / naturalHeight)
+    : Math.min(targetWidth / naturalWidth, targetHeight / naturalHeight);
   const drawWidth = naturalWidth * factor;
   const drawHeight = naturalHeight * factor;
-  const x = (width - drawWidth) * ((layer.x ?? 50) / 100);
-  const y = (height - drawHeight) * ((layer.y ?? 50) / 100);
-  const rotation = (((layer.rotation ?? 0) * Math.PI) / 180) % (Math.PI * 2);
+  const x =
+    (width - drawWidth) * (prepared ? prepared.x : (layer.x ?? 50) / 100);
+  const y =
+    (height - drawHeight) * (prepared ? prepared.y : (layer.y ?? 50) / 100);
+  const rotation =
+    (prepared ? prepared.rotation : ((layer.rotation ?? 0) * Math.PI) / 180) %
+    (Math.PI * 2);
   if (!rotation) {
     return {
       x,

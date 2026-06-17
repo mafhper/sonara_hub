@@ -533,6 +533,68 @@ test("scene runtime renders the pre-resolved stack without per-frame map lookups
   }
 });
 
+test("scene runtime resolves static media draw state outside the frame loop", () => {
+  const cleanup = installFakeDocument();
+  let runtime = null;
+  try {
+    const context = fakeCanvasContext();
+    const layer = {
+      id: "media-static",
+      order: 0,
+    };
+    const staticValues = {
+      blendMode: "screen",
+      blur: 3,
+      coverFadeOut: { enabled: false },
+      element: {
+        id: "media-static",
+        naturalHeight: 90,
+        naturalWidth: 160,
+      },
+      fit: "cover",
+      fadeIn: { enabled: false },
+      maskOpacity: 18,
+      opacity: 80,
+      rotation: 12,
+      scale: 86,
+      shadow: { opacity: 24, blur: 8, x: 2, y: 4 },
+      visible: true,
+      x: 42,
+      y: 58,
+      zoom: { enabled: false },
+    };
+    let staticPropertyReads = 0;
+    for (const [key, value] of Object.entries(staticValues)) {
+      Object.defineProperty(layer, key, {
+        configurable: true,
+        enumerable: true,
+        get() {
+          staticPropertyReads += 1;
+          return value;
+        },
+      });
+    }
+    runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({ id: "vector-aura" }),
+      {
+        showMetadata: false,
+        renderOrder: [{ kind: "media", layerId: layer.id, order: 0 }],
+        layers: [layer],
+      },
+    );
+    staticPropertyReads = 0;
+
+    runtime.render(0.5, 24);
+
+    assert.equal(staticPropertyReads, 0);
+    assert.equal(context.calls.drawImage.at(-1), "media-static");
+  } finally {
+    runtime?.destroy();
+    cleanup();
+  }
+});
+
 test("WebGL scene runtime uploads static uniforms only when scene or size changes", () => {
   const cleanup = installFakeDocument();
   try {
