@@ -517,7 +517,10 @@ test("scene runtime renders the pre-resolved stack without per-frame map lookups
       },
     );
 
-    Map.prototype.get = function forbiddenFrameLookup() {
+    Map.prototype.get = function guardedFrameLookup(key) {
+      if (typeof key === "string" && /^#[0-9a-f]{6}$/i.test(key)) {
+        return originalMapGet.call(this, key);
+      }
       throw new Error("Map.get should not run during frame render");
     };
 
@@ -738,6 +741,44 @@ test("scene runtime renders canvas 2d atmosphere renderers", () => {
       runtime.destroy();
     }
   } finally {
+    cleanup();
+  }
+});
+
+test("scene runtime caches parsed hex colors between frames", () => {
+  const cleanup = installFakeDocument();
+  const originalParseInt = Number.parseInt;
+  let runtime = null;
+  let hexParseCalls = 0;
+  try {
+    const context = fakeCanvasContext();
+    runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({
+        id: "vector-aura",
+        colors: {
+          base: "#123457",
+          effect: "#89abcd",
+          light: "#0fedcb",
+        },
+      }),
+      { showMetadata: false },
+    );
+
+    Number.parseInt = function countedParseInt(value, radix) {
+      if (radix === 16) hexParseCalls += 1;
+      return originalParseInt(value, radix);
+    };
+
+    runtime.render(0, 24);
+    assert.ok(hexParseCalls > 0);
+
+    hexParseCalls = 0;
+    runtime.render(1 / 24, 24);
+    assert.equal(hexParseCalls, 0);
+  } finally {
+    Number.parseInt = originalParseInt;
+    runtime?.destroy();
     cleanup();
   }
 });

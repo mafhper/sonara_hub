@@ -8,6 +8,8 @@ const LITTLE_ENDIAN =
 const HAS_OWN_PROPERTY = Object.prototype.hasOwnProperty;
 const PIANO_BLACK_KEY_PATTERN = new Set([0, 1, 3, 4, 5]);
 const PLAYFUL_FALLBACK_GLYPHS = ["•"];
+const HEX_COLOR_VALUE_CACHE_LIMIT = 256;
+const hexColorValueCache = new Map();
 const PLAYFUL_MOTION_CALM = {
   travel: 0.64,
   rotation: 0.58,
@@ -3886,10 +3888,18 @@ function hexToRgb(hex) {
 }
 
 function hexColorValue(hex) {
-  const safeHex = /^#[0-9a-f]{6}$/i.test(String(hex ?? ""))
-    ? String(hex)
+  const source = String(hex ?? "");
+  const safeHex = /^#[0-9a-f]{6}$/i.test(source)
+    ? source.toLowerCase()
     : "#ffffff";
-  return Number.parseInt(safeHex.slice(1), 16);
+  const cached = hexColorValueCache.get(safeHex);
+  if (cached !== undefined) return cached;
+  const value = Number.parseInt(safeHex.slice(1), 16);
+  if (hexColorValueCache.size >= HEX_COLOR_VALUE_CACHE_LIMIT) {
+    hexColorValueCache.clear();
+  }
+  hexColorValueCache.set(safeHex, value);
+  return value;
 }
 
 function hexToRgba(hex, alpha) {
