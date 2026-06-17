@@ -540,14 +540,27 @@ test("WebGL scene runtime uploads static uniforms only when scene or size change
       normalizeVisualSettings({ id: "liquid-mesh" }),
       { showMetadata: false },
     );
+    const initialBindBufferCount = cleanup.gl.calls.bindBuffer.length;
 
     runtime.render(0);
     const firstUniform1fCount = cleanup.gl.calls.uniform1f.length;
     const firstUniform2fCount = cleanup.gl.calls.uniform2f.length;
     const firstUniform3fvCount = cleanup.gl.calls.uniform3fv.length;
+    const firstBindBufferCount = cleanup.gl.calls.bindBuffer.length;
+    const firstEnableVertexAttribArrayCount =
+      cleanup.gl.calls.enableVertexAttribArray.length;
+    const firstUseProgramCount = cleanup.gl.calls.useProgram.length;
+    const firstVertexAttribPointerCount =
+      cleanup.gl.calls.vertexAttribPointer.length;
+    const firstViewportCount = cleanup.gl.calls.viewport.length;
     assert.ok(firstUniform1fCount > 10);
     assert.equal(firstUniform2fCount, 1);
     assert.equal(firstUniform3fvCount, 4);
+    assert.equal(firstBindBufferCount, initialBindBufferCount + 1);
+    assert.equal(firstEnableVertexAttribArrayCount, 1);
+    assert.equal(firstUseProgramCount, 1);
+    assert.equal(firstVertexAttribPointerCount, 1);
+    assert.equal(firstViewportCount, 1);
 
     runtime.render(0.5);
     const secondUniform1fCount =
@@ -559,6 +572,17 @@ test("WebGL scene runtime uploads static uniforms only when scene or size change
     assert.equal(secondUniform1fCount, 10);
     assert.equal(secondUniform2fCount, 0);
     assert.equal(secondUniform3fvCount, 0);
+    assert.equal(cleanup.gl.calls.bindBuffer.length, firstBindBufferCount);
+    assert.equal(
+      cleanup.gl.calls.enableVertexAttribArray.length,
+      firstEnableVertexAttribArrayCount,
+    );
+    assert.equal(cleanup.gl.calls.useProgram.length, firstUseProgramCount);
+    assert.equal(
+      cleanup.gl.calls.vertexAttribPointer.length,
+      firstVertexAttribPointerCount,
+    );
+    assert.equal(cleanup.gl.calls.viewport.length, firstViewportCount);
 
     canvas.clientWidth = 160;
     canvas.clientHeight = 90;
@@ -569,6 +593,45 @@ test("WebGL scene runtime uploads static uniforms only when scene or size change
       secondUniform1fCount;
     assert.ok(resizedUniform1fCount > secondUniform1fCount);
     assert.equal(cleanup.gl.calls.uniform2f.length, 2);
+    assert.equal(cleanup.gl.calls.bindBuffer.length, firstBindBufferCount);
+    assert.equal(cleanup.gl.calls.useProgram.length, firstUseProgramCount);
+    assert.equal(cleanup.gl.calls.viewport.length, firstViewportCount + 1);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("WebGL scene runtime keeps static uniforms cached per shader program", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({
+        id: "liquid-mesh",
+        atmosphereLayers: [
+          { scene: { id: "liquid-mesh" } },
+          {
+            opacity: 55,
+            blendMode: "screen",
+            scene: { id: "fractal-sphere" },
+          },
+        ],
+      }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0);
+    const firstUniform1fCount = cleanup.gl.calls.uniform1f.length;
+    const firstUniform2fCount = cleanup.gl.calls.uniform2f.length;
+    const firstUniform3fvCount = cleanup.gl.calls.uniform3fv.length;
+
+    runtime.render(0.5);
+    assert.equal(cleanup.gl.calls.uniform1f.length - firstUniform1fCount, 20);
+    assert.equal(cleanup.gl.calls.uniform2f.length - firstUniform2fCount, 0);
+    assert.equal(cleanup.gl.calls.uniform3fv.length - firstUniform3fvCount, 0);
 
     runtime.destroy();
   } finally {
@@ -1507,7 +1570,17 @@ function fakePostCanvasContext() {
 }
 
 function fakeWebglContext() {
-  const calls = { uniform1f: [], uniform2f: [], uniform3fv: [] };
+  const calls = {
+    bindBuffer: [],
+    drawArrays: [],
+    enableVertexAttribArray: [],
+    uniform1f: [],
+    uniform2f: [],
+    uniform3fv: [],
+    useProgram: [],
+    vertexAttribPointer: [],
+    viewport: [],
+  };
   return {
     ARRAY_BUFFER: 0x8892,
     COMPILE_STATUS: 0x8b81,
@@ -1519,7 +1592,9 @@ function fakeWebglContext() {
     VERTEX_SHADER: 0x8b31,
     calls,
     attachShader() {},
-    bindBuffer() {},
+    bindBuffer(...args) {
+      calls.bindBuffer.push(args);
+    },
     bufferData() {},
     compileShader() {},
     createBuffer: () => ({}),
@@ -1528,8 +1603,12 @@ function fakeWebglContext() {
     deleteBuffer() {},
     deleteProgram() {},
     deleteShader() {},
-    drawArrays() {},
-    enableVertexAttribArray() {},
+    drawArrays(...args) {
+      calls.drawArrays.push(args);
+    },
+    enableVertexAttribArray(...args) {
+      calls.enableVertexAttribArray.push(args);
+    },
     getAttribLocation: () => 0,
     getProgramInfoLog: () => "",
     getProgramParameter: () => true,
@@ -1548,9 +1627,15 @@ function fakeWebglContext() {
     uniform3fv(location, value) {
       calls.uniform3fv.push([location, Array.from(value)]);
     },
-    useProgram() {},
-    vertexAttribPointer() {},
-    viewport() {},
+    useProgram(program) {
+      calls.useProgram.push(program);
+    },
+    vertexAttribPointer(...args) {
+      calls.vertexAttribPointer.push(args);
+    },
+    viewport(...args) {
+      calls.viewport.push(args);
+    },
   };
 }
 

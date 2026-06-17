@@ -1454,7 +1454,10 @@ function createWebglRenderer(canvas) {
   );
   const programs = new Map();
   const sceneUniformCache = new WeakMap();
-  let activeStaticUniforms = null;
+  const staticUniformStates = new Map();
+  let activeProgram = null;
+  let viewportWidth = 0;
+  let viewportHeight = 0;
   const buffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(
@@ -1512,17 +1515,24 @@ function createWebglRenderer(canvas) {
   function render(scene, audio, time) {
     const compiled = getProgram(scene.rendererId);
     const uniforms = getSceneUniformData(scene);
-    gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.useProgram(compiled.program);
-    gl.enableVertexAttribArray(compiled.position);
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    gl.vertexAttribPointer(compiled.position, 2, gl.FLOAT, false, 0, 0);
+    if (viewportWidth !== canvas.width || viewportHeight !== canvas.height) {
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      viewportWidth = canvas.width;
+      viewportHeight = canvas.height;
+    }
+    if (activeProgram !== compiled.program) {
+      gl.useProgram(compiled.program);
+      gl.enableVertexAttribArray(compiled.position);
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.vertexAttribPointer(compiled.position, 2, gl.FLOAT, false, 0, 0);
+      activeProgram = compiled.program;
+    }
+    const staticUniforms = staticUniformStates.get(compiled.program);
     if (
-      !activeStaticUniforms ||
-      activeStaticUniforms.program !== compiled.program ||
-      activeStaticUniforms.scene !== scene ||
-      activeStaticUniforms.width !== canvas.width ||
-      activeStaticUniforms.height !== canvas.height
+      !staticUniforms ||
+      staticUniforms.scene !== scene ||
+      staticUniforms.width !== canvas.width ||
+      staticUniforms.height !== canvas.height
     ) {
       set2f("resolution", canvas.width, canvas.height);
       set1f("intensity", uniforms.intensity);
@@ -1547,12 +1557,11 @@ function createWebglRenderer(canvas) {
       set1f("cloudSunSpeed", uniforms.cloudSunSpeed);
       set1f("cloudSunDirection", uniforms.cloudSunDirection);
       set3fv("cloudSunColor", uniforms.cloudSunColor);
-      activeStaticUniforms = {
-        program: compiled.program,
+      staticUniformStates.set(compiled.program, {
         scene,
         width: canvas.width,
         height: canvas.height,
-      };
+      });
     }
     set1f("time", time);
     set1f("audioEnergy", audio.energy ?? 0);
