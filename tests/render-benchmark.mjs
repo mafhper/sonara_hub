@@ -15,6 +15,7 @@ import {
   builtinVisualPresets,
   normalizeVisualSettings,
 } from "../shared/visual-effects.mjs";
+import { selectBenchmarkCases } from "./render-benchmark-selection.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const benchRoot = path.join(root, ".dev", "bench");
@@ -30,7 +31,10 @@ const profile =
 const audioPath = path.join(assetsDir, "bench-audio.m4a");
 const layerPath = path.join(assetsDir, "bench-layer.png");
 const coverPath = path.join(assetsDir, "bench-cover.png");
-const modeCases = buildCases(profile);
+const modeCases = selectBenchmarkCases(
+  buildCases(profile),
+  option("case") ?? process.env.SONARA_BENCH_CASE,
+);
 const audioMode =
   option("audio") ?? process.env.SONARA_BENCH_AUDIO ?? "synthetic";
 const repeat = parseRepeat(
