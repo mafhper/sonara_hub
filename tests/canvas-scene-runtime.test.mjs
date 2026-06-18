@@ -990,6 +990,88 @@ test("scene runtime reuses static 2d gradients until the canvas resizes", () => 
   }
 });
 
+test("scene runtime caches vector aura direction trigonometry per scene", () => {
+  const cleanup = installFakeDocument();
+  const originalCos = Math.cos;
+  const originalSin = Math.sin;
+  let runtime = null;
+  try {
+    const direction = 137;
+    const directionRadians = (direction * Math.PI) / 180;
+    let directionCosCalls = 0;
+    let directionSinCalls = 0;
+    Math.cos = function countedDirectionCos(value) {
+      if (value === directionRadians) directionCosCalls += 1;
+      return originalCos(value);
+    };
+    Math.sin = function countedDirectionSin(value) {
+      if (value === directionRadians + 1) directionSinCalls += 1;
+      return originalSin(value);
+    };
+    const scene = normalizeVisualSettings({
+      id: "vector-aura",
+      common: { direction },
+    });
+    runtime = createSceneRuntime(fakeCanvas(fakeCanvasContext()), scene, {
+      showMetadata: false,
+    });
+
+    runtime.render(0.5, 24);
+    assert.equal(directionCosCalls, 1);
+    assert.equal(directionSinCalls, 1);
+
+    runtime.render(1, 24);
+    assert.equal(directionCosCalls, 1);
+    assert.equal(directionSinCalls, 1);
+
+    runtime.setScene(structuredClone(scene));
+    runtime.render(1.5, 24);
+    assert.equal(directionCosCalls, 2);
+    assert.equal(directionSinCalls, 2);
+  } finally {
+    Math.cos = originalCos;
+    Math.sin = originalSin;
+    runtime?.destroy();
+    cleanup();
+  }
+});
+
+test("scene runtime caches piano ribbon direction trigonometry per scene", () => {
+  const cleanup = installFakeDocument();
+  const originalCos = Math.cos;
+  let runtime = null;
+  try {
+    const direction = 223;
+    const directionRadians = (direction * Math.PI) / 180;
+    let directionCosCalls = 0;
+    Math.cos = function countedDirectionCos(value) {
+      if (value === directionRadians) directionCosCalls += 1;
+      return originalCos(value);
+    };
+    const scene = normalizeVisualSettings({
+      id: "piano-ribbons",
+      common: { direction },
+    });
+    runtime = createSceneRuntime(fakeCanvas(fakeCanvasContext()), scene, {
+      showMetadata: false,
+    });
+
+    runtime.render(0.5, 24);
+    assert.equal(directionCosCalls, 1);
+
+    runtime.render(1, 24);
+    assert.equal(directionCosCalls, 1);
+
+    runtime.setScene(structuredClone(scene));
+    runtime.render(1.5, 24);
+    assert.equal(directionCosCalls, 2);
+  } finally {
+    Math.cos = originalCos;
+    runtime?.destroy();
+    cleanup();
+  }
+});
+
 test("scene runtime parses playful glyph collections once per scene", () => {
   const cleanup = installFakeDocument();
   const originalSplit = String.prototype.split;
