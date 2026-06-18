@@ -1349,6 +1349,9 @@ export function createSceneRuntime(
     const cache = renderCache;
     context.save();
     context.clearRect(0, 0, width, height);
+    // Allow WebGL atmosphere layers to dedupe identical output within this
+    // frame, but never reuse a previous frame's back buffer (see beginFrame).
+    webgl.beginFrame();
 
     for (const item of cache.resolvedStack) {
       switch (item.kind) {
@@ -1596,6 +1599,18 @@ function createWebglRenderer(canvas) {
     return compiled;
   }
 
+  function beginFrame() {
+    // The identical-output reuse below is only safe within a single frame:
+    // skipping drawArrays leaves the previous draw in the WebGL back buffer,
+    // which is then blitted again via drawImage for an identical stacked
+    // layer. Across frames the back buffer is not reliably retained (it is
+    // driver-dependent even with preserveDrawingBuffer), so a static/paused
+    // atmosphere that skips every frame would blit a cleared, black buffer.
+    // Resetting per frame forces the first atmosphere render of each frame to
+    // redraw while still deduping identical layers inside the same frame.
+    lastRenderedFrame = null;
+  }
+
   function render(scene, audio, time) {
     const compiled = getProgram(scene.rendererId);
     const uniforms = getSceneUniformData(scene);
@@ -1797,6 +1812,7 @@ function createWebglRenderer(canvas) {
   }
 
   return {
+    beginFrame,
     render,
     destroy() {
       for (const { program } of programs.values()) gl.deleteProgram(program);

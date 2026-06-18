@@ -825,6 +825,38 @@ test("WebGL scene runtime reuses identical atmosphere output within a frame", ()
   }
 });
 
+test("WebGL scene runtime redraws a static atmosphere on every frame", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({ id: "liquid-mesh" }),
+      { showMetadata: false },
+    );
+
+    // The preview loop clears the 2D canvas and re-blits the offscreen WebGL
+    // canvas every frame. With identical inputs (paused playback, no audio)
+    // the renderer must still issue a real drawArrays each frame — reusing the
+    // previous frame's back buffer can blit a cleared, black surface.
+    runtime.render(0.5);
+    assert.equal(cleanup.gl.calls.drawArrays.length, 1);
+    assert.equal(context.calls.drawImage.length, 1);
+
+    runtime.render(0.5);
+    assert.equal(cleanup.gl.calls.drawArrays.length, 2);
+    assert.equal(context.calls.drawImage.length, 2);
+
+    runtime.render(0.5);
+    assert.equal(cleanup.gl.calls.drawArrays.length, 3);
+    assert.equal(context.calls.drawImage.length, 3);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
 test("WebGL scene runtime refreshes dynamic uniforms only when frame input changes", () => {
   const cleanup = installFakeDocument();
   try {
