@@ -5,7 +5,7 @@ export function selectBenchmarkCases(cases, selection) {
       .map((value) => value.trim())
       .filter(Boolean),
   );
-  if (!requested.size) return cases;
+  if (!requested.size) return cases.filter((item) => !item.targetedOnly);
 
   const available = new Set(cases.map((item) => item.id));
   for (const id of requested) {

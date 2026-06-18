@@ -1539,6 +1539,7 @@ function createWebglRenderer(canvas) {
   const dynamicUniformStates = new Map();
   const staticUniformStates = new Map();
   let activeProgram = null;
+  let lastRenderedFrame = null;
   let viewportWidth = 0;
   let viewportHeight = 0;
   const buffer = gl.createBuffer();
@@ -1598,6 +1599,33 @@ function createWebglRenderer(canvas) {
   function render(scene, audio, time) {
     const compiled = getProgram(scene.rendererId);
     const uniforms = getSceneUniformData(scene);
+    const audioEnergy = audio.energy ?? 0;
+    const audioBass = audio.bass ?? 0;
+    const audioMid = audio.mid ?? 0;
+    const audioHigh = audio.high ?? 0;
+    const audioCentroid = audio.centroid ?? 0;
+    const audioFlux = audio.flux ?? 0;
+    const audioOnset = audio.onset ?? 0;
+    const audioBeat = audio.beat ?? 0;
+    const beatPhase = audio.beatPhase ?? 0;
+    if (
+      lastRenderedFrame?.program === compiled.program &&
+      lastRenderedFrame.staticKey === uniforms.staticKey &&
+      lastRenderedFrame.width === canvas.width &&
+      lastRenderedFrame.height === canvas.height &&
+      lastRenderedFrame.time === time &&
+      lastRenderedFrame.audioEnergy === audioEnergy &&
+      lastRenderedFrame.audioBass === audioBass &&
+      lastRenderedFrame.audioMid === audioMid &&
+      lastRenderedFrame.audioHigh === audioHigh &&
+      lastRenderedFrame.audioCentroid === audioCentroid &&
+      lastRenderedFrame.audioFlux === audioFlux &&
+      lastRenderedFrame.audioOnset === audioOnset &&
+      lastRenderedFrame.audioBeat === audioBeat &&
+      lastRenderedFrame.beatPhase === beatPhase
+    ) {
+      return;
+    }
     if (viewportWidth !== canvas.width || viewportHeight !== canvas.height) {
       gl.viewport(0, 0, canvas.width, canvas.height);
       viewportWidth = canvas.width;
@@ -1646,15 +1674,6 @@ function createWebglRenderer(canvas) {
         height: canvas.height,
       });
     }
-    const audioEnergy = audio.energy ?? 0;
-    const audioBass = audio.bass ?? 0;
-    const audioMid = audio.mid ?? 0;
-    const audioHigh = audio.high ?? 0;
-    const audioCentroid = audio.centroid ?? 0;
-    const audioFlux = audio.flux ?? 0;
-    const audioOnset = audio.onset ?? 0;
-    const audioBeat = audio.beat ?? 0;
-    const beatPhase = audio.beatPhase ?? 0;
     let dynamicUniforms = dynamicUniformStates.get(compiled.program);
     if (
       !dynamicUniforms ||
@@ -1695,6 +1714,21 @@ function createWebglRenderer(canvas) {
       dynamicUniforms.beatPhase = beatPhase;
     }
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+    if (!lastRenderedFrame) lastRenderedFrame = {};
+    lastRenderedFrame.program = compiled.program;
+    lastRenderedFrame.staticKey = uniforms.staticKey;
+    lastRenderedFrame.width = canvas.width;
+    lastRenderedFrame.height = canvas.height;
+    lastRenderedFrame.time = time;
+    lastRenderedFrame.audioEnergy = audioEnergy;
+    lastRenderedFrame.audioBass = audioBass;
+    lastRenderedFrame.audioMid = audioMid;
+    lastRenderedFrame.audioHigh = audioHigh;
+    lastRenderedFrame.audioCentroid = audioCentroid;
+    lastRenderedFrame.audioFlux = audioFlux;
+    lastRenderedFrame.audioOnset = audioOnset;
+    lastRenderedFrame.audioBeat = audioBeat;
+    lastRenderedFrame.beatPhase = beatPhase;
 
     function set1f(name, value) {
       gl.uniform1f(compiled.uniforms[name], value);

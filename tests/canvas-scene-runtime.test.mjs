@@ -775,6 +775,56 @@ test("WebGL scene runtime reuses static uniforms for equivalent same-shader laye
   }
 });
 
+test("WebGL scene runtime reuses identical atmosphere output within a frame", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const canvas = fakeCanvas(context);
+    const runtime = createSceneRuntime(
+      canvas,
+      normalizeVisualSettings({
+        id: "liquid-mesh",
+        atmosphereLayers: [
+          { scene: { id: "liquid-mesh" } },
+          {
+            opacity: 55,
+            blendMode: "screen",
+            scene: { id: "liquid-mesh" },
+          },
+        ],
+      }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0.5);
+    assert.equal(cleanup.gl.calls.drawArrays.length, 1);
+    assert.deepEqual(context.calls.drawImage, ["canvas", "canvas"]);
+
+    runtime.render(1);
+    assert.equal(cleanup.gl.calls.drawArrays.length, 2);
+    assert.deepEqual(context.calls.drawImage, [
+      "canvas",
+      "canvas",
+      "canvas",
+      "canvas",
+    ]);
+
+    runtime.setAudio({ energy: 0.75 });
+    runtime.render(1);
+    assert.equal(cleanup.gl.calls.drawArrays.length, 3);
+
+    canvas.clientWidth = 160;
+    canvas.clientHeight = 90;
+    runtime.render(1);
+    assert.equal(cleanup.gl.calls.drawArrays.length, 4);
+    assert.equal(context.calls.drawImage.length, 8);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
 test("WebGL scene runtime refreshes dynamic uniforms only when frame input changes", () => {
   const cleanup = installFakeDocument();
   try {
@@ -827,10 +877,12 @@ test("WebGL scene runtime preserves static uploads for distinct same-shader laye
     runtime.render(0);
     const firstUniform1fCount = cleanup.gl.calls.uniform1f.length;
     const firstUniform3fvCount = cleanup.gl.calls.uniform3fv.length;
+    assert.equal(cleanup.gl.calls.drawArrays.length, 2);
 
     runtime.render(0.5);
     assert.ok(cleanup.gl.calls.uniform1f.length - firstUniform1fCount > 20);
     assert.equal(cleanup.gl.calls.uniform3fv.length - firstUniform3fvCount, 8);
+    assert.equal(cleanup.gl.calls.drawArrays.length, 4);
 
     runtime.destroy();
   } finally {

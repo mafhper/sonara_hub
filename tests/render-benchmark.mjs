@@ -351,6 +351,17 @@ function buildCases(selectedProfile) {
       compositionKey: "text-simple",
     },
     {
+      id: "stacked-identical-atmospheres-720p-fast",
+      category: "shader+atmosphere-stack+duplicate",
+      targetedOnly: true,
+      scene: stackedAtmospheres("fractal-sphere", "fractal-sphere"),
+      outputSize: { width: 1280, height: 720 },
+      duration: 2,
+      qualityProfile: "fast",
+      composition: textComposition(),
+      compositionKey: "text-simple",
+    },
+    {
       id: "piano-ribbons-720p-fast",
       category: "canvas2d",
       scene: withWaveform(preset("piano-ribbons"), { type: "filled-ribbon" }),
