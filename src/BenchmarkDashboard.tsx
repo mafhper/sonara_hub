@@ -137,7 +137,10 @@ type BenchmarkScore = {
   complete?: boolean;
   commit?: string;
   missingTests?: BenchmarkRequiredTest[];
-  categories: Record<string, { label: string; value: number }>;
+  categories: Record<
+    string,
+    { label: string; value: number; weightPercent?: number }
+  >;
 };
 
 type BenchmarkReleaseGate = {
@@ -187,6 +190,8 @@ type BenchmarkScoreComponent = BenchmarkRequiredTest & {
 
 type BenchmarkScoreComposition = {
   commit: string;
+  suiteId: string;
+  provisionalSuiteId: string;
   dirty: boolean;
   complete: boolean;
   requiredTests: BenchmarkRequiredTest[];
@@ -1915,7 +1920,7 @@ function ReleaseGatePanel({
         <div className="bench-panel-title">
           <Gauge />
           <div>
-            <strong>Sonara Performance Score</strong>
+            <strong>Sonara Render Score</strong>
             <span>
               Referência:{" "}
               {!scoreComplete
@@ -1945,9 +1950,7 @@ function ReleaseGatePanel({
           <Activity />
           <div>
             <strong>Componentes do score</strong>
-            <span>
-              Pesos: render 40%, memória 25%, exportação 20%, estabilidade 15%
-            </span>
+            <span>{scoreWeightSummary(score?.categories)}</span>
           </div>
         </div>
         {Object.entries(score?.categories ?? {}).map(([key, category]) => (
@@ -2028,6 +2031,9 @@ function ScoreCompositionPanel({
                 ? "provisória completa"
                 : "incompleta"}
             {composition.dirty ? " · dirty" : ""}
+            {composition.suiteId
+              ? ` · suíte ${shortId(composition.suiteId)}`
+              : ""}
           </span>
         </div>
       </div>
@@ -2097,6 +2103,27 @@ function ScoreRow({ label, value }: { label: string; value: number }) {
       <strong>{Math.round(value)}</strong>
     </div>
   );
+}
+
+function scoreWeightSummary(categories?: BenchmarkScore["categories"]) {
+  const fallbackWeights: Record<string, number> = {
+    performance: 50,
+    memory: 15,
+    export: 25,
+    stability: 10,
+  };
+  const labels: Record<string, string> = {
+    performance: "render",
+    memory: "memória",
+    export: "exportação",
+    stability: "confiabilidade",
+  };
+  return `Pesos: ${Object.keys(labels)
+    .map((key) => {
+      const weight = categories?.[key]?.weightPercent ?? fallbackWeights[key];
+      return `${labels[key]} ${weight}%`;
+    })
+    .join(", ")}`;
 }
 
 function ComparisonTable({
@@ -2496,8 +2523,8 @@ function RunHistory({
             )}
             {run.warnings.length > 0 && (
               <ul>
-                {run.warnings.slice(0, 6).map((warning) => (
-                  <li key={warning}>{warning}</li>
+                {run.warnings.slice(0, 6).map((warning, index) => (
+                  <li key={`${run.runId}-${index}`}>{warning}</li>
                 ))}
               </ul>
             )}

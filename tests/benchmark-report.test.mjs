@@ -322,6 +322,164 @@ test("render benchmark score keeps dirty runs provisional", async () => {
   );
 });
 
+test("dirty provisional score runs stay within one canonical suite", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-bench-"));
+  const historyPath = path.join(directory, "render-history.jsonl");
+  const currentCommit = "999988887777";
+  await writeHistory(historyPath, [
+    scoreRun("suite-a-quick", "render.quick", 900, currentCommit, 1, {
+      status: " M server/benchmark-report.mjs",
+      suiteId: "suite-a",
+    }),
+    scoreRun("suite-a-full", "render.full", 1700, currentCommit, 2, {
+      status: " M server/benchmark-report.mjs",
+      suiteId: "suite-a",
+    }),
+    scoreRun("suite-b-audio", "render.audio", 1100, currentCommit, 3, {
+      status: " M server/benchmark-report.mjs",
+      suiteId: "suite-b",
+    }),
+  ]);
+
+  const report = await loadRenderBenchmarkReport(historyPath, {
+    currentGit: { branch: "main", commit: currentCommit, dirty: true },
+  });
+
+  assert.equal(report.scoreComposition.complete, false);
+  assert.equal(report.scoreComposition.provisionalSuiteId, "suite-b");
+  assert.deepEqual(
+    report.scoreComposition.provisionalRuns.map((item) => item.runId),
+    ["suite-b-audio"],
+  );
+});
+
+test("render benchmark score ignores later partial targeted reruns", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-bench-"));
+  const historyPath = path.join(directory, "render-history.jsonl");
+  const currentCommit = "999988887777";
+  await writeHistory(historyPath, [
+    scoreRun("cur-quick", "render.quick", 900, currentCommit, 1),
+    scoreRun("cur-full", "render.full", 1700, currentCommit, 2),
+    scoreRun("cur-audio", "render.audio", 1100, currentCommit, 3),
+    scoreRun("targeted-full", "render.full", 200, currentCommit, 4, {
+      suiteId: "targeted-run",
+      suiteKind: "partial",
+    }),
+  ]);
+
+  const report = await loadRenderBenchmarkReport(historyPath, {
+    currentGit: { branch: "main", commit: currentCommit, dirty: false },
+  });
+
+  assert.equal(report.score.complete, true);
+  assert.equal(
+    report.scoreComposition.components.find(
+      (item) => item.key === "render.full",
+    ).run.runId,
+    "cur-full",
+  );
+});
+
+test("render benchmark score does not mix different canonical suites", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-bench-"));
+  const historyPath = path.join(directory, "render-history.jsonl");
+  const currentCommit = "999988887777";
+  await writeHistory(historyPath, [
+    scoreRun("suite-a-quick", "render.quick", 900, currentCommit, 1, {
+      suiteId: "suite-a",
+    }),
+    scoreRun("suite-a-full", "render.full", 1700, currentCommit, 2, {
+      suiteId: "suite-a",
+    }),
+    scoreRun("suite-b-audio", "render.audio", 1100, currentCommit, 3, {
+      suiteId: "suite-b",
+    }),
+  ]);
+
+  const report = await loadRenderBenchmarkReport(historyPath, {
+    currentGit: { branch: "main", commit: currentCommit, dirty: false },
+  });
+
+  assert.equal(report.score.complete, false);
+  assert.deepEqual(
+    report.scoreComposition.missingTests.map((item) => item.key),
+    ["render.quick", "render.full"],
+  );
+});
+
+test("latest comparison keeps real-audio runs separate from synthetic quick runs", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-bench-"));
+  const historyPath = path.join(directory, "render-history.jsonl");
+  const commit = "999988887777";
+  await writeHistory(historyPath, [
+    scoreRun("audio-before", "render.audio", 1000, commit, 1),
+    scoreRun("synthetic-between", "render.quick", 800, commit, 2),
+    scoreRun("audio-current", "render.audio", 900, commit, 3),
+  ]);
+
+  const report = await loadRenderBenchmarkReport(historyPath);
+
+  assert.equal(report.latestComparison.referenceRun.runId, "audio-before");
+});
+
+test("run comparison aggregates only cases present on both sides", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-bench-"));
+  const historyPath = path.join(directory, "render-history.jsonl");
+  const reference = run("run-a", "quick", 1000, 10, 110);
+  const current = run("run-b", "quick", 1100, 10, 110);
+  current.cases.push({
+    ...current.cases[0],
+    id: "new-case",
+    paramsHash: "new-case-v1",
+    totalMs: 5000,
+  });
+  await writeHistory(historyPath, [reference, current]);
+
+  const report = await loadRenderBenchmarkReport(historyPath);
+  const total = report.latestComparison.summaryDeltas.find(
+    (item) => item.key === "totalMs",
+  );
+
+  assert.equal(total.current, 1100);
+  assert.equal(total.reference, 1000);
+  assert.equal(report.latestComparison.caseDeltas.length, 1);
+});
+
+test("score weights prioritize render and do not count timing warnings twice", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-bench-"));
+  const historyPath = path.join(directory, "render-history.jsonl");
+  const previousCommit = "aaaabbbbcccc";
+  const currentCommit = "ddddeeeeffff";
+  const runs = [
+    scoreRun("prev-quick", "render.quick", 1000, previousCommit, 1),
+    scoreRun("prev-full", "render.full", 1800, previousCommit, 2),
+    scoreRun("prev-audio", "render.audio", 1200, previousCommit, 3),
+    scoreRun("cur-quick", "render.quick", 1000, currentCommit, 4),
+    scoreRun("cur-full", "render.full", 1800, currentCommit, 5),
+    scoreRun("cur-audio", "render.audio", 1200, currentCommit, 6),
+  ];
+  for (const item of runs.slice(-3)) {
+    item.cases[0].warnings = ["tempo total acima do baseline"];
+  }
+  await writeHistory(historyPath, runs);
+
+  const report = await loadRenderBenchmarkReport(historyPath, {
+    currentGit: { branch: "main", commit: currentCommit, dirty: false },
+  });
+
+  assert.equal(report.score.value, 100);
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(report.score.categories).map(([key, category]) => [
+        key,
+        category.weightPercent,
+      ]),
+    ),
+    { performance: 50, memory: 15, export: 25, stability: 10 },
+  );
+  assert.equal(report.score.categories.stability.label, "Confiabilidade");
+});
+
 test("cleanup policy is normalized and persisted", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-bench-"));
   const policyPath = path.join(directory, "cleanup-policy.json");
@@ -428,6 +586,8 @@ function scoreRun(runId, testKey, totalMs, commit, order, options = {}) {
       ...options,
       audioKind,
       commit,
+      suiteId: options.suiteId ?? `canonical-${commit}`,
+      suiteKind: options.suiteKind ?? "canonical",
       testKey,
     },
   );
@@ -505,6 +665,8 @@ function run(
     kind: "render-benchmark",
     profile,
     testKey: options.testKey,
+    suiteId: options.suiteId ?? "",
+    suiteKind: options.suiteKind ?? "individual",
     createdAt,
     git: {
       branch: "main",
@@ -526,6 +688,7 @@ function run(
     cases: [
       {
         id: "audio-dark-720p-fast",
+        paramsHash: "audio-dark-v1",
         rendererId: "audio-dark",
         category: "baseline",
         qualityProfile: "fast",

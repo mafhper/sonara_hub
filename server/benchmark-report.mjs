@@ -68,6 +68,12 @@ export const benchmarkScoreTests = [
 const benchmarkScoreTestKeys = new Set(
   benchmarkScoreTests.map((item) => item.key),
 );
+const benchmarkScoreWeights = {
+  performance: 0.5,
+  memory: 0.15,
+  export: 0.25,
+  stability: 0.1,
+};
 
 export class BenchmarkBaselineError extends Error {
   constructor(message, code, statusCode = 400) {
@@ -432,6 +438,7 @@ function compactCase(item) {
   const compact = {
     id: String(item.id ?? ""),
     outputId: String(item.outputId ?? item.id ?? ""),
+    paramsHash: String(item.paramsHash ?? ""),
     repeatIndex: finiteNumber(item.repeatIndex, 1),
     rendererId: String(item.rendererId ?? ""),
     category: String(item.category ?? ""),
@@ -479,7 +486,9 @@ function normalizeCurrentGit(git) {
 
 function buildScoreComposition(runs, currentGit) {
   const commit = currentGit.commit || latestCleanCommit(runs);
-  const latestByTest = latestCleanRunsByTest(runs, commit);
+  const selectedSuite = selectScoreSuite(runs, commit);
+  const provisionalSuite = selectScoreSuite(runs, commit, { dirty: true });
+  const latestByTest = selectedSuite?.latestByTest ?? new Map();
   const components = benchmarkScoreTests.map((definition) => {
     const run = latestByTest.get(definition.key) ?? null;
     return {
@@ -498,14 +507,16 @@ function buildScoreComposition(runs, currentGit) {
       pipeline,
     }));
   const complete = Boolean(commit) && missingTests.length === 0;
-  const provisionalRuns = runs
-    .filter((run) => run.git.commit === commit && run.git.dirty)
-    .slice(-12)
+  const provisionalRuns = benchmarkScoreTests
+    .map((definition) => provisionalSuite?.latestByTest.get(definition.key))
+    .filter(Boolean)
     .map(compactRunReference);
   const fullRun = complete ? composeScoreRun(commit, latestByTest) : null;
 
   return {
     commit,
+    suiteId: selectedSuite?.suiteId ?? "",
+    provisionalSuiteId: provisionalSuite?.suiteId ?? "",
     dirty: currentGit.dirty,
     complete,
     requiredTests: benchmarkScoreTests,
@@ -531,20 +542,39 @@ function latestCleanCommit(runs) {
   return "";
 }
 
-function latestCleanRunsByTest(runs, commit) {
-  const latestByTest = new Map();
-  if (!commit) return latestByTest;
+function selectScoreSuite(runs, commit, { dirty = false } = {}) {
+  if (!commit) return null;
+  const suites = new Map();
   for (const run of runs) {
     if (
       run.git.commit !== commit ||
-      run.git.dirty ||
+      run.git.dirty !== dirty ||
+      run.suiteKind !== "canonical" ||
+      !run.suiteId ||
       !benchmarkScoreTestKeys.has(run.testKey)
     ) {
       continue;
     }
-    latestByTest.set(run.testKey, run);
+    const suite = suites.get(run.suiteId) ?? {
+      suiteId: run.suiteId,
+      latestByTest: new Map(),
+      latestCreatedAt: "",
+    };
+    suite.latestByTest.set(run.testKey, run);
+    if (run.createdAt > suite.latestCreatedAt) {
+      suite.latestCreatedAt = run.createdAt;
+    }
+    suites.set(run.suiteId, suite);
   }
-  return latestByTest;
+  const ordered = [...suites.values()].sort((first, second) =>
+    first.latestCreatedAt.localeCompare(second.latestCreatedAt),
+  );
+  const complete = ordered.filter((suite) =>
+    benchmarkScoreTests.every((definition) =>
+      suite.latestByTest.has(definition.key),
+    ),
+  );
+  return complete.at(-1) ?? ordered.at(-1) ?? null;
 }
 
 function composeScoreRun(commit, latestByTest) {
@@ -700,43 +730,51 @@ function normalizeBaselineSlot(slot) {
 }
 
 function compareRuns(currentRun, referenceRun, mode) {
-  if (!currentRun || !referenceRun || currentRun.runId === referenceRun.runId) {
+  if (
+    !currentRun ||
+    !referenceRun ||
+    currentRun.runId === referenceRun.runId ||
+    !sameBenchmarkContext(currentRun, referenceRun)
+  ) {
     return null;
   }
-  const referenceCases = new Map(
-    referenceRun.cases.map((item) => [item.id, item]),
-  );
-  const caseDeltas = currentRun.cases
+  const referenceCases = groupCasesByComparisonKey(referenceRun.cases);
+  const matchedCases = currentRun.cases
     .map((currentCase) => {
-      const referenceCase = referenceCases.get(currentCase.id);
-      if (!referenceCase) return null;
-      const metricDeltas = comparisonMetricKeys.map((key) =>
-        metricDelta(currentCase, referenceCase, key),
-      );
-      return {
-        id: currentCase.id,
-        rendererId: currentCase.rendererId,
-        metricDeltas,
-        worstRegressionPercent: round(
-          Math.max(
-            0,
-            ...metricDeltas.map((item) =>
-              item.direction === "regressed" ? item.deltaPercent : 0,
-            ),
-          ),
-        ),
-      };
+      const candidates = referenceCases.get(caseComparisonKey(currentCase));
+      const referenceCase = candidates?.shift() ?? null;
+      return referenceCase ? { currentCase, referenceCase } : null;
     })
     .filter(Boolean);
+  const caseDeltas = matchedCases.map(({ currentCase, referenceCase }) => {
+    const metricDeltas = comparisonMetricKeys.map((key) =>
+      metricDelta(currentCase, referenceCase, key),
+    );
+    return {
+      id: currentCase.id,
+      rendererId: currentCase.rendererId,
+      metricDeltas,
+      worstRegressionPercent: round(
+        Math.max(
+          0,
+          ...metricDeltas.map((item) =>
+            item.direction === "regressed" ? item.deltaPercent : 0,
+          ),
+        ),
+      ),
+    };
+  });
   if (!caseDeltas.length) return null;
+  const currentCases = matchedCases.map((item) => item.currentCase);
+  const matchedReferenceCases = matchedCases.map((item) => item.referenceCase);
   return {
     mode,
     referenceRun: compactRunReference(referenceRun),
     currentRun: compactRunReference(currentRun),
     summaryDeltas: comparisonMetricKeys.map((key) =>
       metricDelta(
-        aggregateCases(currentRun.cases, key),
-        aggregateCases(referenceRun.cases, key),
+        aggregateCases(currentCases, key),
+        aggregateCases(matchedReferenceCases, key),
         "value",
         key,
       ),
@@ -746,6 +784,27 @@ function compareRuns(currentRun, referenceRun, mode) {
       Math.max(0, ...caseDeltas.map((item) => item.worstRegressionPercent)),
     ),
   };
+}
+
+function sameBenchmarkContext(currentRun, referenceRun) {
+  return (
+    currentRun.testKey === referenceRun.testKey &&
+    currentRun.profile === referenceRun.profile &&
+    currentRun.audioSource?.kind === referenceRun.audioSource?.kind
+  );
+}
+
+function groupCasesByComparisonKey(cases) {
+  const grouped = new Map();
+  for (const item of cases) {
+    const key = caseComparisonKey(item);
+    grouped.set(key, [...(grouped.get(key) ?? []), item]);
+  }
+  return grouped;
+}
+
+function caseComparisonKey(item) {
+  return `${item.id}\u0000${item.paramsHash ?? ""}`;
 }
 
 function metricDelta(current, reference, key, labelKey = key) {
@@ -808,7 +867,10 @@ function calculatePerformanceScore(latestRun, comparison, options = {}) {
   ]);
   const stability = stabilityScore(latestRun, comparison);
   const value = round(
-    performance * 0.4 + memory * 0.25 + exportScore * 0.2 + stability * 0.15,
+    performance * benchmarkScoreWeights.performance +
+      memory * benchmarkScoreWeights.memory +
+      exportScore * benchmarkScoreWeights.export +
+      stability * benchmarkScoreWeights.stability,
   );
   return {
     value,
@@ -901,20 +963,33 @@ function stabilityScore(latestRun, comparison) {
   return round(
     Math.max(
       0,
-      100 -
-        latestRun.summary.warningCount * 8 -
-        Math.max(0, retryDelta) * 18 -
-        latestRun.summary.retryCount * 8,
+      100 - Math.max(0, retryDelta) * 24 - latestRun.summary.retryCount * 16,
     ),
   );
 }
 
 function scoreCategories(performance, memory, exportScore, stability) {
   return {
-    performance: { label: "Performance", value: round(performance) },
-    memory: { label: "Memory", value: round(memory) },
-    export: { label: "Exportacao", value: round(exportScore) },
-    stability: { label: "Stability", value: round(stability) },
+    performance: {
+      label: "Render",
+      value: round(performance),
+      weightPercent: benchmarkScoreWeights.performance * 100,
+    },
+    memory: {
+      label: "Memória",
+      value: round(memory),
+      weightPercent: benchmarkScoreWeights.memory * 100,
+    },
+    export: {
+      label: "Exportação",
+      value: round(exportScore),
+      weightPercent: benchmarkScoreWeights.export * 100,
+    },
+    stability: {
+      label: "Confiabilidade",
+      value: round(stability),
+      weightPercent: benchmarkScoreWeights.stability * 100,
+    },
   };
 }
 
@@ -929,15 +1004,15 @@ function normalizeCleanupPolicy(policy) {
 
 function findPreviousCompatibleRun(runs, latestRun) {
   if (!latestRun) return null;
-  const latestCases = new Set(latestRun.cases.map((item) => item.id));
+  const latestCases = new Set(latestRun.cases.map(caseComparisonKey));
   return (
     [...runs]
       .reverse()
       .find(
         (run) =>
           run.runId !== latestRun.runId &&
-          run.profile === latestRun.profile &&
-          run.cases.some((item) => latestCases.has(item.id)),
+          sameBenchmarkContext(run, latestRun) &&
+          run.cases.some((item) => latestCases.has(caseComparisonKey(item))),
       ) ?? null
   );
 }

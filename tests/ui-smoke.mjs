@@ -1074,7 +1074,12 @@ async function assertBenchmarkCenterNavigation(page) {
   await page.getByRole("button", { name: "Iniciar" }).waitFor();
   await page.getByRole("button", { name: "Render" }).waitFor();
   await page.getByRole("button", { name: "Release Gate" }).click();
-  await page.getByText("Sonara Performance Score").waitFor();
+  await page.getByText("Sonara Render Score").waitFor();
+  await page
+    .getByText(
+      "Pesos: render 50%, memória 15%, exportação 25%, confiabilidade 10%",
+    )
+    .waitFor();
   await page.getByRole("button", { name: "Baseline" }).click();
   await page.getByText("Como funciona a baseline").waitFor();
   await assertBenchmarkBaselineLayout(page);
