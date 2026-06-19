@@ -469,6 +469,88 @@ test("WebGL runtime registers every scalar audio uniform used by shaders", () =>
   ]);
 });
 
+test("fractal sphere shader keeps unused alpha work out of its raymarch loop", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({ id: "fractal-sphere" }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0.5);
+    const fragmentSource = cleanup.gl.calls.shaderSource.find(
+      ([type]) => type === cleanup.gl.FRAGMENT_SHADER,
+    )?.[1];
+
+    assert.match(fragmentSource, /vec3 sphereTanh\(vec3 x\)/);
+    assert.match(fragmentSource, /vec3 acc = vec3\(0\.0\)/);
+    assert.doesNotMatch(fragmentSource, /vec4 acc = vec4\(0\.0\)/);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("fractal sphere shader keeps loop-invariant palette tint outside its raymarch loop", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({ id: "fractal-sphere" }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0.5);
+    const fragmentSource = cleanup.gl.calls.shaderSource.find(
+      ([type]) => type === cleanup.gl.FRAGMENT_SHADER,
+    )?.[1];
+
+    assert.match(
+      fragmentSource,
+      /vec3 paletteTint = 0\.55 \+ 0\.45 \* \(u_colorA \+ u_colorB \+ u_accentColor\);/,
+    );
+    assert.match(fragmentSource, /float paletteShift = u_param4 \* 4\.0;/);
+    assert.doesNotMatch(fragmentSource, /pal = mix\(pal, pal \*/);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("fractal sphere shader keeps frame rotation trigonometry outside its raymarch loop", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({ id: "fractal-sphere" }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0.5);
+    const fragmentSource = cleanup.gl.calls.shaderSource.find(
+      ([type]) => type === cleanup.gl.FRAGMENT_SHADER,
+    )?.[1];
+
+    assert.match(
+      fragmentSource,
+      /vec3 spinPos\(vec3 p, vec2 xRot, vec2 yRot\)/,
+    );
+    assert.match(fragmentSource, /vec2 xRot = vec2\(cos\(ax\), sin\(ax\)\);/);
+    assert.match(fragmentSource, /vec2 yRot = vec2\(cos\(ay\), sin\(ay\)\);/);
+    assert.doesNotMatch(fragmentSource, /spinPos\(cp, ax, ay\)/);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
 test("scene runtime refreshes cached atmosphere and media stack on updates", () => {
   const cleanup = installFakeDocument();
   try {
@@ -2069,6 +2151,7 @@ function fakeWebglContext() {
     bindBuffer: [],
     drawArrays: [],
     enableVertexAttribArray: [],
+    shaderSource: [],
     uniform1f: [],
     uniform2f: [],
     uniform3fv: [],
@@ -2094,7 +2177,7 @@ function fakeWebglContext() {
     compileShader() {},
     createBuffer: () => ({}),
     createProgram: () => ({}),
-    createShader: () => ({}),
+    createShader: (type) => ({ type }),
     deleteBuffer() {},
     deleteProgram() {},
     deleteShader() {},
@@ -2112,7 +2195,9 @@ function fakeWebglContext() {
     getUniformLocation: (_program, name) => name,
     isContextLost: () => false,
     linkProgram() {},
-    shaderSource() {},
+    shaderSource(shader, source) {
+      calls.shaderSource.push([shader.type, source]);
+    },
     uniform1f(location, value) {
       calls.uniform1f.push([location, value]);
     },

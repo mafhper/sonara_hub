@@ -739,14 +739,14 @@ void main() {
   // (codepen.io/sabosugi/pen/OPbJJOr); rotação por tempo em vez do mouse.
   "fractal-sphere": `${shaderPrelude}
 float sphereRand(vec2 p) { return fract(sin(dot(p, vec2(12.8998, 78.233))) * 43758.5453); }
-vec4 sphereTanh(vec4 x) { vec4 e = exp(2.0 * clamp(x, -12.0, 12.0)); return (e - 1.0) / (e + 1.0); }
+vec3 sphereTanh(vec3 x) { vec3 e = exp(2.0 * clamp(x, -12.0, 12.0)); return (e - 1.0) / (e + 1.0); }
 float sphereSmin(float a, float b, float k) {
   float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
   return mix(b, a, h) - k * h * (1.0 - h);
 }
-vec3 spinPos(vec3 p, float ax, float ay) {
-  float cx = cos(ax), sx = sin(ax); p.yz = mat2(cx, -sx, sx, cx) * p.yz;
-  float cy = cos(ay), sy = sin(ay); p.xz = mat2(cy, -sy, sy, cy) * p.xz;
+vec3 spinPos(vec3 p, vec2 xRot, vec2 yRot) {
+  p.yz = mat2(xRot.x, -xRot.y, xRot.y, xRot.x) * p.yz;
+  p.xz = mat2(yRot.x, -yRot.y, yRot.y, yRot.x) * p.xz;
   return p;
 }
 float sphereScene(vec3 rp, float ct, float scale, float soft) {
@@ -771,28 +771,32 @@ void main() {
   float ax = u_time * (0.12 + u_speed * 0.25);
   float ay = u_time * 0.2;
   float td = -0.015 * sphereRand(gl_FragCoord.xy);
-  vec4 acc = vec4(0.0);
+  vec3 acc = vec3(0.0);
   vec3 ro = vec3(0.0, 0.0, -4.5);
   vec3 rd = normalize(vec3(uv, 1.0));
+  vec3 paletteTint = 0.55 + 0.45 * (u_colorA + u_colorB + u_accentColor);
+  float paletteShift = u_param4 * 4.0;
+  vec2 xRot = vec2(cos(ax), sin(ax));
+  vec2 yRot = vec2(cos(ay), sin(ay));
   for (int i = 0; i < 64; i++) {
     vec3 cp = ro + rd * td;
     if (td > 10.0) break;
     float dc = length(cp);
     if (dc > fadeOuter + 0.01) { td += dc - fadeOuter; continue; }
-    vec3 rp = spinPos(cp, ax, ay);
+    vec3 rp = spinPos(cp, xRot, yRot);
     float sd = sphereScene(rp, ct, scale, soft);
     float stepSize = 0.012 + sd;
     td += stepSize;
     float radialFade = smoothstep(fadeOuter, fadeInner, dc);
-    vec4 pal = 1.0 + cos(rp.z + vec4(5.8, 4.1, 2.8, 0.2) + u_param4 * 4.0);
-    pal.rgb = mix(pal.rgb, pal.rgb * (u_colorA + u_colorB + u_accentColor), 0.45);
+    vec3 pal = 1.0 + cos(rp.z + vec3(5.8, 4.1, 2.8) + paletteShift);
+    pal *= paletteTint;
     acc += (pal / stepSize) * radialFade;
     if (acc.x > 25000.0 && acc.y > 25000.0 && acc.z > 25000.0) break;
   }
   float vig = max(length(uv), 0.2);
-  vec4 col = sphereTanh(acc / (8000.0 * vig));
-  col.rgb *= 1.0 + u_audioBass * u_audioReaction * 0.5;
-  gl_FragColor = vec4(finish(col.rgb, frag), 1.0);
+  vec3 col = sphereTanh(acc / (8000.0 * vig));
+  col *= 1.0 + u_audioBass * u_audioReaction * 0.5;
+  gl_FragColor = vec4(finish(col, frag), 1.0);
 }`,
 
   // Fluxo fluido — volume torcido raymarched com paleta cosseno e grão óptico.
