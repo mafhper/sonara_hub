@@ -551,6 +551,72 @@ test("fractal sphere shader keeps frame rotation trigonometry outside its raymar
   }
 });
 
+test("fluid flow shader keeps its uniform palette base outside the raymarch loop", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({ id: "fluid-flow" }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0.5);
+    const fragmentSource = cleanup.gl.calls.shaderSource.find(
+      ([type]) => type === cleanup.gl.FRAGMENT_SHADER,
+    )?.[1];
+    const paletteBaseIndex = fragmentSource.search(/\bvec[34] base =/);
+    const raymarchLoopIndex = fragmentSource.indexOf(
+      "for (int i = 0; i < 80; i++)",
+    );
+
+    assert.ok(paletteBaseIndex >= 0, "palette base should remain explicit");
+    assert.ok(raymarchLoopIndex >= 0, "raymarch loop should remain explicit");
+    assert.ok(
+      paletteBaseIndex < raymarchLoopIndex,
+      "uniform palette base should be computed before the raymarch loop",
+    );
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
+test("fluid flow shader omits unused alpha calculations from its raymarch", () => {
+  const cleanup = installFakeDocument();
+  try {
+    const context = fakeCanvasContext();
+    const runtime = createSceneRuntime(
+      fakeCanvas(context),
+      normalizeVisualSettings({ id: "fluid-flow" }),
+      { showMetadata: false },
+    );
+
+    runtime.render(0.5);
+    const fragmentSource = cleanup.gl.calls.shaderSource.find(
+      ([type]) => type === cleanup.gl.FRAGMENT_SHADER,
+    )?.[1];
+
+    assert.match(fragmentSource, /vec3 fluidTanh\(vec3 x\)/);
+    assert.match(fragmentSource, /vec3 acc = vec3\(0\.4\)/);
+    assert.match(
+      fragmentSource,
+      /vec3 base = mix\(u_colorA, u_accentColor, u_param2\) \* 1\.5;/,
+    );
+    assert.match(
+      fragmentSource,
+      /vec3 pal = base \* \(cos\(sv \+ vec3\(3\.4, -1\.6, 5\.3\)\)/,
+    );
+    assert.match(fragmentSource, /vec3 col = fluidTanh\(acc \/ lightInt\)/);
+    assert.doesNotMatch(fragmentSource, /vec4 fluidTanh|vec4 acc|vec4 pal/);
+
+    runtime.destroy();
+  } finally {
+    cleanup();
+  }
+});
+
 test("scene runtime refreshes cached atmosphere and media stack on updates", () => {
   const cleanup = installFakeDocument();
   try {

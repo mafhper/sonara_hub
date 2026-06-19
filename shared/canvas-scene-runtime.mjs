@@ -803,17 +803,18 @@ void main() {
   // Adaptado de "Fluid Background" (codepen.io/sabosugi/pen/gbwNZPr).
   "fluid-flow": `${shaderPrelude}
 float fluidHash(vec3 p) { p = fract(p * 0.9631); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }
-vec4 fluidTanh(vec4 x) { vec4 e = exp(2.0 * clamp(x, -12.0, 12.0)); return (e - 1.0) / (e + 1.0); }
+vec3 fluidTanh(vec3 x) { vec3 e = exp(2.0 * clamp(x, -12.0, 12.0)); return (e - 1.0) / (e + 1.0); }
 void main() {
   vec2 frag = gl_FragCoord.xy / u_resolution.xy;
   vec2 uv = (2.1 * gl_FragCoord.xy - u_resolution.xy) / u_resolution.y;
   float tAnim = u_time * (-(0.3 + u_speed * 0.9));
   float tFlight = 2.6 + u_param0 * 4.0;
   vec3 rayDir = normalize(vec3(uv, -1.6));
-  vec4 acc = vec4(0.4);
+  vec3 acc = vec3(0.4);
   float grain = fluidHash(vec3(gl_FragCoord.xy, u_time * 5.0));
   float td = 1.2 + grain * 0.13;
   float lightInt = mix(8000.0, 42000.0, u_param1);
+  vec3 base = mix(u_colorA, u_accentColor, u_param2) * 1.5;
   for (int i = 0; i < 80; i++) {
     vec3 pos = td * rayDir;
     pos.z -= tFlight;
@@ -825,16 +826,15 @@ void main() {
     float sv = tw.y;
     float stepD = 0.16 * abs(length(pos) - 1.9) + (-0.14) * abs(sv);
     td += stepD;
-    vec4 base = vec4(mix(u_colorA, u_accentColor, u_param2) * 1.5, 1.1);
-    vec4 pal = base * (cos(sv + vec4(3.4, -1.6, 5.3, -1.0)) * 1.05 + 0.7);
+    vec3 pal = base * (cos(sv + vec3(3.4, -1.6, 5.3)) * 1.05 + 0.7);
     acc += (pal / max(stepD, 0.01)) * td;
     if (acc.x > 90000.0) break;
     if (td > 25.1) break;
   }
-  vec4 col = fluidTanh(acc / lightInt);
-  col.rgb += (grain - 0.5) * 0.02;
-  col.rgb *= 1.0 + u_audioMid * u_audioReaction * 0.4;
-  gl_FragColor = vec4(finish(col.rgb, frag), 1.0);
+  vec3 col = fluidTanh(acc / lightInt);
+  col += (grain - 0.5) * 0.02;
+  col *= 1.0 + u_audioMid * u_audioReaction * 0.4;
+  gl_FragColor = vec4(finish(col, frag), 1.0);
 }`,
 
   // Paisagem mágica — terreno rochoso volumétrico com paleta cíclica.

@@ -362,6 +362,17 @@ function buildCases(selectedProfile) {
       compositionKey: "text-simple",
     },
     {
+      id: "fluid-flow-720p-fast",
+      category: "shader+raymarch",
+      targetedOnly: true,
+      scene: preset("fluid-flow"),
+      outputSize: { width: 1280, height: 720 },
+      duration: 2,
+      qualityProfile: "fast",
+      composition: textComposition(),
+      compositionKey: "text-simple",
+    },
+    {
       id: "piano-ribbons-720p-fast",
       category: "canvas2d",
       scene: withWaveform(preset("piano-ribbons"), { type: "filled-ribbon" }),
