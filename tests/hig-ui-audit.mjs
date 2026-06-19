@@ -9,9 +9,11 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
 
 try {
   await page.addInitScript(() => {
+    if (window.sessionStorage.getItem("sonara-hub-hig-reset")) return;
     window.localStorage.removeItem("sonara-hub-theme");
     window.localStorage.removeItem("sonara-hub-ui-scale");
     window.localStorage.removeItem("sonara-hub-panel-widths");
+    window.sessionStorage.setItem("sonara-hub-hig-reset", "true");
   });
   await page.goto(clientUrl, { waitUntil: "domcontentloaded" });
   await page.locator(".studio-shell").waitFor();
@@ -97,8 +99,105 @@ try {
       .getByRole("group", { name: "Tema da interface" })
       .getByRole("button", { name: /^Original/ }),
   );
+  await assertBenchmarkThemes(page);
 } finally {
   await browser.close();
+}
+
+async function assertBenchmarkThemes(page) {
+  for (const theme of themes) {
+    await page.evaluate((value) => {
+      window.localStorage.setItem("sonara-hub-theme", value);
+      window.localStorage.setItem("sonara-hub-ui-scale", "extra");
+    }, theme);
+    await page.goto(`${clientUrl}/benchmarks`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.locator(".bench-dashboard").waitFor();
+
+    const audit = await page.evaluate(() => {
+      const root = document.documentElement;
+      const dashboard = document.querySelector(".bench-dashboard");
+      const title = document.querySelector(".bench-hero h1");
+      const field = document.querySelector(".bench-controls select");
+      const rootStyle = getComputedStyle(root);
+      const dashboardStyle = getComputedStyle(dashboard);
+      const titleStyle = getComputedStyle(title);
+      const fieldStyle = getComputedStyle(field);
+      const token = (name) => rootStyle.getPropertyValue(name).trim();
+      return {
+        bodyOverflow: document.body.scrollWidth - document.body.clientWidth,
+        colorScheme: rootStyle.colorScheme,
+        dashboardBackground: dashboardStyle.backgroundColor,
+        dashboardImage: dashboardStyle.backgroundImage,
+        fieldBackground: fieldStyle.backgroundColor,
+        fieldColor: fieldStyle.color,
+        metaThemeColor:
+          document.querySelector('meta[name="theme-color"]')?.content ?? "",
+        rootOverflow: root.scrollWidth - root.clientWidth,
+        theme: root.dataset.theme,
+        titleColor: titleStyle.color,
+        tokens: {
+          appBg: token("--app-bg"),
+          fieldBg: token("--field-bg"),
+          textPrimary: token("--text-primary"),
+        },
+        uiScale: root.dataset.uiScale,
+      };
+    });
+
+    assert.equal(audit.theme, theme, `${theme} should apply on /benchmarks`);
+    assert.equal(
+      audit.uiScale,
+      "extra",
+      `${theme} benchmark should apply the saved UI scale`,
+    );
+    assert.equal(
+      audit.colorScheme,
+      theme === "light" || theme === "golden" ? "light" : "dark",
+      `${theme} benchmark should expose the matching color-scheme`,
+    );
+    assert.equal(
+      normalizeColor(audit.dashboardBackground),
+      normalizeColor(audit.tokens.appBg),
+      `${theme} benchmark should use the semantic app background`,
+    );
+    assert.ok(
+      !audit.dashboardImage.includes("rgba(12, 14, 18, 0.96)"),
+      `${theme} benchmark should not retain the fixed dark page gradient`,
+    );
+    assert.ok(
+      contrastRatio(audit.titleColor, audit.dashboardBackground) >= 4.5,
+      `${theme} benchmark title should contrast with the page`,
+    );
+    assert.ok(
+      contrastRatio(audit.fieldColor, audit.fieldBackground) >= 4.5,
+      `${theme} benchmark controls should retain readable contrast`,
+    );
+    assert.equal(
+      normalizeColor(audit.metaThemeColor),
+      normalizeColor(audit.tokens.appBg),
+      `${theme} benchmark should synchronize the browser theme color`,
+    );
+    assert.ok(
+      audit.bodyOverflow <= 1 && audit.rootOverflow <= 1,
+      `${theme} benchmark should not overflow horizontally`,
+    );
+
+    await assertFocusVisible(
+      page,
+      page.getByRole("button", { name: "Atualizar" }),
+    );
+  }
+
+  await page.setViewportSize({ width: 390, height: 740 });
+  const narrowOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  assert.ok(
+    narrowOverflow <= 1,
+    `benchmark should fit a narrow viewport: ${narrowOverflow}`,
+  );
 }
 
 async function assertResponsiveSettings(page, viewport) {
@@ -266,4 +365,8 @@ function parseHex(value) {
     );
   }
   throw new Error(`Unsupported hex color: ${value}`);
+}
+
+function normalizeColor(value) {
+  return parseColor(value).join(",");
 }

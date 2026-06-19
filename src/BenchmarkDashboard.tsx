@@ -17,6 +17,7 @@ import {
   useState,
 } from "react";
 import { fetchJson } from "../shared/local-api.mjs";
+import { useThemePreference } from "./hooks/useThemePreference";
 
 type BenchmarkMetric = {
   key: string;
@@ -337,6 +338,7 @@ const defaultCleanupPolicy: BenchmarkCleanupPolicy = {
 type BenchmarkTab = (typeof benchmarkTabs)[number]["id"];
 
 export default function BenchmarkDashboard() {
+  useThemePreference();
   const [report, setReport] = useState<BenchmarkReport | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);

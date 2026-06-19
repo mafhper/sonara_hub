@@ -15,8 +15,8 @@
           "golden",
         ]);
         const themeColors = {
-          dark: "#090a0d",
-          golden: "#17100a",
+          dark: "#14161c",
+          golden: "#e8d2a0",
           light: "#f6f2e9",
           original: "#050506",
         };
@@ -32,7 +32,7 @@
           document.documentElement.dataset.themePreference = preference;
           document.documentElement.dataset.theme = effective;
           document.documentElement.style.colorScheme =
-            effective === "light" ? "light" : "dark";
+            effective === "light" || effective === "golden" ? "light" : "dark";
           const meta = document.querySelector('meta[name="theme-color"]');
           if (meta)
             meta.content = themeColors[effective] || themeColors.original;
