@@ -1,4 +1,4 @@
-import { Save, Trash2 } from "lucide-react";
+import { ChevronDown, Save, Trash2 } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
 
 import type { TextOverlaySettings } from "../types";
@@ -78,36 +78,70 @@ export function TextProfiles({
 }) {
   const profiles = useTextProfiles();
   const [name, setName] = useState("");
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [openMenuName, setOpenMenuName] = useState("");
+
+  function closeSave() {
+    setName("");
+    setSaveOpen(false);
+  }
+
+  function saveProfile() {
+    if (!name.trim()) return;
+    textProfilesStore.save(name, current);
+    closeSave();
+  }
+
+  function applyProfile(profile: TextProfile, mode: TextBatchApplyMode) {
+    onApply(profile.settings, mode);
+    setOpenMenuName("");
+  }
+
   return (
-    <div className="inspector-subsection text-profiles">
-      <p className="inspector-kicker">Perfis de texto</p>
-      <div className="text-profiles-save">
-        <input
-          aria-label="Nome do perfil de texto"
-          className="text-profile-name"
-          maxLength={60}
-          placeholder="Nome do perfil"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
+    <div className="text-profiles">
+      {saveOpen ? (
+        <form
+          aria-label="Salvar perfil de texto"
+          className="text-profiles-save"
           onKeyDown={(event) => {
-            if (event.key === "Enter" && name.trim()) {
-              textProfilesStore.save(name, current);
-              setName("");
-            }
+            if (event.key === "Escape") closeSave();
           }}
-        />
-        <button
-          className="quiet-action"
-          disabled={!name.trim()}
-          type="button"
-          onClick={() => {
-            textProfilesStore.save(name, current);
-            setName("");
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveProfile();
           }}
         >
-          <Save /> Salvar
+          <input
+            autoFocus
+            aria-label="Nome do perfil de texto"
+            className="text-profile-name"
+            maxLength={60}
+            placeholder="Nome do perfil"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+          <div className="text-profile-save-actions">
+            <button className="quiet-action" type="button" onClick={closeSave}>
+              Cancelar
+            </button>
+            <button
+              className="primary-action"
+              disabled={!name.trim()}
+              type="submit"
+            >
+              <Save /> Salvar
+            </button>
+          </div>
+        </form>
+      ) : (
+        <button
+          className="quiet-action text-profile-save-trigger"
+          type="button"
+          onClick={() => setSaveOpen(true)}
+        >
+          <Save /> Salvar perfil atual
         </button>
-      </div>
+      )}
       {profiles.length === 0 ? (
         <p className="helper-copy">
           Salve o perfil atual e reaplique posição, estilo ou tudo em outras
@@ -116,42 +150,69 @@ export function TextProfiles({
       ) : (
         <ul className="text-profiles-list">
           {profiles.map((profile) => (
-            <li key={profile.name}>
-              <span className="text-profile-name-label">{profile.name}</span>
-              <div className="text-profile-apply-modes">
+            <li
+              key={profile.name}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setOpenMenuName("");
+              }}
+            >
+              <span className="text-profile-name-label" title={profile.name}>
+                {profile.name}
+              </span>
+              <div className="text-profile-row-actions">
                 <button
-                  className="text-profile-apply"
-                  title={`Aplicar posição do perfil ${profile.name}`}
+                  aria-label={`Aplicar ${profile.name}`}
+                  className="text-profile-apply-primary"
                   type="button"
-                  onClick={() => onApply(profile.settings, "position")}
+                  onClick={() => applyProfile(profile, "all")}
                 >
-                  Posição
+                  Aplicar
                 </button>
                 <button
-                  className="text-profile-apply"
-                  title={`Aplicar estilo do perfil ${profile.name}`}
+                  aria-expanded={openMenuName === profile.name}
+                  aria-label={`Mais ações de ${profile.name}`}
+                  className="text-profile-more"
                   type="button"
-                  onClick={() => onApply(profile.settings, "style")}
+                  onClick={() =>
+                    setOpenMenuName((currentName) =>
+                      currentName === profile.name ? "" : profile.name,
+                    )
+                  }
                 >
-                  Estilo
-                </button>
-                <button
-                  className="text-profile-apply"
-                  title={`Aplicar perfil completo ${profile.name}`}
-                  type="button"
-                  onClick={() => onApply(profile.settings, "all")}
-                >
-                  Tudo
+                  <ChevronDown aria-hidden="true" />
                 </button>
               </div>
-              <button
-                aria-label={`Excluir perfil ${profile.name}`}
-                className="icon-button"
-                type="button"
-                onClick={() => textProfilesStore.remove(profile.name)}
-              >
-                <Trash2 />
-              </button>
+              {openMenuName === profile.name && (
+                <div
+                  aria-label={`Ações de ${profile.name}`}
+                  className="text-profile-menu"
+                >
+                  <button
+                    type="button"
+                    onClick={() => applyProfile(profile, "position")}
+                  >
+                    Aplicar somente posição
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyProfile(profile, "style")}
+                  >
+                    Aplicar somente estilo
+                  </button>
+                  <div className="text-profile-menu-danger">
+                    <button
+                      aria-label={`Excluir ${profile.name}`}
+                      type="button"
+                      onClick={() => {
+                        textProfilesStore.remove(profile.name);
+                        setOpenMenuName("");
+                      }}
+                    >
+                      <Trash2 aria-hidden="true" /> Excluir
+                    </button>
+                  </div>
+                </div>
+              )}
             </li>
           ))}
         </ul>

@@ -11,6 +11,7 @@ import { publicationAssetPresets } from "../shared/publication-assets.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const clientUrl = process.env.SONARA_CLIENT_URL ?? "http://127.0.0.1:5173";
+const focusTextProfiles = process.env.SONARA_UI_SMOKE_FOCUS === "text-profiles";
 const screenshotDir = path.join(root, ".dev", "screenshots");
 const assetDir = path.join(root, ".dev", "ui-smoke-assets");
 const publicationClipPresetCount = publicationAssetPresets.filter(
@@ -92,6 +93,7 @@ await page.addInitScript(() => {
   window.localStorage.removeItem("sonara-hub-panel-widths");
   window.localStorage.removeItem("sonara-hub-podcast-enabled");
   window.localStorage.removeItem("sonara-hub-theme");
+  window.localStorage.removeItem("sonara.textProfiles");
   window.sessionStorage.setItem("sonara-hub-smoke-reset", "true");
 });
 const errors = [];
@@ -108,7 +110,7 @@ page.on("requestfailed", (request) => {
   failedRequests.push(`${request.method()} ${request.url()} ${failureText}`);
 });
 
-try {
+smoke: try {
   await page.goto(clientUrl, { waitUntil: "domcontentloaded" });
   await page.locator(".studio-shell").waitFor();
   await assertLocalSettings(page);
@@ -356,6 +358,13 @@ try {
       .getAttribute("aria-pressed"),
     "true",
   );
+  await assertTextPositionPresetAlignment(page);
+  await assertCompactTextProfiles(page);
+  if (focusTextProfiles) {
+    assert.deepEqual(errors, []);
+    assert.deepEqual(failedRequests, []);
+    break smoke;
+  }
   await page.getByLabel("Fade-out de Música").check();
   const musicTextFade = page.locator(".text-fade-controls", {
     hasText: "Fade-out de Música",
@@ -1918,6 +1927,216 @@ async function assertTrackSelectionIsNotColorOnly(page) {
     });
   assert.ok(selected.borderLeftWidth >= 3);
   assert.notEqual(selected.backgroundColor, "rgba(0, 0, 0, 0)");
+}
+
+async function assertCompactTextProfiles(page) {
+  const section = page.locator(".inspector-subsection", {
+    has: page.getByRole("button", { name: "Salvar perfil atual" }),
+  });
+  assert.equal(
+    await section.getByText("Perfis de texto", { exact: true }).count(),
+    1,
+    "text profiles should expose one visible section heading",
+  );
+  assert.equal(
+    await page.getByRole("form", { name: "Salvar perfil de texto" }).count(),
+    0,
+    "profile name form should stay collapsed until requested",
+  );
+  await section.getByRole("button", { name: "Salvar perfil atual" }).click();
+  const form = page.getByRole("form", { name: "Salvar perfil de texto" });
+  await form
+    .getByRole("textbox", { name: "Nome do perfil de texto" })
+    .fill("Perfil de publicação");
+  await form.getByRole("button", { name: "Salvar" }).click();
+  let row = section.getByRole("listitem").filter({
+    hasText: "Perfil de publicação",
+  });
+  const primaryApply = row.getByRole("button", {
+    name: "Aplicar Perfil de publicação",
+  });
+  const moreActions = row.getByRole("button", {
+    name: "Mais ações de Perfil de publicação",
+  });
+  await primaryApply.waitFor();
+
+  const styleSelect = page.getByLabel("Estilo de texto");
+  const savedStyle = await styleSelect.inputValue();
+  const changedStyle = await styleSelect
+    .locator("option")
+    .evaluateAll(
+      (options, current) =>
+        options.find((option) => option.value !== current)?.value ?? current,
+      savedStyle,
+    );
+  const centerPosition = page.getByRole("button", {
+    name: "Posicionar texto em Centro",
+  });
+  const changedPosition = page.getByRole("button", {
+    name: "Posicionar texto em Canto superior esquerdo",
+  });
+
+  await changedPosition.click();
+  await styleSelect.selectOption(changedStyle);
+  await moreActions.click();
+  await row.getByRole("button", { name: "Aplicar somente posição" }).click();
+  assert.equal(await centerPosition.getAttribute("aria-pressed"), "true");
+  assert.equal(await styleSelect.inputValue(), changedStyle);
+
+  await changedPosition.click();
+  await moreActions.click();
+  await row.getByRole("button", { name: "Aplicar somente estilo" }).click();
+  assert.equal(await changedPosition.getAttribute("aria-pressed"), "true");
+  assert.equal(await styleSelect.inputValue(), savedStyle);
+
+  await styleSelect.selectOption(changedStyle);
+  await primaryApply.click();
+  assert.equal(await centerPosition.getAttribute("aria-pressed"), "true");
+  assert.equal(await styleSelect.inputValue(), savedStyle);
+
+  await section.getByRole("button", { name: "Salvar perfil atual" }).click();
+  await page
+    .getByRole("form", { name: "Salvar perfil de texto" })
+    .getByRole("textbox", { name: "Nome do perfil de texto" })
+    .fill("Perfil de publicação");
+  await page
+    .getByRole("form", { name: "Salvar perfil de texto" })
+    .getByRole("button", { name: "Salvar" })
+    .click();
+  assert.equal(
+    await section
+      .getByRole("listitem")
+      .filter({ hasText: "Perfil de publicação" })
+      .count(),
+    1,
+    "saving an existing name should replace rather than duplicate it",
+  );
+
+  const longName = "W".repeat(60);
+  await section.getByRole("button", { name: "Salvar perfil atual" }).click();
+  await page
+    .getByRole("form", { name: "Salvar perfil de texto" })
+    .getByRole("textbox", { name: "Nome do perfil de texto" })
+    .fill(longName);
+  await page
+    .getByRole("form", { name: "Salvar perfil de texto" })
+    .getByRole("button", { name: "Salvar" })
+    .click();
+
+  row = section.getByRole("listitem").filter({
+    hasText: "Perfil de publicação",
+  });
+  const list = section.locator(".text-profiles-list");
+  const listHeightBeforeMenu = (await list.boundingBox())?.height ?? 0;
+  const rowHeight = (await row.boundingBox())?.height ?? 0;
+  assert.ok(
+    rowHeight <= 44,
+    `profile row should stay compact, got ${rowHeight}px`,
+  );
+  const longLabel = section
+    .getByRole("listitem")
+    .filter({ hasText: longName })
+    .locator(".text-profile-name-label");
+  const truncation = await longLabel.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    overflow: getComputedStyle(element).overflow,
+    scrollWidth: element.scrollWidth,
+    textOverflow: getComputedStyle(element).textOverflow,
+  }));
+  assert.equal(truncation.overflow, "hidden");
+  assert.equal(truncation.textOverflow, "ellipsis");
+  assert.ok(truncation.scrollWidth > truncation.clientWidth);
+
+  const reopenedMoreActions = row.getByRole("button", {
+    name: "Mais ações de Perfil de publicação",
+  });
+  await reopenedMoreActions.focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  assert.equal(
+    await reopenedMoreActions.evaluate((element) =>
+      element.matches(":focus-visible"),
+    ),
+    true,
+    "keyboard focus should remain visibly indicated",
+  );
+  await reopenedMoreActions.press("Enter");
+  await row.getByRole("button", { name: "Aplicar somente posição" }).waitFor();
+  const listHeightWithMenu = (await list.boundingBox())?.height ?? 0;
+  assert.ok(
+    Math.abs(listHeightWithMenu - listHeightBeforeMenu) <= 1,
+    "secondary menu should overlay instead of increasing list height",
+  );
+  assert.ok(
+    await section.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth + 1,
+    ),
+    "text profiles should not create horizontal overflow",
+  );
+  const sectionBox = await section.boundingBox();
+  assert.ok(
+    sectionBox,
+    "text profiles should be visible for screenshot review",
+  );
+  await page.screenshot({
+    clip: {
+      height: Math.min(340, page.viewportSize().height - sectionBox.y),
+      width: sectionBox.width,
+      x: sectionBox.x,
+      y: sectionBox.y,
+    },
+    path: path.join(screenshotDir, "text-profiles-compact.png"),
+  });
+
+  await row
+    .getByRole("button", { name: "Excluir Perfil de publicação" })
+    .click();
+  assert.equal(await row.count(), 0);
+  const longRow = section.getByRole("listitem").filter({ hasText: longName });
+  await longRow
+    .getByRole("button", { name: `Mais ações de ${longName}` })
+    .click();
+  await longRow.getByRole("button", { name: `Excluir ${longName}` }).click();
+  assert.equal(await section.getByRole("listitem").count(), 0);
+}
+
+async function assertTextPositionPresetAlignment(page) {
+  const cases = [
+    ["Centro", "center", "middle", "Centralizar Música"],
+    ["Canto superior esquerdo", "left", "top", "Alinhar Música à esquerda"],
+    ["Topo · centro", "center", "top", "Centralizar Música"],
+    ["Canto superior direito", "right", "top", "Alinhar Música à direita"],
+    ["Esquerda · centro", "left", "middle", "Alinhar Música à esquerda"],
+    ["Direita · centro", "right", "middle", "Alinhar Música à direita"],
+    ["Canto inferior esquerdo", "left", "bottom", "Alinhar Música à esquerda"],
+    ["Base · centro", "center", "bottom", "Centralizar Música"],
+    ["Canto inferior direito", "right", "bottom", "Alinhar Música à direita"],
+  ];
+  for (const [label, align, anchor, fieldAction] of cases) {
+    await page
+      .getByRole("button", { name: `Posicionar texto em ${label}` })
+      .click();
+    assert.equal(
+      await page.getByLabel("Alinhamento").inputValue(),
+      align,
+      `${label} should set the block alignment`,
+    );
+    assert.equal(
+      await page.getByLabel("Âncora").inputValue(),
+      anchor,
+      `${label} should set the vertical anchor`,
+    );
+    assert.equal(
+      await page
+        .getByRole("button", { name: fieldAction })
+        .getAttribute("aria-pressed"),
+      "true",
+      `${label} should align each rendered text field`,
+    );
+  }
+  await page
+    .getByRole("button", { name: "Posicionar texto em Centro" })
+    .click();
 }
 
 async function assertStatusIndicators(page) {

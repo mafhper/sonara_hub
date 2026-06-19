@@ -737,7 +737,7 @@ svg {
 }
 
 .project-save-controls.compact {
-  padding: 0 var(--space-3) var(--space-2);
+  padding: var(--space-2) var(--space-3);
 }
 
 .project-save-picker {
@@ -2440,6 +2440,7 @@ svg {
 }
 
 .text-profiles {
+  display: grid;
   gap: var(--space-2);
 }
 
@@ -2472,21 +2473,42 @@ svg {
 }
 
 .text-profiles-save {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
 }
 
 .text-profile-name {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   min-height: 30px;
   padding: 6px 8px;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius);
-  background: var(--control-bg);
+  background: var(--field-grad);
   color: var(--text-secondary);
   font-size: var(--font-sm);
+}
+
+.text-profile-save-actions,
+.text-profile-row-actions {
+  display: flex;
+  align-items: center;
+}
+
+.text-profile-save-actions {
+  gap: var(--space-1);
+}
+
+.text-profile-save-actions .quiet-action,
+.text-profile-save-actions .primary-action {
+  width: auto;
+  min-height: 30px;
+}
+
+.text-profile-save-trigger {
+  justify-content: flex-start;
 }
 
 .text-profiles-list {
@@ -2498,10 +2520,16 @@ svg {
 }
 
 .text-profiles-list li {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
+  min-height: 38px;
+  padding: var(--space-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--stage-surface-low);
 }
 
 .text-profile-name-label {
@@ -2514,11 +2542,104 @@ svg {
   white-space: nowrap;
 }
 
-.text-profile-apply-modes {
+.text-profile-row-actions {
+  border-radius: var(--radius);
+  box-shadow: var(--elev-1);
+}
+
+.text-profile-apply-primary,
+.text-profile-more {
+  min-height: 30px;
+  border: 1px solid var(--button-primary-border);
+  background: var(--button-primary-grad);
+  color: var(--button-primary-text);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.text-profile-apply-primary {
+  padding: 0 var(--space-3);
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.text-profile-more {
+  width: 30px;
+  padding: 0;
+  border-left: 0;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.text-profile-more svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 140ms ease;
+}
+
+.text-profile-more[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.text-profile-apply-primary:hover,
+.text-profile-more:hover,
+.text-profile-more[aria-expanded="true"] {
+  background: var(--button-primary-hover-bg);
+}
+
+.text-profile-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + var(--space-1));
+  right: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(52px, 1fr));
-  gap: 4px;
-  min-width: min(100%, 190px);
+  width: min(230px, calc(100% - var(--space-2)));
+  padding: var(--space-1);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius);
+  background: var(--stage-surface);
+  box-shadow: var(--elev-2);
+}
+
+.text-profile-menu > button,
+.text-profile-menu-danger button {
+  width: 100%;
+  min-height: 30px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
+.text-profile-menu > button:hover {
+  background: var(--accent-low);
+  color: var(--text-primary);
+}
+
+.text-profile-menu-danger {
+  margin-top: var(--space-1);
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--border-soft);
+}
+
+.text-profile-menu-danger button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--danger);
+}
+
+.text-profile-menu-danger button:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.text-profile-menu-danger svg {
+  width: 13px;
+  height: 13px;
 }
 
 .text-profile-apply {

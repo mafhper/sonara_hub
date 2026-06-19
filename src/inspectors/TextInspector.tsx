@@ -29,7 +29,6 @@ import { normalizeFadeIn } from "./layer-normalizers";
 import { TextProfiles } from "./TextProfiles";
 import {
   type PositionPresetId,
-  anchorForTextPosition,
   cloneTextSettings,
   defaultTextSettings,
   nearestTextPositionPreset,
@@ -39,6 +38,7 @@ import {
   textFieldLabels,
   textFontOptions,
   textPositionPresets,
+  textPositionPatch,
   textStylePresetLabels,
   textStylePresetPatch,
 } from "./text-presets";
@@ -75,13 +75,7 @@ export function TextInspector({
   function updatePosition(
     patch: Pick<Partial<TextOverlaySettings>, "x" | "y">,
   ) {
-    onTextSettings({
-      ...patch,
-      ...anchorForTextPosition(
-        patch.x ?? textSettings.x,
-        patch.y ?? textSettings.y,
-      ),
-    });
+    onTextSettings(textPositionPatch(textSettings, patch));
   }
 
   function moveTextField(field: TextFieldKey, direction: -1 | 1) {
@@ -458,7 +452,7 @@ function TextPositionPicker({
       {(
         Object.entries(textPositionPresets) as [
           PositionPresetId,
-          Partial<TextOverlaySettings>,
+          (typeof textPositionPresets)[PositionPresetId],
         ][]
       ).map(([id, preset]) => (
         <button
@@ -470,7 +464,9 @@ function TextPositionPicker({
           key={id}
           title={positionPresetOptions.find(([k]) => k === id)?.[1] ?? id}
           type="button"
-          onClick={() => onTextSettings(preset)}
+          onClick={() =>
+            onTextSettings(textPositionPatch(textSettings, preset))
+          }
         >
           {positionPickerIcons[id]}
         </button>

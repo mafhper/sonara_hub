@@ -114,6 +114,28 @@ async function testExternalProjectFolderFlow(browser) {
     await page
       .locator(".project-profile", { hasText: "Projeto Alpha" })
       .waitFor();
+    const saveSectionSpacing = await page.evaluate(() => {
+      const projectProfile = document.querySelector(".project-profile");
+      const saveLabel = document.querySelector(
+        ".project-save-controls.compact .project-save-picker span",
+      );
+      if (!projectProfile || !saveLabel) return null;
+      return {
+        gap:
+          saveLabel.getBoundingClientRect().top -
+          projectProfile.getBoundingClientRect().bottom,
+        expected: Number.parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue(
+            "--space-2",
+          ),
+        ),
+      };
+    });
+    assert.ok(saveSectionSpacing, "compact save controls should be visible");
+    assert.ok(
+      saveSectionSpacing.gap >= saveSectionSpacing.expected,
+      `SAVE should keep the standard section gap below the project divider: ${JSON.stringify(saveSectionSpacing)}`,
+    );
     await page.locator(".track-row", { hasText: "alpha" }).waitFor();
     await page.waitForFunction(
       () => window.__sonaraMockFS.dump().objectUrlsCreated > 0,

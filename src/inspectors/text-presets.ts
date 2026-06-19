@@ -118,6 +118,11 @@ export type PositionPresetId =
   | "bottom-center"
   | "bottom-right";
 
+type TextPositionPatch = Pick<
+  TextOverlaySettings,
+  "x" | "y" | "verticalAnchor"
+> & { align: TextFieldStyle["align"] };
+
 export const positionPresetOptions: Array<[PositionPresetId, string]> = [
   ["top-left", "Canto superior esquerdo"],
   ["top-center", "Topo · centro"],
@@ -130,20 +135,23 @@ export const positionPresetOptions: Array<[PositionPresetId, string]> = [
   ["bottom-right", "Canto inferior direito"],
 ];
 
-export const textPositionPresets: Record<
-  PositionPresetId,
-  Partial<TextOverlaySettings>
-> = {
-  "top-left": { x: 5, y: 7, verticalAnchor: "top", align: "left" },
-  "top-center": { x: 50, y: 7, verticalAnchor: "top", align: "center" },
-  "top-right": { x: 95, y: 7, verticalAnchor: "top", align: "right" },
-  "middle-left": { x: 5, y: 50, verticalAnchor: "middle", align: "left" },
-  center: { x: 50, y: 50, verticalAnchor: "middle", align: "center" },
-  "middle-right": { x: 95, y: 50, verticalAnchor: "middle", align: "right" },
-  "bottom-left": { x: 5, y: 93, verticalAnchor: "bottom", align: "left" },
-  "bottom-center": { x: 50, y: 93, verticalAnchor: "bottom", align: "center" },
-  "bottom-right": { x: 95, y: 93, verticalAnchor: "bottom", align: "right" },
-};
+export const textPositionPresets: Record<PositionPresetId, TextPositionPatch> =
+  {
+    "top-left": { x: 5, y: 7, verticalAnchor: "top", align: "left" },
+    "top-center": { x: 50, y: 7, verticalAnchor: "top", align: "center" },
+    "top-right": { x: 95, y: 7, verticalAnchor: "top", align: "right" },
+    "middle-left": { x: 5, y: 50, verticalAnchor: "middle", align: "left" },
+    center: { x: 50, y: 50, verticalAnchor: "middle", align: "center" },
+    "middle-right": { x: 95, y: 50, verticalAnchor: "middle", align: "right" },
+    "bottom-left": { x: 5, y: 93, verticalAnchor: "bottom", align: "left" },
+    "bottom-center": {
+      x: 50,
+      y: 93,
+      verticalAnchor: "bottom",
+      align: "center",
+    },
+    "bottom-right": { x: 95, y: 93, verticalAnchor: "bottom", align: "right" },
+  };
 
 export const textFontOptions: Array<{
   value: TextFieldStyle["fontFamily"];
@@ -197,12 +205,35 @@ export const defaultTextFadeOut: TextFadeOutSettings = {
 export function anchorForTextPosition(
   x: number,
   y: number,
-): Pick<TextOverlaySettings, "align" | "verticalAnchor"> {
-  const align: TextOverlaySettings["align"] =
+): Pick<TextPositionPatch, "align" | "verticalAnchor"> {
+  const align: TextFieldStyle["align"] =
     x <= 33 ? "left" : x >= 67 ? "right" : "center";
   const verticalAnchor: TextOverlaySettings["verticalAnchor"] =
     y <= 33 ? "top" : y >= 67 ? "bottom" : "middle";
   return { align, verticalAnchor };
+}
+
+export function textPositionPatch(
+  settings: TextOverlaySettings,
+  patch: Partial<TextPositionPatch>,
+): Partial<TextOverlaySettings> {
+  const anchor = anchorForTextPosition(
+    patch.x ?? settings.x,
+    patch.y ?? settings.y,
+  );
+  const align = patch.align ?? anchor.align;
+  return {
+    ...patch,
+    align,
+    verticalAnchor: patch.verticalAnchor ?? anchor.verticalAnchor,
+    fieldStyles: textFieldOrder.reduce(
+      (styles, field) => ({
+        ...styles,
+        [field]: { ...settings.fieldStyles[field], align },
+      }),
+      {} as Record<TextFieldKey, TextFieldStyle>,
+    ),
+  };
 }
 
 export function nearestTextPositionPreset(x: number, y: number) {
