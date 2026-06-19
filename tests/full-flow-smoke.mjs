@@ -109,7 +109,11 @@ try {
     .getByLabel("Comentário ID3")
     .fill("Fluxo completo de QA gerado localmente.");
   await batch.getByRole("button", { name: "Sobrescrever informados" }).click();
-  await batch.getByRole("button", { name: "Aplicar aos selecionados" }).click();
+  await batch
+    .getByRole("button", {
+      name: /Aplicar dados comuns aos \d+ arquivos selecionados/,
+    })
+    .click();
   await page
     .getByRole("status")
     .getByText("com sobrescrita dos campos informados", { exact: false })
@@ -195,9 +199,10 @@ try {
     .getByLabel("Etapas do projeto")
     .getByRole("button", { name: "Visual", exact: true })
     .click();
+  await page.getByRole("tab", { name: /Minimalista/ }).click();
   await page
-    .locator('select:has(option[value="audio-dark"])')
-    .selectOption("audio-dark");
+    .getByRole("button", { name: "Selecionar atmosfera Tela escura" })
+    .click();
   const waveformStackRow = page
     .locator(".composition-stack-row", { hasText: "Waveform" })
     .first();
@@ -237,9 +242,7 @@ try {
     .first()
     .getByRole("option")
     .click();
-  await page
-    .getByRole("button", { name: "Aplicar fundo visual ao lote" })
-    .click();
+  await page.getByRole("button", { name: "Aplicar visual ao lote" }).click();
   await page
     .getByRole("status")
     .getByText("Fundo visual e cores aplicados ao lote.")
