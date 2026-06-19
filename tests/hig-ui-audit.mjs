@@ -114,6 +114,7 @@ async function assertBenchmarkThemes(page) {
       waitUntil: "domcontentloaded",
     });
     await page.locator(".bench-dashboard").waitFor();
+    await page.locator(".bench-hero h1").waitFor();
 
     const audit = await page.evaluate(() => {
       const root = document.documentElement;
