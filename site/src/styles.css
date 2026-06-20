@@ -1081,11 +1081,11 @@ svg {
 .atmosphere-lab-immersive {
   isolation: isolate;
   position: relative;
-  min-height: min(920px, 92vh);
+  min-height: clamp(620px, 72vh, 760px);
   overflow: hidden;
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: clamp(22px, 4vw, 44px);
+  border-radius: clamp(22px, 3vw, 34px);
   background: var(--surface-0);
 }
 
@@ -1095,9 +1095,9 @@ svg {
   inset: 0;
   z-index: 1;
   background:
-    linear-gradient(180deg, rgba(8, 8, 10, 0.5), transparent 34%),
-    linear-gradient(0deg, rgba(8, 8, 10, 0.72), transparent 48%),
-    radial-gradient(circle at 20% 12%, rgba(8, 8, 10, 0.72), transparent 24rem);
+    linear-gradient(180deg, rgba(8, 8, 10, 0.34), transparent 30%),
+    linear-gradient(0deg, rgba(8, 8, 10, 0.5), transparent 42%),
+    radial-gradient(circle at 20% 12%, rgba(8, 8, 10, 0.56), transparent 22rem);
   pointer-events: none;
 }
 
@@ -1225,7 +1225,7 @@ svg {
   z-index: 2;
   top: 50%;
   left: 50%;
-  width: clamp(220px, 23vw, 340px);
+  width: clamp(220px, 22vw, 320px);
   display: grid;
   place-items: center;
   transform-origin: center;
@@ -1235,15 +1235,19 @@ svg {
 .lab-cover-preview {
   width: 100%;
   margin: 0;
-  filter: drop-shadow(0 26px 70px rgba(0, 0, 0, 0.64));
+  filter: drop-shadow(0 34px 70px rgba(0, 0, 0, 0.68))
+    drop-shadow(0 0 42px rgba(246, 224, 180, 0.18));
 }
 
 .lab-cover-preview img {
   width: 100%;
-  background: rgba(8, 8, 10, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: 10px;
-  box-shadow: 0 0 0 10px rgba(8, 8, 10, 0.18);
+  background: var(--surface-0);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 12px rgba(8, 8, 10, 0.3),
+    0 0 0 13px rgba(218, 226, 242, 0.08),
+    0 28px 90px rgba(0, 0, 0, 0.58);
 }
 
 .lab-cover-preview figcaption {
@@ -1303,62 +1307,39 @@ svg {
 .atmosphere-lab-immersive .atmosphere-lab-controls {
   position: absolute;
   z-index: 4;
-  right: clamp(16px, 3vw, 32px);
-  bottom: clamp(16px, 3vw, 32px);
+  top: clamp(16px, 2vw, 24px);
+  right: clamp(16px, 2vw, 24px);
+  bottom: clamp(16px, 2vw, 24px);
   left: auto;
   display: grid;
   grid-template-columns: 1fr;
   gap: 10px;
-  width: min(calc(100% - 32px), 430px);
+  width: min(calc(100% - 32px), 360px);
   max-height: none;
-  overflow: hidden;
-  padding: 46px 14px 14px;
-  transform: translateY(calc(100% - 50px));
-  opacity: 0.78;
+  overflow: auto;
+  padding: 12px;
+  transform: none;
+  opacity: 1;
   border-color: rgba(218, 226, 242, 0.16);
-  background: rgba(8, 8, 10, 0.58);
+  background: rgba(8, 8, 10, 0.72);
   backdrop-filter: blur(22px);
-  transition:
-    opacity 180ms ease,
-    transform 240ms ease,
-    background 180ms ease;
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.48),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: background 180ms ease;
 }
 
 .atmosphere-lab-immersive .atmosphere-lab-controls:hover,
 .atmosphere-lab-immersive .atmosphere-lab-controls:focus-within {
-  transform: translateY(0);
-  opacity: 1;
-  overflow: visible;
-  background: rgba(8, 8, 10, 0.76);
+  background: rgba(8, 8, 10, 0.82);
 }
 
 .atmosphere-lab-immersive .atmosphere-lab-controls::before {
-  content: attr(data-control-label);
-  position: absolute;
-  top: 10px;
-  left: 14px;
-  display: grid;
-  min-width: 116px;
-  height: 28px;
-  place-items: center;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  background: rgba(17, 19, 25, 0.86);
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  display: none;
 }
 
 .atmosphere-lab-immersive .atmosphere-lab-controls > * {
   min-width: 0;
-  opacity: 0;
-  transition: opacity 160ms ease;
-}
-
-.atmosphere-lab-immersive .atmosphere-lab-controls:hover > *,
-.atmosphere-lab-immersive .atmosphere-lab-controls:focus-within > * {
   opacity: 1;
 }
 
@@ -1374,8 +1355,8 @@ svg {
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: 8px;
-  min-height: 42px;
-  padding: 9px 10px;
+  min-height: 38px;
+  padding: 8px 9px;
 }
 
 .atmosphere-lab-immersive .lab-range-grid {
@@ -1384,22 +1365,32 @@ svg {
 
 .composer-panel {
   min-width: 0;
-  padding: 12px;
+  padding: 11px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: rgba(8, 8, 10, 0.42);
+}
+
+.atmosphere-lab-immersive .composer-panel {
+  padding: 10px;
+  background: rgba(17, 19, 25, 0.58);
 }
 
 .atmosphere-lab-controls h4 {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin: 0 0 10px;
+  margin: 0 0 8px;
   color: var(--accent-strong);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.18em;
   text-transform: uppercase;
+}
+
+.atmosphere-lab-immersive .atmosphere-lab-controls h4 {
+  margin-bottom: 7px;
+  font-size: 10px;
 }
 
 .composer-icon {
@@ -1433,6 +1424,11 @@ svg {
 .lab-tag-row {
   display: grid;
   gap: 8px;
+}
+
+.atmosphere-lab-immersive .atmosphere-choice-list,
+.atmosphere-lab-immersive .palette-choice-list {
+  gap: 6px;
 }
 
 .atmosphere-choice-list button,
@@ -1481,6 +1477,10 @@ svg {
   font-size: 14px;
 }
 
+.atmosphere-lab-immersive .atmosphere-choice-list strong {
+  font-size: 13px;
+}
+
 .atmosphere-choice-list span {
   color: var(--text-muted);
   font-size: 12px;
@@ -1500,6 +1500,11 @@ svg {
   font-weight: 760;
 }
 
+.atmosphere-lab-immersive .palette-choice-list button {
+  gap: 6px;
+  padding: 8px;
+}
+
 .palette-swatch {
   display: flex;
   width: 100%;
@@ -1507,6 +1512,10 @@ svg {
   overflow: hidden;
   border-radius: 999px;
   background: var(--surface-2);
+}
+
+.atmosphere-lab-immersive .palette-swatch {
+  height: 16px;
 }
 
 .palette-swatch i {
@@ -1518,6 +1527,10 @@ svg {
   gap: 12px;
 }
 
+.atmosphere-lab-immersive .lab-range-grid {
+  gap: 8px 10px;
+}
+
 .lab-range-grid label {
   display: grid;
   gap: 7px;
@@ -1526,6 +1539,12 @@ svg {
   font-weight: 760;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.atmosphere-lab-immersive .lab-range-grid label {
+  gap: 4px;
+  font-size: 10px;
+  letter-spacing: 0.07em;
 }
 
 .lab-range-grid input {
@@ -1549,6 +1568,10 @@ svg {
   font: inherit;
 }
 
+.atmosphere-lab-immersive .lab-range-grid select {
+  min-height: 34px;
+}
+
 .lab-toggle-row {
   display: flex;
   align-items: center;
@@ -1557,6 +1580,11 @@ svg {
   color: var(--text);
   font-size: 14px;
   font-weight: 760;
+}
+
+.atmosphere-lab-immersive .lab-toggle-row {
+  margin-bottom: 8px;
+  font-size: 13px;
 }
 
 .lab-toggle-row input {

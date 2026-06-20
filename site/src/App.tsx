@@ -37,10 +37,7 @@ import labCoverJardim from "./assets/lab-cover-jardim.webp";
 import labCoverKite from "./assets/lab-cover-kite.webp";
 import liquidFlow from "./assets/liquid-flow.webp";
 import shotAudioLibrary from "./assets/shot-audio-library.webp";
-import shotAzulFrame from "./assets/shot-azul-frame.webp";
-import shotAzulVisual from "./assets/shot-azul-visual.webp";
 import shotCatalog from "./assets/shot-catalog.webp";
-import shotJardimCatalog from "./assets/shot-jardim-catalog.webp";
 import shotVideoGrid from "./assets/shot-video-grid.webp";
 import shotVisualStudio from "./assets/shot-visual-studio.webp";
 
@@ -1263,10 +1260,10 @@ function HeroShowcase() {
   const cards: ShowcaseCard[] = useMemo(
     () => [
       { kind: "cover", labelKey: "beauty", image: heroCoverBeauty },
-      { kind: "screen", labelKey: "visualStudio", image: shotAzulVisual },
-      { kind: "video", labelKey: "musicVideo", image: shotAzulFrame },
+      { kind: "screen", labelKey: "visualStudio", image: shotVisualStudio },
+      { kind: "video", labelKey: "musicVideo", image: shotVideoGrid },
       { kind: "cover", labelKey: "azul", image: heroCoverAzul },
-      { kind: "screen", labelKey: "albumCatalog", image: shotJardimCatalog },
+      { kind: "screen", labelKey: "albumCatalog", image: shotCatalog },
       { kind: "cover", labelKey: "jardim", image: heroCoverJardim },
     ],
     [],
@@ -1798,9 +1795,9 @@ function AtmosphereLab({ immersive = false }: { immersive?: boolean }) {
   const [coverEnabled, setCoverEnabled] = useState(true);
   const [coverImage, setCoverImage] = useState<LabCoverId>("azul-blue");
   const [coverX, setCoverX] = useState(0);
-  const [coverY, setCoverY] = useState(-9);
-  const [coverScale, setCoverScale] = useState(110);
-  const [coverOpacity, setCoverOpacity] = useState(88);
+  const [coverY, setCoverY] = useState(0);
+  const [coverScale, setCoverScale] = useState(100);
+  const [coverOpacity, setCoverOpacity] = useState(100);
   const [coverBlend, setCoverBlend] = useState<LabBlendMode>("normal");
   const selectedCover =
     labCoverOptions.find((option) => option.id === coverImage) ??
