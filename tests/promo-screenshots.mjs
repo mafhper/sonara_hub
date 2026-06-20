@@ -1,7 +1,7 @@
-// One-off capture script for the promo-site illustrations.
-// Loads the test album, navigates the main screens, applies the
-// "Nuvens amplas" scene with the album cover composited over the video,
-// and writes PNGs straight into site/src/assets/.
+// One-off capture script for the promo-site and README illustrations.
+// Loads the test album, navigates the main screens, applies representative
+// app themes, and writes WebP assets into site/src/assets/ plus selected
+// README images in media/readme/.
 //
 // Usage (dev server must be running):
 //   SONARA_CLIENT_URL=http://127.0.0.1:5175 \
@@ -9,6 +9,7 @@
 //   node tests/promo-screenshots.mjs
 //
 // Env knobs: HEADLESS=0 to watch the run, COVER_POSITION=center|left|right.
+// Theme knobs: LIBRARY_THEME, CATALOG_THEME, VISUAL_THEME, VIDEO_GRID_THEME.
 
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -23,16 +24,35 @@ const albumDir =
   "D:\\mafhp\\Music\\Matheus Lima\\The Beauty of Almost";
 const coverPosition = process.env.COVER_POSITION ?? "center";
 const outDir = path.join(root, "site", "src", "assets");
+const readmeMediaDir = path.join(root, "media", "readme");
 await fs.mkdir(outDir, { recursive: true });
+await fs.mkdir(readmeMediaDir, { recursive: true });
 
-const shot = async (page, name) => {
-  const file = path.join(outDir, name);
+const captureThemes = {
+  library: process.env.LIBRARY_THEME ?? "light",
+  catalog: process.env.CATALOG_THEME ?? "dark",
+  visual: process.env.VISUAL_THEME ?? "golden",
+  videoGrid: process.env.VIDEO_GRID_THEME ?? "original",
+};
+
+const shot = async (page, name, { theme = "original", readmeName } = {}) => {
+  await applyCaptureTheme(page, theme);
+  await assertNoVisibleCaptureError(page, name);
   const buffer = await page.screenshot({ fullPage: false });
+  const file = path.join(outDir, name);
   await sharp(buffer)
-    .resize({ width: 1160 })
-    .webp({ quality: 80 })
+    .resize({ width: 1160, height: 690, fit: "cover", position: "center" })
+    .webp({ quality: 82 })
     .toFile(file);
   console.log("saved", path.relative(root, file));
+  if (readmeName) {
+    const readmeFile = path.join(readmeMediaDir, readmeName);
+    await sharp(buffer)
+      .resize({ width: 1200, height: 714, fit: "cover", position: "center" })
+      .webp({ quality: 82 })
+      .toFile(readmeFile);
+    console.log("saved", path.relative(root, readmeFile));
+  }
 };
 
 const browser = await chromium.launch({
@@ -99,13 +119,17 @@ try {
     console.warn("cover-layer-apply control not found; skipping cover overlay");
   }
   await page.waitForTimeout(1_500); // let the scene canvas paint
-  await shot(page, "shot-visual-studio.webp");
+  await shot(page, "shot-visual-studio.webp", {
+    theme: captureThemes.visual,
+    readmeName: "app-visual-studio.webp",
+  });
 
   // --- Switch to the audio library in batch ("Lote") mode for the rest ---
   await page.getByRole("button", { name: "Biblioteca de áudio" }).click();
   await ensurePanelOpen(page, "library");
   await ensurePanelOpen(page, "inspector");
-  await page.getByRole("button", { name: "Lote", exact: true }).click();
+  const batchButton = page.getByRole("button", { name: "Lote", exact: true });
+  if (await batchButton.count()) await batchButton.click();
   await page.waitForTimeout(600);
 
   // --- 2) Audio Library — batch review (all tracks, tags, status) ---
@@ -115,7 +139,9 @@ try {
     .click();
   await page.getByText("Dados comuns do lote").first().waitFor();
   await page.waitForTimeout(900);
-  await shot(page, "shot-audio-library.webp");
+  await shot(page, "shot-audio-library.webp", {
+    theme: captureThemes.library,
+  });
 
   // --- 3) Catalog preview (full album, all tracks) ---
   await page
@@ -124,7 +150,10 @@ try {
     .click();
   await page.getByText("Catálogo planejado").first().waitFor();
   await page.waitForTimeout(900);
-  await shot(page, "shot-catalog.webp");
+  await shot(page, "shot-catalog.webp", {
+    theme: captureThemes.catalog,
+    readmeName: "app-catalog.webp",
+  });
 
   // --- 4) Video grid (publication thumbnails, cover mode) ---
   await page.getByRole("button", { name: "Estúdio visual" }).click();
@@ -147,7 +176,9 @@ try {
     await page.waitForTimeout(120);
   }
   await page.waitForTimeout(900);
-  await shot(page, "shot-video-grid.webp");
+  await shot(page, "shot-video-grid.webp", {
+    theme: captureThemes.videoGrid,
+  });
 
   if (errors.length) console.warn("page errors:", errors);
   console.log("done.");
@@ -173,5 +204,23 @@ async function ensurePanelOpen(page, panel) {
           ?.classList.contains(hiddenClass),
       className,
     );
+  }
+}
+
+async function applyCaptureTheme(page, theme) {
+  await page.evaluate((themeName) => {
+    document.documentElement.dataset.theme = themeName;
+    document.documentElement.dataset.themePreference = themeName;
+    window.localStorage.setItem("sonara-hub-theme", themeName);
+  }, theme);
+  await page.waitForTimeout(300);
+}
+
+async function assertNoVisibleCaptureError(page, name) {
+  const count = await page
+    .getByText(/Não foi possível|Failed to fetch|Servidor local indisponível/)
+    .count();
+  if (count > 0) {
+    throw new Error(`${name}: visible error state before screenshot`);
   }
 }

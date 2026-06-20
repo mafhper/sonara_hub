@@ -42,14 +42,14 @@ sem uploads, sem contas e sem depender da nuvem.
 
 ### Estúdio visual
 
-![Estúdio visual do Sonara Hub](docs/media/app-visual-studio.webp)
+![Estúdio visual do Sonara Hub](media/readme/app-visual-studio.webp)
 
 Cada faixa vira um vídeo com movimento suave: escolha a cena, ajuste cores,
 camadas, waveform e texto — tudo com prévia ao vivo.
 
 ### Catálogo do álbum
 
-![Catálogo planejado no Sonara Hub](docs/media/app-catalog.webp)
+![Catálogo planejado no Sonara Hub](media/readme/app-catalog.webp)
 
 Veja o álbum como uma página antes de exportar: capa, lista de faixas, tags e a
 série de capas geradas.
@@ -125,7 +125,7 @@ saudável, degradando ou pedindo nova instrumentação.
 
 ## O site do projeto
 
-![Site de apresentação do Sonara Hub](docs/media/promo-hero.webp)
+![Site de apresentação do Sonara Hub](media/readme/promo-hero.webp)
 
 Há um site de apresentação com a proposta, telas do estúdio e uma experiência
 interativa para testar atmosferas visuais. O site detecta automaticamente a
@@ -204,8 +204,3 @@ npm run site:dev    # desenvolvimento
 npm run site:build  # build estático em site/dist
 npm run site:test   # smoke test do site compilado
 ```
-
-## Para desenvolvedores
-
-Arquitetura, validação e contribuição estão documentadas em
-[docs/development.md](docs/development.md).

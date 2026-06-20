@@ -339,7 +339,7 @@ const siteCopy = {
     screenshots: {
       label: "Dentro do Sonara",
       title: "Um instrumento, não um dashboard.",
-      body: "Capturas reais do estúdio carregado com um álbum: as mesmas superfícies escuras e ritmo editorial conduzidos de ponta a ponta.",
+      body: "Capturas reais do estúdio carregado com um álbum, atravessando os temas atuais sem perder hierarquia, contraste e ritmo editorial.",
       slots: [
         {
           title: "Biblioteca de áudio",
@@ -678,7 +678,7 @@ storage: autosave local`,
     screenshots: {
       label: "Inside Sonara",
       title: "An instrument, not a dashboard.",
-      body: "Real captures from the studio, loaded with an album: the same dark surfaces and editorial rhythm carried end to end.",
+      body: "Real captures from the studio, loaded with an album and moving across the current themes without losing hierarchy, contrast, or editorial rhythm.",
       slots: [
         {
           title: "Audio Library",
@@ -1021,7 +1021,7 @@ storage: local autosave`,
     screenshots: {
       label: "Dentro de Sonara",
       title: "Un instrumento, no un dashboard.",
-      body: "Capturas reales del estudio cargado con un álbum: las mismas superficies oscuras y ritmo editorial de punta a punta.",
+      body: "Capturas reales del estudio cargado con un álbum, atravesando los temas actuales sin perder jerarquía, contraste ni ritmo editorial.",
       slots: [
         {
           title: "Biblioteca de audio",
