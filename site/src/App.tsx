@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import {
+  CloudSun,
   Gauge,
   Image as ImageIcon,
   Layers3,
@@ -58,7 +59,7 @@ type Principle = {
 type Locale = "pt-BR" | "en" | "es";
 type WorkspaceMode = "audio" | "visual";
 type AtmosphereLabId =
-  | "neural-haze"
+  | "volumetric-clouds"
   | "playful-shapes"
   | "starfield"
   | "iridescent-bloom";
@@ -68,7 +69,7 @@ type LabCoverId = "azul-blue" | "azul-light" | "kite" | "jardim";
 const supportedLocales: Locale[] = ["pt-BR", "en", "es"];
 const workspaceModes: WorkspaceMode[] = ["audio", "visual"];
 const atmosphereLabIds: AtmosphereLabId[] = [
-  "neural-haze",
+  "volumetric-clouds",
   "playful-shapes",
   "starfield",
   "iridescent-bloom",
@@ -217,8 +218,8 @@ const siteCopy = {
         aria: "Exemplos de novas atmosferas visuais",
         items: [
           [
-            "Névoa neural",
-            "Contornos orgânicos e conexões suaves para movimento ambiente.",
+            "Nuvens amplas",
+            "Céu azul aberto, nuvens claras e luz suave de um dia bonito.",
           ],
           [
             "Formas lúdicas",
@@ -261,10 +262,10 @@ const siteCopy = {
           deep: "Profunda",
         },
         presets: {
-          "neural-haze": {
-            name: "Névoa neural",
-            description: "Rede orgânica com contornos suaves e brilho difuso.",
-            tags: ["orgânico", "névoa", "rede"],
+          "volumetric-clouds": {
+            name: "Nuvens amplas",
+            description: "Céu limpo com nuvens claras e luz suave de meio-dia.",
+            tags: ["céu", "nuvens", "dia"],
           },
           "playful-shapes": {
             name: "Formas lúdicas",
@@ -556,8 +557,8 @@ storage: autosave local`,
         aria: "New visual atmosphere examples",
         items: [
           [
-            "Neural haze",
-            "Organic contours and soft links for ambient motion.",
+            "Broad clouds",
+            "Open blue sky, bright clouds and soft clear-day light.",
           ],
           [
             "Playful forms",
@@ -597,10 +598,10 @@ storage: autosave local`,
           deep: "Deep",
         },
         presets: {
-          "neural-haze": {
-            name: "Neural haze",
-            description: "Organic network with soft contours and diffuse glow.",
-            tags: ["organic", "haze", "network"],
+          "volumetric-clouds": {
+            name: "Broad clouds",
+            description: "Clear sky with bright clouds and soft midday light.",
+            tags: ["sky", "clouds", "daylight"],
           },
           "playful-shapes": {
             name: "Playful forms",
@@ -894,8 +895,8 @@ storage: local autosave`,
         aria: "Ejemplos de nuevas atmósferas visuales",
         items: [
           [
-            "Niebla neural",
-            "Contornos orgánicos y conexiones suaves para movimiento ambiental.",
+            "Nubes amplias",
+            "Cielo azul abierto, nubes claras y luz suave de un día bonito.",
           ],
           [
             "Formas lúdicas",
@@ -939,10 +940,11 @@ storage: local autosave`,
           deep: "Profunda",
         },
         presets: {
-          "neural-haze": {
-            name: "Niebla neural",
-            description: "Red orgánica con contornos suaves y brillo difuso.",
-            tags: ["orgánico", "niebla", "red"],
+          "volumetric-clouds": {
+            name: "Nubes amplias",
+            description:
+              "Cielo limpio con nubes claras y luz suave del mediodía.",
+            tags: ["cielo", "nubes", "día"],
           },
           "playful-shapes": {
             name: "Formas lúdicas",
@@ -1788,8 +1790,9 @@ function AtmosphereLab({ immersive = false }: { immersive?: boolean }) {
             note: "Switch with the arrows and blend the cover into the atmosphere.",
           };
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [selected, setSelected] = useState<AtmosphereLabId>("neural-haze");
-  const [palette, setPalette] = useState<AtmospherePaletteId>("deep");
+  const [selected, setSelected] =
+    useState<AtmosphereLabId>("volumetric-clouds");
+  const [palette, setPalette] = useState<AtmospherePaletteId>("original");
   const [motion, setMotion] = useState(42);
   const [intensity, setIntensity] = useState(55);
   const [coverEnabled, setCoverEnabled] = useState(true);
@@ -1907,6 +1910,9 @@ function AtmosphereLab({ immersive = false }: { immersive?: boolean }) {
             className="atmosphere-lab-canvas"
             aria-label={copy.visualSystem.lab.previewAria}
             data-testid="atmosphere-lab-canvas"
+            data-atmosphere={selectedScene.id}
+            data-atmosphere-variant={selectedScene.appliedVariantId ?? ""}
+            data-atmosphere-base-color={selectedScene.colors?.base ?? ""}
           />
           {coverEnabled && (
             <div
@@ -1963,8 +1969,8 @@ function AtmosphereLab({ immersive = false }: { immersive?: boolean }) {
               {atmosphereLabIds.map((id) => {
                 const preset = copy.visualSystem.lab.presets[id];
                 const PresetIcon =
-                  id === "neural-haze"
-                    ? Waves
+                  id === "volumetric-clouds"
+                    ? CloudSun
                     : id === "playful-shapes"
                       ? Music2
                       : id === "starfield"
@@ -2188,12 +2194,13 @@ function createSiteAtmosphereScene(
   intensity: number,
 ): ScenePresetV3 {
   const base = normalizeVisualSettings(
-    builtinVisualPresets.find((preset) => preset.id === id) ??
-      builtinVisualPresets[0],
+    id === "volumetric-clouds" ? { id, appliedVariantId: "noon" } : { id },
   );
   const selectedPalette =
-    base.palettes.find((candidate) => candidate.id === paletteId) ??
-    base.palettes[0];
+    id === "volumetric-clouds" && paletteId === "original"
+      ? undefined
+      : (base.palettes.find((candidate) => candidate.id === paletteId) ??
+        base.palettes[0]);
   const common = selectedPalette?.common ?? base.common;
 
   return normalizeVisualSettings({

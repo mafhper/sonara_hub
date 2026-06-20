@@ -29,7 +29,7 @@ await fs.mkdir(outDir, { recursive: true });
 await fs.mkdir(readmeMediaDir, { recursive: true });
 
 const captureThemes = {
-  library: process.env.LIBRARY_THEME ?? "light",
+  library: process.env.LIBRARY_THEME ?? "dark",
   catalog: process.env.CATALOG_THEME ?? "dark",
   visual: process.env.VISUAL_THEME ?? "golden",
   videoGrid: process.env.VIDEO_GRID_THEME ?? "original",
@@ -103,14 +103,21 @@ try {
     .getByLabel("Etapas do projeto")
     .getByRole("button", { name: "Visual", exact: true })
     .click();
-  const presetSelect = page.locator(
-    'select:has(option[value="volumetric-clouds"])',
-  );
-  await presetSelect.selectOption("volumetric-clouds");
+  await page.getByRole("tab", { name: /Atmosferas/ }).click();
+  await page
+    .getByRole("button", { name: "Selecionar atmosfera Nuvens amplas" })
+    .click();
+  await page
+    .getByRole("button", {
+      name: "Aplicar variante Meio-dia em Nuvens amplas",
+    })
+    .click();
   await page.waitForTimeout(500);
 
   // Composite the track's album cover over the scene ("há configuração para isso").
-  const coverApply = page.locator(".cover-layer-apply");
+  const stackAddSummary = page.locator(".stack-add-menu > summary");
+  if (await stackAddSummary.count()) await stackAddSummary.click();
+  const coverApply = page.locator(".cover-layer-apply:visible");
   if (await coverApply.count()) {
     await coverApply.locator("select").selectOption(coverPosition);
     await coverApply.getByRole("button", { name: /Aplicar capa/ }).click();

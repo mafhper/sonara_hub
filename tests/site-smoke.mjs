@@ -170,7 +170,20 @@ try {
   await page.getByRole("button", { name: "Next cover" }).click();
   await page.locator(".atmosphere-lab-controls").hover();
   await page.waitForTimeout(250);
-  await page.getByRole("button", { name: /Neural haze/i }).click();
+  await page.getByRole("button", { name: /Broad clouds/i }).click();
+  const atmosphereCanvas = page.getByTestId("atmosphere-lab-canvas");
+  assert.equal(
+    await atmosphereCanvas.getAttribute("data-atmosphere"),
+    "volumetric-clouds",
+  );
+  assert.equal(
+    await atmosphereCanvas.getAttribute("data-atmosphere-variant"),
+    "noon",
+  );
+  assert.equal(
+    await atmosphereCanvas.getAttribute("data-atmosphere-base-color"),
+    "#4f90b2",
+  );
   await page.getByRole("button", { name: "Prism", exact: true }).click();
   await setRangeValue(page.getByRole("slider", { name: "Motion" }), "82");
   await setRangeValue(page.getByLabel("Horizontal"), "12");

@@ -83,11 +83,19 @@ try {
       .getByLabel("Etapas do projeto")
       .getByRole("button", { name: "Visual", exact: true })
       .click();
+    await page.getByRole("tab", { name: /Atmosferas/ }).click();
     await page
-      .locator('select:has(option[value="volumetric-clouds"])')
-      .selectOption("volumetric-clouds");
+      .getByRole("button", { name: "Selecionar atmosfera Nuvens amplas" })
+      .click();
+    await page
+      .getByRole("button", {
+        name: "Aplicar variante Meio-dia em Nuvens amplas",
+      })
+      .click();
     await page.waitForTimeout(500);
-    const coverApply = page.locator(".cover-layer-apply");
+    const stackAddSummary = page.locator(".stack-add-menu > summary");
+    if (await stackAddSummary.count()) await stackAddSummary.click();
+    const coverApply = page.locator(".cover-layer-apply:visible");
     if (await coverApply.count()) {
       await coverApply.locator("select").selectOption(coverPosition);
       await coverApply.getByRole("button", { name: /Aplicar capa/ }).click();
