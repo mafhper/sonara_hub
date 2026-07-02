@@ -120,6 +120,37 @@ export type RenderStackItem =
   | { kind: "vinyl" }
   | { kind: "media"; layerId: string; order: number };
 
+export type PaperShaderRendererId =
+  | "paper-mesh-gradient"
+  | "paper-smoke-ring"
+  | "paper-neuro-noise"
+  | "paper-dot-orbit"
+  | "paper-dot-grid"
+  | "paper-simplex-noise"
+  | "paper-metaballs"
+  | "paper-waves"
+  | "paper-perlin-noise"
+  | "paper-voronoi"
+  | "paper-warp"
+  | "paper-god-rays"
+  | "paper-spiral"
+  | "paper-swirl"
+  | "paper-dithering"
+  | "paper-grain-gradient"
+  | "paper-pulsing-border"
+  | "paper-color-panels"
+  | "paper-static-mesh-gradient"
+  | "paper-static-radial-gradient"
+  | "paper-paper-texture"
+  | "paper-fluted-glass"
+  | "paper-water"
+  | "paper-image-dithering"
+  | "paper-heatmap"
+  | "paper-liquid-metal"
+  | "paper-halftone-dots"
+  | "paper-halftone-cmyk"
+  | "paper-gem-smoke";
+
 export type SceneRendererId =
   | "liquid-mesh"
   | "volumetric-clouds"
@@ -150,7 +181,8 @@ export type SceneRendererId =
   | "fractal-sphere"
   | "fluid-flow"
   | "terrain-magic"
-  | "terrain-flight";
+  | "terrain-flight"
+  | PaperShaderRendererId;
 
 export type VisualPostSettings = {
   bloom: number;

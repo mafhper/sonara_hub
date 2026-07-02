@@ -47,6 +47,9 @@ const quickPresetIds = new Set([
   "starfield",
   "holo-topography",
   "fluid-flow",
+  "paper-mesh-gradient",
+  "paper-fluted-glass",
+  "paper-gem-smoke",
 ]);
 const presetSmokeCases = fullSmoke
   ? builtinVisualPresets

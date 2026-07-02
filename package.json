@@ -17,6 +17,7 @@
     "test:scale": "node tests/scale-memory.test.mjs",
     "test:flow": "node tests/full-flow-smoke.mjs",
     "test:render": "node tests/render-presets-smoke.mjs",
+    "test:render:paper": "node tests/paper-shaders-browser-smoke.mjs",
     "test:render:full": "node tests/render-presets-smoke.mjs --profile=full",
     "bench:render": "node tests/render-benchmark.mjs",
     "bench:render:full": "npm run bench:render -- --profile=full",

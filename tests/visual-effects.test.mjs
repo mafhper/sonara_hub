@@ -20,6 +20,10 @@ import {
   visualPostDefaults,
   visualUniforms,
 } from "../shared/visual-effects.mjs";
+import {
+  paperShaderDefinitions,
+  paperShaderPresetCount,
+} from "../shared/paper-shaders.mjs";
 
 const expectedIds = [
   "liquid-mesh",
@@ -52,6 +56,7 @@ const expectedIds = [
   "fluid-flow",
   "terrain-magic",
   "terrain-flight",
+  ...paperShaderDefinitions.map((definition) => definition.rendererId),
 ];
 
 test("catalog exposes the broad families plus the ported shader presets", () => {
@@ -65,6 +70,63 @@ test("catalog exposes the broad families plus the ported shader presets", () => 
   assert.ok(removedEffectIds.includes("rain-window"));
   assert.ok(removedEffectIds.includes("volumetric-clouds-dawn"));
   assert.equal(new Set(expectedIds).size, builtinVisualPresets.length);
+});
+
+test("Paper Shaders catalog exposes every official shader and preset", () => {
+  assert.equal(paperShaderDefinitions.length, 29);
+  assert.equal(paperShaderPresetCount, 120);
+  assert.equal(
+    effectIds.filter((id) => id.startsWith("paper-")).length,
+    paperShaderDefinitions.length,
+  );
+  for (const definition of paperShaderDefinitions) {
+    const preset = builtinPresetMap.get(definition.rendererId);
+    assert.ok(preset, definition.rendererId);
+    assert.match(preset.note, /Paper Shaders/u, definition.rendererId);
+    assert.equal(
+      preset.variants.length,
+      definition.presets.length - 1,
+      definition.rendererId,
+    );
+  }
+});
+
+test("every builtin atmosphere and reusable option starts with music reaction disabled", () => {
+  for (const preset of builtinVisualPresets) {
+    assert.equal(preset.common.audioReaction, 0, preset.id);
+    for (const palette of preset.palettes) {
+      assert.equal(
+        palette.common.audioReaction,
+        0,
+        `${preset.id}/${palette.id}`,
+      );
+    }
+    for (const variant of preset.variants) {
+      assert.equal(
+        variant.common?.audioReaction ?? 0,
+        0,
+        `${preset.id}/${variant.id}`,
+      );
+    }
+  }
+
+  assert.equal(
+    normalizeVisualSettings({
+      id: "paper-mesh-gradient",
+      common: { audioReaction: 42 },
+    }).common.audioReaction,
+    42,
+  );
+});
+
+test("static Paper shaders are grouped as simple effects", () => {
+  const visual = normalizeVisualSettings({ id: "paper-dot-grid" });
+  assert.equal(visual.category, "Efeitos simples");
+  assert.equal(visual.categoryId, "simple-effects");
+  assert.equal(
+    normalizeVisualSettings({ id: "paper-water" }).category,
+    "Fluidos",
+  );
 });
 
 test("visual presets expose V5 catalog metadata with neutral post defaults", () => {

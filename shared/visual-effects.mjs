@@ -1,3 +1,5 @@
+import { paperShaderPresetConfigs } from "./paper-shaders.mjs";
+
 export const VISUAL_SCHEMA_VERSION = 5;
 export const ATMOSPHERE_BASE_LAYER_ID = "atmosphere-base";
 export const ATMOSPHERE_EXTRA_LAYER_ID = "atmosphere-2";
@@ -92,7 +94,7 @@ const commonDefaults = {
   speed: 28,
   brightness: 48,
   direction: 18,
-  audioReaction: 18,
+  audioReaction: 0,
   shade: 18,
 };
 export const visualCommonControlKeys = [
@@ -183,6 +185,7 @@ const visualCategoryIdsByLabel = new Map([
   ["Minimalista", "minimal"],
   ["Paisagem", "landscape"],
   ["Superficies", "surfaces"],
+  ["Efeitos simples", "simple-effects"],
 ]);
 
 const paletteProfiles = [
@@ -193,7 +196,7 @@ const paletteProfiles = [
     base: { hue: -10, saturation: 10, lightness: -12 },
     effect: { hue: -18, saturation: 14, lightness: -4 },
     light: { hue: -6, saturation: 8, lightness: 6 },
-    common: { intensity: 4, speed: -4, brightness: -6, audioReaction: 2 },
+    common: { intensity: 4, speed: -4, brightness: -6 },
     advanced: [6, -4, 8, 7, -2, 4],
   },
   {
@@ -202,7 +205,7 @@ const paletteProfiles = [
     base: { hue: 24, saturation: 8, lightness: -6 },
     effect: { hue: 34, saturation: 16, lightness: 2 },
     light: { hue: 22, saturation: 12, lightness: 8 },
-    common: { intensity: 2, speed: -2, brightness: 4, audioReaction: -1 },
+    common: { intensity: 2, speed: -2, brightness: 4 },
     advanced: [-4, 5, -2, 6, 4, -3],
   },
   {
@@ -211,7 +214,7 @@ const paletteProfiles = [
     base: { hue: 56, saturation: 18, lightness: -8 },
     effect: { hue: 124, saturation: 20, lightness: 5 },
     light: { hue: -86, saturation: 18, lightness: 10 },
-    common: { intensity: 6, speed: 3, brightness: 3, audioReaction: 6 },
+    common: { intensity: 6, speed: 3, brightness: 3 },
     advanced: [8, 6, 10, 8, 12, 6],
   },
 ];
@@ -246,14 +249,25 @@ function preset({
   cloudLight,
   palettes,
 }) {
-  const normalizedCommon = { ...commonDefaults, ...common };
+  const normalizedCommon = {
+    ...commonDefaults,
+    ...common,
+    audioReaction: 0,
+  };
   const normalizedPalettes = normalizePalettes(
     palettes,
     [],
     colors,
     normalizedCommon,
     advanced,
-  );
+  ).map((palette) => ({
+    ...palette,
+    common: { ...palette.common, audioReaction: 0 },
+  }));
+  const normalizedVariants = normalizeVariants(variants).map((variant) => ({
+    ...variant,
+    common: { ...variant.common, audioReaction: 0 },
+  }));
   return {
     schemaVersion: VISUAL_SCHEMA_VERSION,
     id,
@@ -264,7 +278,7 @@ function preset({
     categoryId: normalizeCategoryId(categoryId, category),
     family: normalizeIdentifier(family, rendererId),
     tags: normalizeTags(tags),
-    variants: normalizeVariants(variants),
+    variants: normalizedVariants,
     performanceTier: normalizePerformanceTier(performanceTier),
     post: normalizePost(post),
     ...(normalizeIdentifier(appliedVariantId, "")
@@ -1156,6 +1170,7 @@ export const builtinVisualPresets = [
       control("fog", "Névoa"),
     ],
   }),
+  ...paperShaderPresetConfigs.map((item) => preset(item)),
 ];
 
 export const builtinPresetMap = new Map(

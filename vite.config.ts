@@ -7,6 +7,10 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          const normalizedId = id.replace(/\\/g, "/");
+          if (normalizedId.includes("/shared/paper-shader")) {
+            return "paper-shaders";
+          }
           if (!id.includes("node_modules")) return undefined;
           if (id.includes("lucide-react")) return "vendor-icons";
           if (id.includes("react")) return "vendor-react";

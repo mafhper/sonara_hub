@@ -5,6 +5,27 @@ This product includes original work derived from or inspired by the following
 third-party sources. Each entry notes the license and how it is used.
 
 ----------------------------------------------------------------------
+Paper Shaders / Lost Coast Labs, Inc.
+License: Apache-2.0
+----------------------------------------------------------------------
+The vendored `paper-*` atmosphere fork, including GLSL fragment shaders and the
+local preset snapshot, is derived from Paper Shaders 0.0.76. Sonara maintains
+this source independently and adds deterministic audio-time mapping, palette
+translation, procedural image inputs, catalog metadata, static-effect
+classification, and integration with its shared preview/export runtime.
+
+Paper Shaders
+Copyright 2026 Paper
+
+Powered by Paper Shaders:
+https://shaders.paper.design
+
+The complete upstream license and NOTICE are distributed in:
+
+- third_party/paper-shaders/LICENSE
+- third_party/paper-shaders/NOTICE
+
+----------------------------------------------------------------------
 LUMEN / lumenshaders
 License: MIT
 ----------------------------------------------------------------------

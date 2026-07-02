@@ -269,6 +269,24 @@ async function assertVisualPresetBrowserA11y(page) {
   const browser = page.locator(".visual-preset-browser");
   if (!(await browser.count())) return;
 
+  const simpleEffectsTab = browser.getByRole("tab", {
+    name: /Efeitos simples/u,
+  });
+  assert.equal(
+    await simpleEffectsTab.count(),
+    1,
+    "static Paper shaders should expose one simple-effects category",
+  );
+  await simpleEffectsTab.click();
+  assert.equal(
+    await browser
+      .getByRole("tabpanel", { name: "Atmosferas em Efeitos simples" })
+      .getByRole("button", { name: /^Selecionar atmosfera /u })
+      .count(),
+    9,
+    "simple-effects category should contain the nine static Paper shaders",
+  );
+
   const categoryTab = browser.getByRole("tab").first();
   const firstPreset = browser
     .getByRole("button", { name: /^Selecionar atmosfera / })

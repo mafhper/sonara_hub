@@ -6,6 +6,15 @@ import {
   createWebglRenderSession,
   describeSceneRenderError,
 } from "../server/webgl-export.mjs";
+import * as webglExport from "../server/webgl-export.mjs";
+
+test("scene runtime is bundled into one import-free module for data URLs", async () => {
+  assert.equal(typeof webglExport.bundleSceneRuntimeSource, "function");
+  const source = await webglExport.bundleSceneRuntimeSource();
+  assert.doesNotMatch(source, /^\s*import\s/mu);
+  assert.match(source, /createPaperShaderRenderer/u);
+  assert.match(source, /createSceneRuntime/u);
+});
 
 test("WebGL render session reuses and closes its browser", async () => {
   let launchCount = 0;

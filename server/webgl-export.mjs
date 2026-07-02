@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright";
+import { build as viteBuild } from "vite";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
 import {
   normalizeFfmpegSpawnError,
@@ -13,6 +14,47 @@ import {
 const runtimePath = fileURLToPath(
   new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
 );
+let bundledRuntimeSourcePromise = null;
+
+export function bundleSceneRuntimeSource() {
+  if (!bundledRuntimeSourcePromise) {
+    bundledRuntimeSourcePromise = buildSceneRuntimeBundle().catch((error) => {
+      bundledRuntimeSourcePromise = null;
+      throw error;
+    });
+  }
+  return bundledRuntimeSourcePromise;
+}
+
+async function buildSceneRuntimeBundle() {
+  const result = await viteBuild({
+    configFile: false,
+    logLevel: "silent",
+    publicDir: false,
+    build: {
+      write: false,
+      target: "es2022",
+      minify: false,
+      sourcemap: false,
+      lib: {
+        entry: runtimePath,
+        formats: ["es"],
+        fileName: "scene-runtime",
+      },
+      rollupOptions: {
+        output: { codeSplitting: false },
+      },
+    },
+  });
+  const outputs = (Array.isArray(result) ? result : [result]).flatMap(
+    (item) => item.output ?? [],
+  );
+  const chunk = outputs.find((item) => item.type === "chunk" && item.isEntry);
+  if (!chunk?.code) {
+    throw new Error("Falha ao empacotar o runtime de cena para exportação.");
+  }
+  return chunk.code;
+}
 
 export function createWebglRenderSession({
   launchBrowser = launchWebglBrowser,
@@ -203,7 +245,7 @@ async function runWebglRenderAttempt(options, size, attempt) {
   const runtimeSource = await timedTelemetryPhase(
     emitTelemetry,
     "runtime-load",
-    () => fs.readFile(runtimePath, "utf8"),
+    bundleSceneRuntimeSource,
   );
   const runtimeUrl = `data:text/javascript;base64,${Buffer.from(runtimeSource).toString("base64")}`;
   await timedTelemetryPhase(emitTelemetry, "renderer-html-write", () =>
@@ -354,7 +396,7 @@ async function runWebglPosterAttempt(options, size) {
     path.dirname(outputPath),
     "scene-poster-renderer.html",
   );
-  const runtimeSource = await fs.readFile(runtimePath, "utf8");
+  const runtimeSource = await bundleSceneRuntimeSource();
   const runtimeUrl = `data:text/javascript;base64,${Buffer.from(runtimeSource).toString("base64")}`;
   await fs.writeFile(
     rendererPath,

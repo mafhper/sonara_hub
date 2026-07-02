@@ -1,3 +1,8 @@
+import {
+  createPaperShaderRenderer,
+  isPaperShaderRenderer,
+} from "./paper-shaders.mjs";
+
 const vertexShader = `
 attribute vec2 a_position;
 void main() { gl_Position = vec4(a_position, 0.0, 1.0); }
@@ -1228,6 +1233,8 @@ export function createSceneRuntime(
   const context = canvas.getContext("2d", { alpha: false });
   const webglCanvas = document.createElement("canvas");
   const webgl = createWebglRenderer(webglCanvas);
+  let paperCanvas = null;
+  let paperWebgl = null;
   const state = {
     scene: initialScene,
     composition: initialComposition,
@@ -1259,6 +1266,23 @@ export function createSceneRuntime(
       webglCanvas.width = nextWidth;
       webglCanvas.height = nextHeight;
     }
+    if (
+      paperCanvas &&
+      (paperCanvas.width !== nextWidth || paperCanvas.height !== nextHeight)
+    ) {
+      paperCanvas.width = nextWidth;
+      paperCanvas.height = nextHeight;
+    }
+  }
+
+  function getPaperWebgl() {
+    if (!paperWebgl) {
+      paperCanvas = document.createElement("canvas");
+      paperCanvas.width = canvas.width;
+      paperCanvas.height = canvas.height;
+      paperWebgl = createPaperShaderRenderer(paperCanvas);
+    }
+    return paperWebgl;
   }
 
   function renderAtmosphere(
@@ -1273,6 +1297,9 @@ export function createSceneRuntime(
     if (fragmentShaders[scene.rendererId]) {
       webgl.render(scene, audio, time);
       context.drawImage(webglCanvas, 0, 0, width, height);
+    } else if (isPaperShaderRenderer(scene.rendererId)) {
+      getPaperWebgl().render(scene, audio, time);
+      context.drawImage(paperCanvas, 0, 0, width, height);
     } else if (scene.rendererId === "vector-aura") {
       drawVectorAura(context, width, height, scene, audio, time, rendererCache);
     } else if (scene.rendererId === "playful-shapes") {
@@ -1472,6 +1499,7 @@ export function createSceneRuntime(
     },
     destroy() {
       webgl.destroy();
+      paperWebgl?.destroy();
     },
   };
 }
