@@ -89,11 +89,7 @@ export type VisualPalette = {
 };
 
 export type AtmosphereBlendMode =
-  | "normal"
-  | "screen"
-  | "multiply"
-  | "overlay"
-  | "lighter";
+  "normal" | "screen" | "multiply" | "overlay" | "lighter";
 
 export type AtmosphereLayerV1 = {
   id: string;

@@ -59,10 +59,7 @@ type Principle = {
 type Locale = "pt-BR" | "en" | "es";
 type WorkspaceMode = "audio" | "visual";
 type AtmosphereLabId =
-  | "volumetric-clouds"
-  | "playful-shapes"
-  | "starfield"
-  | "iridescent-bloom";
+  "volumetric-clouds" | "playful-shapes" | "starfield" | "iridescent-bloom";
 type AtmospherePaletteId = "original" | "prism" | "deep";
 type LabCoverId = "azul-blue" | "azul-light" | "kite" | "jardim";
 

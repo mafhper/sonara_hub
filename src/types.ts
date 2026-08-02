@@ -147,10 +147,7 @@ export type MediaLayerV2 = {
 };
 
 export type CompositionLayerKind =
-  | "atmosphere"
-  | "sun-focus"
-  | "waveform"
-  | "media";
+  "atmosphere" | "sun-focus" | "waveform" | "media";
 
 export type TextOverlaySettings = {
   fields: {
@@ -253,11 +250,7 @@ export type CoverSeriesSettings = {
 };
 
 export type CoverSeriesMetaKey =
-  | "series"
-  | "title"
-  | "album"
-  | "artist"
-  | "year";
+  "series" | "title" | "album" | "artist" | "year";
 
 export type CoverSeriesMetaStyle = {
   fontSize: number;
@@ -329,10 +322,7 @@ export type TrackDraft = {
 export type RenderJob = {
   id: string;
   kind?:
-    | "audio-process"
-    | "video-render"
-    | "publication-asset"
-    | "podcast-feed";
+    "audio-process" | "video-render" | "publication-asset" | "podcast-feed";
   status: "queued" | "paused" | "running" | "done" | "error" | "canceled";
   progress: number;
   message: string;
@@ -416,12 +406,7 @@ export type ProjectSnapshot = {
   activeStep: "music" | "visual" | "text" | "export";
   podcastEnabled?: boolean;
   audioStageView?:
-    | "edit"
-    | "artwork"
-    | "podcast"
-    | "catalog"
-    | "audio-export"
-    | "videos";
+    "edit" | "artwork" | "podcast" | "catalog" | "audio-export" | "videos";
   visualStageView?:
     | "editor"
     | "review"

@@ -1,9 +1,5 @@
 export type ThemePreference =
-  | "system"
-  | "original"
-  | "light"
-  | "dark"
-  | "golden";
+  "system" | "original" | "light" | "dark" | "golden";
 
 export type AppTheme = "original" | "light" | "dark" | "golden";
 export type UiScalePreference = "standard" | "large" | "extra";
