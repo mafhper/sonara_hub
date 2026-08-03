@@ -3951,18 +3951,15 @@ function handlePresetStoreError(error, res) {
 }
 
 function logUnexpectedError(context, error) {
-  const safeContext = sanitizeLogText(context);
+  const safeContext = String(context)
+    .replace(/\u2028|\u2029/gu, " ")
+    .replace(/\n|\r/gu, " ");
   const detail =
     error instanceof Error ? (error.stack ?? error.message) : String(error);
-  console.error("[server:500] %s %s", safeContext, sanitizeLogText(detail));
-}
-
-function sanitizeLogText(value) {
-  return String(value)
-    .replace(/\r/gu, " ")
-    .replace(/\n/gu, " ")
-    .replace(/\u2028/gu, " ")
-    .replace(/\u2029/gu, " ");
+  const safeDetail = String(detail)
+    .replace(/\u2028|\u2029/gu, " ")
+    .replace(/\n|\r/gu, " ");
+  console.error("[server:500] %s %s", safeContext, safeDetail);
 }
 
 async function assertProjectOwnedPath(scope, candidate) {

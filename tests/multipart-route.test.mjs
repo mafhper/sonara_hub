@@ -89,10 +89,8 @@ test("multipart job route reports exhausted queue capacity as unavailable", asyn
   });
   const response = fakeResponse();
 
-  await route(
-    { method: "POST", originalUrl: "/api/render" },
-    response,
-    () => assert.fail("queue admission errors should be handled"),
+  await route({ method: "POST", originalUrl: "/api/render" }, response, () =>
+    assert.fail("queue admission errors should be handled"),
   );
 
   assert.equal(response.statusCode, 503);
