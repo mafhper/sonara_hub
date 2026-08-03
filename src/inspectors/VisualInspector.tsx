@@ -45,11 +45,7 @@ import {
 import { VisualPresetBrowser } from "./VisualPresetBrowser";
 
 export type CoverLayerPreset =
-  | "background"
-  | "left"
-  | "center"
-  | "right"
-  | "corner";
+  "background" | "left" | "center" | "right" | "corner";
 export type PlayfulPatch = Partial<
   Omit<PlayfulContent, "enabled" | "collections">
 > & {

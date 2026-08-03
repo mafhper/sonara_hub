@@ -1,10 +1,5 @@
 export type FileNameToken =
-  | "track"
-  | "album"
-  | "title"
-  | "artist"
-  | "albumArtist"
-  | "year";
+  "track" | "album" | "title" | "artist" | "albumArtist" | "year";
 
 export type FileNamePattern = {
   tokens: string[];

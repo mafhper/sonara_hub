@@ -30,7 +30,7 @@ await fs.writeFile(variationAudioPath, makeWave(330));
 await fs.writeFile(
   pngPath,
   Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAD0lEQVR42mNk+M+ABzDhkQAP/wL+zKxQfAAAAABJRU5ErkJggg==",
+    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWPYf/HmfxBmgDEAeSINoXr8oA0AAAAASUVORK5CYII=",
     "base64",
   ),
 );

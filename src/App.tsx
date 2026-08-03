@@ -2869,32 +2869,30 @@ function App() {
     const remaining = Math.max(0, 3 - selectedTrack.layers.length);
     const additions = Array.from(files ?? [])
       .slice(0, remaining)
-      .map(
-        (file, index): MediaLayerV2 => ({
-          id: crypto.randomUUID(),
-          name: file.name,
-          file,
-          src: URL.createObjectURL(file),
-          kind: file.type.startsWith("video/")
-            ? "video"
-            : file.name.toLowerCase().endsWith(".svg")
-              ? "svg"
-              : "image",
-          visible: true,
-          opacity: 100,
-          scale: 100,
-          x: 50,
-          y: 50,
-          rotation: 0,
-          blur: 0,
-          maskOpacity: 0,
-          shadow: { opacity: 0, blur: 18, x: 0, y: 12 },
-          fit: "contain",
-          blendMode: "normal",
-          loop: true,
-          order: selectedTrack.layers.length + index,
-        }),
-      );
+      .map((file, index): MediaLayerV2 => ({
+        id: crypto.randomUUID(),
+        name: file.name,
+        file,
+        src: URL.createObjectURL(file),
+        kind: file.type.startsWith("video/")
+          ? "video"
+          : file.name.toLowerCase().endsWith(".svg")
+            ? "svg"
+            : "image",
+        visible: true,
+        opacity: 100,
+        scale: 100,
+        x: 50,
+        y: 50,
+        rotation: 0,
+        blur: 0,
+        maskOpacity: 0,
+        shadow: { opacity: 0, blur: 18, x: 0, y: 12 },
+        fit: "contain",
+        blendMode: "normal",
+        loop: true,
+        order: selectedTrack.layers.length + index,
+      }));
     if (!additions.length) return;
     captureLayersUndo("adicionar mídia");
     updateSelectedTrack({ layers: [...selectedTrack.layers, ...additions] });

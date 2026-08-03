@@ -4,16 +4,9 @@ export type ActiveStep = "music" | "visual" | "text" | "export";
 export type WorkspaceMode = "audio" | "visual";
 export type WorkspaceFolderKind = "internal" | "external";
 export type AudioStageView =
-  | "edit"
-  | "artwork"
-  | "podcast"
-  | "catalog"
-  | "audio-export";
+  "edit" | "artwork" | "podcast" | "catalog" | "audio-export";
 export type VisualStageView =
-  | "editor"
-  | "review"
-  | "promotion"
-  | "publication-export";
+  "editor" | "review" | "promotion" | "publication-export";
 export type TextFadeOutSettings = NonNullable<TextFieldStyle["fadeOut"]>;
 export type TextFadeInSettings = NonNullable<TextFieldStyle["fadeIn"]>;
 
