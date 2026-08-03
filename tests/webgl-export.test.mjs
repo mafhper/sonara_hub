@@ -5,6 +5,7 @@ import {
   buildRendererHtml,
   createWebglRenderSession,
   describeSceneRenderError,
+  serializeForInlineScript,
 } from "../server/webgl-export.mjs";
 import * as webglExport from "../server/webgl-export.mjs";
 
@@ -70,6 +71,22 @@ test("canvas exporter requests deterministic frames instead of relying on headle
   assert.match(html, /chunks-flush-complete/);
   assert.match(html, /chunkBytes/);
   assert.doesNotMatch(html, /requestAnimationFrame/);
+});
+
+test("renderer HTML keeps user metadata inside the module script", () => {
+  const payload =
+    "</script><script>globalThis.compromised = true</script>\u2028&";
+  const html = buildRendererHtml({
+    runtimeUrl: "data:text/javascript;base64,AA==",
+    size: { width: 1280, height: 720 },
+    scene: { title: payload },
+    audioEnvelope: { frameRate: 12, frames: [] },
+    composition: { metadata: payload },
+  });
+
+  assert.doesNotMatch(html, /<script>globalThis\.compromised/u);
+  assert.match(html, /\\u003c\/script\\u003e/iu);
+  assert.equal(JSON.parse(serializeForInlineScript(payload)), payload);
 });
 
 test("canvas exporter throttles per-frame progress bridge calls", () => {

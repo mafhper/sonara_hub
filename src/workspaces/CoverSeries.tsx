@@ -288,7 +288,7 @@ function coverSeriesTextAnchor(align: CoverSeriesMetaStyle["align"]) {
 }
 
 function romanNumeral(value: number) {
-  let remaining = Math.max(0, Math.floor(Number(value) || 0));
+  let remaining = Math.min(3999, Math.max(0, Math.floor(Number(value) || 0)));
   const pairs: Array<[number, string]> = [
     [1000, "M"],
     [900, "CM"],

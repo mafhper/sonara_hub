@@ -992,15 +992,27 @@ function paramsToUniforms(definition, params, colors) {
 }
 
 function sceneColorForParam(key, colors, presetColor) {
-  if (/back|shadow|gap|glow|bloom|^color[CMYK]$/iu.test(key)) {
+  const normalizedKey = String(key).toLowerCase();
+  const containsAny = (values) =>
+    values.some((value) => normalizedKey.includes(value));
+  if (
+    containsAny(["back", "shadow", "gap", "glow", "bloom"]) ||
+    /^color[cmyk]$/u.test(normalizedKey)
+  ) {
     return presetColor;
   }
   if (new Set(colors.map(normalizeHex6)).size === 1) {
     return normalizeHex6(presetColor);
   }
-  if (/back|shadow|gap|k$/iu.test(key)) return colors[0];
-  if (/highlight|glow|bloom|y$/iu.test(key)) return colors[2];
-  if (/mid|tint|stroke|m$/iu.test(key)) return colors[1];
+  if (containsAny(["back", "shadow", "gap"]) || normalizedKey.endsWith("k"))
+    return colors[0];
+  if (
+    containsAny(["highlight", "glow", "bloom"]) ||
+    normalizedKey.endsWith("y")
+  )
+    return colors[2];
+  if (containsAny(["mid", "tint", "stroke"]) || normalizedKey.endsWith("m"))
+    return colors[1];
   return colors[1];
 }
 

@@ -24,6 +24,14 @@ for (const [label, svg] of [
     "foreign object",
     '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject/></svg>',
   ],
+  [
+    "external CSS URL",
+    '<svg xmlns="http://www.w3.org/2000/svg"><style>.x { fill: url(https://example.com/a.svg) }</style></svg>',
+  ],
+  [
+    "external CSS import",
+    '<svg xmlns="http://www.w3.org/2000/svg"><style>@import "https://example.com/a.css";</style></svg>',
+  ],
 ]) {
   test(`SVG sanitizer rejects ${label}`, () => {
     assert.throws(() => validateSafeSvg(svg));

@@ -81,9 +81,12 @@ export async function attachSuggestedLyrics(
   tracks: TrackDraft[],
   lyricEntries: DirectoryAssetEntry[],
 ) {
-  if (!lyricEntries.length) return tracks;
+  const boundedLyrics = lyricEntries
+    .filter((entry) => entry.file.size <= 2 * 1024 * 1024)
+    .slice(0, 500);
+  if (!boundedLyrics.length) return tracks;
   const lyricsByPath = new Map(
-    lyricEntries.map((entry) => [entry.relativePath, entry]),
+    boundedLyrics.map((entry) => [entry.relativePath, entry]),
   );
   const textByPath = new Map<string, string>();
   const readLyricsText = async (entry: DirectoryAssetEntry) => {
@@ -99,7 +102,7 @@ export async function attachSuggestedLyrics(
     tracks.map(async (track) => {
       const matches = listLyricsOptionsForTrack({
         audioPath: track.sourceKey,
-        lyricPaths: lyricEntries.map((entry) => entry.relativePath),
+        lyricPaths: boundedLyrics.map((entry) => entry.relativePath),
         trackTitle: track.metadata.title,
         trackNumber: track.metadata.trackNumber,
       });

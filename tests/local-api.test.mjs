@@ -2,10 +2,22 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import test from "node:test";
 import {
+  assertLocalApiInput,
   fetchJson,
   fetchJsonWithRetry,
   fetchOptional,
 } from "../shared/local-api.mjs";
+
+test("local API client rejects remote endpoints", () => {
+  assert.throws(
+    () => assertLocalApiInput("https://example.test/api"),
+    /loopback/i,
+  );
+  assert.equal(
+    assertLocalApiInput("http://127.0.0.1:4175/api").hostname,
+    "127.0.0.1",
+  );
+});
 
 test("local API retries transient responses before succeeding", async () => {
   let requests = 0;

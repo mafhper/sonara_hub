@@ -29,6 +29,13 @@ function walkSvg(value, key = "") {
   ) {
     throw new Error("SVG contém elemento não permitido.");
   }
+  if (
+    normalizedKey === "style" &&
+    typeof value === "string" &&
+    /@import|url\s*\(\s*['"]?(?:https?:|file:|\/\/)/iu.test(value)
+  ) {
+    throw new Error("SVG contém estilo externo não permitido.");
+  }
   if (!value || typeof value !== "object") return;
   for (const [childKey, childValue] of Object.entries(value)) {
     const attribute = childKey.replace(/^@_/, "").toLowerCase();

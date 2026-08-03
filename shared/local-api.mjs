@@ -53,7 +53,7 @@ export function localApiMessage(error, action = "concluir esta operacao") {
 
 async function request(input, init) {
   try {
-    return await fetch(input, init);
+    return await fetch(assertLocalApiInput(input), init);
   } catch (cause) {
     throw new LocalApiError(
       "O servidor local está indisponível. Aguarde alguns segundos e tente novamente.",
@@ -61,6 +61,27 @@ async function request(input, init) {
       { cause },
     );
   }
+}
+
+export function assertLocalApiInput(input) {
+  const raw =
+    typeof input === "string" || input instanceof URL ? input : input?.url;
+  const base = globalThis.location?.href;
+  let url;
+  try {
+    url = base ? new URL(raw, base) : new URL(raw);
+  } catch {
+    throw new LocalApiError("A URL da API local é inválida.");
+  }
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    !["127.0.0.1", "::1", "[::1]", "localhost"].includes(
+      url.hostname.toLowerCase(),
+    )
+  ) {
+    throw new LocalApiError("A API local precisa usar um endereço loopback.");
+  }
+  return input instanceof Request ? new Request(url, input) : url;
 }
 
 function parseJson(text) {

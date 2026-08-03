@@ -134,8 +134,13 @@ export function createJobRunner({
   };
 }
 
-export function createJobQueue({ concurrency = 1, onError } = {}) {
+export function createJobQueue({
+  concurrency = 1,
+  maxPending = 50,
+  onError,
+} = {}) {
   const limit = Math.max(1, Math.floor(Number(concurrency) || 1));
+  const pendingLimit = Math.max(1, Math.floor(Number(maxPending) || 50));
   const pending = [];
   let active = 0;
 
@@ -160,6 +165,11 @@ export function createJobQueue({ concurrency = 1, onError } = {}) {
       if (typeof task !== "function") {
         throw new TypeError("Job queue task must be a function.");
       }
+      if (pending.length >= pendingLimit) {
+        const error = new Error("Job queue is full.");
+        error.code = "JOB_QUEUE_FULL";
+        throw error;
+      }
       pending.push(task);
       schedule();
     },
@@ -167,6 +177,7 @@ export function createJobQueue({ concurrency = 1, onError } = {}) {
       return {
         active,
         concurrency: limit,
+        maxPending: pendingLimit,
         pending: pending.length,
       };
     },

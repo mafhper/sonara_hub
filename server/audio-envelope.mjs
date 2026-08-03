@@ -26,19 +26,7 @@ export function analyzePcmEnvelope(samples, sampleRate = 8000, frameRate = 12) {
       Math.min(start + frameSize, samples.length),
     );
     if (frame.length < 32) continue;
-    let squareSum = 0;
-    for (const sample of frame) squareSum += sample * sample;
-    const energy = Math.min(1, Math.sqrt(squareSum / frame.length) / 32768);
-    const spectrum = spectrumBands(frame, sampleRate);
-    frames.push({
-      energy: round(energy),
-      bass: round(bandEnergy(frame, sampleRate, [70, 90, 120, 160])),
-      mid: round(bandEnergy(frame, sampleRate, [360, 700, 1200])),
-      high: round(bandEnergy(frame, sampleRate, [2100, 3100])),
-      centroid: round(spectralCentroid(spectrum)),
-      samples: temporalSamples(frame),
-      spectrum,
-    });
+    frames.push(analyzePcmFrame(frame, sampleRate));
   }
 
   return { frameRate, frames: smoothFrames(addRhythmFeatures(frames)) };
@@ -81,46 +69,86 @@ export function interpolateAudioEnvelope(envelope, seconds) {
 export async function sampleAudioEnvelope(audioPath, frameRate = 12) {
   const ffmpegPath = resolveFfmpegPath();
   const sampleRate = 8000;
-  const chunks = await new Promise((resolve, reject) => {
-    const output = [];
-    let stderr = "";
-    const child = spawn(
-      ffmpegPath,
-      [
-        "-v",
-        "error",
-        "-i",
-        audioPath,
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        String(sampleRate),
-        "-f",
-        "s16le",
-        "-",
-      ],
-      { windowsHide: true },
-    );
-    child.stdout.on("data", (chunk) => output.push(chunk));
-    child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
+  let stderr = "";
+  const child = spawn(
+    ffmpegPath,
+    [
+      "-v",
+      "error",
+      "-i",
+      audioPath,
+      "-vn",
+      "-ac",
+      "1",
+      "-ar",
+      String(sampleRate),
+      "-f",
+      "s16le",
+      "-",
+    ],
+    { windowsHide: true },
+  );
+  child.stderr.on("data", (chunk) => {
+    stderr = `${stderr}${chunk.toString()}`.slice(-16_384);
+  });
+  const envelopePromise = analyzePcmStream(child.stdout, sampleRate, frameRate);
+  const exitPromise = new Promise((resolve, reject) => {
     child.on("error", (error) =>
       reject(normalizeFfmpegSpawnError(error, ffmpegPath)),
     );
     child.on("close", (code) =>
       code === 0
-        ? resolve(output)
+        ? resolve()
         : reject(new Error(`Não foi possível analisar o áudio: ${stderr}`)),
     );
   });
-  const pcm = Buffer.concat(chunks);
-  const aligned = pcm.subarray(0, pcm.length - (pcm.length % 2));
-  const samples = new Int16Array(
-    aligned.buffer,
-    aligned.byteOffset,
-    aligned.byteLength / 2,
+  const [envelope] = await Promise.all([envelopePromise, exitPromise]);
+  return envelope;
+}
+
+async function analyzePcmStream(stream, sampleRate, frameRate) {
+  const frameBytes = Math.max(64, Math.floor(sampleRate / frameRate)) * 2;
+  const frames = [];
+  let pending = Buffer.alloc(0);
+  for await (const chunk of stream) {
+    const data = pending.length ? Buffer.concat([pending, chunk]) : chunk;
+    let offset = 0;
+    while (offset + frameBytes <= data.length) {
+      const frame = data.subarray(offset, offset + frameBytes);
+      frames.push(analyzePcmFrame(int16View(frame), sampleRate));
+      offset += frameBytes;
+    }
+    pending = Buffer.from(data.subarray(offset));
+  }
+  const aligned = pending.subarray(0, pending.length - (pending.length % 2));
+  if (aligned.length >= 64) {
+    frames.push(analyzePcmFrame(int16View(aligned), sampleRate));
+  }
+  return { frameRate, frames: smoothFrames(addRhythmFeatures(frames)) };
+}
+
+function int16View(buffer) {
+  return new Int16Array(
+    buffer.buffer,
+    buffer.byteOffset,
+    buffer.byteLength / 2,
   );
-  return analyzePcmEnvelope(samples, sampleRate, frameRate);
+}
+
+function analyzePcmFrame(frame, sampleRate) {
+  let squareSum = 0;
+  for (const sample of frame) squareSum += sample * sample;
+  const energy = Math.min(1, Math.sqrt(squareSum / frame.length) / 32768);
+  const spectrum = spectrumBands(frame, sampleRate);
+  return {
+    energy: round(energy),
+    bass: round(bandEnergy(frame, sampleRate, [70, 90, 120, 160])),
+    mid: round(bandEnergy(frame, sampleRate, [360, 700, 1200])),
+    high: round(bandEnergy(frame, sampleRate, [2100, 3100])),
+    centroid: round(spectralCentroid(spectrum)),
+    samples: temporalSamples(frame),
+    spectrum,
+  };
 }
 
 function bandEnergy(samples, sampleRate, frequencies) {

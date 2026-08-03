@@ -103,6 +103,7 @@ test("job queue respects concurrency and keeps draining after task errors", asyn
   assert.deepEqual(queue.snapshot(), {
     active: 2,
     concurrency: 2,
+    maxPending: 50,
     pending: 1,
   });
 
@@ -117,8 +118,25 @@ test("job queue respects concurrency and keeps draining after task errors", asyn
   assert.deepEqual(queue.snapshot(), {
     active: 0,
     concurrency: 2,
+    maxPending: 50,
     pending: 0,
   });
+});
+
+test("job queue rejects excess pending work", async () => {
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const queue = createJobQueue({ concurrency: 1, maxPending: 1 });
+  queue.enqueue(() => gate);
+  queue.enqueue(async () => {});
+
+  assert.throws(
+    () => queue.enqueue(async () => {}),
+    (error) => error?.code === "JOB_QUEUE_FULL",
+  );
+  release();
 });
 
 test("job concurrency resolver clamps configured and default values", () => {
