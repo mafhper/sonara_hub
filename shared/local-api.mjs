@@ -81,6 +81,11 @@ export function assertLocalApiInput(input) {
   ) {
     throw new LocalApiError("A API local precisa usar um endereço loopback.");
   }
+  if (base && url.origin !== new URL(base).origin) {
+    throw new LocalApiError(
+      "A API local precisa usar a mesma origem da aplicação.",
+    );
+  }
   return input instanceof Request ? new Request(url, input) : url;
 }
 

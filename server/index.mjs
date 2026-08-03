@@ -788,31 +788,36 @@ app.post(
       : null;
     const jobId = crypto.randomUUID();
     const outputName = buildTreatedFileName(draft, fileNamePattern);
-    setJob(jobId, {
-      id: jobId,
-      kind: "audio-process",
-      status: "queued",
-      progress: 0,
-      message: "Na fila de tratamento",
-      outputUrl: null,
-      sidecarUrl: null,
-      thumbnailUrl: null,
-      albumArtworkUrl: null,
-      metadata: draft,
-      createdAt: new Date().toISOString(),
-    });
-    enqueueAudioProcess({
-      jobId,
-      audioPath,
-      audioName: audioFile?.originalname ?? audioPath,
-      coverFile,
-      albumCoverFile,
-      coverSeries: String(req.body.coverSeries ?? "false") === "true",
-      coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
-      coverSeriesSettings: parseJsonObject(req.body.coverSeriesSettings),
-      draft,
-      outputName,
-      uploadedFiles: files,
+    await withQueueAdmission(audioJobQueue, 1, async (admission) => {
+      setJob(jobId, {
+        id: jobId,
+        kind: "audio-process",
+        status: "queued",
+        progress: 0,
+        message: "Na fila de tratamento",
+        outputUrl: null,
+        sidecarUrl: null,
+        thumbnailUrl: null,
+        albumArtworkUrl: null,
+        metadata: draft,
+        createdAt: new Date().toISOString(),
+      });
+      enqueueAudioProcess(
+        {
+          jobId,
+          audioPath,
+          audioName: audioFile?.originalname ?? audioPath,
+          coverFile,
+          albumCoverFile,
+          coverSeries: String(req.body.coverSeries ?? "false") === "true",
+          coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
+          coverSeriesSettings: parseJsonObject(req.body.coverSeriesSettings),
+          draft,
+          outputName,
+          uploadedFiles: files,
+        },
+        admission,
+      );
     });
     res.json({ jobId });
   }),
@@ -840,38 +845,52 @@ app.post(
     }
     const batchFileNamePattern = parseJsonObject(req.body.fileNamePattern);
     const jobIds = [];
-    for (const [index, audioFile] of audioFiles.entries()) {
-      const draft = normalizeAudioDraft(drafts[index], audioFile.originalname);
-      const jobId = crypto.randomUUID();
-      const outputName = buildTreatedFileName(draft, batchFileNamePattern);
-      setJob(jobId, {
-        id: jobId,
-        kind: "audio-process",
-        status: "queued",
-        progress: 0,
-        message: `Na fila de tratamento: ${audioFile.originalname}`,
-        outputUrl: null,
-        sidecarUrl: null,
-        thumbnailUrl: null,
-        albumArtworkUrl: null,
-        metadata: draft,
-        createdAt: new Date().toISOString(),
-      });
-      enqueueAudioProcess({
-        jobId,
-        audioPath: audioFile.path,
-        audioName: audioFile.originalname,
-        coverFile,
-        albumCoverFile,
-        coverSeries: String(req.body.coverSeries ?? "false") === "true",
-        coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
-        coverSeriesSettings: parseJsonObject(req.body.coverSeriesSettings),
-        draft,
-        outputName,
-        uploadedFiles: [audioFile, coverFile, albumCoverFile],
-      });
-      jobIds.push(jobId);
-    }
+    await withQueueAdmission(
+      audioJobQueue,
+      audioFiles.length,
+      async (admission) => {
+        for (const [index, audioFile] of audioFiles.entries()) {
+          const draft = normalizeAudioDraft(
+            drafts[index],
+            audioFile.originalname,
+          );
+          const jobId = crypto.randomUUID();
+          const outputName = buildTreatedFileName(draft, batchFileNamePattern);
+          setJob(jobId, {
+            id: jobId,
+            kind: "audio-process",
+            status: "queued",
+            progress: 0,
+            message: `Na fila de tratamento: ${audioFile.originalname}`,
+            outputUrl: null,
+            sidecarUrl: null,
+            thumbnailUrl: null,
+            albumArtworkUrl: null,
+            metadata: draft,
+            createdAt: new Date().toISOString(),
+          });
+          enqueueAudioProcess(
+            {
+              jobId,
+              audioPath: audioFile.path,
+              audioName: audioFile.originalname,
+              coverFile,
+              albumCoverFile,
+              coverSeries: String(req.body.coverSeries ?? "false") === "true",
+              coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
+              coverSeriesSettings: parseJsonObject(
+                req.body.coverSeriesSettings,
+              ),
+              draft,
+              outputName,
+              uploadedFiles: [audioFile, coverFile, albumCoverFile],
+            },
+            admission,
+          );
+          jobIds.push(jobId);
+        }
+      },
+    );
     res.json({ jobIds });
   }),
 );
@@ -964,37 +983,39 @@ app.post(
     const jobId = crypto.randomUUID();
     const outputName = buildOutputFileName(metadata, null, fileNamePattern);
     const outputPath = path.join(outputDir, outputName);
-    const jobOptions = await persistRenderOptions("video-render", {
-      jobId,
-      audioPath,
-      backgroundFile,
-      mediaLayerFiles,
-      coverFile,
-      lyricsText,
-      settings,
-      metadata,
-      outputPath,
-      outputName,
-      uploadedFiles: files,
-    });
+    await withQueueAdmission(renderJobQueue, 1, async (admission) => {
+      const jobOptions = await persistRenderOptions("video-render", {
+        jobId,
+        audioPath,
+        backgroundFile,
+        mediaLayerFiles,
+        coverFile,
+        lyricsText,
+        settings,
+        metadata,
+        outputPath,
+        outputName,
+        uploadedFiles: files,
+      });
 
-    setJob(jobId, {
-      id: jobId,
-      kind: "video-render",
-      attempt: 0,
-      maxAttempts: jobOptions.maxAttempts,
-      status: "queued",
-      progress: 0,
-      message: "Na fila de renderizacao",
-      outputUrl: null,
-      sidecarUrl: null,
-      thumbnailUrl: null,
-      payloadRef: jobOptions.payloadRef,
-      metadata,
-      createdAt: new Date().toISOString(),
-    });
+      setJob(jobId, {
+        id: jobId,
+        kind: "video-render",
+        attempt: 0,
+        maxAttempts: jobOptions.maxAttempts,
+        status: "queued",
+        progress: 0,
+        message: "Na fila de renderizacao",
+        outputUrl: null,
+        sidecarUrl: null,
+        thumbnailUrl: null,
+        payloadRef: jobOptions.payloadRef,
+        metadata,
+        createdAt: new Date().toISOString(),
+      });
 
-    enqueueRender(jobOptions);
+      enqueueRender(jobOptions, admission);
+    });
 
     res.json({ jobId });
   }),
@@ -1073,50 +1094,52 @@ app.post(
     const jobId = crypto.randomUUID();
     const outputName = publicationAssetOutputName(metadata, preset);
     const outputPath = path.join(outputDir, outputName);
-    const jobOptions = await persistRenderOptions("publication-asset", {
-      jobId,
-      audioPath,
-      backgroundFile,
-      mediaLayerFiles,
-      coverFile,
-      settings,
-      metadata,
-      preset,
-      clipStart,
-      clipDuration,
-      includeFullLyrics,
-      lyricsMode,
-      lyricsExcerpt,
-      lyricsHideTags,
-      lyricsLineSpacing,
-      lyricsPosition,
-      lyricsStyle,
-      bookletTheme,
-      generateDataFiles,
-      outputPath,
-      outputName,
-      uploadedFiles: files,
-    });
+    await withQueueAdmission(renderJobQueue, 1, async (admission) => {
+      const jobOptions = await persistRenderOptions("publication-asset", {
+        jobId,
+        audioPath,
+        backgroundFile,
+        mediaLayerFiles,
+        coverFile,
+        settings,
+        metadata,
+        preset,
+        clipStart,
+        clipDuration,
+        includeFullLyrics,
+        lyricsMode,
+        lyricsExcerpt,
+        lyricsHideTags,
+        lyricsLineSpacing,
+        lyricsPosition,
+        lyricsStyle,
+        bookletTheme,
+        generateDataFiles,
+        outputPath,
+        outputName,
+        uploadedFiles: files,
+      });
 
-    setJob(jobId, {
-      id: jobId,
-      kind: "publication-asset",
-      attempt: 0,
-      maxAttempts: jobOptions.maxAttempts,
-      status: "queued",
-      progress: 0,
-      message: "Na fila de divulgação",
-      outputUrl: null,
-      sidecarUrl: null,
-      thumbnailUrl: null,
-      markdownUrl: null,
-      assetUrls: [],
-      payloadRef: jobOptions.payloadRef,
-      metadata,
-      createdAt: new Date().toISOString(),
-    });
+      setJob(jobId, {
+        id: jobId,
+        kind: "publication-asset",
+        attempt: 0,
+        maxAttempts: jobOptions.maxAttempts,
+        status: "queued",
+        progress: 0,
+        message: "Na fila de divulgação",
+        outputUrl: null,
+        sidecarUrl: null,
+        thumbnailUrl: null,
+        markdownUrl: null,
+        assetUrls: [],
+        payloadRef: jobOptions.payloadRef,
+        metadata,
+        createdAt: new Date().toISOString(),
+      });
 
-    enqueuePublicationAsset(jobOptions);
+      enqueuePublicationAsset(jobOptions, admission);
+    });
 
     res.json({ jobId });
   }),
@@ -1247,71 +1270,83 @@ app.post(
     const trackSettings = parseTrackSettings(req.body.trackSettings);
     const jobIds = [];
 
-    for (const [index, audioFile] of audioFiles.entries()) {
-      const audioInfo = await analyzeAudio(audioFile.path);
-      const track = trackSettings[path.basename(audioFile.originalname)] ?? {};
-      const title =
-        track.title ||
-        audioInfo.title ||
-        titleFromFile(audioFile.originalname, commonMetadata.album, index + 1);
-      const metadata = {
-        ...commonMetadata,
-        artist: track.artist || commonMetadata.artist || audioInfo.artist || "",
-        album: track.album || commonMetadata.album || audioInfo.album || "",
-        genre: track.genre || commonMetadata.genre || audioInfo.genre || "",
-        version: track.version || "",
-        outputFileName:
-          track.outputFileName || commonMetadata.outputFileName || "",
-        title:
-          String(req.body.applyAlbumTitle ?? "false") === "true"
-            ? `${commonMetadata.album} - ${title}`
-            : title,
-      };
-      const jobId = crypto.randomUUID();
-      const outputName = buildOutputFileName(
-        metadata,
-        index + 1,
-        fileNamePattern,
-      );
-      const outputPath = path.join(outputDir, outputName);
-      const jobOptions = await persistRenderOptions("video-render", {
-        jobId,
-        audioPath: audioFile.path,
-        backgroundFile,
-        mediaLayerFiles,
-        coverFile,
-        lyricsText: "",
-        settings,
-        metadata,
-        outputPath,
-        outputName,
-        uploadedFiles: [
-          uploadedAudioFiles[index],
-          backgroundFile,
-          coverFile,
-          mediaLayerFiles,
-        ],
-      });
+    await withQueueAdmission(
+      renderJobQueue,
+      audioFiles.length,
+      async (admission) => {
+        for (const [index, audioFile] of audioFiles.entries()) {
+          const audioInfo = await analyzeAudio(audioFile.path);
+          const track =
+            trackSettings[path.basename(audioFile.originalname)] ?? {};
+          const title =
+            track.title ||
+            audioInfo.title ||
+            titleFromFile(
+              audioFile.originalname,
+              commonMetadata.album,
+              index + 1,
+            );
+          const metadata = {
+            ...commonMetadata,
+            artist:
+              track.artist || commonMetadata.artist || audioInfo.artist || "",
+            album: track.album || commonMetadata.album || audioInfo.album || "",
+            genre: track.genre || commonMetadata.genre || audioInfo.genre || "",
+            version: track.version || "",
+            outputFileName:
+              track.outputFileName || commonMetadata.outputFileName || "",
+            title:
+              String(req.body.applyAlbumTitle ?? "false") === "true"
+                ? `${commonMetadata.album} - ${title}`
+                : title,
+          };
+          const jobId = crypto.randomUUID();
+          const outputName = buildOutputFileName(
+            metadata,
+            index + 1,
+            fileNamePattern,
+          );
+          const outputPath = path.join(outputDir, outputName);
+          const jobOptions = await persistRenderOptions("video-render", {
+            jobId,
+            audioPath: audioFile.path,
+            backgroundFile,
+            mediaLayerFiles,
+            coverFile,
+            lyricsText: "",
+            settings,
+            metadata,
+            outputPath,
+            outputName,
+            uploadedFiles: [
+              uploadedAudioFiles[index],
+              backgroundFile,
+              coverFile,
+              mediaLayerFiles,
+            ],
+          });
 
-      setJob(jobId, {
-        id: jobId,
-        kind: "video-render",
-        attempt: 0,
-        maxAttempts: jobOptions.maxAttempts,
-        status: "queued",
-        progress: 0,
-        message: `Na fila do lote: ${audioFile.originalname}`,
-        outputUrl: null,
-        sidecarUrl: null,
-        thumbnailUrl: null,
-        payloadRef: jobOptions.payloadRef,
-        metadata,
-        createdAt: new Date().toISOString(),
-      });
-      jobIds.push(jobId);
+          setJob(jobId, {
+            id: jobId,
+            kind: "video-render",
+            attempt: 0,
+            maxAttempts: jobOptions.maxAttempts,
+            status: "queued",
+            progress: 0,
+            message: `Na fila do lote: ${audioFile.originalname}`,
+            outputUrl: null,
+            sidecarUrl: null,
+            thumbnailUrl: null,
+            payloadRef: jobOptions.payloadRef,
+            metadata,
+            createdAt: new Date().toISOString(),
+          });
+          jobIds.push(jobId);
 
-      enqueueRender(jobOptions);
-    }
+          enqueueRender(jobOptions, admission);
+        }
+      },
+    );
 
     res.json({ jobIds });
   }),
@@ -1477,20 +1512,34 @@ for (const job of jobs.values()) {
   }
 }
 
-function enqueueRender(options) {
-  enqueueJob(renderJobQueue, options, "VIDEO_RENDER_ERROR", (jobOptions) =>
-    runRenderWorker("video-render", jobOptions),
+function enqueueRender(options, admission) {
+  enqueueJob(
+    renderJobQueue,
+    options,
+    "VIDEO_RENDER_ERROR",
+    (jobOptions) => runRenderWorker("video-render", jobOptions),
+    admission,
   );
 }
 
-function enqueuePublicationAsset(options) {
-  enqueueJob(renderJobQueue, options, "PUBLICATION_ASSET_ERROR", (jobOptions) =>
-    runRenderWorker("publication-asset", jobOptions),
+function enqueuePublicationAsset(options, admission) {
+  enqueueJob(
+    renderJobQueue,
+    options,
+    "PUBLICATION_ASSET_ERROR",
+    (jobOptions) => runRenderWorker("publication-asset", jobOptions),
+    admission,
   );
 }
 
-function enqueueAudioProcess(options) {
-  enqueueJob(audioJobQueue, options, "AUDIO_PROCESS_ERROR", processAudio);
+function enqueueAudioProcess(options, admission) {
+  enqueueJob(
+    audioJobQueue,
+    options,
+    "AUDIO_PROCESS_ERROR",
+    processAudio,
+    admission,
+  );
 }
 
 async function persistRenderOptions(kind, options) {
@@ -1570,7 +1619,7 @@ function runRenderWorker(kind, options) {
   });
 }
 
-function enqueueJob(queue, options, fallbackErrorCode, worker) {
+function enqueueJob(queue, options, fallbackErrorCode, worker, admission) {
   const releaseTempFiles = tempFiles.retain(options.uploadedFiles);
   const runJob = createJobRunner({
     cleanupWorkDir: (jobId) => cleanupJobWorkDir(workDir, jobId),
@@ -1580,7 +1629,28 @@ function enqueueJob(queue, options, fallbackErrorCode, worker) {
     runQueuedJob,
     updateJob,
   });
-  queue.enqueue(() => runJob(options, worker));
+  try {
+    (admission ?? queue).enqueue(() => runJob(options, worker));
+  } catch (error) {
+    void releaseTempFiles();
+    updateJob(options.jobId, {
+      status: "error",
+      message: "Fila sem capacidade para receber o job",
+      errorCode: error?.code ? String(error.code) : fallbackErrorCode,
+      errorDetail: error instanceof Error ? error.message : String(error),
+    });
+    void cleanupJobWorkDir(workDir, options.jobId);
+    throw error;
+  }
+}
+
+async function withQueueAdmission(queue, count, callback) {
+  const admission = queue.reserve(count);
+  try {
+    return await callback(admission);
+  } finally {
+    admission.release();
+  }
 }
 
 async function runQueuedJob(jobId, worker) {
@@ -3881,10 +3951,18 @@ function handlePresetStoreError(error, res) {
 }
 
 function logUnexpectedError(context, error) {
-  const safeContext = String(context).replace(/[\r\n\u2028\u2029]/gu, " ");
+  const safeContext = sanitizeLogText(context);
   const detail =
     error instanceof Error ? (error.stack ?? error.message) : String(error);
-  console.error("%s %s", `[server:500] ${safeContext}`, detail);
+  console.error("[server:500] %s %s", safeContext, sanitizeLogText(detail));
+}
+
+function sanitizeLogText(value) {
+  return String(value)
+    .replace(/\r/gu, " ")
+    .replace(/\n/gu, " ")
+    .replace(/\u2028/gu, " ")
+    .replace(/\u2029/gu, " ");
 }
 
 async function assertProjectOwnedPath(scope, candidate) {

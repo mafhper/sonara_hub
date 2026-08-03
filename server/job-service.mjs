@@ -143,6 +143,20 @@ export function createJobQueue({
   const pendingLimit = Math.max(1, Math.floor(Number(maxPending) || 50));
   const pending = [];
   let active = 0;
+  let reserved = 0;
+
+  function available() {
+    return Math.max(
+      0,
+      limit - active + pendingLimit - pending.length - reserved,
+    );
+  }
+
+  function fullQueueError() {
+    const error = new Error("Job queue is full.");
+    error.code = "JOB_QUEUE_FULL";
+    return error;
+  }
 
   function schedule() {
     while (active < limit && pending.length > 0) {
@@ -165,20 +179,40 @@ export function createJobQueue({
       if (typeof task !== "function") {
         throw new TypeError("Job queue task must be a function.");
       }
-      if (pending.length >= pendingLimit) {
-        const error = new Error("Job queue is full.");
-        error.code = "JOB_QUEUE_FULL";
-        throw error;
-      }
+      if (available() < 1) throw fullQueueError();
       pending.push(task);
       schedule();
+    },
+    reserve(count = 1) {
+      const amount = Math.max(1, Math.floor(Number(count) || 1));
+      if (available() < amount) throw fullQueueError();
+      reserved += amount;
+      let remaining = amount;
+      return {
+        enqueue(task) {
+          if (remaining < 1) throw new Error("Job queue reservation is spent.");
+          if (typeof task !== "function") {
+            throw new TypeError("Job queue task must be a function.");
+          }
+          remaining -= 1;
+          reserved -= 1;
+          pending.push(task);
+          schedule();
+        },
+        release() {
+          reserved -= remaining;
+          remaining = 0;
+        },
+      };
     },
     snapshot() {
       return {
         active,
+        available: available(),
         concurrency: limit,
         maxPending: pendingLimit,
         pending: pending.length,
+        reserved,
       };
     },
   };

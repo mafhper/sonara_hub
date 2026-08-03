@@ -77,6 +77,28 @@ test("multipart job route delegates after headers are sent", async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("multipart job route reports exhausted queue capacity as unavailable", async () => {
+  const error = new Error("Job queue is full.");
+  error.code = "JOB_QUEUE_FULL";
+  const route = multipartJobRoute({
+    code: "RENDER_SUBMIT_ERROR",
+    handler: async () => {
+      throw error;
+    },
+    tempFiles: { cleanup: async () => {} },
+  });
+  const response = fakeResponse();
+
+  await route(
+    { method: "POST", originalUrl: "/api/render" },
+    response,
+    () => assert.fail("queue admission errors should be handled"),
+  );
+
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.payload.code, "RENDER_SUBMIT_ERROR");
+});
+
 function fakeResponse() {
   return {
     headersSent: false,

@@ -102,9 +102,11 @@ test("job queue respects concurrency and keeps draining after task errors", asyn
   assert.equal(maxActive, 2);
   assert.deepEqual(queue.snapshot(), {
     active: 2,
+    available: 49,
     concurrency: 2,
     maxPending: 50,
     pending: 1,
+    reserved: 0,
   });
 
   gates.get("a").resolve();
@@ -117,9 +119,11 @@ test("job queue respects concurrency and keeps draining after task errors", asyn
   assert.deepEqual(errors, ["boom-b"]);
   assert.deepEqual(queue.snapshot(), {
     active: 0,
+    available: 52,
     concurrency: 2,
     maxPending: 50,
     pending: 0,
+    reserved: 0,
   });
 });
 
@@ -137,6 +141,20 @@ test("job queue rejects excess pending work", async () => {
     (error) => error?.code === "JOB_QUEUE_FULL",
   );
   release();
+});
+
+test("job queue reservations make batch admission atomic", async () => {
+  const queue = createJobQueue({ concurrency: 1, maxPending: 2 });
+  const reservation = queue.reserve(3);
+  assert.throws(
+    () => queue.reserve(1),
+    (error) => error?.code === "JOB_QUEUE_FULL",
+  );
+  reservation.enqueue(async () => {});
+  reservation.enqueue(async () => {});
+  reservation.release();
+  assert.equal(queue.snapshot().reserved, 0);
+  assert.equal(queue.snapshot().available, 1);
 });
 
 test("job concurrency resolver clamps configured and default values", () => {
