@@ -55,6 +55,7 @@ import { runRenderWorkerJob } from "./job-worker.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import { resolveServerPort } from "./server-port.mjs";
+import { assertOwnedPath } from "./path-containment.mjs";
 import {
   boundedProjectSaveEntries,
   canWriteProjectSave,
@@ -2454,9 +2455,10 @@ async function resolveInputAudio(fileName) {
     return null;
   }
   try {
-    const stat = await fs.stat(filePath);
+    const ownedPath = await assertOwnedPath(inputDir, filePath);
+    const stat = await fs.stat(ownedPath);
     if (stat.isFile() && audioFilePattern.test(filePath)) {
-      return filePath;
+      return ownedPath;
     }
   } catch {
     return null;
@@ -2491,8 +2493,9 @@ async function resolveInputFile(fileName) {
     return null;
   }
   try {
-    const stat = await fs.stat(filePath);
-    return stat.isFile() ? filePath : null;
+    const ownedPath = await assertOwnedPath(inputDir, filePath);
+    const stat = await fs.stat(ownedPath);
+    return stat.isFile() ? ownedPath : null;
   } catch {
     return null;
   }
@@ -4033,26 +4036,7 @@ function logUnexpectedError(context, error) {
 }
 
 async function assertProjectOwnedPath(scope, candidate) {
-  const root = path.resolve(scope.directory);
-  const target = path.resolve(candidate);
-  const relative = path.relative(root, target);
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error("Caminho interno do projeto inválido.");
-  }
-  let current = root;
-  for (const segment of relative.split(path.sep)) {
-    current = path.join(current, segment);
-    try {
-      const stat = await fs.lstat(current);
-      if (stat.isSymbolicLink()) {
-        throw new Error("Links simbólicos não são aceitos em .sonara.");
-      }
-    } catch (error) {
-      if (error?.code === "ENOENT") break;
-      throw error;
-    }
-  }
-  return target;
+  return assertOwnedPath(scope.directory, candidate);
 }
 
 function assertTempUploadPath(candidate) {

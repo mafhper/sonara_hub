@@ -7,7 +7,10 @@ import { createTempFileRegistry } from "../server/temp-files.mjs";
 
 test("temp registry removes immediate uploads and ignores outside files", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-temp-"));
-  const outside = path.join(os.tmpdir(), `sonara-outside-${Date.now()}.tmp`);
+  const outsideRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "sonara-outside-"),
+  );
+  const outside = path.join(outsideRoot, "outside.tmp");
   const upload = path.join(root, "upload.tmp");
   await fs.writeFile(upload, "temp");
   await fs.writeFile(outside, "keep");
@@ -18,7 +21,7 @@ test("temp registry removes immediate uploads and ignores outside files", async 
   await assert.rejects(fs.stat(upload), { code: "ENOENT" });
   assert.equal((await fs.readFile(outside, "utf8")).toString(), "keep");
   await fs.rm(root, { recursive: true, force: true });
-  await fs.rm(outside, { force: true });
+  await fs.rm(outsideRoot, { recursive: true, force: true });
 });
 
 test("temp registry keeps shared uploads until the final consumer releases", async () => {
