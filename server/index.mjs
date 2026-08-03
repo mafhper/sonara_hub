@@ -99,7 +99,10 @@ import {
   normalizeFfmpegSpawnError,
   resolveFfmpegPath,
 } from "./ffmpeg-tool.mjs";
-import { enforceLocalMutationOrigin } from "./request-security.mjs";
+import {
+  enforceLocalMutationOrigin,
+  isReadOnlyJobStatusRequest,
+} from "./request-security.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -189,6 +192,7 @@ app.use(
   rateLimit({
     legacyHeaders: false,
     limit: 600,
+    skip: isReadOnlyJobStatusRequest,
     standardHeaders: "draft-7",
     windowMs: 60 * 1000,
   }),
@@ -1352,14 +1356,23 @@ app.post(
   }),
 );
 
-app.get("/api/jobs/:id", (req, res) => {
-  const job = jobs.get(req.params.id);
-  if (!job) {
-    res.status(404).json({ error: "Job não encontrado." });
-    return;
-  }
-  res.json(job);
-});
+app.get(
+  "/api/jobs/:id",
+  rateLimit({
+    legacyHeaders: false,
+    limit: 5_000,
+    standardHeaders: "draft-7",
+    windowMs: 60 * 1000,
+  }),
+  (req, res) => {
+    const job = jobs.get(req.params.id);
+    if (!job) {
+      res.status(404).json({ error: "Job não encontrado." });
+      return;
+    }
+    res.json(job);
+  },
+);
 
 app.get("/api/jobs", (_req, res) => {
   res.json({

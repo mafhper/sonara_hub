@@ -1,5 +1,7 @@
 const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);
 const loopbackHosts = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);
+const jobStatusPath =
+  /^\/api\/jobs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 export function enforceLocalMutationOrigin(req, res, next) {
   if (safeMethods.has(String(req.method ?? "GET").toUpperCase())) {
@@ -39,4 +41,10 @@ export function isLoopbackHttpUrl(value) {
   } catch {
     return false;
   }
+}
+
+export function isReadOnlyJobStatusRequest(req) {
+  if (String(req.method ?? "GET").toUpperCase() !== "GET") return false;
+  const pathname = String(req.originalUrl ?? req.url ?? "").split("?", 1)[0];
+  return jobStatusPath.test(pathname);
 }

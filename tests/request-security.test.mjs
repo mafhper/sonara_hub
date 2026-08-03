@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   enforceLocalMutationOrigin,
   isLoopbackHttpUrl,
+  isReadOnlyJobStatusRequest,
 } from "../server/request-security.mjs";
 
 function runMiddleware({ method = "POST", origin, fetchSite } = {}) {
@@ -60,4 +61,27 @@ test("loopback URL validation rejects remote and non-HTTP endpoints", () => {
   assert.equal(isLoopbackHttpUrl("https://localhost/api"), true);
   assert.equal(isLoopbackHttpUrl("https://example.test/api"), false);
   assert.equal(isLoopbackHttpUrl("file:///tmp/api"), false);
+});
+
+test("only read-only UUID job polling bypasses the global API budget", () => {
+  const jobUrl = "/api/jobs/123e4567-e89b-42d3-a456-426614174000?cache=ignored";
+  assert.equal(
+    isReadOnlyJobStatusRequest({ method: "GET", originalUrl: jobUrl }),
+    true,
+  );
+  assert.equal(
+    isReadOnlyJobStatusRequest({ method: "POST", originalUrl: jobUrl }),
+    false,
+  );
+  assert.equal(
+    isReadOnlyJobStatusRequest({
+      method: "GET",
+      originalUrl: "/api/jobs/cancel-all",
+    }),
+    false,
+  );
+  assert.equal(
+    isReadOnlyJobStatusRequest({ method: "GET", originalUrl: "/api/jobs" }),
+    false,
+  );
 });
