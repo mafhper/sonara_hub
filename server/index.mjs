@@ -56,6 +56,10 @@ import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import { resolveServerPort } from "./server-port.mjs";
 import {
+  boundedProjectSaveEntries,
+  canWriteProjectSave,
+} from "./project-save-limit.mjs";
+import {
   BenchmarkBaselineError,
   cleanupRenderBenchmarkData,
   loadBenchmarkCleanupPolicy,
@@ -168,6 +172,7 @@ const jobs = new Map(
   (await loadJobHistory(jobHistoryPath)).map((job) => [job.id, job]),
 );
 let jobHistoryWriteQueue = Promise.resolve();
+let internalSnapshotWriteQueue = Promise.resolve();
 if (jobs.size) {
   await saveJobHistory(jobHistoryPath, Array.from(jobs.values()));
 }
@@ -506,15 +511,43 @@ app.put(
       scope,
       internalProjectSnapshotPath(scope, save.id),
     );
-    await fs.mkdir(path.dirname(snapshotPath), { recursive: true });
-    await fs.writeFile(
-      snapshotPath,
-      JSON.stringify(
-        { ...req.body, saveId: save.id, saveName: save.name },
-        null,
-        2,
-      ),
-    );
+    const saved = await serializeInternalSnapshotWrite(async () => {
+      const savesDir = path.dirname(snapshotPath);
+      if (!save.isDefault) {
+        let entries = [];
+        try {
+          entries = await fs.readdir(savesDir, { withFileTypes: true });
+        } catch (error) {
+          if (error?.code !== "ENOENT") throw error;
+        }
+        if (
+          !canWriteProjectSave(
+            entries,
+            path.basename(snapshotPath),
+            maxInternalProjectSaves,
+          )
+        ) {
+          return false;
+        }
+      }
+      await fs.mkdir(savesDir, { recursive: true });
+      await fs.writeFile(
+        snapshotPath,
+        JSON.stringify(
+          { ...req.body, saveId: save.id, saveName: save.name },
+          null,
+          2,
+        ),
+      );
+      return true;
+    });
+    if (!saved) {
+      return res.status(409).json({
+        code: "save-limit-reached",
+        error: `Este projeto atingiu o limite de ${maxInternalProjectSaves} saves.`,
+        limit: maxInternalProjectSaves,
+      });
+    }
     res.json({ ok: true });
   },
 );
@@ -566,10 +599,10 @@ async function listInternalProjectSaves(scope) {
   } catch {
     return Array.from(saves.values());
   }
-  for (const entry of entries.slice(0, maxInternalProjectSaves)) {
-    if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".json")) {
-      continue;
-    }
+  for (const entry of boundedProjectSaveEntries(
+    entries,
+    maxInternalProjectSaves,
+  )) {
     const id = entry.name.replace(/\.json$/i, "");
     let save = { id, name: projectSaveLabelFromId(id) };
     try {
@@ -596,6 +629,12 @@ async function listInternalProjectSaves(scope) {
       sensitivity: "base",
     });
   });
+}
+
+function serializeInternalSnapshotWrite(task) {
+  const operation = internalSnapshotWriteQueue.then(task, task);
+  internalSnapshotWriteQueue = operation.catch(() => undefined);
+  return operation;
 }
 
 function internalProjectSnapshotPath(scope, saveId) {
