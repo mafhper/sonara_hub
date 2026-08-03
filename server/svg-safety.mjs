@@ -64,16 +64,18 @@ function walkSvg(value, key = "") {
 }
 
 function decodeCssEscapes(value) {
-  return value.replace(
-    /\\(?:([0-9a-f]{1,6})[ \t\r\n\f]?|([\s\S]))/giu,
-    (_match, hexadecimal, escaped) => {
-      if (!hexadecimal) return escaped ?? "";
-      const codePoint = Number.parseInt(hexadecimal, 16);
-      return codePoint === 0 || codePoint > 0x10ffff
-        ? "\uFFFD"
-        : String.fromCodePoint(codePoint);
-    },
-  );
+  return value
+    .replace(/\\(?:\r\n|[\n\r\f])/gu, "")
+    .replace(
+      /\\(?:([0-9a-f]{1,6})[ \t\r\n\f]?|([\s\S]))/giu,
+      (_match, hexadecimal, escaped) => {
+        if (!hexadecimal) return escaped ?? "";
+        const codePoint = Number.parseInt(hexadecimal, 16);
+        return codePoint === 0 || codePoint > 0x10ffff
+          ? "\uFFFD"
+          : String.fromCodePoint(codePoint);
+      },
+    );
 }
 
 function svgTextContent(value) {

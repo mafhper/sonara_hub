@@ -44,6 +44,10 @@ for (const [label, svg] of [
     "escaped external CSS URL function",
     '<svg xmlns="http://www.w3.org/2000/svg"><style>.x { fill: u\\72l(https://example.com/a.svg) }</style></svg>',
   ],
+  [
+    "external CSS URL with a line continuation",
+    '<svg xmlns="http://www.w3.org/2000/svg"><style>.x { fill: url("ht\\\ntps://example.com/a.svg") }</style></svg>',
+  ],
 ]) {
   test(`SVG sanitizer rejects ${label}`, () => {
     assert.throws(() => validateSafeSvg(svg));
