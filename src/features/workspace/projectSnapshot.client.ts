@@ -8,6 +8,7 @@ import {
 } from "../../app/appDefaults";
 import type { ProjectSaveOption } from "../../app/appTypes";
 import type { ProjectAssetManifestEntry, ProjectSnapshot } from "../../types";
+import { fetchJson } from "../../../shared/local-api.mjs";
 
 export async function loadProjectSnapshot(
   handle: FileSystemDirectoryHandle,
@@ -100,7 +101,7 @@ export async function saveInternalProjectSnapshot(
     projectId,
     projectSnapshotWithSave(snapshot, save),
   );
-  await fetch(
+  await fetchJson(
     `/api/internal-snapshot?${internalSnapshotQuery(projectId, save)}`,
     {
       method: "PUT",

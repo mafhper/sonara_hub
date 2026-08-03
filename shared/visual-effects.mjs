@@ -1237,12 +1237,20 @@ export function normalizeVisualPresetList(value = builtinVisualPresets) {
 }
 
 export function normalizeVisualSettings(input = {}) {
+  const candidateInput = input && typeof input === "object" ? input : {};
+  const candidateSource =
+    typeof candidateInput.visualSettings === "string"
+      ? parseJson(candidateInput.visualSettings)
+      : candidateInput.visualSettings &&
+          typeof candidateInput.visualSettings === "object"
+        ? candidateInput.visualSettings
+        : candidateInput;
   const source =
-    typeof input.visualSettings === "string"
-      ? parseJson(input.visualSettings)
-      : input.visualSettings && typeof input.visualSettings === "object"
-        ? input.visualSettings
-        : input;
+    candidateSource &&
+    typeof candidateSource === "object" &&
+    !Array.isArray(candidateSource)
+      ? candidateSource
+      : {};
   // Resolve the base builtin by preset id first (the map is keyed by id), then
   // fall back to a rendererId match. Shader presets share a rendererId across
   // several ids (e.g. plasma-nebula/plasma-lava → "plasma"), so resolving by
@@ -1637,9 +1645,11 @@ function normalizeVariants(value = [], fallback = []) {
         ? fallback
         : [];
   const normalized = [];
+  const seen = new Set();
   for (const item of source) {
     const id = normalizeIdentifier(item?.id ?? item?.variantId, "");
-    if (!id || normalized.some((variant) => variant.id === id)) continue;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
     normalized.push({
       id,
       name: String(item?.name ?? item?.label ?? id),
@@ -1653,6 +1663,7 @@ function normalizeVariants(value = [], fallback = []) {
       ...(item?.advanced ? { advanced: item.advanced } : {}),
       ...(item?.cloudLight ? { cloudLight: item.cloudLight } : {}),
     });
+    if (normalized.length === 64) break;
   }
   return normalized;
 }

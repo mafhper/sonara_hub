@@ -149,7 +149,7 @@ function workflowPipelineLabel(pipeline) {
 }
 
 function workflowStageDomain(stage, fallback) {
-  if (/^audio-|audio/iu.test(stage)) return "audio";
+  if (/audio/iu.test(stage)) return "audio";
   if (/podcast|feed|rss/iu.test(stage)) return "podcast";
   if (/asset|manifest|poster|cover|artwork/iu.test(stage)) return "asset";
   if (/webgl|ffmpeg|mux|validation|render/iu.test(stage)) return "video";

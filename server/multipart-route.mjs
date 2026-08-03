@@ -14,7 +14,7 @@ export function multipartJobRoute({
         return;
       }
       logUnexpectedError?.(`${req.method} ${req.originalUrl}`, error);
-      res.status(500).json({
+      res.status(error?.code === "JOB_QUEUE_FULL" ? 503 : 500).json({
         code,
         error: error instanceof Error ? error.message : String(error),
       });

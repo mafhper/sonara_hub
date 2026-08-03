@@ -25,9 +25,11 @@ export function inferAudioTags(filePath) {
       ? ""
       : pathApi.basename(artistDir);
   const baseName = pathApi.basename(filePath, pathApi.extname(filePath)).trim();
-  const match = baseName.match(/^(\d{1,3})\s+(.+)$/);
+  const match = /^(\d{1,3})\s/u.exec(baseName);
   const trackNumber = Number(match?.[1] ?? 0);
-  const withoutOrder = String(match?.[2] ?? baseName).trim();
+  const withoutOrder = match
+    ? baseName.slice(match[0].length).trim()
+    : baseName;
   const albumPrefix = album
     ? new RegExp(`^${escapeRegex(album)}\\s*-\\s*`, "i")
     : null;
@@ -266,7 +268,7 @@ export function parseSamplePeakReport(stderr, fallback = Number.NaN) {
 }
 
 export function romanNumeral(value) {
-  let remaining = Math.max(0, Math.floor(Number(value) || 0));
+  let remaining = Math.min(3999, Math.max(0, Math.floor(Number(value) || 0)));
   const pairs = [
     [1000, "M"],
     [900, "CM"],

@@ -78,5 +78,8 @@ function videoRateArgs(settings) {
 }
 
 function escapeFilterPath(filePath) {
-  return filePath.replace(/\\/g, "/").replace(/:/, "\\:").replace(/'/g, "\\'");
+  return filePath
+    .replaceAll("\\", "/")
+    .replaceAll(":", "\\:")
+    .replaceAll("'", "\\'");
 }

@@ -6,6 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { availableParallelism } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import express from "express";
+import { rateLimit } from "express-rate-limit";
 import { parseFile } from "music-metadata";
 import multer from "multer";
 import sharp from "sharp";
@@ -55,6 +56,11 @@ import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import { resolveServerPort } from "./server-port.mjs";
 import {
+  boundedProjectSaveEntries,
+  canWriteProjectSave,
+  serializeBoundedProjectSnapshot,
+} from "./project-save-limit.mjs";
+import {
   BenchmarkBaselineError,
   cleanupRenderBenchmarkData,
   loadBenchmarkCleanupPolicy,
@@ -98,6 +104,11 @@ import {
   normalizeFfmpegSpawnError,
   resolveFfmpegPath,
 } from "./ffmpeg-tool.mjs";
+import {
+  enforceLocalMutationOrigin,
+  isReadOnlyInputAssetRequest,
+  isReadOnlyJobStatusRequest,
+} from "./request-security.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -110,6 +121,9 @@ const outputDir = path.join(rootDir, "outputs");
 const treatedOutputDir = path.join(outputDir, "audio");
 const audioFilePattern = /\.(mp3|wav|m4a|flac|aac)$/i;
 const lightweightAudioMetadataBytes = 8 * 1024 * 1024;
+const maxInternalSnapshotBytes = 50 * 1024 * 1024;
+const maxInternalProjectSaves = 200;
+const maxRetainedJobs = 500;
 const benchmarkHistoryPath = path.join(
   rootDir,
   ".dev",
@@ -160,6 +174,7 @@ const jobs = new Map(
   (await loadJobHistory(jobHistoryPath)).map((job) => [job.id, job]),
 );
 let jobHistoryWriteQueue = Promise.resolve();
+let internalSnapshotWriteQueue = Promise.resolve();
 if (jobs.size) {
   await saveJobHistory(jobHistoryPath, Array.from(jobs.values()));
 }
@@ -178,6 +193,18 @@ const activeJobWorkers = new Map();
 const benchmarkExecutions = new Map();
 
 const defaultJsonParser = express.json({ limit: "5mb" });
+app.use("/api", enforceLocalMutationOrigin);
+app.use(
+  "/api",
+  rateLimit({
+    legacyHeaders: false,
+    limit: 600,
+    skip: (req) =>
+      isReadOnlyJobStatusRequest(req) || isReadOnlyInputAssetRequest(req),
+    standardHeaders: "draft-7",
+    windowMs: 60 * 1000,
+  }),
+);
 app.use((req, res, next) => {
   if (req.path === "/api/podcast-feeds") return next();
   return defaultJsonParser(req, res, next);
@@ -328,22 +355,31 @@ app.get("/api/audio/:fileName", async (req, res) => {
   res.sendFile(audioPath);
 });
 
-app.get("/api/input-asset/:fileName", async (req, res) => {
-  const filePath = await resolveInputAsset(req.params.fileName);
-  if (!filePath) {
-    res.status(404).json({ error: "Asset de entrada não encontrado." });
-    return;
-  }
-  try {
-    if (filePath.toLowerCase().endsWith(".svg")) {
-      res.type("image/svg+xml").send(await safeSvgBuffer(filePath));
+app.get(
+  "/api/input-asset/:fileName",
+  rateLimit({
+    legacyHeaders: false,
+    limit: 5_000,
+    standardHeaders: "draft-7",
+    windowMs: 60 * 1000,
+  }),
+  async (req, res) => {
+    const filePath = await resolveInputAsset(req.params.fileName);
+    if (!filePath) {
+      res.status(404).json({ error: "Asset de entrada não encontrado." });
       return;
     }
-    res.sendFile(filePath);
-  } catch {
-    res.status(404).json({ error: "Asset de entrada inválido." });
-  }
-});
+    try {
+      if (filePath.toLowerCase().endsWith(".svg")) {
+        res.type("image/svg+xml").send(await safeSvgBuffer(filePath));
+        return;
+      }
+      res.sendFile(filePath);
+    } catch {
+      res.status(404).json({ error: "Asset de entrada inválido." });
+    }
+  },
+);
 
 app.post(
   "/api/audio/artwork-preview",
@@ -390,9 +426,14 @@ app.get("/api/audio/artwork-preview/:token", async (req, res) => {
     return;
   }
   try {
-    const stat = await fs.stat(filePath);
-    if (!stat.isFile()) throw new Error("not-file");
-    res.type("image/jpeg").send(await fs.readFile(filePath));
+    const handle = await fs.open(filePath, "r");
+    try {
+      const stat = await handle.stat();
+      if (!stat.isFile()) throw new Error("not-file");
+      res.type("image/jpeg").send(await handle.readFile());
+    } finally {
+      await handle.close();
+    }
   } catch {
     res.status(404).json({ error: "Prévia de arte não encontrada." });
   }
@@ -451,9 +492,15 @@ app.get("/api/internal-snapshot", async (req, res) => {
   }
   const save = internalProjectSaveFromQuery(req.query);
   if (!save) return res.status(400).json({ error: "invalid-save" });
-  const snapshotPath = internalProjectSnapshotPath(scope, save.id);
+  const snapshotPath = await assertProjectOwnedPath(
+    scope,
+    internalProjectSnapshotPath(scope, save.id),
+  );
   try {
-    const content = await fs.readFile(snapshotPath, "utf-8");
+    const content = await readUtf8FileLimited(
+      snapshotPath,
+      maxInternalSnapshotBytes,
+    );
     res.type("application/json").send(content);
   } catch (err) {
     if (err?.code === "ENOENT")
@@ -472,16 +519,53 @@ app.put(
     }
     const save = internalProjectSaveFromQuery(req.query, req.body);
     if (!save) return res.status(400).json({ error: "invalid-save" });
-    const snapshotPath = internalProjectSnapshotPath(scope, save.id);
-    await fs.mkdir(path.dirname(snapshotPath), { recursive: true });
-    await fs.writeFile(
-      snapshotPath,
-      JSON.stringify(
-        { ...req.body, saveId: save.id, saveName: save.name },
-        null,
-        2,
-      ),
+    const serializedSnapshot = serializeBoundedProjectSnapshot(
+      req.body,
+      save,
+      maxInternalSnapshotBytes,
     );
+    if (!serializedSnapshot) {
+      return res.status(413).json({
+        code: "snapshot-too-large",
+        error: "O save excede o limite de 50 MB após a serialização.",
+      });
+    }
+    const snapshotPath = await assertProjectOwnedPath(
+      scope,
+      internalProjectSnapshotPath(scope, save.id),
+    );
+    const saved = await serializeInternalSnapshotWrite(async () => {
+      const savesDir = path.dirname(snapshotPath);
+      if (!save.isDefault) {
+        let entries = [];
+        let targetExists = false;
+        try {
+          entries = await fs.readdir(savesDir, { withFileTypes: true });
+        } catch (error) {
+          if (error?.code !== "ENOENT") throw error;
+        }
+        try {
+          targetExists = (await fs.stat(snapshotPath)).isFile();
+        } catch (error) {
+          if (error?.code !== "ENOENT") throw error;
+        }
+        if (
+          !canWriteProjectSave(entries, targetExists, maxInternalProjectSaves)
+        ) {
+          return false;
+        }
+      }
+      await fs.mkdir(savesDir, { recursive: true });
+      await fs.writeFile(snapshotPath, serializedSnapshot);
+      return true;
+    });
+    if (!saved) {
+      return res.status(409).json({
+        code: "save-limit-reached",
+        error: `Este projeto atingiu o limite de ${maxInternalProjectSaves} saves.`,
+        limit: maxInternalProjectSaves,
+      });
+    }
     res.json({ ok: true });
   },
 );
@@ -491,12 +575,19 @@ app.delete("/api/internal-snapshot", async (req, res) => {
   if (!scope.projectId || scope.projectId === ".") {
     return res.status(400).json({ error: "invalid-project" });
   }
-  const sonaraDir = path.join(scope.directory, ".sonara");
+  const sonaraDir = await assertProjectOwnedPath(
+    scope,
+    path.join(scope.directory, ".sonara"),
+  );
   if (req.query.save != null) {
     const save = internalProjectSaveFromQuery(req.query);
     if (!save) return res.status(400).json({ error: "invalid-save" });
     try {
-      await fs.rm(internalProjectSnapshotPath(scope, save.id), {
+      const snapshotPath = await assertProjectOwnedPath(
+        scope,
+        internalProjectSnapshotPath(scope, save.id),
+      );
+      await fs.rm(snapshotPath, {
         force: true,
       });
     } catch {
@@ -516,22 +607,28 @@ async function listInternalProjectSaves(scope) {
   const saves = new Map([
     ["default", { id: "default", name: "Padrão", isDefault: true }],
   ]);
-  const savesDir = path.join(scope.directory, ".sonara", "saves");
+  const savesDir = await assertProjectOwnedPath(
+    scope,
+    path.join(scope.directory, ".sonara", "saves"),
+  );
   let entries = [];
   try {
     entries = await fs.readdir(savesDir, { withFileTypes: true });
   } catch {
     return Array.from(saves.values());
   }
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".json")) {
-      continue;
-    }
+  for (const entry of boundedProjectSaveEntries(
+    entries,
+    maxInternalProjectSaves,
+  )) {
     const id = entry.name.replace(/\.json$/i, "");
     let save = { id, name: projectSaveLabelFromId(id) };
     try {
       const snapshot = JSON.parse(
-        await fs.readFile(path.join(savesDir, entry.name), "utf8"),
+        await readUtf8FileLimited(
+          path.join(savesDir, entry.name),
+          maxInternalSnapshotBytes,
+        ),
       );
       save = {
         id,
@@ -550,6 +647,12 @@ async function listInternalProjectSaves(scope) {
       sensitivity: "base",
     });
   });
+}
+
+function serializeInternalSnapshotWrite(task) {
+  const operation = internalSnapshotWriteQueue.then(task, task);
+  internalSnapshotWriteQueue = operation.catch(() => undefined);
+  return operation;
 }
 
 function internalProjectSnapshotPath(scope, saveId) {
@@ -617,15 +720,22 @@ app.post("/api/internal-asset", upload.single("file"), async (req, res) => {
     await tempFiles.cleanup(req.file);
     return res.status(400).json({ error: "invalid-filename" });
   }
-  const assetsDir = path.join(scope.directory, ".sonara", "assets");
+  const assetsDir = await assertProjectOwnedPath(
+    scope,
+    path.join(scope.directory, ".sonara", "assets"),
+  );
   await fs.mkdir(assetsDir, { recursive: true });
-  const destPath = path.join(assetsDir, rawFileName);
+  const uploadPath = assertTempUploadPath(req.file.path);
+  const destPath = await assertProjectOwnedPath(
+    scope,
+    path.join(assetsDir, rawFileName),
+  );
   try {
-    await fs.rename(req.file.path, destPath);
+    await fs.rename(uploadPath, destPath);
   } catch (err) {
     if (err?.code === "EPERM" || err?.code === "EBUSY") {
-      await fs.copyFile(req.file.path, destPath);
-      await fs.unlink(req.file.path).catch(() => undefined);
+      await fs.copyFile(uploadPath, destPath);
+      await fs.unlink(uploadPath).catch(() => undefined);
     } else {
       await tempFiles.cleanup(req.file);
       throw err;
@@ -663,7 +773,9 @@ app.post("/api/audio-metadata", upload.single("audio"), async (req, res) => {
     return;
   }
   try {
-    res.json(await readAudioMetadataSummary(req.file.path));
+    res.json(
+      await readAudioMetadataSummary(assertTempUploadPath(req.file.path)),
+    );
   } finally {
     await tempFiles.cleanup(req.file);
   }
@@ -737,31 +849,36 @@ app.post(
       : null;
     const jobId = crypto.randomUUID();
     const outputName = buildTreatedFileName(draft, fileNamePattern);
-    setJob(jobId, {
-      id: jobId,
-      kind: "audio-process",
-      status: "queued",
-      progress: 0,
-      message: "Na fila de tratamento",
-      outputUrl: null,
-      sidecarUrl: null,
-      thumbnailUrl: null,
-      albumArtworkUrl: null,
-      metadata: draft,
-      createdAt: new Date().toISOString(),
-    });
-    enqueueAudioProcess({
-      jobId,
-      audioPath,
-      audioName: audioFile?.originalname ?? audioPath,
-      coverFile,
-      albumCoverFile,
-      coverSeries: String(req.body.coverSeries ?? "false") === "true",
-      coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
-      coverSeriesSettings: parseJsonObject(req.body.coverSeriesSettings),
-      draft,
-      outputName,
-      uploadedFiles: files,
+    await withQueueAdmission(audioJobQueue, 1, async (admission) => {
+      setJob(jobId, {
+        id: jobId,
+        kind: "audio-process",
+        status: "queued",
+        progress: 0,
+        message: "Na fila de tratamento",
+        outputUrl: null,
+        sidecarUrl: null,
+        thumbnailUrl: null,
+        albumArtworkUrl: null,
+        metadata: draft,
+        createdAt: new Date().toISOString(),
+      });
+      enqueueAudioProcess(
+        {
+          jobId,
+          audioPath,
+          audioName: audioFile?.originalname ?? audioPath,
+          coverFile,
+          albumCoverFile,
+          coverSeries: String(req.body.coverSeries ?? "false") === "true",
+          coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
+          coverSeriesSettings: parseJsonObject(req.body.coverSeriesSettings),
+          draft,
+          outputName,
+          uploadedFiles: files,
+        },
+        admission,
+      );
     });
     res.json({ jobId });
   }),
@@ -789,38 +906,52 @@ app.post(
     }
     const batchFileNamePattern = parseJsonObject(req.body.fileNamePattern);
     const jobIds = [];
-    for (const [index, audioFile] of audioFiles.entries()) {
-      const draft = normalizeAudioDraft(drafts[index], audioFile.originalname);
-      const jobId = crypto.randomUUID();
-      const outputName = buildTreatedFileName(draft, batchFileNamePattern);
-      setJob(jobId, {
-        id: jobId,
-        kind: "audio-process",
-        status: "queued",
-        progress: 0,
-        message: `Na fila de tratamento: ${audioFile.originalname}`,
-        outputUrl: null,
-        sidecarUrl: null,
-        thumbnailUrl: null,
-        albumArtworkUrl: null,
-        metadata: draft,
-        createdAt: new Date().toISOString(),
-      });
-      enqueueAudioProcess({
-        jobId,
-        audioPath: audioFile.path,
-        audioName: audioFile.originalname,
-        coverFile,
-        albumCoverFile,
-        coverSeries: String(req.body.coverSeries ?? "false") === "true",
-        coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
-        coverSeriesSettings: parseJsonObject(req.body.coverSeriesSettings),
-        draft,
-        outputName,
-        uploadedFiles: [audioFile, coverFile, albumCoverFile],
-      });
-      jobIds.push(jobId);
-    }
+    await withQueueAdmission(
+      audioJobQueue,
+      audioFiles.length,
+      async (admission) => {
+        for (const [index, audioFile] of audioFiles.entries()) {
+          const draft = normalizeAudioDraft(
+            drafts[index],
+            audioFile.originalname,
+          );
+          const jobId = crypto.randomUUID();
+          const outputName = buildTreatedFileName(draft, batchFileNamePattern);
+          setJob(jobId, {
+            id: jobId,
+            kind: "audio-process",
+            status: "queued",
+            progress: 0,
+            message: `Na fila de tratamento: ${audioFile.originalname}`,
+            outputUrl: null,
+            sidecarUrl: null,
+            thumbnailUrl: null,
+            albumArtworkUrl: null,
+            metadata: draft,
+            createdAt: new Date().toISOString(),
+          });
+          enqueueAudioProcess(
+            {
+              jobId,
+              audioPath: audioFile.path,
+              audioName: audioFile.originalname,
+              coverFile,
+              albumCoverFile,
+              coverSeries: String(req.body.coverSeries ?? "false") === "true",
+              coverStyle: req.body.coverStyle === "arabic" ? "arabic" : "roman",
+              coverSeriesSettings: parseJsonObject(
+                req.body.coverSeriesSettings,
+              ),
+              draft,
+              outputName,
+              uploadedFiles: [audioFile, coverFile, albumCoverFile],
+            },
+            admission,
+          );
+          jobIds.push(jobId);
+        }
+      },
+    );
     res.json({ jobIds });
   }),
 );
@@ -843,7 +974,7 @@ app.post(
       (await findDefaultAudio());
     const lyricsText =
       (lyricsFile
-        ? await fs.readFile(lyricsFile.path, "utf8")
+        ? await fs.readFile(assertTempUploadPath(lyricsFile.path), "utf8")
         : String(req.body.lyrics ?? "")) ||
       (await readTextIfExists(path.join(rootDir, "lyrics.txt")));
 
@@ -902,7 +1033,7 @@ app.post(
 
     const lyricsText =
       (lyricsFile
-        ? await fs.readFile(lyricsFile.path, "utf8")
+        ? await fs.readFile(assertTempUploadPath(lyricsFile.path), "utf8")
         : String(req.body.lyrics ?? "")) ||
       (await readTextIfExists(path.join(rootDir, "lyrics.txt")));
     const settings = normalizeSettings(req.body);
@@ -913,37 +1044,39 @@ app.post(
     const jobId = crypto.randomUUID();
     const outputName = buildOutputFileName(metadata, null, fileNamePattern);
     const outputPath = path.join(outputDir, outputName);
-    const jobOptions = await persistRenderOptions("video-render", {
-      jobId,
-      audioPath,
-      backgroundFile,
-      mediaLayerFiles,
-      coverFile,
-      lyricsText,
-      settings,
-      metadata,
-      outputPath,
-      outputName,
-      uploadedFiles: files,
-    });
+    await withQueueAdmission(renderJobQueue, 1, async (admission) => {
+      const jobOptions = await persistRenderOptions("video-render", {
+        jobId,
+        audioPath,
+        backgroundFile,
+        mediaLayerFiles,
+        coverFile,
+        lyricsText,
+        settings,
+        metadata,
+        outputPath,
+        outputName,
+        uploadedFiles: files,
+      });
 
-    setJob(jobId, {
-      id: jobId,
-      kind: "video-render",
-      attempt: 0,
-      maxAttempts: jobOptions.maxAttempts,
-      status: "queued",
-      progress: 0,
-      message: "Na fila de renderizacao",
-      outputUrl: null,
-      sidecarUrl: null,
-      thumbnailUrl: null,
-      payloadRef: jobOptions.payloadRef,
-      metadata,
-      createdAt: new Date().toISOString(),
-    });
+      setJob(jobId, {
+        id: jobId,
+        kind: "video-render",
+        attempt: 0,
+        maxAttempts: jobOptions.maxAttempts,
+        status: "queued",
+        progress: 0,
+        message: "Na fila de renderizacao",
+        outputUrl: null,
+        sidecarUrl: null,
+        thumbnailUrl: null,
+        payloadRef: jobOptions.payloadRef,
+        metadata,
+        createdAt: new Date().toISOString(),
+      });
 
-    enqueueRender(jobOptions);
+      enqueueRender(jobOptions, admission);
+    });
 
     res.json({ jobId });
   }),
@@ -1022,50 +1155,52 @@ app.post(
     const jobId = crypto.randomUUID();
     const outputName = publicationAssetOutputName(metadata, preset);
     const outputPath = path.join(outputDir, outputName);
-    const jobOptions = await persistRenderOptions("publication-asset", {
-      jobId,
-      audioPath,
-      backgroundFile,
-      mediaLayerFiles,
-      coverFile,
-      settings,
-      metadata,
-      preset,
-      clipStart,
-      clipDuration,
-      includeFullLyrics,
-      lyricsMode,
-      lyricsExcerpt,
-      lyricsHideTags,
-      lyricsLineSpacing,
-      lyricsPosition,
-      lyricsStyle,
-      bookletTheme,
-      generateDataFiles,
-      outputPath,
-      outputName,
-      uploadedFiles: files,
-    });
+    await withQueueAdmission(renderJobQueue, 1, async (admission) => {
+      const jobOptions = await persistRenderOptions("publication-asset", {
+        jobId,
+        audioPath,
+        backgroundFile,
+        mediaLayerFiles,
+        coverFile,
+        settings,
+        metadata,
+        preset,
+        clipStart,
+        clipDuration,
+        includeFullLyrics,
+        lyricsMode,
+        lyricsExcerpt,
+        lyricsHideTags,
+        lyricsLineSpacing,
+        lyricsPosition,
+        lyricsStyle,
+        bookletTheme,
+        generateDataFiles,
+        outputPath,
+        outputName,
+        uploadedFiles: files,
+      });
 
-    setJob(jobId, {
-      id: jobId,
-      kind: "publication-asset",
-      attempt: 0,
-      maxAttempts: jobOptions.maxAttempts,
-      status: "queued",
-      progress: 0,
-      message: "Na fila de divulgação",
-      outputUrl: null,
-      sidecarUrl: null,
-      thumbnailUrl: null,
-      markdownUrl: null,
-      assetUrls: [],
-      payloadRef: jobOptions.payloadRef,
-      metadata,
-      createdAt: new Date().toISOString(),
-    });
+      setJob(jobId, {
+        id: jobId,
+        kind: "publication-asset",
+        attempt: 0,
+        maxAttempts: jobOptions.maxAttempts,
+        status: "queued",
+        progress: 0,
+        message: "Na fila de divulgação",
+        outputUrl: null,
+        sidecarUrl: null,
+        thumbnailUrl: null,
+        markdownUrl: null,
+        assetUrls: [],
+        payloadRef: jobOptions.payloadRef,
+        metadata,
+        createdAt: new Date().toISOString(),
+      });
 
-    enqueuePublicationAsset(jobOptions);
+      enqueuePublicationAsset(jobOptions, admission);
+    });
 
     res.json({ jobId });
   }),
@@ -1196,84 +1331,105 @@ app.post(
     const trackSettings = parseTrackSettings(req.body.trackSettings);
     const jobIds = [];
 
-    for (const [index, audioFile] of audioFiles.entries()) {
-      const audioInfo = await analyzeAudio(audioFile.path);
-      const track = trackSettings[path.basename(audioFile.originalname)] ?? {};
-      const title =
-        track.title ||
-        audioInfo.title ||
-        titleFromFile(audioFile.originalname, commonMetadata.album, index + 1);
-      const metadata = {
-        ...commonMetadata,
-        artist: track.artist || commonMetadata.artist || audioInfo.artist || "",
-        album: track.album || commonMetadata.album || audioInfo.album || "",
-        genre: track.genre || commonMetadata.genre || audioInfo.genre || "",
-        version: track.version || "",
-        outputFileName:
-          track.outputFileName || commonMetadata.outputFileName || "",
-        title:
-          String(req.body.applyAlbumTitle ?? "false") === "true"
-            ? `${commonMetadata.album} - ${title}`
-            : title,
-      };
-      const jobId = crypto.randomUUID();
-      const outputName = buildOutputFileName(
-        metadata,
-        index + 1,
-        fileNamePattern,
-      );
-      const outputPath = path.join(outputDir, outputName);
-      const jobOptions = await persistRenderOptions("video-render", {
-        jobId,
-        audioPath: audioFile.path,
-        backgroundFile,
-        mediaLayerFiles,
-        coverFile,
-        lyricsText: "",
-        settings,
-        metadata,
-        outputPath,
-        outputName,
-        uploadedFiles: [
-          uploadedAudioFiles[index],
-          backgroundFile,
-          coverFile,
-          mediaLayerFiles,
-        ],
-      });
+    await withQueueAdmission(
+      renderJobQueue,
+      audioFiles.length,
+      async (admission) => {
+        for (const [index, audioFile] of audioFiles.entries()) {
+          const audioInfo = await analyzeAudio(audioFile.path);
+          const track =
+            trackSettings[path.basename(audioFile.originalname)] ?? {};
+          const title =
+            track.title ||
+            audioInfo.title ||
+            titleFromFile(
+              audioFile.originalname,
+              commonMetadata.album,
+              index + 1,
+            );
+          const metadata = {
+            ...commonMetadata,
+            artist:
+              track.artist || commonMetadata.artist || audioInfo.artist || "",
+            album: track.album || commonMetadata.album || audioInfo.album || "",
+            genre: track.genre || commonMetadata.genre || audioInfo.genre || "",
+            version: track.version || "",
+            outputFileName:
+              track.outputFileName || commonMetadata.outputFileName || "",
+            title:
+              String(req.body.applyAlbumTitle ?? "false") === "true"
+                ? `${commonMetadata.album} - ${title}`
+                : title,
+          };
+          const jobId = crypto.randomUUID();
+          const outputName = buildOutputFileName(
+            metadata,
+            index + 1,
+            fileNamePattern,
+          );
+          const outputPath = path.join(outputDir, outputName);
+          const jobOptions = await persistRenderOptions("video-render", {
+            jobId,
+            audioPath: audioFile.path,
+            backgroundFile,
+            mediaLayerFiles,
+            coverFile,
+            lyricsText: "",
+            settings,
+            metadata,
+            outputPath,
+            outputName,
+            uploadedFiles: [
+              uploadedAudioFiles[index],
+              backgroundFile,
+              coverFile,
+              mediaLayerFiles,
+            ],
+          });
 
-      setJob(jobId, {
-        id: jobId,
-        kind: "video-render",
-        attempt: 0,
-        maxAttempts: jobOptions.maxAttempts,
-        status: "queued",
-        progress: 0,
-        message: `Na fila do lote: ${audioFile.originalname}`,
-        outputUrl: null,
-        sidecarUrl: null,
-        thumbnailUrl: null,
-        payloadRef: jobOptions.payloadRef,
-        metadata,
-        createdAt: new Date().toISOString(),
-      });
-      jobIds.push(jobId);
+          setJob(jobId, {
+            id: jobId,
+            kind: "video-render",
+            attempt: 0,
+            maxAttempts: jobOptions.maxAttempts,
+            status: "queued",
+            progress: 0,
+            message: `Na fila do lote: ${audioFile.originalname}`,
+            outputUrl: null,
+            sidecarUrl: null,
+            thumbnailUrl: null,
+            payloadRef: jobOptions.payloadRef,
+            metadata,
+            createdAt: new Date().toISOString(),
+          });
+          jobIds.push(jobId);
 
-      enqueueRender(jobOptions);
-    }
+          enqueueRender(jobOptions, admission);
+        }
+      },
+    );
 
     res.json({ jobIds });
   }),
 );
 
-app.get("/api/jobs/:id", (req, res) => {
-  const job = jobs.get(req.params.id);
-  if (!job) {
-    res.status(404).json({ error: "Job não encontrado." });
-    return;
-  }
-  res.json(job);
-});
+app.get(
+  "/api/jobs/:id",
+  rateLimit({
+    legacyHeaders: false,
+    limit: 5_000,
+    standardHeaders: "draft-7",
+    windowMs: 60 * 1000,
+  }),
+  (req, res) => {
+    const job = jobs.get(req.params.id);
+    if (!job) {
+      res.status(404).json({ error: "Job não encontrado." });
+      return;
+    }
+    res.json(job);
+  },
+);
 
 app.get("/api/jobs", (_req, res) => {
   res.json({
@@ -1426,20 +1582,34 @@ for (const job of jobs.values()) {
   }
 }
 
-function enqueueRender(options) {
-  enqueueJob(renderJobQueue, options, "VIDEO_RENDER_ERROR", (jobOptions) =>
-    runRenderWorker("video-render", jobOptions),
+function enqueueRender(options, admission) {
+  enqueueJob(
+    renderJobQueue,
+    options,
+    "VIDEO_RENDER_ERROR",
+    (jobOptions) => runRenderWorker("video-render", jobOptions),
+    admission,
   );
 }
 
-function enqueuePublicationAsset(options) {
-  enqueueJob(renderJobQueue, options, "PUBLICATION_ASSET_ERROR", (jobOptions) =>
-    runRenderWorker("publication-asset", jobOptions),
+function enqueuePublicationAsset(options, admission) {
+  enqueueJob(
+    renderJobQueue,
+    options,
+    "PUBLICATION_ASSET_ERROR",
+    (jobOptions) => runRenderWorker("publication-asset", jobOptions),
+    admission,
   );
 }
 
-function enqueueAudioProcess(options) {
-  enqueueJob(audioJobQueue, options, "AUDIO_PROCESS_ERROR", processAudio);
+function enqueueAudioProcess(options, admission) {
+  enqueueJob(
+    audioJobQueue,
+    options,
+    "AUDIO_PROCESS_ERROR",
+    processAudio,
+    admission,
+  );
 }
 
 async function persistRenderOptions(kind, options) {
@@ -1519,7 +1689,7 @@ function runRenderWorker(kind, options) {
   });
 }
 
-function enqueueJob(queue, options, fallbackErrorCode, worker) {
+function enqueueJob(queue, options, fallbackErrorCode, worker, admission) {
   const releaseTempFiles = tempFiles.retain(options.uploadedFiles);
   const runJob = createJobRunner({
     cleanupWorkDir: (jobId) => cleanupJobWorkDir(workDir, jobId),
@@ -1529,7 +1699,28 @@ function enqueueJob(queue, options, fallbackErrorCode, worker) {
     runQueuedJob,
     updateJob,
   });
-  queue.enqueue(() => runJob(options, worker));
+  try {
+    (admission ?? queue).enqueue(() => runJob(options, worker));
+  } catch (error) {
+    void releaseTempFiles();
+    updateJob(options.jobId, {
+      status: "error",
+      message: "Fila sem capacidade para receber o job",
+      errorCode: error?.code ? String(error.code) : fallbackErrorCode,
+      errorDetail: error instanceof Error ? error.message : String(error),
+    });
+    void cleanupJobWorkDir(workDir, options.jobId);
+    throw error;
+  }
+}
+
+async function withQueueAdmission(queue, count, callback) {
+  const admission = queue.reserve(count);
+  try {
+    return await callback(admission);
+  } finally {
+    admission.release();
+  }
 }
 
 async function runQueuedJob(jobId, worker) {
@@ -2096,27 +2287,40 @@ function inputPathFromRelative(relativePath) {
 
 async function inputProjectScope(projectId) {
   await fs.mkdir(inputDir, { recursive: true });
+  const canonicalInputDir = await fs.realpath(inputDir);
   const requested = Array.isArray(projectId) ? projectId[0] : projectId;
   const raw = String(requested ?? "").trim();
   if (!raw || raw === ".") {
-    return { directory: inputDir, prefix: "", projectId: "." };
+    return { directory: canonicalInputDir, prefix: "", projectId: "." };
   }
   const segments = safeInputSegments(raw);
-  if (!segments) return { directory: inputDir, prefix: "", projectId: "." };
+  if (!segments)
+    return { directory: canonicalInputDir, prefix: "", projectId: "." };
   const directory = path.resolve(inputDir, ...segments);
   const relative = path.relative(inputDir, directory);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    return { directory: inputDir, prefix: "", projectId: "." };
+    return { directory: canonicalInputDir, prefix: "", projectId: "." };
   }
   try {
-    const stat = await fs.stat(directory);
+    const canonicalDirectory = await fs.realpath(directory);
+    const canonicalRelative = path.relative(
+      canonicalInputDir,
+      canonicalDirectory,
+    );
+    if (
+      canonicalRelative.startsWith("..") ||
+      path.isAbsolute(canonicalRelative)
+    ) {
+      return { directory: canonicalInputDir, prefix: "", projectId: "." };
+    }
+    const stat = await fs.stat(canonicalDirectory);
     if (!stat.isDirectory()) {
-      return { directory: inputDir, prefix: "", projectId: "." };
+      return { directory: canonicalInputDir, prefix: "", projectId: "." };
     }
     const prefix = segments.join("/");
-    return { directory, prefix, projectId: prefix };
+    return { directory: canonicalDirectory, prefix, projectId: prefix };
   } catch {
-    return { directory: inputDir, prefix: "", projectId: "." };
+    return { directory: canonicalInputDir, prefix: "", projectId: "." };
   }
 }
 
@@ -2411,8 +2615,10 @@ async function readAudioMetadataSummary(filePath) {
 }
 
 async function readInputAudioMetadataSummary(filePath) {
-  const stat = await fs.stat(filePath);
+  const readHandle = await fs.open(filePath, "r");
+  const stat = await readHandle.stat();
   if (stat.size <= lightweightAudioMetadataBytes) {
+    await readHandle.close();
     return readAudioMetadataSummary(filePath);
   }
   await fs.mkdir(uploadDir, { recursive: true });
@@ -2420,7 +2626,6 @@ async function readInputAudioMetadataSummary(filePath) {
     uploadDir,
     `metadata-${crypto.randomUUID()}${path.extname(filePath) || ".audio"}`,
   );
-  const readHandle = await fs.open(filePath, "r");
   try {
     const buffer = Buffer.alloc(lightweightAudioMetadataBytes);
     const { bytesRead } = await readHandle.read(
@@ -3757,6 +3962,12 @@ function updateJob(jobId, patch) {
 
 function setJob(jobId, job) {
   jobs.set(jobId, job);
+  if (jobs.size > maxRetainedJobs) {
+    const removable = Array.from(jobs.entries())
+      .filter(([, candidate]) => !isActiveJob(candidate))
+      .slice(0, jobs.size - maxRetainedJobs);
+    for (const [id] of removable) jobs.delete(id);
+  }
   void persistJobSnapshot();
 }
 
@@ -3810,10 +4021,60 @@ function handlePresetStoreError(error, res) {
 }
 
 function logUnexpectedError(context, error) {
-  console.error(
-    `[server:500] ${context}`,
-    error instanceof Error ? (error.stack ?? error.message) : error,
-  );
+  const safeContext = String(context)
+    .replace(/\u2028|\u2029/gu, " ")
+    .replace(/\n|\r/gu, " ");
+  const detail =
+    error instanceof Error ? (error.stack ?? error.message) : String(error);
+  const safeDetail = String(detail)
+    .replace(/\u2028|\u2029/gu, " ")
+    .replace(/\n|\r/gu, " ");
+  console.error("[server:500] %s %s", safeContext, safeDetail);
+}
+
+async function assertProjectOwnedPath(scope, candidate) {
+  const root = path.resolve(scope.directory);
+  const target = path.resolve(candidate);
+  const relative = path.relative(root, target);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Caminho interno do projeto inválido.");
+  }
+  let current = root;
+  for (const segment of relative.split(path.sep)) {
+    current = path.join(current, segment);
+    try {
+      const stat = await fs.lstat(current);
+      if (stat.isSymbolicLink()) {
+        throw new Error("Links simbólicos não são aceitos em .sonara.");
+      }
+    } catch (error) {
+      if (error?.code === "ENOENT") break;
+      throw error;
+    }
+  }
+  return target;
+}
+
+function assertTempUploadPath(candidate) {
+  const target = path.resolve(String(candidate ?? ""));
+  const relative = path.relative(path.resolve(uploadDir), target);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Caminho de upload inválido.");
+  }
+  return target;
+}
+
+async function readUtf8FileLimited(filePath, maximumBytes) {
+  const handle = await fs.open(filePath, "r");
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size > maximumBytes) {
+      throw new Error("Arquivo interno excede o limite permitido.");
+    }
+    return await handle.readFile("utf8");
+  } finally {
+    await handle.close();
+  }
 }
 
 function formatAssTime(seconds) {

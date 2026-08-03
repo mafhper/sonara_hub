@@ -81,10 +81,14 @@ export async function attachSuggestedLyrics(
   tracks: TrackDraft[],
   lyricEntries: DirectoryAssetEntry[],
 ) {
-  if (!lyricEntries.length) return tracks;
-  const lyricsByPath = new Map(
-    lyricEntries.map((entry) => [entry.relativePath, entry]),
+  const eligibleLyrics = lyricEntries.filter(
+    (entry) => entry.file.size <= 2 * 1024 * 1024,
   );
+  if (!eligibleLyrics.length) return tracks;
+  const lyricsByPath = new Map(
+    eligibleLyrics.map((entry) => [entry.relativePath, entry]),
+  );
+  const eligibleLyricPaths = eligibleLyrics.map((entry) => entry.relativePath);
   const textByPath = new Map<string, string>();
   const readLyricsText = async (entry: DirectoryAssetEntry) => {
     let text = textByPath.get(entry.relativePath);
@@ -99,10 +103,10 @@ export async function attachSuggestedLyrics(
     tracks.map(async (track) => {
       const matches = listLyricsOptionsForTrack({
         audioPath: track.sourceKey,
-        lyricPaths: lyricEntries.map((entry) => entry.relativePath),
+        lyricPaths: eligibleLyricPaths,
         trackTitle: track.metadata.title,
         trackNumber: track.metadata.trackNumber,
-      });
+      }).slice(0, 500);
       if (!matches.length) return track;
       const suggestions = await Promise.all(
         matches.map(async (match: LyricsPathSuggestion) => {

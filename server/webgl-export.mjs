@@ -508,6 +508,10 @@ export function buildRendererHtml({
   audioEnvelope = { frameRate: 12, frames: [] },
   composition,
 }) {
+  const serializedRuntimeUrl = serializeForInlineScript(runtimeUrl);
+  const serializedScene = serializeForInlineScript(scene);
+  const serializedAudioEnvelope = serializeForInlineScript(audioEnvelope);
+  const serializedComposition = serializeForInlineScript(composition);
   return `<!doctype html>
 <html>
 <head>
@@ -523,10 +527,10 @@ export function buildRendererHtml({
 <body>
   <canvas id="scene" width="${size.width}" height="${size.height}"></canvas>
   <script type="module">
-    import { createSceneRuntime, loadMediaElements } from ${JSON.stringify(runtimeUrl)};
-    const scene = ${JSON.stringify(scene)};
-    const audioEnvelope = ${JSON.stringify(audioEnvelope)};
-    const composition = await loadMediaElements(${JSON.stringify(composition)});
+    import { createSceneRuntime, loadMediaElements } from ${serializedRuntimeUrl};
+    const scene = ${serializedScene};
+    const audioEnvelope = ${serializedAudioEnvelope};
+    const composition = await loadMediaElements(${serializedComposition});
     const canvas = document.getElementById("scene");
     const runtime = createSceneRuntime(canvas, scene, composition);
     runtime.resize(${size.width}, ${size.height});
@@ -727,16 +731,25 @@ export function buildRendererHtml({
 </html>`;
 }
 
+export function serializeForInlineScript(value) {
+  return JSON.stringify(value)
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e")
+    .replaceAll("&", "\\u0026")
+    .replaceAll("\u2028", "\\u2028")
+    .replaceAll("\u2029", "\\u2029");
+}
+
 async function assertValidWebm(outputPath, bytesWritten) {
-  const stat = await fs.stat(outputPath);
-  const size = Math.max(stat.size, bytesWritten);
-  if (size < 1024) {
-    throw new Error(
-      `Cena exportou um WebM vazio ou incompleto (${size} bytes).`,
-    );
-  }
   const handle = await fs.open(outputPath, "r");
   try {
+    const stat = await handle.stat();
+    const size = Math.max(stat.size, bytesWritten);
+    if (size < 1024) {
+      throw new Error(
+        `Cena exportou um WebM vazio ou incompleto (${size} bytes).`,
+      );
+    }
     const header = Buffer.alloc(4);
     await handle.read(header, 0, 4, 0);
     if (

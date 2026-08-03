@@ -20,10 +20,25 @@ import {
   visualPostDefaults,
   visualUniforms,
 } from "../shared/visual-effects.mjs";
+
 import {
   paperShaderDefinitions,
   paperShaderPresetCount,
 } from "../shared/paper-shaders.mjs";
+
+test("visual settings reject non-object JSON and bound custom variants", () => {
+  assert.doesNotThrow(() => normalizeVisualSettings(null));
+  assert.doesNotThrow(() =>
+    normalizeVisualSettings({ visualSettings: "null" }),
+  );
+  const visual = normalizeVisualSettings({
+    source: "custom",
+    variants: Array.from({ length: 5000 }, (_, index) => ({
+      id: `variant-${index}`,
+    })),
+  });
+  assert.equal(visual.variants.length, 64);
+});
 
 const expectedIds = [
   "liquid-mesh",

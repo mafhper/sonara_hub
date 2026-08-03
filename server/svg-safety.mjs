@@ -29,6 +29,14 @@ function walkSvg(value, key = "") {
   ) {
     throw new Error("SVG contém elemento não permitido.");
   }
+  if (
+    normalizedKey === "style" &&
+    /@import|url\s*\(\s*['"]?(?:https?:|file:|\/\/)/iu.test(
+      decodeCssEscapes(svgTextContent(value)),
+    )
+  ) {
+    throw new Error("SVG contém estilo externo não permitido.");
+  }
   if (!value || typeof value !== "object") return;
   for (const [childKey, childValue] of Object.entries(value)) {
     const attribute = childKey.replace(/^@_/, "").toLowerCase();
@@ -53,4 +61,30 @@ function walkSvg(value, key = "") {
     }
     walkSvg(childValue, childKey);
   }
+}
+
+function decodeCssEscapes(value) {
+  return value
+    .replace(/\\(?:\r\n|[\n\r\f])/gu, "")
+    .replace(
+      /\\(?:([0-9a-f]{1,6})[ \t\r\n\f]?|([\s\S]))/giu,
+      (_match, hexadecimal, escaped) => {
+        if (!hexadecimal) return escaped ?? "";
+        const codePoint = Number.parseInt(hexadecimal, 16);
+        return codePoint === 0 || codePoint > 0x10ffff
+          ? "\uFFFD"
+          : String.fromCodePoint(codePoint);
+      },
+    )
+    .replace(/[\u0000-\u001f\u007f]/gu, "");
+}
+
+function svgTextContent(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(svgTextContent).join("");
+  if (!value || typeof value !== "object") return "";
+  return Object.entries(value)
+    .filter(([childKey]) => !childKey.startsWith("@_"))
+    .map(([, childValue]) => svgTextContent(childValue))
+    .join("");
 }

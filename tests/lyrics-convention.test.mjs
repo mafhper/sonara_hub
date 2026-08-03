@@ -89,3 +89,20 @@ test("offers medium candidate for same album track number", () => {
     ],
   );
 });
+
+test("finds an exact lyric after more than 500 unrelated files", () => {
+  const lyricPaths = Array.from(
+    { length: 501 },
+    (_, index) => `Other ${index}/lyrics/Unrelated ${index}.txt`,
+  );
+  lyricPaths.push("Album/lyrics/01 - Channel Nine.txt");
+  assert.deepEqual(
+    listLyricsOptionsForTrack({
+      audioPath: "Album/01 - Channel Nine.mp3",
+      lyricPaths,
+      trackTitle: "Channel Nine",
+      trackNumber: 1,
+    }).map((option) => option.relativePath),
+    ["Album/lyrics/01 - Channel Nine.txt"],
+  );
+});
