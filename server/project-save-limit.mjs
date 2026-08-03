@@ -14,11 +14,7 @@ export function boundedProjectSaveEntries(entries, limit) {
     .slice(0, limit);
 }
 
-export function canWriteProjectSave(entries, targetName, limit) {
+export function canWriteProjectSave(entries, targetExists, limit) {
   const files = projectSaveFiles(entries);
-  const normalizedTarget = String(targetName).toLowerCase();
-  return (
-    files.some((entry) => entry.name.toLowerCase() === normalizedTarget) ||
-    files.length < limit
-  );
+  return targetExists || files.length < limit;
 }

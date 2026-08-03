@@ -515,17 +515,19 @@ app.put(
       const savesDir = path.dirname(snapshotPath);
       if (!save.isDefault) {
         let entries = [];
+        let targetExists = false;
         try {
           entries = await fs.readdir(savesDir, { withFileTypes: true });
         } catch (error) {
           if (error?.code !== "ENOENT") throw error;
         }
+        try {
+          targetExists = (await fs.stat(snapshotPath)).isFile();
+        } catch (error) {
+          if (error?.code !== "ENOENT") throw error;
+        }
         if (
-          !canWriteProjectSave(
-            entries,
-            path.basename(snapshotPath),
-            maxInternalProjectSaves,
-          )
+          !canWriteProjectSave(entries, targetExists, maxInternalProjectSaves)
         ) {
           return false;
         }

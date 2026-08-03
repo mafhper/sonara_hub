@@ -32,6 +32,10 @@ for (const [label, svg] of [
     "external CSS import",
     '<svg xmlns="http://www.w3.org/2000/svg"><style>@import "https://example.com/a.css";</style></svg>',
   ],
+  [
+    "external CSS nested in an attributed style element",
+    '<svg xmlns="http://www.w3.org/2000/svg"><style type="text/css">@import url(https://example.com/a.css)</style></svg>',
+  ],
 ]) {
   test(`SVG sanitizer rejects ${label}`, () => {
     assert.throws(() => validateSafeSvg(svg));

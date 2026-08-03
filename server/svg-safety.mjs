@@ -31,8 +31,9 @@ function walkSvg(value, key = "") {
   }
   if (
     normalizedKey === "style" &&
-    typeof value === "string" &&
-    /@import|url\s*\(\s*['"]?(?:https?:|file:|\/\/)/iu.test(value)
+    /@import|url\s*\(\s*['"]?(?:https?:|file:|\/\/)/iu.test(
+      svgTextContent(value),
+    )
   ) {
     throw new Error("SVG contém estilo externo não permitido.");
   }
@@ -60,4 +61,14 @@ function walkSvg(value, key = "") {
     }
     walkSvg(childValue, childKey);
   }
+}
+
+function svgTextContent(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(svgTextContent).join("");
+  if (!value || typeof value !== "object") return "";
+  return Object.entries(value)
+    .filter(([childKey]) => !childKey.startsWith("@_"))
+    .map(([, childValue]) => svgTextContent(childValue))
+    .join("");
 }
