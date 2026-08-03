@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   enforceLocalMutationOrigin,
   isLoopbackHttpUrl,
+  isReadOnlyInputAssetRequest,
   isReadOnlyJobStatusRequest,
 } from "../server/request-security.mjs";
 
@@ -82,6 +83,22 @@ test("only read-only UUID job polling bypasses the global API budget", () => {
   );
   assert.equal(
     isReadOnlyJobStatusRequest({ method: "GET", originalUrl: "/api/jobs" }),
+    false,
+  );
+});
+
+test("only read-only input asset fetches bypass the global API budget", () => {
+  const assetUrl = "/api/input-asset/Album%2Fcover.svg";
+  assert.equal(
+    isReadOnlyInputAssetRequest({ method: "GET", originalUrl: assetUrl }),
+    true,
+  );
+  assert.equal(
+    isReadOnlyInputAssetRequest({ method: "POST", originalUrl: assetUrl }),
+    false,
+  );
+  assert.equal(
+    isReadOnlyInputAssetRequest({ method: "GET", originalUrl: "/api/audio/a" }),
     false,
   );
 });

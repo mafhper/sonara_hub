@@ -75,7 +75,8 @@ function decodeCssEscapes(value) {
           ? "\uFFFD"
           : String.fromCodePoint(codePoint);
       },
-    );
+    )
+    .replace(/[\u0000-\u001f\u007f]/gu, "");
 }
 
 function svgTextContent(value) {

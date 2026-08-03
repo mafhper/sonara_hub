@@ -106,6 +106,7 @@ import {
 } from "./ffmpeg-tool.mjs";
 import {
   enforceLocalMutationOrigin,
+  isReadOnlyInputAssetRequest,
   isReadOnlyJobStatusRequest,
 } from "./request-security.mjs";
 
@@ -198,7 +199,8 @@ app.use(
   rateLimit({
     legacyHeaders: false,
     limit: 600,
-    skip: isReadOnlyJobStatusRequest,
+    skip: (req) =>
+      isReadOnlyJobStatusRequest(req) || isReadOnlyInputAssetRequest(req),
     standardHeaders: "draft-7",
     windowMs: 60 * 1000,
   }),
@@ -353,22 +355,31 @@ app.get("/api/audio/:fileName", async (req, res) => {
   res.sendFile(audioPath);
 });
 
-app.get("/api/input-asset/:fileName", async (req, res) => {
-  const filePath = await resolveInputAsset(req.params.fileName);
-  if (!filePath) {
-    res.status(404).json({ error: "Asset de entrada não encontrado." });
-    return;
-  }
-  try {
-    if (filePath.toLowerCase().endsWith(".svg")) {
-      res.type("image/svg+xml").send(await safeSvgBuffer(filePath));
+app.get(
+  "/api/input-asset/:fileName",
+  rateLimit({
+    legacyHeaders: false,
+    limit: 5_000,
+    standardHeaders: "draft-7",
+    windowMs: 60 * 1000,
+  }),
+  async (req, res) => {
+    const filePath = await resolveInputAsset(req.params.fileName);
+    if (!filePath) {
+      res.status(404).json({ error: "Asset de entrada não encontrado." });
       return;
     }
-    res.sendFile(filePath);
-  } catch {
-    res.status(404).json({ error: "Asset de entrada inválido." });
-  }
-});
+    try {
+      if (filePath.toLowerCase().endsWith(".svg")) {
+        res.type("image/svg+xml").send(await safeSvgBuffer(filePath));
+        return;
+      }
+      res.sendFile(filePath);
+    } catch {
+      res.status(404).json({ error: "Asset de entrada inválido." });
+    }
+  },
+);
 
 app.post(
   "/api/audio/artwork-preview",
