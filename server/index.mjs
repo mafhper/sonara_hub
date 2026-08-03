@@ -58,6 +58,7 @@ import { resolveServerPort } from "./server-port.mjs";
 import {
   boundedProjectSaveEntries,
   canWriteProjectSave,
+  serializeBoundedProjectSnapshot,
 } from "./project-save-limit.mjs";
 import {
   BenchmarkBaselineError,
@@ -507,6 +508,17 @@ app.put(
     }
     const save = internalProjectSaveFromQuery(req.query, req.body);
     if (!save) return res.status(400).json({ error: "invalid-save" });
+    const serializedSnapshot = serializeBoundedProjectSnapshot(
+      req.body,
+      save,
+      maxInternalSnapshotBytes,
+    );
+    if (!serializedSnapshot) {
+      return res.status(413).json({
+        code: "snapshot-too-large",
+        error: "O save excede o limite de 50 MB após a serialização.",
+      });
+    }
     const snapshotPath = await assertProjectOwnedPath(
       scope,
       internalProjectSnapshotPath(scope, save.id),
@@ -533,14 +545,7 @@ app.put(
         }
       }
       await fs.mkdir(savesDir, { recursive: true });
-      await fs.writeFile(
-        snapshotPath,
-        JSON.stringify(
-          { ...req.body, saveId: save.id, saveName: save.name },
-          null,
-          2,
-        ),
-      );
+      await fs.writeFile(snapshotPath, serializedSnapshot);
       return true;
     });
     if (!saved) {

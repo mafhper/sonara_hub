@@ -32,7 +32,7 @@ function walkSvg(value, key = "") {
   if (
     normalizedKey === "style" &&
     /@import|url\s*\(\s*['"]?(?:https?:|file:|\/\/)/iu.test(
-      svgTextContent(value),
+      decodeCssEscapes(svgTextContent(value)),
     )
   ) {
     throw new Error("SVG contém estilo externo não permitido.");
@@ -61,6 +61,19 @@ function walkSvg(value, key = "") {
     }
     walkSvg(childValue, childKey);
   }
+}
+
+function decodeCssEscapes(value) {
+  return value.replace(
+    /\\(?:([0-9a-f]{1,6})[ \t\r\n\f]?|([\s\S]))/giu,
+    (_match, hexadecimal, escaped) => {
+      if (!hexadecimal) return escaped ?? "";
+      const codePoint = Number.parseInt(hexadecimal, 16);
+      return codePoint === 0 || codePoint > 0x10ffff
+        ? "\uFFFD"
+        : String.fromCodePoint(codePoint);
+    },
+  );
 }
 
 function svgTextContent(value) {
