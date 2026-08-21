@@ -738,6 +738,7 @@ export function createPaperShaderRenderer(canvas) {
   const gl = canvas.getContext("webgl2", {
     alpha: false,
     antialias: false,
+    powerPreference: "high-performance",
     preserveDrawingBuffer: true,
   });
   if (!gl) {

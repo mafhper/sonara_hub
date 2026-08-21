@@ -4,10 +4,78 @@ import {
   assertWebmDecodeReport,
   buildRendererHtml,
   createWebglRenderSession,
+  createGpuHardwareUnavailableError,
   describeSceneRenderError,
+  isHardwareWebglRenderer,
+  isSoftwareWebglRenderer,
+  normalizeGpuInfo,
+  normalizeGpuMode,
+  resolveGpuMode,
   serializeForInlineScript,
+  webglGpuModes,
+  webglLaunchArgs,
 } from "../server/webgl-export.mjs";
 import * as webglExport from "../server/webgl-export.mjs";
+
+test("GPU mode defaults to software and honors explicit overrides", () => {
+  assert.deepEqual(webglGpuModes, ["auto", "hardware", "software"]);
+  assert.equal(normalizeGpuMode(undefined), "software");
+  assert.equal(normalizeGpuMode("invalid"), "software");
+  assert.equal(resolveGpuMode({}), "software");
+  assert.equal(resolveGpuMode({ SONARA_GPU_MODE: "hardware" }), "hardware");
+  assert.equal(resolveGpuMode({ SONARA_GPU_MODE: "auto" }), "auto");
+  assert.equal(
+    resolveGpuMode({ SONARA_GPU_MODE: "software", SONARA_FORCE_GPU: "1" }),
+    "hardware",
+  );
+});
+
+test("GPU launch profiles keep software fallback separate from hardware flags", () => {
+  const software = webglLaunchArgs("software", "win32");
+  const hardware = webglLaunchArgs("hardware", "win32");
+  const auto = webglLaunchArgs("auto", "win32");
+
+  assert.ok(software.includes("--enable-unsafe-swiftshader"));
+  assert.equal(software.includes("--enable-gpu"), false);
+  assert.ok(hardware.includes("--enable-gpu"));
+  assert.ok(hardware.includes("--use-angle=d3d11"));
+  assert.equal(hardware.includes("--enable-unsafe-swiftshader"), false);
+  assert.deepEqual(auto, hardware);
+});
+
+test("GPU renderer diagnostics distinguish hardware from software", () => {
+  const hardware = normalizeGpuInfo({
+    available: true,
+    vendor: "Google Inc.",
+    renderer: "ANGLE (AMD, AMD Radeon RX 7600 Direct3D11)",
+    version: "WebGL 1.0",
+    webglVersion: "WebGL1",
+  });
+  const software = normalizeGpuInfo({
+    available: true,
+    vendor: "Google Inc.",
+    renderer: "ANGLE (Google, Vulkan 1.3.0 SwiftShader Device)",
+    version: "WebGL 1.0",
+    webglVersion: "WebGL1",
+  });
+
+  assert.equal(isHardwareWebglRenderer(hardware), true);
+  assert.equal(isSoftwareWebglRenderer(hardware), false);
+  assert.equal(isHardwareWebglRenderer(software), false);
+  assert.equal(isSoftwareWebglRenderer(software), true);
+  assert.equal(isHardwareWebglRenderer({ available: false }), false);
+  assert.throws(
+    () => {
+      throw createGpuHardwareUnavailableError(software);
+    },
+    (error) => {
+      assert.equal(error.code, "GPU_HARDWARE_UNAVAILABLE");
+      assert.match(error.message, /SwiftShader|renderer/i);
+      assert.equal(error.details.gpuInfo.renderer, software.renderer);
+      return true;
+    },
+  );
+});
 
 test("scene runtime is bundled into one import-free module for data URLs", async () => {
   assert.equal(typeof webglExport.bundleSceneRuntimeSource, "function");
@@ -15,6 +83,15 @@ test("scene runtime is bundled into one import-free module for data URLs", async
   assert.doesNotMatch(source, /^\s*import\s/mu);
   assert.match(source, /createPaperShaderRenderer/u);
   assert.match(source, /createSceneRuntime/u);
+});
+
+test("scene runtime requests the high-performance WebGL adapter", async () => {
+  const source = await webglExport.bundleSceneRuntimeSource();
+  assert.equal(
+    (source.match(/powerPreference:\s*["']high-performance["']/gu) ?? [])
+      .length >= 2,
+    true,
+  );
 });
 
 test("WebGL render session reuses and closes its browser", async () => {
@@ -144,7 +221,11 @@ test("canvas exporter rejects a truncated WebM before mux", () => {
       assertWebmDecodeReport(
         "[matroska,webm] File ended prematurely at pos. 10693997",
       ),
-    /WebM truncado/,
+    (error) => {
+      assert.equal(error.code, "WEBGL_OUTPUT_INVALID");
+      assert.match(error.message, /WebM truncado/);
+      return true;
+    },
   );
   assert.doesNotThrow(() => assertWebmDecodeReport(""));
 });
