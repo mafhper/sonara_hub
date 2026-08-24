@@ -66,6 +66,12 @@ export function webglLaunchArgs(
     "--enable-gpu",
     "--ignore-gpu-blocklist",
     angle,
+    // In headless mode, GPU compositing keeps accelerated canvas frames away
+    // from the captureStream pipeline: MediaRecorder then emits a silent,
+    // empty WebM. Software compositing routes the GPU-rendered frames back
+    // into the capture path while WebGL itself still runs on the dedicated
+    // GPU (verified with an isolated probe on ANGLE D3D11 / RX 7600).
+    "--disable-gpu-compositing",
     "--enable-gpu-rasterization",
     "--enable-zero-copy",
   ];
@@ -670,9 +676,17 @@ async function runWebglRenderAttempt(options, size, attempt) {
   }
 
   if (canceled) throw canceledRenderError();
-  await timedTelemetryPhase(emitTelemetry, "webm-validation", () =>
-    assertValidWebm(outputPath, bytesWritten),
-  );
+  try {
+    await timedTelemetryPhase(emitTelemetry, "webm-validation", () =>
+      assertValidWebm(outputPath, bytesWritten),
+    );
+  } catch (error) {
+    // Output-invalid failures are much easier to root-cause with the page
+    // console/pageerror trail attached (for example, empty WebM on hardware
+    // ANGLE launches).
+    error.diagnostics ??= diagnostics.slice(-12);
+    throw error;
+  }
   emitTelemetry("attempt-complete", { bytesWritten });
 }
 
@@ -958,6 +972,14 @@ export function buildRendererHtml({
           chunkBytes += event.data.size;
           chunks.push(event.data.arrayBuffer().then((buffer) => window.saveSceneChunk(arrayBufferToBase64(buffer))));
         }
+      };
+      // Without this, a failed internal encoder surfaces as a silent empty
+      // WebM: the frame loop keeps running and nothing reaches the server.
+      recorder.onerror = (event) => {
+        reportPhase("media-recorder-error", {
+          error: String(event.error?.message ?? event.error ?? "unknown"),
+          state: recorder.state,
+        });
       };
       await reportPhase("media-recorder-start", {
         fps,

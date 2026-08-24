@@ -41,6 +41,9 @@ test("GPU launch profiles keep software fallback separate from hardware flags", 
   assert.equal(software.includes("--enable-gpu"), false);
   assert.ok(hardware.includes("--enable-gpu"));
   assert.ok(hardware.includes("--use-angle=d3d11"));
+  // Required for headless captureStream: without it MediaRecorder emits a
+  // silent, empty WebM even when WebGL renders on the dedicated GPU.
+  assert.ok(hardware.includes("--disable-gpu-compositing"));
   assert.equal(hardware.includes("--enable-unsafe-swiftshader"), false);
   assert.deepEqual(auto, hardware);
 });

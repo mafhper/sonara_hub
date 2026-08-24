@@ -202,9 +202,13 @@ function recordMatrixFailure(benchCase, cell, repeatIndex, error) {
       .join(" | ")
       .slice(0, 400),
   };
+  const diagnostics = Array.isArray(error?.diagnostics)
+    ? error.diagnostics.slice(-8)
+    : [];
+  if (diagnostics.length) failure.diagnostics = diagnostics;
   run.failures.push(failure);
   console.log(
-    `FAIL ${failure.id}: ${failure.errorCode ?? "ERROR"} — ${failure.errorMessage.split(" | ")[0]}`,
+    `FAIL ${failure.id}: ${failure.errorCode ?? "ERROR"} — ${failure.errorMessage.split(" | ")[0]}${diagnostics.length ? ` (+${diagnostics.length} diagnostics)` : ""}`,
   );
 }
 
@@ -1027,6 +1031,7 @@ function repeatedCaseMedians(cases) {
     return {
       id,
       rendererId: first.rendererId,
+      matrixCell: first.matrixCell ?? null,
       gpuModeRequested: first.gpuModeRequested,
       gpuModeResolved: first.gpuModeResolved,
       gpuRenderer: first.gpuRenderer,
