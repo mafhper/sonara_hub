@@ -7,6 +7,8 @@ import { chromium } from "playwright";
 import { build as viteBuild } from "vite";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
 import {
+  FFMPEG_MISSING_CODE,
+  FFMPEG_PROCESS_FAILED_CODE,
   normalizeFfmpegSpawnError,
   resolveFfmpegPath,
 } from "./ffmpeg-tool.mjs";
@@ -164,7 +166,9 @@ async function buildSceneRuntimeBundle() {
 
 export function createWebglRenderSession({
   launchBrowser = launchWebglBrowser,
+  mode = resolveGpuMode(),
 } = {}) {
+  const sessionMode = normalizeGpuMode(mode);
   let browserPromise = null;
   let closed = false;
 
@@ -193,6 +197,7 @@ export function createWebglRenderSession({
   }
 
   return {
+    mode: sessionMode,
     getBrowser,
     async close() {
       if (closed) return;
@@ -205,22 +210,140 @@ export function createWebglRenderSession({
   };
 }
 
-function launchWebglBrowser() {
+export function canReuseRenderSession(renderSession, requestedMode) {
+  if (!renderSession) return false;
+  if (typeof renderSession.getBrowser !== "function") return false;
+  if (normalizeGpuMode(requestedMode) !== "software") return true;
+  // A software-only retry (for example, the auto-mode fallback after an
+  // invalid hardware WebM) must never reuse a session launched in auto or
+  // hardware mode, otherwise the retry would record with the same GPU
+  // browser and the fallback would be a no-op.
+  return renderSession.mode === "software";
+}
+
+function launchWebglBrowser(mode = resolveGpuMode()) {
   return chromium.launch({
     headless: true,
-    args: [
-      "--allow-file-access-from-files",
-      "--autoplay-policy=no-user-gesture-required",
-      // Keep the software (SwiftShader) path usable and ignore the GPU blocklist
-      // so headless Chromium does not refuse to start a WebGL context. Forcing a
-      // real GPU is opt-in because it can fail in a Windows service context.
-      "--enable-unsafe-swiftshader",
-      "--ignore-gpu-blocklist",
-      ...(process.env.SONARA_FORCE_GPU === "1"
-        ? ["--use-angle=gl", "--enable-gpu"]
-        : []),
-    ],
+    args: webglLaunchArgs(mode),
   });
+}
+
+function probeWebglRendererInPage() {
+  const canvas = document.createElement("canvas");
+  const contexts = [
+    ["webgl2", "WebGL2"],
+    ["webgl", "WebGL1"],
+  ];
+  for (const [contextName, webglVersion] of contexts) {
+    let gl = null;
+    try {
+      gl = canvas.getContext(contextName);
+    } catch {
+      gl = null;
+    }
+    if (!gl) continue;
+    const debug = gl.getExtension("WEBGL_debug_renderer_info");
+    const vendorParameter = debug?.UNMASKED_VENDOR_WEBGL ?? gl.VENDOR;
+    const rendererParameter = debug?.UNMASKED_RENDERER_WEBGL ?? gl.RENDERER;
+    return {
+      available: true,
+      vendor: gl.getParameter(vendorParameter),
+      renderer: gl.getParameter(rendererParameter),
+      version: gl.getParameter(gl.VERSION),
+      shadingLanguageVersion: gl.getParameter(gl.SHADING_LANGUAGE_VERSION),
+      webglVersion,
+    };
+  }
+  return {
+    available: false,
+    vendor: null,
+    renderer: null,
+    version: null,
+    shadingLanguageVersion: null,
+    webglVersion: null,
+  };
+}
+
+async function probeBrowserRenderer(browser) {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    return normalizeGpuInfo(await page.evaluate(probeWebglRendererInPage));
+  } finally {
+    await context.close().catch(() => {});
+  }
+}
+
+async function closeBrowser(browser) {
+  if (browser) await browser.close().catch(() => {});
+}
+
+async function acquireWebglBrowser({ renderSession, requestedMode }) {
+  const ownsBrowser = !renderSession;
+  if (renderSession) {
+    const browser = await renderSession.getBrowser();
+    let candidateGpuInfo = null;
+    let fallbackReason = null;
+    if (requestedMode !== "software") {
+      candidateGpuInfo = await probeBrowserRenderer(browser);
+      if (
+        requestedMode === "hardware" &&
+        !isHardwareWebglRenderer(candidateGpuInfo)
+      ) {
+        throw createGpuHardwareUnavailableError(candidateGpuInfo);
+      }
+      if (
+        requestedMode === "auto" &&
+        !isHardwareWebglRenderer(candidateGpuInfo)
+      ) {
+        fallbackReason = candidateGpuInfo.available
+          ? "renderer-reported-software"
+          : "renderer-unavailable";
+      }
+    }
+    return { browser, ownsBrowser, candidateGpuInfo, fallbackReason };
+  }
+
+  if (requestedMode === "software") {
+    return {
+      browser: await launchWebglBrowser("software"),
+      ownsBrowser,
+      candidateGpuInfo: null,
+      fallbackReason: null,
+    };
+  }
+
+  let browser;
+  let candidateGpuInfo = null;
+  let fallbackReason = null;
+  try {
+    browser = await launchWebglBrowser(requestedMode);
+    candidateGpuInfo = await probeBrowserRenderer(browser);
+  } catch (error) {
+    await closeBrowser(browser);
+    if (requestedMode !== "auto") throw error;
+    fallbackReason = "hardware-launch-or-probe-failed";
+  }
+
+  if (browser && isHardwareWebglRenderer(candidateGpuInfo)) {
+    return { browser, ownsBrowser, candidateGpuInfo, fallbackReason: null };
+  }
+
+  if (requestedMode === "hardware") {
+    await closeBrowser(browser);
+    throw createGpuHardwareUnavailableError(candidateGpuInfo ?? {});
+  }
+
+  await closeBrowser(browser);
+  fallbackReason ??= candidateGpuInfo?.available
+    ? "renderer-reported-software"
+    : "renderer-unavailable";
+  return {
+    browser: await launchWebglBrowser("software"),
+    ownsBrowser,
+    candidateGpuInfo,
+    fallbackReason,
+  };
 }
 
 export async function renderWebglBackgroundVideo(options) {
@@ -228,6 +351,25 @@ export async function renderWebglBackgroundVideo(options) {
   try {
     await runWebglRenderAttempt(options, size, 1);
   } catch (error) {
+    if (resolveGpuMode() === "auto" && error?.code === "WEBGL_OUTPUT_INVALID") {
+      onTelemetry?.({
+        phase: "gpu-fallback",
+        attempt: 2,
+        fromMode: "hardware",
+        toMode: "software",
+        reason: "webm-output-invalid",
+      });
+      await runWebglRenderAttempt(
+        {
+          ...options,
+          gpuModeOverride: "software",
+          gpuFallbackReason: "webm-output-invalid",
+        },
+        size,
+        2,
+      );
+      return;
+    }
     const retryable =
       error?.code === "WEBGL_CONTEXT_LOST" ||
       error?.code === "WEBGL_SHADER_ERROR";
@@ -376,12 +518,31 @@ async function runWebglRenderAttempt(options, size, attempt) {
   let context;
   let page;
   const renderSession = options.renderSession;
-  const ownsBrowser = !renderSession;
-  browser = await timedTelemetryPhase(
-    emitTelemetry,
-    renderSession ? "browser-acquire" : "browser-launch",
-    () => (renderSession ? renderSession.getBrowser() : launchWebglBrowser()),
+  const gpuModeRequested = normalizeGpuMode(
+    options.gpuModeOverride ?? resolveGpuMode(),
   );
+  const reusableSession = canReuseRenderSession(
+    renderSession,
+    gpuModeRequested,
+  );
+  let ownsBrowser = !renderSession;
+  let browserResolution;
+  try {
+    browserResolution = await timedTelemetryPhase(
+      emitTelemetry,
+      reusableSession ? "browser-acquire" : "browser-launch",
+      () =>
+        acquireWebglBrowser({
+          renderSession: reusableSession ? renderSession : null,
+          requestedMode: gpuModeRequested,
+        }),
+    );
+    browser = browserResolution.browser;
+    ownsBrowser = browserResolution.ownsBrowser;
+  } catch (error) {
+    await file.close().catch(() => {});
+    throw error;
+  }
   await timedTelemetryPhase(emitTelemetry, "page-open", async () => {
     context = await browser.newContext({
       deviceScaleFactor: 1,
@@ -450,6 +611,39 @@ async function runWebglRenderAttempt(options, size, attempt) {
         () => typeof window.recordScene === "function",
       );
     });
+    const gpuInfo = normalizeGpuInfo(
+      await timedTelemetryPhase(emitTelemetry, "gpu-probe", () =>
+        page.evaluate(probeWebglRendererInPage),
+      ),
+    );
+    const gpuHardware = isHardwareWebglRenderer(gpuInfo);
+    const gpuModeResolved = gpuHardware ? "hardware" : "software";
+    const gpuFallbackReason =
+      options.gpuFallbackReason ??
+      browserResolution.fallbackReason ??
+      (gpuModeRequested === "auto" && !gpuHardware
+        ? "renderer-reported-software"
+        : gpuModeRequested === "hardware" && !gpuHardware
+          ? "hardware-requested-but-renderer-software"
+          : null);
+    emitTelemetry("gpu-info", {
+      gpuAvailable: gpuInfo.available,
+      gpuHardware,
+      gpuModeRequested,
+      gpuModeResolved:
+        gpuModeRequested === "hardware" && !gpuHardware
+          ? "unavailable"
+          : gpuModeResolved,
+      gpuFallbackReason,
+      vendor: gpuInfo.vendor,
+      renderer: gpuInfo.renderer,
+      version: gpuInfo.version,
+      shadingLanguageVersion: gpuInfo.shadingLanguageVersion,
+      webglVersion: gpuInfo.webglVersion,
+    });
+    if (gpuModeRequested === "hardware" && !gpuHardware) {
+      throw createGpuHardwareUnavailableError(gpuInfo);
+    }
     try {
       await timedTelemetryPhase(emitTelemetry, "scene-record", () =>
         page.evaluate(
@@ -868,7 +1062,7 @@ async function assertValidWebm(outputPath, bytesWritten) {
     const stat = await handle.stat();
     const size = Math.max(stat.size, bytesWritten);
     if (size < 1024) {
-      throw new Error(
+      throw createWebglOutputInvalidError(
         `Cena exportou um WebM vazio ou incompleto (${size} bytes).`,
       );
     }
@@ -880,12 +1074,45 @@ async function assertValidWebm(outputPath, bytesWritten) {
       header[2] !== 0xdf ||
       header[3] !== 0xa3
     ) {
-      throw new Error("Cena exportou um arquivo sem cabecalho WebM valido.");
+      throw createWebglOutputInvalidError(
+        "Cena exportou um arquivo sem cabecalho WebM valido.",
+      );
     }
   } finally {
     await handle.close();
   }
-  await assertWebmDecodable(outputPath);
+  try {
+    await assertWebmDecodable(outputPath);
+  } catch (error) {
+    throw normalizeWebmValidationError(error);
+  }
+}
+
+export function normalizeWebmValidationError(error) {
+  if (error == null) {
+    return createWebglOutputInvalidError(
+      "Falha desconhecida ao validar o WebM exportado.",
+    );
+  }
+  const code = error.code;
+  if (
+    code === "WEBGL_OUTPUT_INVALID" ||
+    // Infrastructure failures (missing binary, spawn errors) carry actionable
+    // codes and must not be disguised as corrupt WebM output; disguising them
+    // would also make auto GPU mode rerender in software for nothing.
+    code === FFMPEG_MISSING_CODE ||
+    code === FFMPEG_PROCESS_FAILED_CODE
+  ) {
+    return error;
+  }
+  return createWebglOutputInvalidError(error.message, error);
+}
+
+function createWebglOutputInvalidError(message, cause = null) {
+  const error = new Error(message);
+  error.code = "WEBGL_OUTPUT_INVALID";
+  if (cause) error.cause = cause;
+  return error;
 }
 
 export function assertWebmDecodeReport(stderr) {
@@ -894,7 +1121,9 @@ export function assertWebmDecodeReport(stderr) {
       stderr,
     )
   ) {
-    throw new Error("Cena exportou um WebM truncado ou invalido.");
+    throw createWebglOutputInvalidError(
+      "Cena exportou um WebM truncado ou invalido.",
+    );
   }
 }
 
@@ -908,14 +1137,16 @@ function assertWebmDecodable(outputPath) {
     );
     let stderr = "";
     child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-    child.on("error", (error) =>
-      reject(normalizeFfmpegSpawnError(error, ffmpegPath)),
-    );
+    child.on("error", (error) => {
+      const normalized = normalizeFfmpegSpawnError(error, ffmpegPath);
+      normalized.code ??= FFMPEG_PROCESS_FAILED_CODE;
+      reject(normalized);
+    });
     child.on("close", (code) => {
       try {
         assertWebmDecodeReport(stderr);
         if (code !== 0) {
-          throw new Error(
+          throw createWebglOutputInvalidError(
             `Cena WebM não pode ser decodificada: ${stderr.slice(-1200)}`,
           );
         }

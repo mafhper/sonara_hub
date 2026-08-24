@@ -3,9 +3,19 @@ import test from "node:test";
 import {
   assertWebmDecodeReport,
   buildRendererHtml,
+  canReuseRenderSession,
   createWebglRenderSession,
+  createGpuHardwareUnavailableError,
   describeSceneRenderError,
+  isHardwareWebglRenderer,
+  isSoftwareWebglRenderer,
+  normalizeGpuInfo,
+  normalizeGpuMode,
+  normalizeWebmValidationError,
+  resolveGpuMode,
   serializeForInlineScript,
+  webglGpuModes,
+  webglLaunchArgs,
 } from "../server/webgl-export.mjs";
 import * as webglExport from "../server/webgl-export.mjs";
 
@@ -80,6 +90,15 @@ test("scene runtime is bundled into one import-free module for data URLs", async
   assert.match(source, /createSceneRuntime/u);
 });
 
+test("scene runtime requests the high-performance WebGL adapter", async () => {
+  const source = await webglExport.bundleSceneRuntimeSource();
+  assert.equal(
+    (source.match(/powerPreference:\s*["']high-performance["']/gu) ?? [])
+      .length >= 2,
+    true,
+  );
+});
+
 test("WebGL render session reuses and closes its browser", async () => {
   let launchCount = 0;
   let closeCount = 0;
@@ -104,6 +123,94 @@ test("WebGL render session reuses and closes its browser", async () => {
   await session.close();
   assert.equal(closeCount, 1);
   await assert.rejects(() => session.getBrowser(), /encerrada/i);
+});
+
+test("render sessions record their launch GPU mode", () => {
+  const previous = process.env.SONARA_GPU_MODE;
+  try {
+    delete process.env.SONARA_GPU_MODE;
+    const defaultSession = createWebglRenderSession({
+      launchBrowser: async () => ({}),
+    });
+    assert.equal(defaultSession.mode, "software");
+
+    process.env.SONARA_GPU_MODE = "hardware";
+    const envSession = createWebglRenderSession({
+      launchBrowser: async () => ({}),
+    });
+    assert.equal(envSession.mode, "hardware");
+  } finally {
+    if (previous === undefined) delete process.env.SONARA_GPU_MODE;
+    else process.env.SONARA_GPU_MODE = previous;
+  }
+
+  const explicitSession = createWebglRenderSession({
+    launchBrowser: async () => ({}),
+    mode: "AUTO",
+  });
+  assert.equal(explicitSession.mode, "auto");
+});
+
+test("software retries never reuse auto/hardware sessions", () => {
+  const sessionLike = { getBrowser: async () => ({}) };
+  assert.equal(canReuseRenderSession(null, "software"), false);
+  assert.equal(
+    canReuseRenderSession({ ...sessionLike, mode: "software" }, "software"),
+    true,
+  );
+  assert.equal(
+    canReuseRenderSession({ ...sessionLike, mode: "auto" }, "software"),
+    false,
+  );
+  assert.equal(
+    canReuseRenderSession({ ...sessionLike, mode: "hardware" }, "software"),
+    false,
+  );
+  // Duck-typed sessions without a recorded mode are treated conservatively.
+  assert.equal(canReuseRenderSession(sessionLike, "software"), false);
+
+  // Non-software requests may reuse any healthy session.
+  assert.equal(
+    canReuseRenderSession({ ...sessionLike, mode: "hardware" }, "hardware"),
+    true,
+  );
+  assert.equal(
+    canReuseRenderSession({ ...sessionLike, mode: "auto" }, "auto"),
+    true,
+  );
+  assert.equal(
+    canReuseRenderSession({ ...sessionLike, mode: "software" }, "auto"),
+    true,
+  );
+});
+
+test("WebM validation keeps infrastructure error codes actionable", () => {
+  const invalid = Object.assign(new Error("truncated"), {
+    code: "WEBGL_OUTPUT_INVALID",
+  });
+  assert.equal(normalizeWebmValidationError(invalid), invalid);
+
+  const missing = Object.assign(
+    new Error("FFMPEG_MISSING: ffmpeg não encontrado."),
+    {
+      code: "FFMPEG_MISSING",
+    },
+  );
+  assert.equal(normalizeWebmValidationError(missing), missing);
+  assert.equal(normalizeWebmValidationError(missing).code, "FFMPEG_MISSING");
+
+  const processFailed = Object.assign(new Error("ffmpeg terminou"), {
+    code: "FFMPEG_PROCESS_FAILED",
+  });
+  assert.equal(normalizeWebmValidationError(processFailed), processFailed);
+
+  const generic = new Error("boom");
+  const wrapped = normalizeWebmValidationError(generic);
+  assert.equal(wrapped.code, "WEBGL_OUTPUT_INVALID");
+  assert.equal(wrapped.cause, generic);
+
+  const unknown = normalizeWebmValidationError(null);
+  assert.equal(unknown.code, "WEBGL_OUTPUT_INVALID");
 });
 
 test("canvas exporter requests deterministic frames instead of relying on headless animation", () => {
@@ -207,7 +314,11 @@ test("canvas exporter rejects a truncated WebM before mux", () => {
       assertWebmDecodeReport(
         "[matroska,webm] File ended prematurely at pos. 10693997",
       ),
-    /WebM truncado/,
+    (error) => {
+      assert.equal(error.code, "WEBGL_OUTPUT_INVALID");
+      assert.match(error.message, /WebM truncado/);
+      return true;
+    },
   );
   assert.doesNotThrow(() => assertWebmDecodeReport(""));
 });

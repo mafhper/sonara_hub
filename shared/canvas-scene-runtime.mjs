@@ -1555,6 +1555,7 @@ function createWebglRenderer(canvas) {
   const gl = canvas.getContext("webgl", {
     alpha: false,
     antialias: false,
+    powerPreference: "high-performance",
     preserveDrawingBuffer: true,
   });
   if (!gl) {
