@@ -171,10 +171,6 @@ async function runCase(benchCase, repeatIndex = 1) {
   });
   const webmStageMs = performance.now() - webmStarted;
   const webglPhases = summarizeWebglTelemetry(webglTelemetry, webmStageMs);
-  const initialGpuInfo = webglTelemetry.find(
-    (event) => event.phase === "gpu-info",
-  );
-  const gpuInfo = phaseEvent(webglTelemetry, "gpu-info");
 
   const muxStarted = performance.now();
   await runFfmpeg(
@@ -213,8 +209,6 @@ async function runCase(benchCase, repeatIndex = 1) {
     waveform: benchCase.scene.waveform,
     compositionKey: benchCase.compositionKey,
     audioSource: audioSource.kind,
-    gpuModeRequested:
-      initialGpuInfo?.gpuModeRequested ?? gpuInfo?.gpuModeRequested ?? null,
   };
   return {
     id: benchCase.id,
@@ -232,14 +226,6 @@ async function runCase(benchCase, repeatIndex = 1) {
     webglFps: settings.webglFps,
     outputFps: settings.outputFps,
     qualityProfile: settings.qualityProfile,
-    gpuModeRequested:
-      initialGpuInfo?.gpuModeRequested ?? gpuInfo?.gpuModeRequested ?? null,
-    gpuModeResolved: gpuInfo?.gpuModeResolved ?? null,
-    gpuFallbackReason: gpuInfo?.gpuFallbackReason ?? null,
-    gpuVendor: gpuInfo?.vendor ?? null,
-    gpuRenderer: gpuInfo?.renderer ?? null,
-    gpuVersion: gpuInfo?.version ?? null,
-    gpuWebglVersion: gpuInfo?.webglVersion ?? null,
     totalMs: round(totalMs),
     webmStageMs: round(webmStageMs),
     webglPrepareMs: webglPhases.webglPrepareMs,
@@ -777,16 +763,6 @@ function compactWebglTelemetry(events) {
       "targetDelayMs",
       "totalFrames",
       "width",
-      "gpuAvailable",
-      "gpuHardware",
-      "gpuModeRequested",
-      "gpuModeResolved",
-      "gpuFallbackReason",
-      "vendor",
-      "renderer",
-      "version",
-      "shadingLanguageVersion",
-      "webglVersion",
     ]) {
       if (event[key] !== undefined) compact[key] = event[key];
     }
@@ -933,9 +909,6 @@ function repeatedCaseMedians(cases) {
     return {
       id,
       rendererId: first.rendererId,
-      gpuModeRequested: first.gpuModeRequested,
-      gpuModeResolved: first.gpuModeResolved,
-      gpuRenderer: first.gpuRenderer,
       outputSize: first.outputSize,
       duration: first.duration,
       repeats: items.length,
@@ -986,8 +959,6 @@ function renderMarkdown(runData) {
       [
         item.id,
         item.rendererId,
-        item.gpuModeResolved ?? "n/a",
-        item.gpuRenderer ?? "n/a",
         `${item.outputSize.width}x${item.outputSize.height}`,
         `${item.duration}s`,
         formatMs(item.webmStageMs),
@@ -1012,8 +983,6 @@ function renderMarkdown(runData) {
       [
         item.id,
         item.rendererId,
-        item.gpuModeResolved ?? "n/a",
-        item.gpuRenderer ?? "n/a",
         `${item.outputSize.width}x${item.outputSize.height}`,
         item.repeats,
         formatMs(item.webmStageMs),
@@ -1034,8 +1003,8 @@ function renderMarkdown(runData) {
       ? `
 ## Repeat Medians
 
-Case | Renderer | GPU mode | GPU renderer | Output | Repeats | WebM stage | Prepare | Capture | Frame render | Recorder | Mux | Total | Peak RSS | MP4 | WebGL retries
---- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---:
+Case | Renderer | Output | Repeats | WebM stage | Prepare | Capture | Frame render | Recorder | Mux | Total | Peak RSS | MP4 | WebGL retries
+--- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---:
 ${medianRows}
 `
       : "";
@@ -1056,8 +1025,8 @@ Repeat: ${runData.repeat}
 
 ## Results
 
-Case | Renderer | GPU mode | GPU renderer | Output | Duration | WebM stage | Prepare | Capture | Frame render | Frame wait | Recorder | WebM chunks | WebM validate | Mux | MP4 validate | Total | Peak RSS | MP4 | Status
---- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---
+Case | Renderer | Output | Duration | WebM stage | Prepare | Capture | Frame render | Frame wait | Recorder | WebM chunks | WebM validate | Mux | MP4 validate | Total | Peak RSS | MP4 | Status
+--- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---
 ${rows}
 
 ${medianSection}
