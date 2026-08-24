@@ -489,7 +489,7 @@ function assertNotCanceled(shouldCancel) {
   }
 }
 
-function createGpuTelemetryLogger(jobId) {
+export function createGpuTelemetryLogger(jobId) {
   let logged = false;
   return (event) => {
     if (event?.phase !== "gpu-info" && event?.phase !== "gpu-fallback") return;

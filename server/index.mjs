@@ -52,6 +52,7 @@ import {
 } from "./job-payload.mjs";
 import { createTempFileRegistry } from "./temp-files.mjs";
 import { runRenderWorkerJob } from "./job-worker.mjs";
+import { createGpuTelemetryLogger } from "./render-job-core.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import { resolveServerPort } from "./server-port.mjs";
@@ -2009,6 +2010,7 @@ async function renderVideo({
       textSettings: settings.compositionSettings.textSettings,
     },
     onProgress: (progress, message) => updateJob(jobId, { progress, message }),
+    onTelemetry: createGpuTelemetryLogger(jobId),
     shouldCancel: () => {
       const job = jobs.get(jobId);
       return Boolean(job?.cancelRequested) || job?.status === "canceled";
@@ -2186,6 +2188,7 @@ async function renderPublicationAsset({
       composition,
       onProgress: (progress, message) =>
         updateJob(jobId, { progress, message }),
+      onTelemetry: createGpuTelemetryLogger(jobId),
       shouldCancel: () => {
         const job = jobs.get(jobId);
         return Boolean(job?.cancelRequested) || job?.status === "canceled";
