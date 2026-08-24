@@ -85,6 +85,12 @@ export function runRenderWorkerJob({
 
     child.on("message", (message) => {
       if (!message || typeof message !== "object") return;
+      if (message.type === "gpu-log") {
+        const line = String(message.line ?? "");
+        if (message.level === "warn") console.warn(`[render] ${line}`);
+        else console.info(`[render] ${line}`);
+        return;
+      }
       if (message.type === "stage" || message.type === "progress") {
         updateJob(jobId, message.patch ?? workerPatchFromMessage(message));
         return;
