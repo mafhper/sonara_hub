@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fssync from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
@@ -53,4 +54,39 @@ test("createFfmpegProcessError exposes stable mux and validation codes", () => {
   assert.equal(validation.code, FFMPEG_OUTPUT_INVALID_CODE);
   assert.match(validation.message, /MP4 final inválido/);
   assert.match(validation.detail, /invalid mp4/);
+});
+
+test("SONARA_FFMPEG_PATH takes precedence and explicit candidates still win", () => {
+  const currentFile = fileURLToPath(import.meta.url);
+  const previous = process.env.SONARA_FFMPEG_PATH;
+  try {
+    process.env.SONARA_FFMPEG_PATH = currentFile;
+    assert.equal(resolveFfmpegPath(), currentFile);
+
+    process.env.SONARA_FFMPEG_PATH = "Z:/sonara-hub/missing/ffmpeg.exe";
+    assert.throws(
+      () => resolveFfmpegPath(),
+      (error) => error.code === FFMPEG_MISSING_CODE,
+    );
+
+    delete process.env.SONARA_FFMPEG_PATH;
+    const resolved = resolveFfmpegPath();
+    assert.equal(typeof resolved, "string");
+    assert.ok(fssync.existsSync(resolved));
+  } finally {
+    if (previous === undefined) delete process.env.SONARA_FFMPEG_PATH;
+    else process.env.SONARA_FFMPEG_PATH = previous;
+  }
+});
+
+test("explicit candidates ignore a broken SONARA_FFMPEG_PATH", () => {
+  const currentFile = fileURLToPath(import.meta.url);
+  const previous = process.env.SONARA_FFMPEG_PATH;
+  try {
+    process.env.SONARA_FFMPEG_PATH = "Z:/sonara-hub/missing/ffmpeg.exe";
+    assert.equal(resolveFfmpegPath(currentFile), currentFile);
+  } finally {
+    if (previous === undefined) delete process.env.SONARA_FFMPEG_PATH;
+    else process.env.SONARA_FFMPEG_PATH = previous;
+  }
 });

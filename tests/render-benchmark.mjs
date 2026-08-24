@@ -7,7 +7,7 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ffmpegPath from "ffmpeg-static";
-import { buildWebglMuxArgs } from "../server/video-mux.mjs";
+import { buildWebglMuxPlan } from "../server/video-mux.mjs";
 import { renderCanvasSize, renderTiming } from "../server/render-profile.mjs";
 import { sampleAudioEnvelope } from "../server/audio-envelope.mjs";
 import { renderWebglBackgroundVideo } from "../server/webgl-export.mjs";
@@ -177,18 +177,17 @@ async function runCase(benchCase, repeatIndex = 1) {
   const gpuInfo = phaseEvent(webglTelemetry, "gpu-info");
 
   const muxStarted = performance.now();
-  await runFfmpeg(
-    buildWebglMuxArgs({
-      audioPath,
-      duration: benchCase.duration,
-      metadata: benchMetadata(benchCase),
-      outputPath: mp4Path,
-      outputSize: benchCase.outputSize,
-      settings,
-      subtitlePath: null,
-      webglVideoPath: webmPath,
-    }),
-  );
+  const muxPlan = buildWebglMuxPlan({
+    audioPath,
+    duration: benchCase.duration,
+    metadata: benchMetadata(benchCase),
+    outputPath: mp4Path,
+    outputSize: benchCase.outputSize,
+    settings,
+    subtitlePath: null,
+    webglVideoPath: webmPath,
+  });
+  await runFfmpeg(muxPlan.args);
   const muxMs = performance.now() - muxStarted;
 
   const validationStarted = performance.now();
@@ -215,6 +214,7 @@ async function runCase(benchCase, repeatIndex = 1) {
     audioSource: audioSource.kind,
     gpuModeRequested:
       initialGpuInfo?.gpuModeRequested ?? gpuInfo?.gpuModeRequested ?? null,
+    encoderModeRequested: muxPlan.encoder.modeRequested,
   };
   return {
     id: benchCase.id,
@@ -240,6 +240,12 @@ async function runCase(benchCase, repeatIndex = 1) {
     gpuRenderer: gpuInfo?.renderer ?? null,
     gpuVersion: gpuInfo?.version ?? null,
     gpuWebglVersion: gpuInfo?.webglVersion ?? null,
+    encoderModeRequested: muxPlan.encoder.modeRequested,
+    encoderModeResolved: muxPlan.encoder.modeResolved,
+    encoder: muxPlan.encoder.encoder,
+    encoderProfile: muxPlan.encoder.profile,
+    encoderFallbackReason: muxPlan.encoder.fallbackReason,
+    availableHardwareEncoders: muxPlan.encoder.availableEncoders,
     totalMs: round(totalMs),
     webmStageMs: round(webmStageMs),
     webglPrepareMs: webglPhases.webglPrepareMs,
@@ -936,6 +942,9 @@ function repeatedCaseMedians(cases) {
       gpuModeRequested: first.gpuModeRequested,
       gpuModeResolved: first.gpuModeResolved,
       gpuRenderer: first.gpuRenderer,
+      encoderModeRequested: first.encoderModeRequested,
+      encoderModeResolved: first.encoderModeResolved,
+      encoder: first.encoder,
       outputSize: first.outputSize,
       duration: first.duration,
       repeats: items.length,

@@ -17,7 +17,7 @@ import {
 } from "./job-service.mjs";
 import { renderCanvasSize } from "./render-profile.mjs";
 import { safeSvgBuffer } from "./svg-safety.mjs";
-import { buildWebglMuxArgs } from "./video-mux.mjs";
+import { buildWebglMuxPlan } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import {
   createFfmpegProcessError,
@@ -134,8 +134,7 @@ export async function renderVideoJob({
     shouldCancel,
   });
   assertNotCanceled(shouldCancel);
-  stages.enter("ffmpeg-mux", { progress: 92, message: "Finalizando mux" });
-  const muxArgs = buildWebglMuxArgs({
+  const muxPlan = buildWebglMuxPlan({
     audioPath,
     duration,
     metadata,
@@ -145,7 +144,16 @@ export async function renderVideoJob({
     subtitlePath,
     webglVideoPath,
   });
-  await runFfmpeg(muxArgs, duration, (progress, message) =>
+  stages.enter("ffmpeg-mux", {
+    progress: 92,
+    message: "Finalizando mux",
+    encoder: muxPlan.encoder.encoder,
+    encoderModeRequested: muxPlan.encoder.modeRequested,
+    encoderModeResolved: muxPlan.encoder.modeResolved,
+    encoderProfile: muxPlan.encoder.profile,
+    encoderFallbackReason: muxPlan.encoder.fallbackReason,
+  });
+  await runFfmpeg(muxPlan.args, duration, (progress, message) =>
     updateJob(jobId, {
       progress: Math.max(92, progress),
       message: message.replace("Renderizando", "Finalizando"),
@@ -351,7 +359,6 @@ export async function renderPublicationAssetJob({
       shouldCancel,
     });
     assertNotCanceled(shouldCancel);
-    stages.enter("ffmpeg-mux", { progress: 92, message: "Finalizando mux" });
     // Burn the chosen lyrics onto the clip, honoring the position/style preset.
     // Before this, lyrics only reached the data manifest and never the video.
     const clipLyricsText = publicationLyricsTextForSettings(metadata.lyrics, {
@@ -376,7 +383,7 @@ export async function renderPublicationAssetJob({
             style: lyricsStyle,
           })
         : null;
-    const muxArgs = buildWebglMuxArgs({
+    const muxPlan = buildWebglMuxPlan({
       audioPath,
       audioStartSeconds: clipStart,
       duration,
@@ -387,7 +394,16 @@ export async function renderPublicationAssetJob({
       subtitlePath,
       webglVideoPath,
     });
-    await runFfmpeg(muxArgs, duration, (progress, message) =>
+    stages.enter("ffmpeg-mux", {
+      progress: 92,
+      message: "Finalizando mux",
+      encoder: muxPlan.encoder.encoder,
+      encoderModeRequested: muxPlan.encoder.modeRequested,
+      encoderModeResolved: muxPlan.encoder.modeResolved,
+      encoderProfile: muxPlan.encoder.profile,
+      encoderFallbackReason: muxPlan.encoder.fallbackReason,
+    });
+    await runFfmpeg(muxPlan.args, duration, (progress, message) =>
       updateJob(jobId, {
         progress: Math.max(92, progress),
         message: message.replace("Renderizando", "Finalizando"),
