@@ -7,6 +7,8 @@ import { chromium } from "playwright";
 import { build as viteBuild } from "vite";
 import { normalizeVisualSettings } from "../shared/visual-effects.mjs";
 import {
+  FFMPEG_MISSING_CODE,
+  FFMPEG_PROCESS_FAILED_CODE,
   normalizeFfmpegSpawnError,
   resolveFfmpegPath,
 } from "./ffmpeg-tool.mjs";
@@ -158,7 +160,9 @@ async function buildSceneRuntimeBundle() {
 
 export function createWebglRenderSession({
   launchBrowser = launchWebglBrowser,
+  mode = resolveGpuMode(),
 } = {}) {
+  const sessionMode = normalizeGpuMode(mode);
   let browserPromise = null;
   let closed = false;
 
@@ -187,6 +191,7 @@ export function createWebglRenderSession({
   }
 
   return {
+    mode: sessionMode,
     getBrowser,
     async close() {
       if (closed) return;
@@ -197,6 +202,17 @@ export function createWebglRenderSession({
       await browser?.close();
     },
   };
+}
+
+export function canReuseRenderSession(renderSession, requestedMode) {
+  if (!renderSession) return false;
+  if (typeof renderSession.getBrowser !== "function") return false;
+  if (normalizeGpuMode(requestedMode) !== "software") return true;
+  // A software-only retry (for example, the auto-mode fallback after an
+  // invalid hardware WebM) must never reuse a session launched in auto or
+  // hardware mode, otherwise the retry would record with the same GPU
+  // browser and the fallback would be a no-op.
+  return renderSession.mode === "software";
 }
 
 function launchWebglBrowser(mode = resolveGpuMode()) {
@@ -499,15 +515,19 @@ async function runWebglRenderAttempt(options, size, attempt) {
   const gpuModeRequested = normalizeGpuMode(
     options.gpuModeOverride ?? resolveGpuMode(),
   );
+  const reusableSession = canReuseRenderSession(
+    renderSession,
+    gpuModeRequested,
+  );
   let ownsBrowser = !renderSession;
   let browserResolution;
   try {
     browserResolution = await timedTelemetryPhase(
       emitTelemetry,
-      renderSession ? "browser-acquire" : "browser-launch",
+      reusableSession ? "browser-acquire" : "browser-launch",
       () =>
         acquireWebglBrowser({
-          renderSession,
+          renderSession: reusableSession ? renderSession : null,
           requestedMode: gpuModeRequested,
         }),
     );
@@ -1042,9 +1062,28 @@ async function assertValidWebm(outputPath, bytesWritten) {
   try {
     await assertWebmDecodable(outputPath);
   } catch (error) {
-    if (error?.code === "WEBGL_OUTPUT_INVALID") throw error;
-    throw createWebglOutputInvalidError(error?.message, error);
+    throw normalizeWebmValidationError(error);
   }
+}
+
+export function normalizeWebmValidationError(error) {
+  if (error == null) {
+    return createWebglOutputInvalidError(
+      "Falha desconhecida ao validar o WebM exportado.",
+    );
+  }
+  const code = error.code;
+  if (
+    code === "WEBGL_OUTPUT_INVALID" ||
+    // Infrastructure failures (missing binary, spawn errors) carry actionable
+    // codes and must not be disguised as corrupt WebM output; disguising them
+    // would also make auto GPU mode rerender in software for nothing.
+    code === FFMPEG_MISSING_CODE ||
+    code === FFMPEG_PROCESS_FAILED_CODE
+  ) {
+    return error;
+  }
+  return createWebglOutputInvalidError(error.message, error);
 }
 
 function createWebglOutputInvalidError(message, cause = null) {
@@ -1076,9 +1115,11 @@ function assertWebmDecodable(outputPath) {
     );
     let stderr = "";
     child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-    child.on("error", (error) =>
-      reject(normalizeFfmpegSpawnError(error, ffmpegPath)),
-    );
+    child.on("error", (error) => {
+      const normalized = normalizeFfmpegSpawnError(error, ffmpegPath);
+      normalized.code ??= FFMPEG_PROCESS_FAILED_CODE;
+      reject(normalized);
+    });
     child.on("close", (code) => {
       try {
         assertWebmDecodeReport(stderr);
