@@ -296,6 +296,12 @@ import {
   type SystemCapabilities,
 } from "./features/render/systemCapabilities";
 import {
+  formatWorkflowDuration,
+  renderExportPipelineStats,
+  renderExportStageStats,
+  type WorkflowBenchmarkSummary,
+} from "./features/render/performanceSummary";
+import {
   type ProjectMetadataDefaults,
   finalizeImportedTracks,
   metadataFromAudio,
@@ -534,6 +540,8 @@ function App() {
   const [renderPreferencesMessage, setRenderPreferencesMessage] = useState("");
   const [systemCapabilities, setSystemCapabilities] =
     useState<SystemCapabilities | null>(null);
+  const [performanceSummary, setPerformanceSummary] =
+    useState<WorkflowBenchmarkSummary | null>(null);
   const {
     effectiveTheme,
     setThemePreference,
@@ -1202,6 +1210,17 @@ function App() {
     }
   }
 
+  async function loadPerformanceSummary() {
+    try {
+      const report = await fetchJson<{ workflow: WorkflowBenchmarkSummary }>(
+        "/api/dev/benchmarks?workflow=1",
+      );
+      setPerformanceSummary(report.workflow ?? null);
+    } catch {
+      // Performance history is informational; keep the section usable.
+    }
+  }
+
   async function updateRenderPreferences(
     patch: Partial<Record<RenderPreferenceField, string>>,
   ) {
@@ -1255,6 +1274,7 @@ function App() {
       loadStorageUsage(),
       loadRenderPreferences(),
       loadSystemCapabilities(),
+      loadPerformanceSummary(),
     ]);
   }
 
@@ -5265,6 +5285,40 @@ function App() {
                     </p>
                   ))}
                 </div>
+                {performanceSummary?.enabled &&
+                  performanceSummary.sampleCount > 0 && (
+                    <div aria-label="Desempenho dos renders locais">
+                      <p className="helper-copy">
+                        Desempenho dos últimos {performanceSummary.sampleCount}{" "}
+                        jobs locais:
+                      </p>
+                      {(() => {
+                        const pipeline =
+                          renderExportPipelineStats(performanceSummary);
+                        return pipeline ? (
+                          <p className="helper-copy">
+                            Exportação de vídeo completa: mediana{" "}
+                            {formatWorkflowDuration(pipeline.medianMs)} · p95{" "}
+                            {formatWorkflowDuration(pipeline.p95Ms)} (
+                            {pipeline.sampleCount} amostras)
+                          </p>
+                        ) : null;
+                      })()}
+                      {renderExportStageStats(performanceSummary).map(
+                        (stage) => (
+                          <p
+                            className="helper-copy"
+                            key={`${stage.pipeline}:${stage.stage ?? stage.label}`}
+                          >
+                            {stage.label}: mediana{" "}
+                            {formatWorkflowDuration(stage.medianMs)} · p95{" "}
+                            {formatWorkflowDuration(stage.p95Ms)} (
+                            {stage.sampleCount} amostras)
+                          </p>
+                        ),
+                      )}
+                    </div>
+                  )}
                 <button
                   className="quiet-action settings-action"
                   disabled={
