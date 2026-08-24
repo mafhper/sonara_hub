@@ -50,7 +50,7 @@ export function resolveVideoEncoder({
     .toLowerCase();
   const encoder = selectHardwareH264Encoder({
     available: detection.available,
-    platform: process.platform,
+    platform: detection.platform ?? process.platform,
     requestedName,
   });
   if (!encoder) {
