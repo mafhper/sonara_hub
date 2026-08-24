@@ -3,11 +3,81 @@ import test from "node:test";
 import {
   assertWebmDecodeReport,
   buildRendererHtml,
+  canReuseRenderSession,
   createWebglRenderSession,
+  createGpuHardwareUnavailableError,
   describeSceneRenderError,
+  isHardwareWebglRenderer,
+  isSoftwareWebglRenderer,
+  normalizeGpuInfo,
+  normalizeGpuMode,
+  normalizeWebmValidationError,
+  resolveGpuMode,
   serializeForInlineScript,
+  webglGpuModes,
+  webglLaunchArgs,
 } from "../server/webgl-export.mjs";
 import * as webglExport from "../server/webgl-export.mjs";
+
+test("GPU mode defaults to software and honors explicit overrides", () => {
+  assert.deepEqual(webglGpuModes, ["auto", "hardware", "software"]);
+  assert.equal(normalizeGpuMode(undefined), "software");
+  assert.equal(normalizeGpuMode("invalid"), "software");
+  assert.equal(resolveGpuMode({}), "software");
+  assert.equal(resolveGpuMode({ SONARA_GPU_MODE: "hardware" }), "hardware");
+  assert.equal(resolveGpuMode({ SONARA_GPU_MODE: "auto" }), "auto");
+  assert.equal(
+    resolveGpuMode({ SONARA_GPU_MODE: "software", SONARA_FORCE_GPU: "1" }),
+    "hardware",
+  );
+});
+
+test("GPU launch profiles keep software fallback separate from hardware flags", () => {
+  const software = webglLaunchArgs("software", "win32");
+  const hardware = webglLaunchArgs("hardware", "win32");
+  const auto = webglLaunchArgs("auto", "win32");
+
+  assert.ok(software.includes("--enable-unsafe-swiftshader"));
+  assert.equal(software.includes("--enable-gpu"), false);
+  assert.ok(hardware.includes("--enable-gpu"));
+  assert.ok(hardware.includes("--use-angle=d3d11"));
+  assert.equal(hardware.includes("--enable-unsafe-swiftshader"), false);
+  assert.deepEqual(auto, hardware);
+});
+
+test("GPU renderer diagnostics distinguish hardware from software", () => {
+  const hardware = normalizeGpuInfo({
+    available: true,
+    vendor: "Google Inc.",
+    renderer: "ANGLE (AMD, AMD Radeon RX 7600 Direct3D11)",
+    version: "WebGL 1.0",
+    webglVersion: "WebGL1",
+  });
+  const software = normalizeGpuInfo({
+    available: true,
+    vendor: "Google Inc.",
+    renderer: "ANGLE (Google, Vulkan 1.3.0 SwiftShader Device)",
+    version: "WebGL 1.0",
+    webglVersion: "WebGL1",
+  });
+
+  assert.equal(isHardwareWebglRenderer(hardware), true);
+  assert.equal(isSoftwareWebglRenderer(hardware), false);
+  assert.equal(isHardwareWebglRenderer(software), false);
+  assert.equal(isSoftwareWebglRenderer(software), true);
+  assert.equal(isHardwareWebglRenderer({ available: false }), false);
+  assert.throws(
+    () => {
+      throw createGpuHardwareUnavailableError(software);
+    },
+    (error) => {
+      assert.equal(error.code, "GPU_HARDWARE_UNAVAILABLE");
+      assert.match(error.message, /SwiftShader|renderer/i);
+      assert.equal(error.details.gpuInfo.renderer, software.renderer);
+      return true;
+    },
+  );
+});
 
 test("scene runtime is bundled into one import-free module for data URLs", async () => {
   assert.equal(typeof webglExport.bundleSceneRuntimeSource, "function");
@@ -15,6 +85,15 @@ test("scene runtime is bundled into one import-free module for data URLs", async
   assert.doesNotMatch(source, /^\s*import\s/mu);
   assert.match(source, /createPaperShaderRenderer/u);
   assert.match(source, /createSceneRuntime/u);
+});
+
+test("scene runtime requests the high-performance WebGL adapter", async () => {
+  const source = await webglExport.bundleSceneRuntimeSource();
+  assert.equal(
+    (source.match(/powerPreference:\s*["']high-performance["']/gu) ?? [])
+      .length >= 2,
+    true,
+  );
 });
 
 test("WebGL render session reuses and closes its browser", async () => {
@@ -41,6 +120,94 @@ test("WebGL render session reuses and closes its browser", async () => {
   await session.close();
   assert.equal(closeCount, 1);
   await assert.rejects(() => session.getBrowser(), /encerrada/i);
+});
+
+test("render sessions record their launch GPU mode", () => {
+  const previous = process.env.SONARA_GPU_MODE;
+  try {
+    delete process.env.SONARA_GPU_MODE;
+    const defaultSession = createWebglRenderSession({
+      launchBrowser: async () => ({}),
+    });
+    assert.equal(defaultSession.mode, "software");
+
+    process.env.SONARA_GPU_MODE = "hardware";
+    const envSession = createWebglRenderSession({
+      launchBrowser: async () => ({}),
+    });
+    assert.equal(envSession.mode, "hardware");
+  } finally {
+    if (previous === undefined) delete process.env.SONARA_GPU_MODE;
+    else process.env.SONARA_GPU_MODE = previous;
+  }
+
+  const explicitSession = createWebglRenderSession({
+    launchBrowser: async () => ({}),
+    mode: "AUTO",
+  });
+  assert.equal(explicitSession.mode, "auto");
+});
+
+test("software retries never reuse auto/hardware sessions", () => {
+  const sessionLike = { getBrowser: async () => ({}) };
+  assert.equal(canReuseRenderSession(null, "software"), false);
+  assert.equal(
+    canReuseRenderSession({ ...sessionLike, mode: "software" }, "software"),
+    true,
+  );
+  assert.equal(
+    canReuseRenderSession({ ...sessionLike, mode: "auto" }, "software"),
+    false,
+  );
+  assert.equal(
+    canReuseRenderSession({ ...sessionLike, mode: "hardware" }, "software"),
+    false,
+  );
+  // Duck-typed sessions without a recorded mode are treated conservatively.
+  assert.equal(canReuseRenderSession(sessionLike, "software"), false);
+
+  // Non-software requests may reuse any healthy session.
+  assert.equal(
+    canReuseRenderSession({ ...sessionLike, mode: "hardware" }, "hardware"),
+    true,
+  );
+  assert.equal(
+    canReuseRenderSession({ ...sessionLike, mode: "auto" }, "auto"),
+    true,
+  );
+  assert.equal(
+    canReuseRenderSession({ ...sessionLike, mode: "software" }, "auto"),
+    true,
+  );
+});
+
+test("WebM validation keeps infrastructure error codes actionable", () => {
+  const invalid = Object.assign(new Error("truncated"), {
+    code: "WEBGL_OUTPUT_INVALID",
+  });
+  assert.equal(normalizeWebmValidationError(invalid), invalid);
+
+  const missing = Object.assign(
+    new Error("FFMPEG_MISSING: ffmpeg não encontrado."),
+    {
+      code: "FFMPEG_MISSING",
+    },
+  );
+  assert.equal(normalizeWebmValidationError(missing), missing);
+  assert.equal(normalizeWebmValidationError(missing).code, "FFMPEG_MISSING");
+
+  const processFailed = Object.assign(new Error("ffmpeg terminou"), {
+    code: "FFMPEG_PROCESS_FAILED",
+  });
+  assert.equal(normalizeWebmValidationError(processFailed), processFailed);
+
+  const generic = new Error("boom");
+  const wrapped = normalizeWebmValidationError(generic);
+  assert.equal(wrapped.code, "WEBGL_OUTPUT_INVALID");
+  assert.equal(wrapped.cause, generic);
+
+  const unknown = normalizeWebmValidationError(null);
+  assert.equal(unknown.code, "WEBGL_OUTPUT_INVALID");
 });
 
 test("canvas exporter requests deterministic frames instead of relying on headless animation", () => {
@@ -144,7 +311,11 @@ test("canvas exporter rejects a truncated WebM before mux", () => {
       assertWebmDecodeReport(
         "[matroska,webm] File ended prematurely at pos. 10693997",
       ),
-    /WebM truncado/,
+    (error) => {
+      assert.equal(error.code, "WEBGL_OUTPUT_INVALID");
+      assert.match(error.message, /WebM truncado/);
+      return true;
+    },
   );
   assert.doesNotThrow(() => assertWebmDecodeReport(""));
 });
