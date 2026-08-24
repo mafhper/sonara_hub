@@ -284,6 +284,14 @@ import {
   savePodcastEnabled,
 } from "./features/audio/podcastPreference";
 import {
+  normalizeRenderPreferencePayload,
+  renderPreferenceFieldLabels,
+  renderPreferenceOptions,
+  renderPreferenceSourceLabels,
+  type RenderPreferenceField,
+  type RenderPreferencesPayload,
+} from "./features/render/renderPreferences";
+import {
   type ProjectMetadataDefaults,
   finalizeImportedTracks,
   metadataFromAudio,
@@ -516,6 +524,10 @@ function App() {
   const [pendingCoverTrackId, setPendingCoverTrackId] = useState("");
   const [jobs, setJobs] = useState<RenderJob[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [renderPreferences, setRenderPreferences] =
+    useState<RenderPreferencesPayload | null>(null);
+  const [renderPreferencesBusy, setRenderPreferencesBusy] = useState(false);
+  const [renderPreferencesMessage, setRenderPreferencesMessage] = useState("");
   const {
     effectiveTheme,
     setThemePreference,
@@ -1161,9 +1173,65 @@ function App() {
     }
   }
 
+  async function loadRenderPreferences() {
+    try {
+      const payload = await fetchJson<RenderPreferencesPayload>(
+        "/api/render-preferences",
+      );
+      setRenderPreferences(normalizeRenderPreferencePayload(payload));
+    } catch (reason) {
+      setRenderPreferencesMessage(
+        localApiMessage(reason, "carregar preferências de renderização"),
+      );
+    }
+  }
+
+  async function updateRenderPreference(
+    field: RenderPreferenceField,
+    value: string,
+  ) {
+    if (!renderPreferences || renderPreferencesBusy) return;
+    const previous = renderPreferences;
+    const next: RenderPreferencesPayload = {
+      preferences: { ...previous.preferences, [field]: value },
+      sources: {
+        ...previous.sources,
+        [field]: value ? "preference" : "default",
+      },
+    };
+    setRenderPreferences(next);
+    setRenderPreferencesBusy(true);
+    setRenderPreferencesMessage("");
+    try {
+      const payload = await fetchJson<RenderPreferencesPayload>(
+        "/api/render-preferences",
+        {
+          body: JSON.stringify({
+            gpuMode: next.preferences.gpuMode,
+            capturePacing: next.preferences.capturePacing,
+            encoderMode: next.preferences.encoderMode,
+          }),
+          headers: { "content-type": "application/json" },
+          method: "PUT",
+        },
+      );
+      setRenderPreferences(normalizeRenderPreferencePayload(payload));
+      setRenderPreferencesMessage(
+        "Preferência aplicada; vale para os próximos renders.",
+      );
+    } catch (reason) {
+      setRenderPreferences(previous);
+      setRenderPreferencesMessage(
+        localApiMessage(reason, "salvar preferência de renderização"),
+      );
+    } finally {
+      setRenderPreferencesBusy(false);
+    }
+  }
+
   async function openLocalSettings() {
     setSettingsOpen(true);
-    await loadStorageUsage();
+    await Promise.all([loadStorageUsage(), loadRenderPreferences()]);
   }
 
   async function clearCompletedJobs(
@@ -5145,6 +5213,68 @@ function App() {
                     </button>
                   ))}
                 </div>
+              </section>
+              <section className="settings-section settings-section-stack">
+                <div>
+                  <h3>Renderização</h3>
+                  <p>
+                    Distribui a carga entre GPU e CPU nos renders locais.
+                    Preferências salvas valem para os próximos renders e
+                    sobrepõem as variáveis de ambiente SONARA_*.
+                  </p>
+                  <small>
+                    {renderPreferences?.preferences.updatedAt
+                      ? `Preferências salvas em ${new Date(renderPreferences.preferences.updatedAt).toLocaleString()}`
+                      : "Sem preferências salvas ainda."}
+                  </small>
+                </div>
+                {(
+                  Object.keys(
+                    renderPreferenceOptions,
+                  ) as RenderPreferenceField[]
+                ).map((field) => (
+                  <div className="setup-field" key={field}>
+                    <span className="setup-field-label">
+                      {renderPreferenceFieldLabels[field]}
+                    </span>
+                    <div className="setup-field-row">
+                      <select
+                        aria-label={renderPreferenceFieldLabels[field]}
+                        className="setup-project-select"
+                        disabled={renderPreferencesBusy || !renderPreferences}
+                        value={renderPreferences?.preferences[field] ?? ""}
+                        onChange={(event) =>
+                          void updateRenderPreference(field, event.target.value)
+                        }
+                      >
+                        {renderPreferenceOptions[field].map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <p className="helper-copy">
+                      Origem:{" "}
+                      {
+                        renderPreferenceSourceLabels[
+                          renderPreferences?.sources[field] ?? "default"
+                        ]
+                      }{" "}
+                      ·{" "}
+                      {
+                        renderPreferenceOptions[field].find(
+                          (option) =>
+                            option.value ===
+                            (renderPreferences?.preferences[field] ?? ""),
+                        )?.description
+                      }
+                    </p>
+                  </div>
+                ))}
+                {renderPreferencesMessage && (
+                  <small>{renderPreferencesMessage}</small>
+                )}
               </section>
               <section className="settings-section">
                 <div>

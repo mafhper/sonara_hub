@@ -53,6 +53,12 @@ import {
 import { createTempFileRegistry } from "./temp-files.mjs";
 import { runRenderWorkerJob } from "./job-worker.mjs";
 import { createGpuTelemetryLogger } from "./render-job-core.mjs";
+import {
+  applyRenderPreferencesToEnvironment,
+  describeRenderPreferenceSources,
+  loadRenderPreferences,
+  saveRenderPreferences,
+} from "./render-preferences.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import { resolveServerPort } from "./server-port.mjs";
@@ -151,10 +157,18 @@ const customPresetPath = path.join(
   "custom-presets.local.json",
 );
 const jobHistoryPath = path.join(rootDir, "data", "jobs.local.json");
+const renderPreferencesPath = path.join(
+  rootDir,
+  "data",
+  "render-preferences.local.json",
+);
 const port = resolveServerPort();
 const systemParallelism = Math.max(1, availableParallelism());
 const audioJobConcurrency = resolveAudioJobConcurrency(systemParallelism);
 const renderJobConcurrency = resolveRenderJobConcurrency(systemParallelism);
+
+let renderPreferences = await loadRenderPreferences(renderPreferencesPath);
+applyRenderPreferencesToEnvironment(renderPreferences);
 
 await Promise.all([
   fs.mkdir(uploadDir, { recursive: true }),
@@ -245,6 +259,31 @@ app.put("/api/dev/benchmarks/cleanup-policy", async (req, res, next) => {
         benchmarkCleanupPolicyPath,
         req.body,
       ),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/render-preferences", async (req, res, next) => {
+  try {
+    res.json({
+      preferences: renderPreferences,
+      sources: describeRenderPreferenceSources(renderPreferences),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/render-preferences", async (req, res, next) => {
+  try {
+    const saved = await saveRenderPreferences(renderPreferencesPath, req.body);
+    renderPreferences = saved;
+    applyRenderPreferencesToEnvironment(renderPreferences);
+    res.json({
+      preferences: renderPreferences,
+      sources: describeRenderPreferenceSources(renderPreferences),
     });
   } catch (error) {
     next(error);
