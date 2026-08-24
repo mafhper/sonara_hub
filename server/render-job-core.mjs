@@ -132,7 +132,7 @@ export async function renderVideoJob({
       textSettings: settings.compositionSettings.textSettings,
     },
     onProgress: (progress, message) => updateJob(jobId, { progress, message }),
-    onTelemetry: createGpuTelemetryLogger(jobId, {
+    onTelemetry: createPipelineTelemetryLogger(jobId, {
       emit: onGpuTelemetryLine,
     }),
     shouldCancel,
@@ -361,7 +361,7 @@ export async function renderPublicationAssetJob({
       composition,
       onProgress: (progress, message) =>
         updateJob(jobId, { progress, message }),
-      onTelemetry: createGpuTelemetryLogger(jobId, {
+      onTelemetry: createPipelineTelemetryLogger(jobId, {
         emit: onGpuTelemetryLine,
       }),
       shouldCancel,
@@ -495,33 +495,66 @@ function assertNotCanceled(shouldCancel) {
   }
 }
 
-const defaultGpuTelemetryEmit = (line, level) => {
+const defaultPipelineTelemetryEmit = (line, level) => {
   if (level === "warn") console.warn(line);
   else console.info(line);
 };
 
-export function createGpuTelemetryLogger(
+function formatPipelineMs(ms) {
+  return `${Math.round(ms)}ms`;
+}
+
+// Pipeline Profiler (P0): decomposes the webgl-render stage into draw,
+// requestFrame and pacing so real-content bottlenecks are measurable without
+// changing pipeline behavior.
+export function createPipelineTelemetryLogger(
   jobId,
-  { emit = defaultGpuTelemetryEmit } = {},
+  { emit = defaultPipelineTelemetryEmit } = {},
 ) {
-  let logged = false;
+  let gpuLogged = false;
   return (event) => {
-    if (event?.phase !== "gpu-info" && event?.phase !== "gpu-fallback") return;
-    if (event.phase === "gpu-info") {
-      if (logged) return;
-      logged = true;
+    const phase = event?.phase;
+    if (phase === "gpu-info") {
+      if (gpuLogged) return;
+      gpuLogged = true;
       emit(
         `[render:${jobId}] GPU mode=${event.gpuModeRequested ?? "?"} resolved=${event.gpuModeResolved ?? "?"} fallback=${event.gpuFallbackReason ?? "-"} renderer="${event.renderer ?? "n/a"}"`,
         "info",
       );
       return;
     }
-    emit(
-      `[render:${jobId}] GPU fallback ${event.fromMode}->${event.toMode}: ${event.reason}`,
-      "warn",
-    );
+    if (phase === "gpu-fallback") {
+      emit(
+        `[render:${jobId}] GPU fallback ${event.fromMode}->${event.toMode}: ${event.reason}`,
+        "warn",
+      );
+      return;
+    }
+    if (phase === "browser:canvas-frame-loop-complete") {
+      const frames = Number(event.totalFrames) || 0;
+      const draw = Number(event.renderMs) || 0;
+      const requestFrame = Number(event.requestFrameMs) || 0;
+      const pacing = Number(event.delayMs) || 0;
+      const target = Number(event.targetDelayMs) || 0;
+      const perFrame = (ms) =>
+        frames > 0 ? `${(ms / frames).toFixed(1)}ms/f` : "n/a";
+      emit(
+        `[render:${jobId}] CAPTURE frames=${frames} draw=${formatPipelineMs(draw)} (${perFrame(draw)}) requestFrame=${formatPipelineMs(requestFrame)} (${perFrame(requestFrame)}) pacing=${formatPipelineMs(pacing)} (${perFrame(pacing)}, target=${target}ms/f)`,
+        "info",
+      );
+      return;
+    }
+    if (phase === "browser:chunks-flush-complete") {
+      const bytes = Number(event.chunkBytes) || 0;
+      emit(
+        `[render:${jobId}] RECORDER chunks=${event.chunks ?? "?"} bytes=${(bytes / 1048576).toFixed(1)}MB`,
+        "info",
+      );
+    }
   };
 }
+
+export const createGpuTelemetryLogger = createPipelineTelemetryLogger;
 
 function publicationConstrainedMuxSettings(settings, preset, duration) {
   const maxFileSizeBytes = Number(preset?.constraints?.maxFileSizeBytes);
