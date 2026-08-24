@@ -16,6 +16,14 @@ import {
   normalizeVisualSettings,
 } from "../shared/visual-effects.mjs";
 import { selectBenchmarkCases } from "./render-benchmark-selection.mjs";
+import {
+  applyMatrixCellEnvironment,
+  isTruthyFlag,
+  matrixCaseForCell,
+  resolveMatrixCells,
+  restoreMatrixCellEnvironment,
+  selectMatrixCases,
+} from "./render-benchmark-matrix.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const benchRoot = path.join(root, ".dev", "bench");
@@ -50,6 +58,20 @@ const testKey =
 const suiteId = option("suite-id") ?? process.env.SONARA_BENCH_SUITE_ID ?? "";
 const suiteKind =
   option("suite-kind") ?? process.env.SONARA_BENCH_SUITE_KIND ?? "individual";
+const matrixEnabled = isTruthyFlag(
+  option("matrix") ?? process.env.SONARA_BENCH_MATRIX,
+);
+const matrixCells = matrixEnabled
+  ? resolveMatrixCells(
+      option("cells") ?? process.env.SONARA_BENCH_MATRIX_CELLS ?? "",
+    )
+  : [];
+const benchCases = matrixEnabled
+  ? selectMatrixCases(
+      modeCases,
+      option("case") ?? process.env.SONARA_BENCH_CASE,
+    )
+  : modeCases;
 
 await fs.mkdir(outputDir, { recursive: true });
 await fs.mkdir(assetsDir, { recursive: true });
@@ -92,27 +114,27 @@ const run = {
   },
   cases: [],
   medians: [],
+  failures: [],
   warnings: [],
 };
 
 console.log(`Sonara render benchmark (${profile})`);
 console.log(`Audio: ${audioSource.label}`);
 console.log(`Repeat: ${repeat}`);
+if (matrixEnabled) {
+  console.log(
+    `Matrix: ${matrixCells
+      .map((cell) => `${cell.id}=${cell.gpu}+${cell.encoder}`)
+      .join(", ")}`,
+  );
+}
 console.log(`Outputs: ${path.relative(root, outputDir)}`);
 
 for (let repeatIndex = 1; repeatIndex <= repeat; repeatIndex += 1) {
-  for (const benchCase of modeCases) {
-    const result = await runCase(benchCase, repeatIndex);
-    result.warnings = compareWithHistory(result, history, run.thresholds);
-    run.cases.push(result);
-    run.warnings.push(
-      ...result.warnings.map((warning) => `${result.id}: ${warning}`),
-    );
-    const status = result.warnings.length ? "WARN" : "OK";
-    const repeatLabel = repeat > 1 ? ` r${repeatIndex}/${repeat}` : "";
-    console.log(
-      `${status} ${result.id}${repeatLabel}: ${formatMs(result.totalMs)} total, ${formatMs(result.frameRenderMs)} render, ${formatMs(result.canvasCaptureMs)} capture, ${formatMs(result.mediaRecorderMs)} recorder, ${formatMs(result.muxMs)} mux, ${result.peakRssMb.toFixed(1)} MB rss`,
-    );
+  for (const benchCase of benchCases) {
+    for (const cell of matrixCells.length ? matrixCells : [null]) {
+      await runRecorded(benchCase, cell, repeatIndex);
+    }
   }
 }
 run.medians = repeat > 1 ? repeatedCaseMedians(run.cases) : [];
@@ -128,6 +150,62 @@ console.log(`Report: ${path.relative(root, latestReportPath)}`);
 if (run.warnings.length) {
   console.warn("Performance warnings:");
   for (const warning of run.warnings) console.warn(`- ${warning}`);
+}
+
+async function runRecorded(benchCase, cell, repeatIndex) {
+  const targetCase = cell ? matrixCaseForCell(benchCase, cell) : benchCase;
+  const previousEnvironment = cell ? applyMatrixCellEnvironment(cell) : null;
+  let result;
+  try {
+    result = await runCase(targetCase, repeatIndex);
+  } catch (error) {
+    if (!cell) throw error;
+    recordMatrixFailure(benchCase, cell, repeatIndex, error);
+    return;
+  } finally {
+    restoreMatrixCellEnvironment(previousEnvironment);
+  }
+  if (cell) {
+    result.matrixCell = cell.id;
+    result.cellGpuMode = cell.gpu;
+    result.cellEncoderMode = cell.encoder;
+    // Matrix cells are diagnostic; history baselines do not exist for them.
+    result.warnings = [];
+  } else {
+    result.warnings = compareWithHistory(result, history, run.thresholds);
+  }
+  run.cases.push(result);
+  run.warnings.push(
+    ...result.warnings.map((warning) => `${result.id}: ${warning}`),
+  );
+  const status = result.warnings.length ? "WARN" : "OK";
+  const repeatLabel = repeat > 1 ? ` r${repeatIndex}/${repeat}` : "";
+  const cellLabel = cell ? ` [${cell.id}]` : "";
+  console.log(
+    `${status} ${result.id}${cellLabel}${repeatLabel}: ${formatMs(result.totalMs)} total, ${formatMs(result.frameRenderMs)} render, ${formatMs(result.canvasCaptureMs)} capture, ${formatMs(result.mediaRecorderMs)} recorder, ${formatMs(result.muxMs)} mux, ${result.peakRssMb.toFixed(1)} MB rss`,
+  );
+}
+
+function recordMatrixFailure(benchCase, cell, repeatIndex, error) {
+  const failure = {
+    id: `${benchCase.id}__${cell.id}`,
+    matrixCell: cell.id,
+    gpuModeRequested: cell.gpu,
+    encoderModeRequested: cell.encoder,
+    outputSize: benchCase.outputSize,
+    duration: benchCase.duration,
+    repeatIndex,
+    errorCode: error?.code ?? null,
+    errorMessage: String(error?.message ?? error)
+      .split("\n")
+      .slice(0, 3)
+      .join(" | ")
+      .slice(0, 400),
+  };
+  run.failures.push(failure);
+  console.log(
+    `FAIL ${failure.id}: ${failure.errorCode ?? "ERROR"} — ${failure.errorMessage.split(" | ")[0]}`,
+  );
 }
 
 async function runCase(benchCase, repeatIndex = 1) {
@@ -154,129 +232,133 @@ async function runCase(benchCase, repeatIndex = 1) {
   const monitor = startMemoryMonitor();
   const started = performance.now();
 
-  const webmStarted = performance.now();
-  await renderWebglBackgroundVideo({
-    outputPath: webmPath,
-    size: internalSize,
-    duration: benchCase.duration,
-    settings,
-    audioEnvelope,
-    composition: benchCase.composition,
-    onProgress: (_progress, message) => {
-      if (message) progressMessages.push(message);
-    },
-    onTelemetry: (event) => {
-      webglTelemetry.push(event);
-    },
-  });
-  const webmStageMs = performance.now() - webmStarted;
-  const webglPhases = summarizeWebglTelemetry(webglTelemetry, webmStageMs);
-  const initialGpuInfo = webglTelemetry.find(
-    (event) => event.phase === "gpu-info",
-  );
-  const gpuInfo = phaseEvent(webglTelemetry, "gpu-info");
+  try {
+    const webmStarted = performance.now();
+    await renderWebglBackgroundVideo({
+      outputPath: webmPath,
+      size: internalSize,
+      duration: benchCase.duration,
+      settings,
+      audioEnvelope,
+      composition: benchCase.composition,
+      onProgress: (_progress, message) => {
+        if (message) progressMessages.push(message);
+      },
+      onTelemetry: (event) => {
+        webglTelemetry.push(event);
+      },
+    });
+    const webmStageMs = performance.now() - webmStarted;
+    const webglPhases = summarizeWebglTelemetry(webglTelemetry, webmStageMs);
+    const initialGpuInfo = webglTelemetry.find(
+      (event) => event.phase === "gpu-info",
+    );
+    const gpuInfo = phaseEvent(webglTelemetry, "gpu-info");
 
-  const muxStarted = performance.now();
-  const muxPlan = buildWebglMuxPlan({
-    audioPath,
-    duration: benchCase.duration,
-    metadata: benchMetadata(benchCase),
-    outputPath: mp4Path,
-    outputSize: benchCase.outputSize,
-    settings,
-    subtitlePath: null,
-    webglVideoPath: webmPath,
-  });
-  await runFfmpeg(muxPlan.args);
-  const muxMs = performance.now() - muxStarted;
+    const muxStarted = performance.now();
+    const muxPlan = buildWebglMuxPlan({
+      audioPath,
+      duration: benchCase.duration,
+      metadata: benchMetadata(benchCase),
+      outputPath: mp4Path,
+      outputSize: benchCase.outputSize,
+      settings,
+      subtitlePath: null,
+      webglVideoPath: webmPath,
+    });
+    await runFfmpeg(muxPlan.args);
+    const muxMs = performance.now() - muxStarted;
 
-  const validationStarted = performance.now();
-  await openWithFfmpeg(mp4Path);
-  const validationMs = performance.now() - validationStarted;
-  const memory = monitor.stop();
-  const webmStat = await fs.stat(webmPath);
-  const mp4Stat = await fs.stat(mp4Path);
-  const totalMs = performance.now() - started;
-  const rendererId = benchCase.scene.rendererId ?? benchCase.scene.id;
-  const params = {
-    id: benchCase.id,
-    profile,
-    sceneId: benchCase.scene.id,
-    rendererId,
-    outputSize: benchCase.outputSize,
-    internalSize,
-    duration: benchCase.duration,
-    webglFps: settings.webglFps,
-    outputFps: settings.outputFps,
-    qualityProfile: settings.qualityProfile,
-    waveform: benchCase.scene.waveform,
-    compositionKey: benchCase.compositionKey,
-    audioSource: audioSource.kind,
-    gpuModeRequested:
-      initialGpuInfo?.gpuModeRequested ?? gpuInfo?.gpuModeRequested ?? null,
-    encoderModeRequested: muxPlan.encoder.modeRequested,
-  };
-  return {
-    id: benchCase.id,
-    outputId,
-    repeatIndex,
-    paramsHash: hash(params),
-    sceneId: benchCase.scene.id,
-    rendererId,
-    category: benchCase.category,
-    domain: inferCaseDomain(benchCase),
-    pipeline: "render-export",
-    outputSize: benchCase.outputSize,
-    internalSize,
-    duration: benchCase.duration,
-    webglFps: settings.webglFps,
-    outputFps: settings.outputFps,
-    qualityProfile: settings.qualityProfile,
-    gpuModeRequested:
-      initialGpuInfo?.gpuModeRequested ?? gpuInfo?.gpuModeRequested ?? null,
-    gpuModeResolved: gpuInfo?.gpuModeResolved ?? null,
-    gpuFallbackReason: gpuInfo?.gpuFallbackReason ?? null,
-    gpuVendor: gpuInfo?.vendor ?? null,
-    gpuRenderer: gpuInfo?.renderer ?? null,
-    gpuVersion: gpuInfo?.version ?? null,
-    gpuWebglVersion: gpuInfo?.webglVersion ?? null,
-    encoderModeRequested: muxPlan.encoder.modeRequested,
-    encoderModeResolved: muxPlan.encoder.modeResolved,
-    encoder: muxPlan.encoder.encoder,
-    encoderProfile: muxPlan.encoder.profile,
-    encoderFallbackReason: muxPlan.encoder.fallbackReason,
-    availableHardwareEncoders: muxPlan.encoder.availableEncoders,
-    totalMs: round(totalMs),
-    webmStageMs: round(webmStageMs),
-    webglPrepareMs: webglPhases.webglPrepareMs,
-    canvasCaptureMs: webglPhases.canvasCaptureMs,
-    frameRenderMs: webglPhases.frameRenderMs,
-    frameRequestMs: webglPhases.frameRequestMs,
-    frameDelayMs: webglPhases.frameDelayMs,
-    mediaRecorderMs: webglPhases.mediaRecorderMs,
-    webmFlushMs: webglPhases.webmFlushMs,
-    webmValidationMs: webglPhases.webmValidationMs,
-    sceneRecordMs: webglPhases.sceneRecordMs,
-    muxMs: round(muxMs),
-    validationMs: round(validationMs),
-    webmBytes: webmStat.size,
-    webmChunkBytes: webglPhases.webmChunkBytes,
-    webmChunkCount: webglPhases.webmChunkCount,
-    mp4Bytes: mp4Stat.size,
-    peakRssMb: round(memory.peakRssMb),
-    startRssMb: round(memory.startRssMb),
-    endRssMb: round(memory.endRssMb),
-    memoryDeltaMb: round(memory.endRssMb - memory.startRssMb),
-    webglRetryCount: webglPhases.webglRetryCount,
-    retryWebgl:
-      webglPhases.webglRetryCount > 0 ||
-      progressMessages.some((message) =>
-        /Recuperando contexto WebGL/i.test(message),
-      ),
-    webglPhaseEvents: compactWebglTelemetry(webglTelemetry),
-    outputWebm: path.relative(root, webmPath),
-    outputMp4: path.relative(root, mp4Path),
-  };
+    const validationStarted = performance.now();
+    await openWithFfmpeg(mp4Path);
+    const validationMs = performance.now() - validationStarted;
+    const memory = monitor.stop();
+    const webmStat = await fs.stat(webmPath);
+    const mp4Stat = await fs.stat(mp4Path);
+    const totalMs = performance.now() - started;
+    const rendererId = benchCase.scene.rendererId ?? benchCase.scene.id;
+    const params = {
+      id: benchCase.id,
+      profile,
+      sceneId: benchCase.scene.id,
+      rendererId,
+      outputSize: benchCase.outputSize,
+      internalSize,
+      duration: benchCase.duration,
+      webglFps: settings.webglFps,
+      outputFps: settings.outputFps,
+      qualityProfile: settings.qualityProfile,
+      waveform: benchCase.scene.waveform,
+      compositionKey: benchCase.compositionKey,
+      audioSource: audioSource.kind,
+      gpuModeRequested:
+        initialGpuInfo?.gpuModeRequested ?? gpuInfo?.gpuModeRequested ?? null,
+      encoderModeRequested: muxPlan.encoder.modeRequested,
+    };
+    return {
+      id: benchCase.id,
+      outputId,
+      repeatIndex,
+      paramsHash: hash(params),
+      sceneId: benchCase.scene.id,
+      rendererId,
+      category: benchCase.category,
+      domain: inferCaseDomain(benchCase),
+      pipeline: "render-export",
+      outputSize: benchCase.outputSize,
+      internalSize,
+      duration: benchCase.duration,
+      webglFps: settings.webglFps,
+      outputFps: settings.outputFps,
+      qualityProfile: settings.qualityProfile,
+      gpuModeRequested:
+        initialGpuInfo?.gpuModeRequested ?? gpuInfo?.gpuModeRequested ?? null,
+      gpuModeResolved: gpuInfo?.gpuModeResolved ?? null,
+      gpuFallbackReason: gpuInfo?.gpuFallbackReason ?? null,
+      gpuVendor: gpuInfo?.vendor ?? null,
+      gpuRenderer: gpuInfo?.renderer ?? null,
+      gpuVersion: gpuInfo?.version ?? null,
+      gpuWebglVersion: gpuInfo?.webglVersion ?? null,
+      encoderModeRequested: muxPlan.encoder.modeRequested,
+      encoderModeResolved: muxPlan.encoder.modeResolved,
+      encoder: muxPlan.encoder.encoder,
+      encoderProfile: muxPlan.encoder.profile,
+      encoderFallbackReason: muxPlan.encoder.fallbackReason,
+      availableHardwareEncoders: muxPlan.encoder.availableEncoders,
+      totalMs: round(totalMs),
+      webmStageMs: round(webmStageMs),
+      webglPrepareMs: webglPhases.webglPrepareMs,
+      canvasCaptureMs: webglPhases.canvasCaptureMs,
+      frameRenderMs: webglPhases.frameRenderMs,
+      frameRequestMs: webglPhases.frameRequestMs,
+      frameDelayMs: webglPhases.frameDelayMs,
+      mediaRecorderMs: webglPhases.mediaRecorderMs,
+      webmFlushMs: webglPhases.webmFlushMs,
+      webmValidationMs: webglPhases.webmValidationMs,
+      sceneRecordMs: webglPhases.sceneRecordMs,
+      muxMs: round(muxMs),
+      validationMs: round(validationMs),
+      webmBytes: webmStat.size,
+      webmChunkBytes: webglPhases.webmChunkBytes,
+      webmChunkCount: webglPhases.webmChunkCount,
+      mp4Bytes: mp4Stat.size,
+      peakRssMb: round(memory.peakRssMb),
+      startRssMb: round(memory.startRssMb),
+      endRssMb: round(memory.endRssMb),
+      memoryDeltaMb: round(memory.endRssMb - memory.startRssMb),
+      webglRetryCount: webglPhases.webglRetryCount,
+      retryWebgl:
+        webglPhases.webglRetryCount > 0 ||
+        progressMessages.some((message) =>
+          /Recuperando contexto WebGL/i.test(message),
+        ),
+      webglPhaseEvents: compactWebglTelemetry(webglTelemetry),
+      outputWebm: path.relative(root, webmPath),
+      outputMp4: path.relative(root, mp4Path),
+    };
+  } finally {
+    monitor.stop();
+  }
 }
 
 function buildCases(selectedProfile) {
@@ -696,20 +778,26 @@ async function writeFixturePng(filePath) {
 function startMemoryMonitor() {
   const start = process.memoryUsage();
   let peak = start;
+  let lastResult = null;
   const timer = setInterval(() => {
     const current = process.memoryUsage();
     if (current.rss > peak.rss) peak = current;
   }, 50);
+  // A leaked interval must never keep the benchmark process alive after a
+  // failed cell; unref plus idempotent stop() guarantee a clean exit.
+  timer.unref?.();
   return {
     stop() {
+      if (lastResult) return lastResult;
       clearInterval(timer);
       const end = process.memoryUsage();
       if (end.rss > peak.rss) peak = end;
-      return {
+      lastResult = {
         startRssMb: bytesToMb(start.rss),
         peakRssMb: bytesToMb(peak.rss),
         endRssMb: bytesToMb(end.rss),
       };
+      return lastResult;
     },
   };
 }
@@ -1048,6 +1136,41 @@ Case | Renderer | GPU mode | GPU renderer | Output | Repeats | WebM stage | Prep
 ${medianRows}
 `
       : "";
+  const matrixSuccessRows = (runData.cases ?? [])
+    .filter((item) => item.matrixCell)
+    .map((item) =>
+      [
+        item.matrixCell,
+        item.id,
+        item.gpuModeResolved ?? "n/a",
+        item.encoder ?? "n/a",
+        item.encoderFallbackReason ?? "-",
+        formatMs(item.muxMs),
+        formatMs(item.totalMs),
+        "ok",
+      ].join(" | "),
+    );
+  const matrixFailureRows = (runData.failures ?? []).map((failure) =>
+    [
+      failure.matrixCell,
+      failure.id,
+      failure.gpuModeRequested,
+      failure.encoderModeRequested,
+      "-",
+      "-",
+      `failed (${failure.errorCode ?? "error"})`,
+    ].join(" | "),
+  );
+  const matrixRows = [...matrixSuccessRows, ...matrixFailureRows];
+  const matrixSection = matrixRows.length
+    ? `
+## Matrix
+
+Cell | Case | GPU resolved | Encoder | Fallback reason | Mux | Total | Status
+--- | --- | --- | --- | --- | ---: | ---: | ---
+${matrixRows.join("\n")}
+`
+    : "";
   const warnings = runData.warnings.length
     ? runData.warnings.map((item) => `- ${item}`).join("\n")
     : "- Nenhum alerta alem de baseline insuficiente.";
@@ -1069,6 +1192,7 @@ Case | Renderer | GPU mode | GPU renderer | Output | Duration | WebM stage | Pre
 --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---
 ${rows}
 
+${matrixSection}
 ${medianSection}
 ## Warnings
 
@@ -1079,6 +1203,7 @@ ${warnings}
 - WebM stage is now broken down into Chromium/runtime prepare, deterministic canvas capture, per-frame render/wait, MediaRecorder/WebM stop+flush, chunk bytes, and WebM validation inside \`renderWebglBackgroundVideo\`.
 - FFmpeg mux, MP4 validation, peak RSS and WebGL retry count remain tracked per case; compact browser phase events are persisted in each run JSON.
 - \`--repeat=N\` runs each case multiple times and reports per-case medians in this Markdown report and in \`render.json\`.
+- \`--matrix=1\` runs the A/B/C/D GPU x encoder matrix (software/hardware WebGL x libx264/hardware H.264) over representative 720p/1080p cases; failed cells are listed with their error code instead of failing the whole run. Use \`--cells=A,C\` to restrict cells and \`--case=<id>\` to choose cases.
 - Regression warnings are warn-only and now compare the main phase timings when matching history exists. Functional failures still fail the benchmark process.
 - Baseline uses previous local runs with the same case and parameter hash from \`.dev/bench/render-history.jsonl\`.
 `;
