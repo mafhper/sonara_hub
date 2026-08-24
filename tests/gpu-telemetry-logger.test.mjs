@@ -81,6 +81,7 @@ test("pipeline profiler decomposes the frame loop into draw/requestFrame/pacing"
     requestFrameMs: 8120.9,
     delayMs: 32000,
     targetDelayMs: 32,
+    pacingMode: "adaptive",
   });
 
   assert.equal(lines.length, 1);
@@ -91,6 +92,7 @@ test("pipeline profiler decomposes the frame loop into draw/requestFrame/pacing"
   assert.match(line, /draw=10350ms \(10\.4ms\/f\)/u);
   assert.match(line, /requestFrame=8121ms \(8\.1ms\/f\)/u);
   assert.match(line, /pacing=32000ms \(32\.0ms\/f, target=32ms\/f\)/u);
+  assert.match(line, /mode=adaptive/u);
 });
 
 test("pipeline profiler handles zero-frame events without dividing by zero", () => {
@@ -110,6 +112,7 @@ test("pipeline profiler handles zero-frame events without dividing by zero", () 
 
   assert.equal(lines.length, 1);
   assert.match(lines[0], /frames=0 draw=12ms \(n\/a\)/u);
+  assert.match(lines[0], /mode=legacy/u);
 });
 
 test("pipeline profiler reports recorder volume for the intermediate codec", () => {

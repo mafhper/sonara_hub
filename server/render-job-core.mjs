@@ -539,7 +539,7 @@ export function createPipelineTelemetryLogger(
       const perFrame = (ms) =>
         frames > 0 ? `${(ms / frames).toFixed(1)}ms/f` : "n/a";
       emit(
-        `[render:${jobId}] CAPTURE frames=${frames} draw=${formatPipelineMs(draw)} (${perFrame(draw)}) requestFrame=${formatPipelineMs(requestFrame)} (${perFrame(requestFrame)}) pacing=${formatPipelineMs(pacing)} (${perFrame(pacing)}, target=${target}ms/f)`,
+        `[render:${jobId}] CAPTURE frames=${frames} draw=${formatPipelineMs(draw)} (${perFrame(draw)}) requestFrame=${formatPipelineMs(requestFrame)} (${perFrame(requestFrame)}) pacing=${formatPipelineMs(pacing)} (${perFrame(pacing)}, target=${target}ms/f) mode=${event.pacingMode ?? "legacy"}`,
         "info",
       );
       return;

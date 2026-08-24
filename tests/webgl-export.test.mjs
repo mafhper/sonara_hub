@@ -4,6 +4,7 @@ import {
   assertWebmDecodeReport,
   buildRendererHtml,
   canReuseRenderSession,
+  capturePacingModes,
   createWebglRenderSession,
   createGpuHardwareUnavailableError,
   describeSceneRenderError,
@@ -12,6 +13,7 @@ import {
   normalizeGpuInfo,
   normalizeGpuMode,
   normalizeWebmValidationError,
+  resolveCapturePacingMode,
   resolveGpuMode,
   serializeForInlineScript,
   webglGpuModes,
@@ -229,7 +231,13 @@ test("canvas exporter requests deterministic frames instead of relying on headle
     html,
     /const captureFrameDelayMs = Math\.min\(frameDuration, 32\)/,
   );
-  assert.match(html, /await delay\(captureFrameDelayMs\)/);
+  assert.match(html, /const capturePacingAdaptive = false;/);
+  assert.match(
+    html,
+    /const remainingDelayMs =\s*captureFrameDelayMs - \(performance\.now\(\) - renderStarted\)/,
+  );
+  assert.match(html, /await delay\(pacingWaitMs\)/);
+  assert.match(html, /pacingMode: "legacy"/);
   assert.match(html, /targetDelayMs/);
   assert.match(html, /reportScenePhase/);
   assert.match(html, /media-recorder-start/);
@@ -241,6 +249,37 @@ test("canvas exporter requests deterministic frames instead of relying on headle
   assert.match(html, /chunks-flush-complete/);
   assert.match(html, /chunkBytes/);
   assert.doesNotMatch(html, /requestAnimationFrame/);
+});
+
+test("capture pacing defaults to legacy and honors SONARA_CAPTURE_PACING", () => {
+  assert.deepEqual(capturePacingModes, ["legacy", "adaptive"]);
+  assert.equal(resolveCapturePacingMode({}), "legacy");
+  assert.equal(
+    resolveCapturePacingMode({ SONARA_CAPTURE_PACING: "adaptive" }),
+    "adaptive",
+  );
+  assert.equal(
+    resolveCapturePacingMode({ SONARA_CAPTURE_PACING: " ADAPTIVE " }),
+    "adaptive",
+  );
+  assert.equal(
+    resolveCapturePacingMode({ SONARA_CAPTURE_PACING: "turbo" }),
+    "legacy",
+  );
+});
+
+test("renderer HTML switches to adaptive frame pacing when requested", () => {
+  const html = buildRendererHtml({
+    runtimeUrl: "data:text/javascript;base64,AA==",
+    size: { width: 1280, height: 720 },
+    scene: {},
+    audioEnvelope: { frameRate: 12, frames: [] },
+    composition: {},
+    pacingMode: "adaptive",
+  });
+
+  assert.match(html, /const capturePacingAdaptive = true;/);
+  assert.match(html, /pacingMode: "adaptive"/);
 });
 
 test("renderer HTML keeps user metadata inside the module script", () => {

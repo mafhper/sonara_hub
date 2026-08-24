@@ -37,6 +37,26 @@ export function resolveGpuMode(environment = process.env) {
   return normalizeGpuMode(environment.SONARA_GPU_MODE, "software");
 }
 
+export const capturePacingModes = Object.freeze(["legacy", "adaptive"]);
+
+// legacy: fixed post-frame wait (historical behavior).
+// adaptive: wait only the remainder of the frame deadline after draw +
+// requestFrame complete, removing the double-counted artificial tax while
+// keeping wall-clock alignment for the intermediate WebM.
+export function resolveCapturePacingMode(environment = process.env) {
+  const normalized = String(environment.SONARA_CAPTURE_PACING ?? "")
+    .trim()
+    .toLowerCase();
+  return capturePacingModes.includes(normalized) ? normalized : "legacy";
+}
+
+function normalizeCapturePacingMode(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return capturePacingModes.includes(normalized) ? normalized : "legacy";
+}
+
 export function webglLaunchArgs(
   mode = resolveGpuMode(),
   platform = process.platform,
@@ -505,6 +525,7 @@ async function runWebglRenderAttempt(options, size, attempt) {
         scene: normalizeVisualSettings(settings.visualSettings ?? settings),
         audioEnvelope,
         composition,
+        pacingMode: resolveCapturePacingMode(),
       }),
       "utf8",
     ),
@@ -815,11 +836,13 @@ export function buildRendererHtml({
   scene,
   audioEnvelope = { frameRate: 12, frames: [] },
   composition,
+  pacingMode = "legacy",
 }) {
   const serializedRuntimeUrl = serializeForInlineScript(runtimeUrl);
   const serializedScene = serializeForInlineScript(scene);
   const serializedAudioEnvelope = serializeForInlineScript(audioEnvelope);
   const serializedComposition = serializeForInlineScript(composition);
+  const capturePacingMode = normalizeCapturePacingMode(pacingMode);
   return `<!doctype html>
 <html>
 <head>
@@ -839,6 +862,7 @@ export function buildRendererHtml({
     const scene = ${serializedScene};
     const audioEnvelope = ${serializedAudioEnvelope};
     const composition = await loadMediaElements(${serializedComposition});
+    const capturePacingAdaptive = ${capturePacingMode === "adaptive"};
     const canvas = document.getElementById("scene");
     const runtime = createSceneRuntime(canvas, scene, composition);
     runtime.resize(${size.width}, ${size.height});
@@ -1007,8 +1031,15 @@ export function buildRendererHtml({
           window.reportSceneProgress(progress);
           nextProgressReport = Math.floor(progress) + 1;
         }
+        const remainingDelayMs =
+          captureFrameDelayMs - (performance.now() - renderStarted);
+        const pacingWaitMs = capturePacingAdaptive
+          ? Math.max(0, remainingDelayMs)
+          : captureFrameDelayMs;
         const delayStarted = performance.now();
-        await delay(captureFrameDelayMs);
+        if (pacingWaitMs > 0) {
+          await delay(pacingWaitMs);
+        }
         captureMetrics.delayMs += performance.now() - delayStarted;
       }
       await reportPhase("canvas-frame-loop-complete", {
@@ -1017,6 +1048,7 @@ export function buildRendererHtml({
         renderMs: roundMs(captureMetrics.renderMs),
         requestFrameMs: roundMs(captureMetrics.requestFrameMs),
         targetDelayMs: roundMs(captureFrameDelayMs),
+        pacingMode: "${capturePacingMode}",
         totalFrames,
       });
       await reportPhase("canvas-capture-complete", { totalFrames });
