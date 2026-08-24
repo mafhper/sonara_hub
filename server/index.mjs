@@ -53,6 +53,7 @@ import {
 import { createTempFileRegistry } from "./temp-files.mjs";
 import { runRenderWorkerJob } from "./job-worker.mjs";
 import { createGpuTelemetryLogger } from "./render-job-core.mjs";
+import { installCrashReporter } from "./crash-logger.mjs";
 import {
   applyRenderPreferencesToEnvironment,
   describeRenderPreferenceSources,
@@ -158,6 +159,8 @@ const customPresetPath = path.join(
   "custom-presets.local.json",
 );
 const jobHistoryPath = path.join(rootDir, "data", "jobs.local.json");
+const crashReportsDir = path.join(rootDir, ".dev", "crashes");
+installCrashReporter(crashReportsDir);
 const renderPreferencesPath = path.join(
   rootDir,
   "data",
