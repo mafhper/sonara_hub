@@ -875,16 +875,6 @@ function compactWebglTelemetry(events) {
       "targetDelayMs",
       "totalFrames",
       "width",
-      "gpuAvailable",
-      "gpuHardware",
-      "gpuModeRequested",
-      "gpuModeResolved",
-      "gpuFallbackReason",
-      "vendor",
-      "renderer",
-      "version",
-      "shadingLanguageVersion",
-      "webglVersion",
     ]) {
       if (event[key] !== undefined) compact[key] = event[key];
     }
@@ -1088,8 +1078,6 @@ function renderMarkdown(runData) {
       [
         item.id,
         item.rendererId,
-        item.gpuModeResolved ?? "n/a",
-        item.gpuRenderer ?? "n/a",
         `${item.outputSize.width}x${item.outputSize.height}`,
         `${item.duration}s`,
         formatMs(item.webmStageMs),
@@ -1114,8 +1102,6 @@ function renderMarkdown(runData) {
       [
         item.id,
         item.rendererId,
-        item.gpuModeResolved ?? "n/a",
-        item.gpuRenderer ?? "n/a",
         `${item.outputSize.width}x${item.outputSize.height}`,
         item.repeats,
         formatMs(item.webmStageMs),
@@ -1136,8 +1122,8 @@ function renderMarkdown(runData) {
       ? `
 ## Repeat Medians
 
-Case | Renderer | GPU mode | GPU renderer | Output | Repeats | WebM stage | Prepare | Capture | Frame render | Recorder | Mux | Total | Peak RSS | MP4 | WebGL retries
---- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---:
+Case | Renderer | Output | Repeats | WebM stage | Prepare | Capture | Frame render | Recorder | Mux | Total | Peak RSS | MP4 | WebGL retries
+--- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---:
 ${medianRows}
 `
       : "";
@@ -1193,8 +1179,8 @@ Repeat: ${runData.repeat}
 
 ## Results
 
-Case | Renderer | GPU mode | GPU renderer | Output | Duration | WebM stage | Prepare | Capture | Frame render | Frame wait | Recorder | WebM chunks | WebM validate | Mux | MP4 validate | Total | Peak RSS | MP4 | Status
---- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---
+Case | Renderer | Output | Duration | WebM stage | Prepare | Capture | Frame render | Frame wait | Recorder | WebM chunks | WebM validate | Mux | MP4 validate | Total | Peak RSS | MP4 | Status
+--- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---
 ${rows}
 
 ${matrixSection}
