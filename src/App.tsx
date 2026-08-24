@@ -292,6 +292,10 @@ import {
   type RenderPreferencesPayload,
 } from "./features/render/renderPreferences";
 import {
+  describeSystemCapabilities,
+  type SystemCapabilities,
+} from "./features/render/systemCapabilities";
+import {
   type ProjectMetadataDefaults,
   finalizeImportedTracks,
   metadataFromAudio,
@@ -528,6 +532,8 @@ function App() {
     useState<RenderPreferencesPayload | null>(null);
   const [renderPreferencesBusy, setRenderPreferencesBusy] = useState(false);
   const [renderPreferencesMessage, setRenderPreferencesMessage] = useState("");
+  const [systemCapabilities, setSystemCapabilities] =
+    useState<SystemCapabilities | null>(null);
   const {
     effectiveTheme,
     setThemePreference,
@@ -1186,17 +1192,31 @@ function App() {
     }
   }
 
-  async function updateRenderPreference(
-    field: RenderPreferenceField,
-    value: string,
+  async function loadSystemCapabilities() {
+    try {
+      setSystemCapabilities(
+        await fetchJson<SystemCapabilities>("/api/system-capabilities"),
+      );
+    } catch {
+      // Capabilities are informational; keep the section usable without them.
+    }
+  }
+
+  async function updateRenderPreferences(
+    patch: Partial<Record<RenderPreferenceField, string>>,
   ) {
     if (!renderPreferences || renderPreferencesBusy) return;
     const previous = renderPreferences;
     const next: RenderPreferencesPayload = {
-      preferences: { ...previous.preferences, [field]: value },
+      preferences: { ...previous.preferences, ...patch },
       sources: {
         ...previous.sources,
-        [field]: value ? "preference" : "default",
+        ...Object.fromEntries(
+          Object.entries(patch).map(([field, value]) => [
+            field,
+            value ? "preference" : "default",
+          ]),
+        ),
       },
     };
     setRenderPreferences(next);
@@ -1231,7 +1251,11 @@ function App() {
 
   async function openLocalSettings() {
     setSettingsOpen(true);
-    await Promise.all([loadStorageUsage(), loadRenderPreferences()]);
+    await Promise.all([
+      loadStorageUsage(),
+      loadRenderPreferences(),
+      loadSystemCapabilities(),
+    ]);
   }
 
   async function clearCompletedJobs(
@@ -5228,6 +5252,39 @@ function App() {
                       : "Sem preferências salvas ainda."}
                   </small>
                 </div>
+                <div
+                  aria-label="Capacidades detectadas nesta máquina"
+                  role="group"
+                >
+                  {(systemCapabilities
+                    ? describeSystemCapabilities(systemCapabilities)
+                    : ["Detectando capacidades da máquina..."]
+                  ).map((line) => (
+                    <p className="helper-copy" key={line}>
+                      {line}
+                    </p>
+                  ))}
+                </div>
+                <button
+                  className="quiet-action settings-action"
+                  disabled={
+                    renderPreferencesBusy ||
+                    !renderPreferences ||
+                    !systemCapabilities
+                  }
+                  type="button"
+                  onClick={() =>
+                    void updateRenderPreferences({
+                      gpuMode: systemCapabilities?.recommendations.gpuMode,
+                      capturePacing:
+                        systemCapabilities?.recommendations.capturePacing,
+                      encoderMode:
+                        systemCapabilities?.recommendations.encoderMode,
+                    })
+                  }
+                >
+                  Usar recomendações do sistema
+                </button>
                 {(
                   Object.keys(
                     renderPreferenceOptions,
@@ -5244,7 +5301,9 @@ function App() {
                         disabled={renderPreferencesBusy || !renderPreferences}
                         value={renderPreferences?.preferences[field] ?? ""}
                         onChange={(event) =>
-                          void updateRenderPreference(field, event.target.value)
+                          void updateRenderPreferences({
+                            [field]: event.target.value,
+                          })
                         }
                       >
                         {renderPreferenceOptions[field].map((option) => (

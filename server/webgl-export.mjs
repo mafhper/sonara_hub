@@ -298,6 +298,23 @@ async function closeBrowser(browser) {
   if (browser) await browser.close().catch(() => {});
 }
 
+// One-shot capability probe used by the local settings surface. Never throws;
+// probe failures are reported through the returned info instead.
+export async function probeWebglCapabilities(mode = "hardware") {
+  let browser;
+  try {
+    browser = await launchWebglBrowser(mode);
+    return await probeBrowserRenderer(browser);
+  } catch (error) {
+    return {
+      ...normalizeGpuInfo(null),
+      probeError: error?.message ?? String(error),
+    };
+  } finally {
+    await closeBrowser(browser);
+  }
+}
+
 async function acquireWebglBrowser({ renderSession, requestedMode }) {
   const ownsBrowser = !renderSession;
   if (renderSession) {

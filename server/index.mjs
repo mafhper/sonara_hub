@@ -59,6 +59,7 @@ import {
   loadRenderPreferences,
   saveRenderPreferences,
 } from "./render-preferences.mjs";
+import { readSystemCapabilities } from "./system-capabilities.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import { resolveServerPort } from "./server-port.mjs";
@@ -285,6 +286,19 @@ app.put("/api/render-preferences", async (req, res, next) => {
       preferences: renderPreferences,
       sources: describeRenderPreferenceSources(renderPreferences),
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/system-capabilities", async (req, res, next) => {
+  try {
+    res.json(
+      await readSystemCapabilities({
+        renderConcurrency: renderJobConcurrency,
+        audioConcurrency: audioJobConcurrency,
+      }),
+    );
   } catch (error) {
     next(error);
   }
