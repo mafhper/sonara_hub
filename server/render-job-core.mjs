@@ -131,6 +131,7 @@ export async function renderVideoJob({
       textSettings: settings.compositionSettings.textSettings,
     },
     onProgress: (progress, message) => updateJob(jobId, { progress, message }),
+    onTelemetry: createGpuTelemetryLogger(jobId),
     shouldCancel,
   });
   assertNotCanceled(shouldCancel);
@@ -356,6 +357,7 @@ export async function renderPublicationAssetJob({
       composition,
       onProgress: (progress, message) =>
         updateJob(jobId, { progress, message }),
+      onTelemetry: createGpuTelemetryLogger(jobId),
       shouldCancel,
     });
     assertNotCanceled(shouldCancel);
@@ -485,6 +487,24 @@ function assertNotCanceled(shouldCancel) {
   if (typeof shouldCancel === "function" && shouldCancel()) {
     throw createCanceledJobError();
   }
+}
+
+function createGpuTelemetryLogger(jobId) {
+  let logged = false;
+  return (event) => {
+    if (event?.phase !== "gpu-info" && event?.phase !== "gpu-fallback") return;
+    if (event.phase === "gpu-info") {
+      if (logged) return;
+      logged = true;
+      console.info(
+        `[render:${jobId}] GPU mode=${event.gpuModeRequested ?? "?"} resolved=${event.gpuModeResolved ?? "?"} fallback=${event.gpuFallbackReason ?? "-"} renderer="${event.renderer ?? "n/a"}"`,
+      );
+      return;
+    }
+    console.warn(
+      `[render:${jobId}] GPU fallback ${event.fromMode}->${event.toMode}: ${event.reason}`,
+    );
+  };
 }
 
 function publicationConstrainedMuxSettings(settings, preset, duration) {
