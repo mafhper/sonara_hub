@@ -1,48 +1,15 @@
 import fssync from "node:fs";
-import { spawnSync } from "node:child_process";
 import ffmpegStaticPath from "ffmpeg-static";
 
 export const FFMPEG_MISSING_CODE = "FFMPEG_MISSING";
 export const FFMPEG_PROCESS_FAILED_CODE = "FFMPEG_PROCESS_FAILED";
 export const FFMPEG_OUTPUT_INVALID_CODE = "FFMPEG_OUTPUT_INVALID";
 
-export function resolveFfmpegPath(candidate) {
-  if (candidate === undefined) {
-    const configuredPath = String(process.env.SONARA_FFMPEG_PATH ?? "").trim();
-    if (configuredPath) {
-      return assertFfmpegPath(configuredPath);
-    }
-    const systemPath = resolveSystemFfmpegPath();
-    if (systemPath) return systemPath;
-    return assertFfmpegPath(ffmpegStaticPath);
-  }
-  return assertFfmpegPath(candidate);
-}
-
-function assertFfmpegPath(candidate) {
+export function resolveFfmpegPath(candidate = ffmpegStaticPath) {
   if (!candidate || !fssync.existsSync(candidate)) {
     throw createFfmpegMissingError(candidate);
   }
   return candidate;
-}
-
-function resolveSystemFfmpegPath() {
-  const locator = process.platform === "win32" ? "where.exe" : "which";
-  try {
-    const result = spawnSync(locator, ["ffmpeg"], {
-      encoding: "utf8",
-      windowsHide: true,
-    });
-    if (result.status !== 0) return null;
-    return (
-      String(result.stdout ?? "")
-        .split(/\r?\n/u)
-        .map((value) => value.trim())
-        .find((value) => value && fssync.existsSync(value)) ?? null
-    );
-  } catch {
-    return null;
-  }
 }
 
 export function createFfmpegMissingError(candidate = ffmpegStaticPath) {
