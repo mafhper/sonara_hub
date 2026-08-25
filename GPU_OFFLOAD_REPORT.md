@@ -68,16 +68,9 @@ Estado: 368 testes verdes, build ok, zero mudança de comportamento sem opt-in.
 
 ## 6. Caminhos propostos (ordenados por alavancagem)
 
-### 6.1 Substituir MediaRecorder por WebCodecs VideoEncoder com encode de hardware ⭐ principal
+### 6.1 Substituir MediaRecorder por WebCodecs VideoEncoder com encode de hardware ⚠️ rebaixada após sonda (ver §7)
 
-`VideoEncoder` (WebCodecs, habilitado por padrão no Chromium atual) expõe encoders de **hardware** da placa (no Windows/Media Foundation → blocos VCN da AMD: H.264, HEVC e **AV1** na RX 7600). Plano:
-
-1. Na página de render: `VideoEncoder.isConfigSupported({ codec: 'avc1.640033'|'hev1...'|'av01...', hardwareAcceleration: 'prefer-hardware' })` para escolher o melhor disponível (sonda já existe como padrão no repo: `probe-recorder.mjs`).
-2. Por frame: `new VideoFrame(canvas, { timestamp })` → `encoder.encode(frame)` — **elimina `captureStream(0)`, `requestFrame()` e o MediaRecorder** (e possivelmente a necessidade de `--disable-gpu-compositing`, devolvendo composição à GPU).
-3. Mux dos chunks com um muxer JS leve (`mp4-muxer`) → MP4 intermediário → FFmpeg apenas re-encoda/insere áudio como hoje.
-4. Fallback ladder: AV1 hw → HEVC hw → H.264 hw → pipeline atual (VP9 SW).
-
-Impacto esperado: remove o item (3) — provavelmente o maior bloco de CPU — da equação e destrava captura mais rápida que tempo-real. Riscos: controle de bitrate/qualidade do encoder hw, timestamps monotônicos, color space (BT.709 tag), e validação de A/V sync pós-mux. Critério de sucesso: draw+pacing total < 60% do baseline; CPU do processo renderer < 40%; GPU Video Encode > 20% no Gerenciador de Tarefas.
+`VideoEncoder` (WebCodecs) existe e funciona nos builds usados, porém **nunca aciona o encoder de hardware da RX 7600 neste ambiente**: `prefer-hardware` cai silenciosamente para software (openh264) — provado pelo contador `engtype_VideoEncode` em 0% durante encodes longos, em todas as variantes testadas (canal chromium/msedge × headless/headed). A rota de hardware real acessível na máquina continua sendo o **`h264_amf` do FFmpeg** (API nativa AMD, já integrada ao estágio de mux).
 
 ### 6.2 Política de concorrência consciente de custo por frame
 
@@ -99,9 +92,55 @@ A matriz reprovou AMF em clipes de 2 s (custo fixo de setup domina). Em vídeos 
 - `OffscreenCanvas` em worker para desafogar main thread (complexidade alta, ganho incerto).
 - Revisar flags de launch sob WebCodecs (composição GPU reativada pode reduzir cópias).
 
-## 7. Experimento imediato sugerido (sonda WebCodecs)
+## 7. Resultados da sonda WebCodecs (2026-08-24)
 
-Estender `.dev/gpu-plus/probe-recorder.mjs`: página Playwright que lista configs suportadas via `VideoEncoder.isConfigSupported` para avc1/hev1/av01 com `prefer-hardware`, codifica 300 frames de um canvas animado e reporta: tempo total, fps efetivo, `encoder.state`, tamanho de saída e uso de GPU/CPU do processo. Isso responde em ~30 min de trabalho se 6.1 tem pernas — antes de qualquer refactor do pipeline.
+Sondas executadas localmente (scripts em `.dev/gpu-plus/probe-*.mjs`, gitignored). Configuração: 1080p, canvas animado, bitrate 12 Mbps.
+
+### 7.1 Disponibilidade da API
+
+| Binário                                                | `VideoEncoder`                                      | Observação                                                                                        |
+| ------------------------------------------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Playwright headless shell (`chromium.launch()` padrão) | ausente em `about:blank`; **presente em `file://`** | API é `[SecureContext]` — e o renderer de produção carrega via `file://`, que É contexto seguro ✓ |
+| Canal `chromium` (build completo) / `msedge`           | idem                                                | Comportamento idêntico                                                                            |
+
+Causa-raiz do primeiro "undefined": avaliar a página em `about:blank` (não-seguro). Nada relacionado às flags de launch.
+
+### 7.2 Encode real (300 frames, 1080p, 12 Mbps)
+
+| Run                                | fps      | Saída                  | Nota                                                        |
+| ---------------------------------- | -------- | ---------------------- | ----------------------------------------------------------- |
+| h264 `prefer-hardware`             | 49–71    | 8 560 KB               | bytes idênticos ao sw → fallback silencioso                 |
+| h264 software                      | 71,8     | 8 560 KB               | openh264                                                    |
+| VP9 software (MediaRecorder atual) | 79–40,8* | ~4 900 KB              | baseline do pipeline                                        |
+| AV1 software                       | 22–26    | 2 762 KB               | 3× menor que h264; lento                                    |
+| HEVC hw (`prefer-hardware`)        | —        | "ok" no canal chromium | provavelmente também fallback (não verificado por contador) |
+
+\* variação entre builds shell/completo.
+
+### 7.3 Verificação definitiva por contador de GPU
+
+Durante encode longo (1 500 frames @1080p, ~21 s) com `prefer-hardware`, amostrando `Win32_GPUEngine` a cada 500 ms:
+
+| Variante          | `engtype_VideoEncode` máx | 3D máx | fps  |
+| ----------------- | ------------------------- | ------ | ---- |
+| chromium headless | **0%**                    | 9%     | 71   |
+| msedge headless   | **0%**                    | 8%     | 86,6 |
+| chromium headed   | **0%**                    | 9%     | 70,8 |
+| msedge headed     | **0%**                    | 10%    | 84,5 |
+
+**Conclusão: o bloco VCN da RX 7600 nunca é acionado pelo Chromium nesta máquina** — nem headless, nem headed, nem nos canais completos. O Media Foundation H.264/HEVC não é oferecido ao renderer (limitação conhecida de MFTs AMD com apps fora de whitelist, ou ausência de integração nesses builds). A via WebCodecs-hw fica registrada como inviável aqui; reavaliar apenas se o driver/integração mudar.
+
+### 7.4 Achados colaterais úteis
+
+- **Bisseção de flags**: no canal completo, `--disable-gpu-compositing` quebra até a _criação_ de encoders ("Encoder creation error"); sem ela, configure() "funciona" — mas caindo para software. As demais flags são neutras.
+- `isConfigSupported({supported:true})` **não garante** hardware; só medição de contador (ou bytes idênticos entre pref/no-pref) revela o fallback.
+- AV1-SW produz intermediário ~3× menor (menos I/O de flush), ao custo de ~2× menos throughput — possível troca se o gargalo passar a ser disco.
+
+### 7.5 Implicações para os caminhos propostos
+
+- §6.1 (WebCodecs hw): **inviável nesta máquina hoje**. Alternativa equivalente de hardware: usar o `h264_amf` já disponível no FFmpeg.
+- Novo experimento prioritário (baixo custo): rodar jobs longos reais com preferência local `Codificador FFmpeg = Hardware` (AMF) e comparar o estágio `ffmpeg-mux` vs libx264 — dados do painel de desempenho já dão o baseline.
+- §6.3 (CPU por frame na cena) sobe de prioridade: com o encode por software em qualquer cenário de captura, reduzir CPU/frame é a única alavanca durante a captura.
 
 ## 8. Apêndice — como reproduzir as medições
 
