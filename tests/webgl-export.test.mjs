@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import test from "node:test";
 import {
   assertWebmDecodeReport,
@@ -8,8 +8,11 @@ import {
   createWebglRenderSession,
   createGpuHardwareUnavailableError,
   describeSceneRenderError,
+  evaluateFrameCaptureCount,
+  countWebmVideoFrames,
   isHardwareWebglRenderer,
   isSoftwareWebglRenderer,
+  minCapturedFrameRatio,
   normalizeGpuInfo,
   normalizeGpuMode,
   normalizeWebmValidationError,
@@ -237,6 +240,9 @@ test("canvas exporter requests deterministic frames instead of relying on headle
     /const remainingDelayMs =\s*captureFrameDelayMs - \(performance\.now\(\) - renderStarted\)/,
   );
   assert.match(html, /await delay\(pacingWaitMs\)/);
+  // O yield por frame é incondicional: sem ele o MediaRecorder perde frames
+  // (ou emite WebM vazio) quando o draw consome o orçamento inteiro.
+  assert.doesNotMatch(html, /if \(pacingWaitMs > 0\)/u);
   assert.match(html, /pacingMode: "legacy"/);
   assert.match(html, /targetDelayMs/);
   assert.match(html, /reportScenePhase/);
@@ -382,4 +388,66 @@ test("canvas exporter wraps WebGL context loss with copyable diagnostics", () =>
   assert.match(error.detail, /Preset: Nuvens amplas/);
   assert.match(error.detail, /Renderer: volumetric-clouds/);
   assert.match(error.detail, /1920x1080 @ 12 fps/);
+});
+
+test("frame capture evaluation fails only below the minimum ratio", () => {
+  assert.equal(minCapturedFrameRatio, 0.95);
+  assert.equal(
+    evaluateFrameCaptureCount({ expectedFrames: 4650, capturedFrames: 4650 })
+      .ok,
+    true,
+  );
+  assert.equal(
+    evaluateFrameCaptureCount({ expectedFrames: 1000, capturedFrames: 960 }).ok,
+    true,
+  );
+  const failing = evaluateFrameCaptureCount({
+    expectedFrames: 4650,
+    capturedFrames: 2409,
+  });
+  assert.equal(failing.ok, false);
+  assert.equal(failing.ratio, 0.5181);
+  assert.equal(
+    evaluateFrameCaptureCount({ expectedFrames: 0, capturedFrames: 0 }).ok,
+    true,
+  );
+  assert.equal(
+    evaluateFrameCaptureCount({ expectedFrames: 500, capturedFrames: "x" }).ok,
+    false,
+  );
+});
+
+test("webm frame counter parses the last progress frame count", () => {
+  const stderr = [
+    "frame= 120 fps=30 q=-0.0 size=N/A time=00:00:04.00 bitrate=N/A speed=1x",
+    "frame= 2409 fps=31 q=-0.0 Lsize=N/A time=00:01:20.33 bitrate=N/A speed=1x",
+  ].join("\n");
+  let receivedArgs = null;
+  const fakeRunner = (file, args) => {
+    receivedArgs = { file, args };
+    return { status: 0, stdout: "", stderr };
+  };
+  const frames = countWebmVideoFrames("clip.webm", fakeRunner);
+  assert.equal(frames, 2409);
+  assert.equal(receivedArgs.args.includes("-map"), true);
+
+  assert.throws(
+    () =>
+      countWebmVideoFrames("clip.webm", () => ({
+        status: 0,
+        stdout: "",
+        stderr: "sem contagem",
+      })),
+    /Contagem de frames/u,
+  );
+
+  assert.throws(
+    () =>
+      countWebmVideoFrames("clip.webm", () => ({
+        status: 1,
+        stdout: "",
+        stderr: "Some error\nframe=   10\n",
+      })),
+    /pode ser decodificada/u,
+  );
 });

@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright";
@@ -718,6 +718,28 @@ async function runWebglRenderAttempt(options, size, attempt) {
     await timedTelemetryPhase(emitTelemetry, "webm-validation", () =>
       assertValidWebm(outputPath, bytesWritten),
     );
+    const expectedFrames = Math.max(
+      2,
+      Math.ceil(duration * (settings.webglFps ?? 24)),
+    );
+    const capturedFrames = await timedTelemetryPhase(
+      emitTelemetry,
+      "capture-frame-count",
+      () => countWebmVideoFrames(outputPath),
+    );
+    emitTelemetry("capture-frame-count-result", {
+      expectedFrames,
+      capturedFrames,
+    });
+    const evaluation = evaluateFrameCaptureCount({
+      expectedFrames,
+      capturedFrames,
+    });
+    if (!evaluation.ok) {
+      throw createWebglOutputInvalidError(
+        `Captura perdeu frames: ${capturedFrames}/${expectedFrames} (${Math.round(evaluation.ratio * 100)}%).`,
+      );
+    }
   } catch (error) {
     // Output-invalid failures are much easier to root-cause with the page
     // console/pageerror trail attached (for example, empty WebM on hardware
@@ -1053,10 +1075,12 @@ export function buildRendererHtml({
         const pacingWaitMs = capturePacingAdaptive
           ? Math.max(0, remainingDelayMs)
           : captureFrameDelayMs;
+        // Sempre devolve uma volta de event loop ao browser: sem isso, quando
+        // o draw consome o orçamento inteiro do frame o MediaRecorder perde
+        // turnos de CPU e descarta frames silenciosamente (ou emite WebM vazio
+        // em software).
         const delayStarted = performance.now();
-        if (pacingWaitMs > 0) {
-          await delay(pacingWaitMs);
-        }
+        await delay(pacingWaitMs);
         captureMetrics.delayMs += performance.now() - delayStarted;
       }
       await reportPhase("canvas-frame-loop-complete", {
@@ -1174,6 +1198,48 @@ export function assertWebmDecodeReport(stderr) {
       "Cena exportou um WebM truncado ou invalido.",
     );
   }
+}
+
+export const minCapturedFrameRatio = 0.95;
+
+export function evaluateFrameCaptureCount({
+  expectedFrames,
+  capturedFrames,
+  minRatio = minCapturedFrameRatio,
+}) {
+  const expected = Math.max(0, Math.floor(Number(expectedFrames) || 0));
+  const captured = Math.max(0, Math.floor(Number(capturedFrames) || 0));
+  if (!expected) return { ok: true, ratio: 1 };
+  const ratio = captured / expected;
+  return { ok: ratio >= minRatio, ratio: Number(ratio.toFixed(4)) };
+}
+
+export function countWebmVideoFrames(outputPath, runner = spawnSync) {
+  const ffmpegPath = resolveFfmpegPath();
+  const result = runner(
+    ffmpegPath,
+    ["-hide_banner", "-i", outputPath, "-map", "0:v:0", "-f", "null", "-"],
+    { encoding: "utf8", maxBuffer: 32 * 1024 * 1024, windowsHide: true },
+  );
+  if (result.error) {
+    const normalized = normalizeFfmpegSpawnError(result.error, ffmpegPath);
+    normalized.code ??= FFMPEG_PROCESS_FAILED_CODE;
+    throw normalized;
+  }
+  const stderr = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  assertWebmDecodeReport(stderr);
+  if (result.status !== 0) {
+    throw createWebglOutputInvalidError(
+      `Cena WebM não pode ser decodificada: ${stderr.slice(-1200)}`,
+    );
+  }
+  const matches = [...stderr.matchAll(/frame=\s*(\d+)/gu)];
+  if (!matches.length) {
+    throw createWebglOutputInvalidError(
+      "Contagem de frames do WebM intermediário indisponível.",
+    );
+  }
+  return Number(matches.at(-1)[1]);
 }
 
 function assertWebmDecodable(outputPath) {
