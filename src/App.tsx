@@ -284,6 +284,24 @@ import {
   savePodcastEnabled,
 } from "./features/audio/podcastPreference";
 import {
+  normalizeRenderPreferencePayload,
+  renderPreferenceFieldLabels,
+  renderPreferenceOptions,
+  renderPreferenceSourceLabels,
+  type RenderPreferenceField,
+  type RenderPreferencesPayload,
+} from "./features/render/renderPreferences";
+import {
+  describeSystemCapabilities,
+  type SystemCapabilities,
+} from "./features/render/systemCapabilities";
+import {
+  formatWorkflowDuration,
+  renderExportPipelineStats,
+  renderExportStageStats,
+  type WorkflowBenchmarkSummary,
+} from "./features/render/performanceSummary";
+import {
   type ProjectMetadataDefaults,
   finalizeImportedTracks,
   metadataFromAudio,
@@ -516,6 +534,14 @@ function App() {
   const [pendingCoverTrackId, setPendingCoverTrackId] = useState("");
   const [jobs, setJobs] = useState<RenderJob[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [renderPreferences, setRenderPreferences] =
+    useState<RenderPreferencesPayload | null>(null);
+  const [renderPreferencesBusy, setRenderPreferencesBusy] = useState(false);
+  const [renderPreferencesMessage, setRenderPreferencesMessage] = useState("");
+  const [systemCapabilities, setSystemCapabilities] =
+    useState<SystemCapabilities | null>(null);
+  const [performanceSummary, setPerformanceSummary] =
+    useState<WorkflowBenchmarkSummary | null>(null);
   const {
     effectiveTheme,
     setThemePreference,
@@ -1161,9 +1187,95 @@ function App() {
     }
   }
 
+  async function loadRenderPreferences() {
+    try {
+      const payload = await fetchJson<RenderPreferencesPayload>(
+        "/api/render-preferences",
+      );
+      setRenderPreferences(normalizeRenderPreferencePayload(payload));
+    } catch (reason) {
+      setRenderPreferencesMessage(
+        localApiMessage(reason, "carregar preferências de renderização"),
+      );
+    }
+  }
+
+  async function loadSystemCapabilities() {
+    try {
+      setSystemCapabilities(
+        await fetchJson<SystemCapabilities>("/api/system-capabilities"),
+      );
+    } catch {
+      // Capabilities are informational; keep the section usable without them.
+    }
+  }
+
+  async function loadPerformanceSummary() {
+    try {
+      const report = await fetchJson<{ workflow: WorkflowBenchmarkSummary }>(
+        "/api/dev/benchmarks?workflow=1",
+      );
+      setPerformanceSummary(report.workflow ?? null);
+    } catch {
+      // Performance history is informational; keep the section usable.
+    }
+  }
+
+  async function updateRenderPreferences(
+    patch: Partial<Record<RenderPreferenceField, string>>,
+  ) {
+    if (!renderPreferences || renderPreferencesBusy) return;
+    const previous = renderPreferences;
+    const next: RenderPreferencesPayload = {
+      preferences: { ...previous.preferences, ...patch },
+      sources: {
+        ...previous.sources,
+        ...Object.fromEntries(
+          Object.entries(patch).map(([field, value]) => [
+            field,
+            value ? "preference" : "default",
+          ]),
+        ),
+      },
+    };
+    setRenderPreferences(next);
+    setRenderPreferencesBusy(true);
+    setRenderPreferencesMessage("");
+    try {
+      const payload = await fetchJson<RenderPreferencesPayload>(
+        "/api/render-preferences",
+        {
+          body: JSON.stringify({
+            gpuMode: next.preferences.gpuMode,
+            capturePacing: next.preferences.capturePacing,
+            encoderMode: next.preferences.encoderMode,
+          }),
+          headers: { "content-type": "application/json" },
+          method: "PUT",
+        },
+      );
+      setRenderPreferences(normalizeRenderPreferencePayload(payload));
+      setRenderPreferencesMessage(
+        "Preferência aplicada; vale para os próximos renders.",
+      );
+    } catch (reason) {
+      setRenderPreferences(previous);
+      setRenderPreferencesMessage(
+        localApiMessage(reason, "salvar preferência de renderização"),
+      );
+    } finally {
+      setRenderPreferencesBusy(false);
+    }
+  }
+
   async function openLocalSettings() {
     setSettingsOpen(true);
-    await loadStorageUsage();
+    await Promise.all([
+      loadStorageUsage(),
+      loadRenderPreferences(),
+      loadSystemCapabilities(),
+      loadPerformanceSummary(),
+    ]);
   }
 
   async function clearCompletedJobs(
@@ -5145,6 +5257,137 @@ function App() {
                     </button>
                   ))}
                 </div>
+              </section>
+              <section className="settings-section settings-section-stack">
+                <div>
+                  <h3>Renderização</h3>
+                  <p>
+                    Distribui a carga entre GPU e CPU nos renders locais.
+                    Preferências salvas valem para os próximos renders e
+                    sobrepõem as variáveis de ambiente SONARA_*.
+                  </p>
+                  <small>
+                    {renderPreferences?.preferences.updatedAt
+                      ? `Preferências salvas em ${new Date(renderPreferences.preferences.updatedAt).toLocaleString()}`
+                      : "Sem preferências salvas ainda."}
+                  </small>
+                </div>
+                <div
+                  aria-label="Capacidades detectadas nesta máquina"
+                  role="group"
+                >
+                  {(systemCapabilities
+                    ? describeSystemCapabilities(systemCapabilities)
+                    : ["Detectando capacidades da máquina..."]
+                  ).map((line) => (
+                    <p className="helper-copy" key={line}>
+                      {line}
+                    </p>
+                  ))}
+                </div>
+                {performanceSummary?.enabled &&
+                  performanceSummary.sampleCount > 0 && (
+                    <div aria-label="Desempenho dos renders locais">
+                      <p className="helper-copy">
+                        Desempenho dos últimos {performanceSummary.sampleCount}{" "}
+                        jobs locais:
+                      </p>
+                      {(() => {
+                        const pipeline =
+                          renderExportPipelineStats(performanceSummary);
+                        return pipeline ? (
+                          <p className="helper-copy">
+                            Exportação de vídeo completa: mediana{" "}
+                            {formatWorkflowDuration(pipeline.medianMs)} · p95{" "}
+                            {formatWorkflowDuration(pipeline.p95Ms)} (
+                            {pipeline.sampleCount} amostras)
+                          </p>
+                        ) : null;
+                      })()}
+                      {renderExportStageStats(performanceSummary).map(
+                        (stage) => (
+                          <p
+                            className="helper-copy"
+                            key={`${stage.pipeline}:${stage.stage ?? stage.label}`}
+                          >
+                            {stage.label}: mediana{" "}
+                            {formatWorkflowDuration(stage.medianMs)} · p95{" "}
+                            {formatWorkflowDuration(stage.p95Ms)} (
+                            {stage.sampleCount} amostras)
+                          </p>
+                        ),
+                      )}
+                    </div>
+                  )}
+                <button
+                  className="quiet-action settings-action"
+                  disabled={
+                    renderPreferencesBusy ||
+                    !renderPreferences ||
+                    !systemCapabilities
+                  }
+                  type="button"
+                  onClick={() =>
+                    void updateRenderPreferences({
+                      gpuMode: systemCapabilities?.recommendations.gpuMode,
+                      capturePacing:
+                        systemCapabilities?.recommendations.capturePacing,
+                      encoderMode:
+                        systemCapabilities?.recommendations.encoderMode,
+                    })
+                  }
+                >
+                  Usar recomendações do sistema
+                </button>
+                {(
+                  Object.keys(
+                    renderPreferenceOptions,
+                  ) as RenderPreferenceField[]
+                ).map((field) => (
+                  <div className="setup-field" key={field}>
+                    <span className="setup-field-label">
+                      {renderPreferenceFieldLabels[field]}
+                    </span>
+                    <div className="setup-field-row">
+                      <select
+                        aria-label={renderPreferenceFieldLabels[field]}
+                        className="setup-project-select"
+                        disabled={renderPreferencesBusy || !renderPreferences}
+                        value={renderPreferences?.preferences[field] ?? ""}
+                        onChange={(event) =>
+                          void updateRenderPreferences({
+                            [field]: event.target.value,
+                          })
+                        }
+                      >
+                        {renderPreferenceOptions[field].map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <p className="helper-copy">
+                      Origem:{" "}
+                      {
+                        renderPreferenceSourceLabels[
+                          renderPreferences?.sources[field] ?? "default"
+                        ]
+                      }{" "}
+                      ·{" "}
+                      {
+                        renderPreferenceOptions[field].find(
+                          (option) =>
+                            option.value ===
+                            (renderPreferences?.preferences[field] ?? ""),
+                        )?.description
+                      }
+                    </p>
+                  </div>
+                ))}
+                {renderPreferencesMessage && (
+                  <small>{renderPreferencesMessage}</small>
+                )}
               </section>
               <section className="settings-section">
                 <div>

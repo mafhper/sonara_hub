@@ -17,7 +17,7 @@ import {
 } from "./job-service.mjs";
 import { renderCanvasSize } from "./render-profile.mjs";
 import { safeSvgBuffer } from "./svg-safety.mjs";
-import { buildWebglMuxArgs } from "./video-mux.mjs";
+import { buildWebglMuxPlan } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import {
   createFfmpegProcessError,
@@ -46,6 +46,7 @@ export async function renderVideoJob({
   workDir,
   updateJob,
   shouldCancel,
+  onGpuTelemetryLine,
 }) {
   const stages = createJobStageTracker({ jobId, updateJob });
   assertNotCanceled(shouldCancel);
@@ -131,11 +132,13 @@ export async function renderVideoJob({
       textSettings: settings.compositionSettings.textSettings,
     },
     onProgress: (progress, message) => updateJob(jobId, { progress, message }),
+    onTelemetry: createPipelineTelemetryLogger(jobId, {
+      emit: onGpuTelemetryLine,
+    }),
     shouldCancel,
   });
   assertNotCanceled(shouldCancel);
-  stages.enter("ffmpeg-mux", { progress: 92, message: "Finalizando mux" });
-  const muxArgs = buildWebglMuxArgs({
+  const muxPlan = buildWebglMuxPlan({
     audioPath,
     duration,
     metadata,
@@ -145,7 +148,16 @@ export async function renderVideoJob({
     subtitlePath,
     webglVideoPath,
   });
-  await runFfmpeg(muxArgs, duration, (progress, message) =>
+  stages.enter("ffmpeg-mux", {
+    progress: 92,
+    message: "Finalizando mux",
+    encoder: muxPlan.encoder.encoder,
+    encoderModeRequested: muxPlan.encoder.modeRequested,
+    encoderModeResolved: muxPlan.encoder.modeResolved,
+    encoderProfile: muxPlan.encoder.profile,
+    encoderFallbackReason: muxPlan.encoder.fallbackReason,
+  });
+  await runFfmpeg(muxPlan.args, duration, (progress, message) =>
     updateJob(jobId, {
       progress: Math.max(92, progress),
       message: message.replace("Renderizando", "Finalizando"),
@@ -213,6 +225,7 @@ export async function renderPublicationAssetJob({
   workDir,
   updateJob,
   shouldCancel,
+  onGpuTelemetryLine,
 }) {
   const stages = createJobStageTracker({ jobId, updateJob });
   assertNotCanceled(shouldCancel);
@@ -348,10 +361,12 @@ export async function renderPublicationAssetJob({
       composition,
       onProgress: (progress, message) =>
         updateJob(jobId, { progress, message }),
+      onTelemetry: createPipelineTelemetryLogger(jobId, {
+        emit: onGpuTelemetryLine,
+      }),
       shouldCancel,
     });
     assertNotCanceled(shouldCancel);
-    stages.enter("ffmpeg-mux", { progress: 92, message: "Finalizando mux" });
     // Burn the chosen lyrics onto the clip, honoring the position/style preset.
     // Before this, lyrics only reached the data manifest and never the video.
     const clipLyricsText = publicationLyricsTextForSettings(metadata.lyrics, {
@@ -376,7 +391,7 @@ export async function renderPublicationAssetJob({
             style: lyricsStyle,
           })
         : null;
-    const muxArgs = buildWebglMuxArgs({
+    const muxPlan = buildWebglMuxPlan({
       audioPath,
       audioStartSeconds: clipStart,
       duration,
@@ -387,7 +402,16 @@ export async function renderPublicationAssetJob({
       subtitlePath,
       webglVideoPath,
     });
-    await runFfmpeg(muxArgs, duration, (progress, message) =>
+    stages.enter("ffmpeg-mux", {
+      progress: 92,
+      message: "Finalizando mux",
+      encoder: muxPlan.encoder.encoder,
+      encoderModeRequested: muxPlan.encoder.modeRequested,
+      encoderModeResolved: muxPlan.encoder.modeResolved,
+      encoderProfile: muxPlan.encoder.profile,
+      encoderFallbackReason: muxPlan.encoder.fallbackReason,
+    });
+    await runFfmpeg(muxPlan.args, duration, (progress, message) =>
       updateJob(jobId, {
         progress: Math.max(92, progress),
         message: message.replace("Renderizando", "Finalizando"),
@@ -470,6 +494,67 @@ function assertNotCanceled(shouldCancel) {
     throw createCanceledJobError();
   }
 }
+
+const defaultPipelineTelemetryEmit = (line, level) => {
+  if (level === "warn") console.warn(line);
+  else console.info(line);
+};
+
+function formatPipelineMs(ms) {
+  return `${Math.round(ms)}ms`;
+}
+
+// Pipeline Profiler (P0): decomposes the webgl-render stage into draw,
+// requestFrame and pacing so real-content bottlenecks are measurable without
+// changing pipeline behavior.
+export function createPipelineTelemetryLogger(
+  jobId,
+  { emit = defaultPipelineTelemetryEmit } = {},
+) {
+  let gpuLogged = false;
+  return (event) => {
+    const phase = event?.phase;
+    if (phase === "gpu-info") {
+      if (gpuLogged) return;
+      gpuLogged = true;
+      emit(
+        `[render:${jobId}] GPU mode=${event.gpuModeRequested ?? "?"} resolved=${event.gpuModeResolved ?? "?"} fallback=${event.gpuFallbackReason ?? "-"} renderer="${event.renderer ?? "n/a"}"`,
+        "info",
+      );
+      return;
+    }
+    if (phase === "gpu-fallback") {
+      emit(
+        `[render:${jobId}] GPU fallback ${event.fromMode}->${event.toMode}: ${event.reason}`,
+        "warn",
+      );
+      return;
+    }
+    if (phase === "browser:canvas-frame-loop-complete") {
+      const frames = Number(event.totalFrames) || 0;
+      const draw = Number(event.renderMs) || 0;
+      const requestFrame = Number(event.requestFrameMs) || 0;
+      const pacing = Number(event.delayMs) || 0;
+      const target = Number(event.targetDelayMs) || 0;
+      const perFrame = (ms) =>
+        frames > 0 ? `${(ms / frames).toFixed(1)}ms/f` : "n/a";
+      emit(
+        `[render:${jobId}] CAPTURE frames=${frames} draw=${formatPipelineMs(draw)} (${perFrame(draw)}) requestFrame=${formatPipelineMs(requestFrame)} (${perFrame(requestFrame)}) pacing=${formatPipelineMs(pacing)} (${perFrame(pacing)}, target=${target}ms/f) mode=${event.pacingMode ?? "legacy"}`,
+        "info",
+      );
+      return;
+    }
+    if (phase === "browser:chunks-flush-complete") {
+      const bytes = Number(event.chunkBytes) || 0;
+      emit(
+        `[render:${jobId}] RECORDER chunks=${event.chunks ?? "?"} bytes=${(bytes / 1048576).toFixed(1)}MB`,
+        "info",
+      );
+    }
+  };
+}
+
+export const createGpuTelemetryLogger = createPipelineTelemetryLogger;
 
 function publicationConstrainedMuxSettings(settings, preset, duration) {
   const maxFileSizeBytes = Number(preset?.constraints?.maxFileSizeBytes);

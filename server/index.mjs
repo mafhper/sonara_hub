@@ -52,6 +52,15 @@ import {
 } from "./job-payload.mjs";
 import { createTempFileRegistry } from "./temp-files.mjs";
 import { runRenderWorkerJob } from "./job-worker.mjs";
+import { createGpuTelemetryLogger } from "./render-job-core.mjs";
+import { installCrashReporter } from "./crash-logger.mjs";
+import {
+  applyRenderPreferencesToEnvironment,
+  describeRenderPreferenceSources,
+  loadRenderPreferences,
+  saveRenderPreferences,
+} from "./render-preferences.mjs";
+import { readSystemCapabilities } from "./system-capabilities.mjs";
 import { buildWebglMuxArgs } from "./video-mux.mjs";
 import { validateVideoAudioAnalysis } from "./video-quality.mjs";
 import { resolveServerPort } from "./server-port.mjs";
@@ -150,10 +159,20 @@ const customPresetPath = path.join(
   "custom-presets.local.json",
 );
 const jobHistoryPath = path.join(rootDir, "data", "jobs.local.json");
+const crashReportsDir = path.join(rootDir, ".dev", "crashes");
+installCrashReporter(crashReportsDir);
+const renderPreferencesPath = path.join(
+  rootDir,
+  "data",
+  "render-preferences.local.json",
+);
 const port = resolveServerPort();
 const systemParallelism = Math.max(1, availableParallelism());
 const audioJobConcurrency = resolveAudioJobConcurrency(systemParallelism);
 const renderJobConcurrency = resolveRenderJobConcurrency(systemParallelism);
+
+let renderPreferences = await loadRenderPreferences(renderPreferencesPath);
+applyRenderPreferencesToEnvironment(renderPreferences);
 
 await Promise.all([
   fs.mkdir(uploadDir, { recursive: true }),
@@ -245,6 +264,44 @@ app.put("/api/dev/benchmarks/cleanup-policy", async (req, res, next) => {
         req.body,
       ),
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/render-preferences", async (req, res, next) => {
+  try {
+    res.json({
+      preferences: renderPreferences,
+      sources: describeRenderPreferenceSources(renderPreferences),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/render-preferences", async (req, res, next) => {
+  try {
+    const saved = await saveRenderPreferences(renderPreferencesPath, req.body);
+    renderPreferences = saved;
+    applyRenderPreferencesToEnvironment(renderPreferences);
+    res.json({
+      preferences: renderPreferences,
+      sources: describeRenderPreferenceSources(renderPreferences),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/system-capabilities", async (req, res, next) => {
+  try {
+    res.json(
+      await readSystemCapabilities({
+        renderConcurrency: renderJobConcurrency,
+        audioConcurrency: audioJobConcurrency,
+      }),
+    );
   } catch (error) {
     next(error);
   }
@@ -2009,6 +2066,7 @@ async function renderVideo({
       textSettings: settings.compositionSettings.textSettings,
     },
     onProgress: (progress, message) => updateJob(jobId, { progress, message }),
+    onTelemetry: createGpuTelemetryLogger(jobId),
     shouldCancel: () => {
       const job = jobs.get(jobId);
       return Boolean(job?.cancelRequested) || job?.status === "canceled";
@@ -2186,6 +2244,7 @@ async function renderPublicationAsset({
       composition,
       onProgress: (progress, message) =>
         updateJob(jobId, { progress, message }),
+      onTelemetry: createGpuTelemetryLogger(jobId),
       shouldCancel: () => {
         const job = jobs.get(jobId);
         return Boolean(job?.cancelRequested) || job?.status === "canceled";

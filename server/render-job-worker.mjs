@@ -52,12 +52,15 @@ async function runWorkerMessage({ kind, jobId, payload }) {
   };
 
   try {
+    const onGpuTelemetryLine = (line, level) =>
+      send({ type: "gpu-log", jobId, line, level });
     if (kind === "video-render") {
       await renderVideoJob({
         ...payload,
         jobId,
         updateJob,
         shouldCancel: () => cancelRequested,
+        onGpuTelemetryLine,
       });
     } else if (kind === "publication-asset") {
       await renderPublicationAssetJob({
@@ -65,6 +68,7 @@ async function runWorkerMessage({ kind, jobId, payload }) {
         jobId,
         updateJob,
         shouldCancel: () => cancelRequested,
+        onGpuTelemetryLine,
       });
     } else {
       throw workerError(`Tipo de job não suportado pelo worker: ${kind}`);

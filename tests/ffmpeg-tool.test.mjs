@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fssync from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
@@ -53,4 +54,10 @@ test("createFfmpegProcessError exposes stable mux and validation codes", () => {
   assert.equal(validation.code, FFMPEG_OUTPUT_INVALID_CODE);
   assert.match(validation.message, /MP4 final inválido/);
   assert.match(validation.detail, /invalid mp4/);
+});
+
+test("resolveFfmpegPath falls back to the bundled static binary", () => {
+  const resolved = resolveFfmpegPath();
+  assert.equal(typeof resolved, "string");
+  assert.ok(fssync.existsSync(resolved));
 });
