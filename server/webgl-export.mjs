@@ -384,7 +384,7 @@ async function acquireWebglBrowser({ renderSession, requestedMode }) {
 }
 
 export async function renderWebglBackgroundVideo(options) {
-  const { size, onProgress, onTelemetry } = options;
+  const { size, onProgress, onTelemetry, onRenderHealth } = options;
   try {
     await runWebglRenderAttempt(options, size, 1);
   } catch (error) {
@@ -410,6 +410,9 @@ export async function renderWebglBackgroundVideo(options) {
     const retryable =
       error?.code === "WEBGL_CONTEXT_LOST" ||
       error?.code === "WEBGL_SHADER_ERROR";
+    if (error?.code === "WEBGL_CONTEXT_LOST") {
+      onRenderHealth?.({ type: "context-lost", reason: error.code });
+    }
     const reduced = reduceRenderSize(size);
     if (retryable && reduced) {
       onTelemetry?.({
@@ -518,6 +521,7 @@ async function runWebglRenderAttempt(options, size, attempt) {
     composition = {},
     onProgress,
     onTelemetry,
+    onRenderHealth,
     shouldCancel,
   } = options;
   const emitTelemetry = createWebglTelemetry(onTelemetry, attempt, size);
@@ -734,6 +738,13 @@ async function runWebglRenderAttempt(options, size, attempt) {
     const evaluation = evaluateFrameCaptureCount({
       expectedFrames,
       capturedFrames,
+    });
+    onRenderHealth?.({
+      type: "capture-frame-count",
+      expectedFrames,
+      capturedFrames,
+      ratio: evaluation.ratio,
+      ok: evaluation.ok,
     });
     if (!evaluation.ok) {
       throw createWebglOutputInvalidError(

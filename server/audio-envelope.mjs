@@ -3,6 +3,13 @@ import {
   normalizeFfmpegSpawnError,
   resolveFfmpegPath,
 } from "./ffmpeg-tool.mjs";
+import {
+  createCpuBudgetFromEnv,
+  ffmpegThreadArgs,
+  resolveFfmpegThreads,
+} from "./resource-budget.mjs";
+
+const envelopeCpuBudget = createCpuBudgetFromEnv();
 
 const emptyFrame = {
   energy: 0,
@@ -70,9 +77,14 @@ export async function sampleAudioEnvelope(audioPath, frameRate = 12) {
   const ffmpegPath = resolveFfmpegPath();
   const sampleRate = 8000;
   let stderr = "";
+  const allocation = resolveFfmpegThreads({
+    operation: "audio-envelope",
+    budget: envelopeCpuBudget,
+  });
   const child = spawn(
     ffmpegPath,
     [
+      ...ffmpegThreadArgs(allocation),
       "-v",
       "error",
       "-i",

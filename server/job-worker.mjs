@@ -28,6 +28,8 @@ export function runRenderWorkerJob({
   kind,
   onWorkerDone,
   onWorkerStart,
+  onResourceSample = null,
+  onRenderHealth = null,
   payload,
   timeoutMs = 45 * 60 * 1000,
   updateJob,
@@ -82,6 +84,7 @@ export function runRenderWorkerJob({
     child.stderr?.on("data", (chunk) => {
       stderr += chunk.toString();
     });
+    child.stdout?.on("data", (chunk) => teeBudgetLines(chunk.toString()));
 
     child.on("message", (message) => {
       if (!message || typeof message !== "object") return;
@@ -93,6 +96,14 @@ export function runRenderWorkerJob({
       }
       if (message.type === "stage" || message.type === "progress") {
         updateJob(jobId, message.patch ?? workerPatchFromMessage(message));
+        return;
+      }
+      if (message.type === "resource-sample") {
+        onResourceSample?.(message.jobId, message.sample);
+        return;
+      }
+      if (message.type === "render-health") {
+        onRenderHealth?.(message.jobId, message.event);
         return;
       }
       if (message.type === "result") {
@@ -254,6 +265,18 @@ function workerExitDetail({ exitCode, signal, stderr, stdout }) {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+let budgetLineBuffer = "";
+
+function teeBudgetLines(chunk) {
+  budgetLineBuffer += chunk;
+  let idx;
+  while ((idx = budgetLineBuffer.indexOf("\n")) >= 0) {
+    const line = budgetLineBuffer.slice(0, idx).trim();
+    budgetLineBuffer = budgetLineBuffer.slice(idx + 1);
+    if (line.includes("[cpu-budget]")) console.info(`[render] ${line}`);
+  }
 }
 
 function workerErrorMessage(code) {
