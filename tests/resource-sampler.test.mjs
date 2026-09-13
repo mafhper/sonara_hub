@@ -11,6 +11,7 @@ import {
   createWindowsGpuEngineUsageReader,
   p95,
   sanitizeResourceSample,
+  samplerIntervalFromEnv,
   vramReaderOptionsFromEnv,
 } from "../server/resource-sampler.mjs";
 
@@ -34,6 +35,24 @@ test("clampPct normaliza e não deixa percentual fora de 0..100", () => {
   assert.equal(clampPct(Number.NaN), 0);
   assert.equal(clampPct(Number("abc")), 0);
   assert.equal(clampPct("70"), 70);
+});
+
+test("samplerIntervalFromEnv mantém fallback e limita o intervalo a uma faixa segura", () => {
+  assert.equal(samplerIntervalFromEnv({}), 5000);
+  assert.equal(
+    samplerIntervalFromEnv({ SONARA_RESOURCE_SAMPLER_INTERVAL_MS: "250" }),
+    250,
+  );
+  assert.equal(
+    samplerIntervalFromEnv({ SONARA_RESOURCE_SAMPLER_INTERVAL_MS: "10" }),
+    5000,
+  );
+  assert.equal(
+    samplerIntervalFromEnv({
+      SONARA_RESOURCE_SAMPLER_INTERVAL_MS: "99999999",
+    }),
+    60000,
+  );
 });
 
 test("sanitizeResourceSample clampa percentuais e zera não-finitos", () => {
