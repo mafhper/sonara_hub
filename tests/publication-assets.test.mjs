@@ -40,6 +40,8 @@ test("publication presets cover social images and short clips", () => {
     "WhatsApp",
   );
   assert.equal(publicationAssetPresetById("whatsapp-status-clip").kind, "clip");
+  // CONTRATO OBSOLETO (PR2): lê maxDurationSeconds do preset como se fosse
+  // uma constraint rígida; será reformulado como default/recommendation.
   assert.equal(
     publicationAssetPresetById("instagram-story-clip").maxDurationSeconds,
     15,
@@ -121,6 +123,8 @@ test("publication text override scales, offsets, and hides text", () => {
 });
 
 test("publication clip duration is clamped globally and by preset", () => {
+  // CONTRATO OBSOLETO (PR2): este bloco documenta o clamp por preset como
+  // comportamento atual. Os limites de duração virarão recommendations no PR2.
   assert.equal(clampPublicationClipDuration(-5), 1);
   assert.equal(clampPublicationClipDuration(12), 12);
   assert.equal(clampPublicationClipDuration(120), 120);
@@ -159,6 +163,8 @@ test("publication file parts are safe for local output", () => {
 });
 
 test("publication asset overrides are normalized by known preset", () => {
+  // CONTRATO OBSOLETO (PR2): override de duração é truncado pelo preset.
+  // Depois do PR2 a duração solicitada pelo usuário será preservada.
   assert.deepEqual(
     normalizePublicationAssetOverrides({
       "clip-vertical": {
@@ -191,6 +197,8 @@ test("publication asset overrides are normalized by known preset", () => {
 });
 
 test("publication asset settings merge global defaults with per asset overrides", () => {
+  // CONTRATO OBSOLETO (PR2): a duração final é clampada ao maxDurationSeconds
+  // do preset. No PR2 ela será limitada apenas pela capacidade do exportador.
   const defaults = { clipStart: 4, clipDuration: 15, includeLyrics: false };
   const overrides = {
     "clip-square": {
