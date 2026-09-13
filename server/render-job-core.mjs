@@ -29,6 +29,11 @@ import {
   ffmpegThreadArgs,
   resolveFfmpegThreads,
 } from "./resource-budget.mjs";
+import {
+  mergeCaptureDurationMetrics,
+  mergeDurationMetrics,
+  readOutputDurationSeconds,
+} from "./render-duration.mjs";
 
 const renderCpuBudget = createCpuBudgetFromEnv();
 import {
@@ -93,6 +98,10 @@ export async function renderVideoJob({
     1,
     audio.durationSeconds ?? Number(settings.durationFallback),
   );
+  let durationMetrics = mergeDurationMetrics(null, {
+    requestedDurationSeconds: duration,
+  });
+  updateJob(jobId, { durationMetrics });
   if (background.type !== "generated" && mediaLayers.length === 0) {
     mediaLayers.push({
       ...background,
@@ -125,6 +134,15 @@ export async function renderVideoJob({
   assertNotCanceled(shouldCancel);
   stages.enter("webgl-render", { progress: 4, message: "Preparando cena" });
   const webglVideoPath = path.join(jobWorkDir, "webgl-background.webm");
+  const onRenderHealthWithDuration = (event) => {
+    durationMetrics = mergeCaptureDurationMetrics(
+      durationMetrics,
+      event,
+      settings.webglFps,
+    );
+    updateJob(jobId, { durationMetrics });
+    onRenderHealth?.(event);
+  };
   await renderWebglBackgroundVideo({
     outputPath: webglVideoPath,
     size,
@@ -143,7 +161,7 @@ export async function renderVideoJob({
     onTelemetry: createPipelineTelemetryLogger(jobId, {
       emit: onGpuTelemetryLine,
     }),
-    onRenderHealth,
+    onRenderHealth: onRenderHealthWithDuration,
     shouldCancel,
   });
   assertNotCanceled(shouldCancel);
@@ -178,6 +196,10 @@ export async function renderVideoJob({
     message: "Validando arquivo final",
   });
   await assertPlayableOutput(outputPath);
+  durationMetrics = mergeDurationMetrics(durationMetrics, {
+    actualMuxDurationSeconds: await readOutputDurationSeconds(outputPath),
+  });
+  updateJob(jobId, { durationMetrics });
   const outputAnalysis = await analyzeAudioQuality(outputPath);
   try {
     validateVideoAudioAnalysis(outputAnalysis);
@@ -284,6 +306,10 @@ export async function renderPublicationAssetJob({
       : preset.kind === "booklet"
         ? Math.max(0, Number(audio.durationSeconds ?? 0))
         : 1;
+  let durationMetrics = mergeDurationMetrics(null, {
+    requestedDurationSeconds: duration,
+  });
+  updateJob(jobId, { durationMetrics });
   if (background.type !== "generated" && mediaLayers.length === 0) {
     mediaLayers.push({
       ...background,
@@ -361,6 +387,15 @@ export async function renderPublicationAssetJob({
     });
   } else {
     const webglVideoPath = path.join(jobWorkDir, "publication-background.webm");
+    const onRenderHealthWithDuration = (event) => {
+      durationMetrics = mergeCaptureDurationMetrics(
+        durationMetrics,
+        event,
+        settings.webglFps,
+      );
+      updateJob(jobId, { durationMetrics });
+      onRenderHealth?.(event);
+    };
     await renderWebglBackgroundVideo({
       outputPath: webglVideoPath,
       size,
@@ -374,7 +409,7 @@ export async function renderPublicationAssetJob({
       onTelemetry: createPipelineTelemetryLogger(jobId, {
         emit: onGpuTelemetryLine,
       }),
-      onRenderHealth,
+      onRenderHealth: onRenderHealthWithDuration,
       shouldCancel,
     });
     assertNotCanceled(shouldCancel);
@@ -433,6 +468,10 @@ export async function renderPublicationAssetJob({
       message: "Validando asset final",
     });
     await assertPlayableOutput(outputPath);
+    durationMetrics = mergeDurationMetrics(durationMetrics, {
+      actualMuxDurationSeconds: await readOutputDurationSeconds(outputPath),
+    });
+    updateJob(jobId, { durationMetrics });
   }
 
   if (preset.kind !== "clip") {
