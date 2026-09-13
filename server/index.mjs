@@ -36,6 +36,25 @@ import {
   summarizeOwnedStorage,
 } from "./storage-cleanup.mjs";
 import {
+  initialState as adaptiveInitialState,
+  stepAdaptiveScheduler,
+} from "./adaptive-scheduler.mjs";
+import {
+  createResourceSampler,
+  createWindowsGpuDedicatedUsageReader,
+  createWindowsDxgiTotalResolver,
+  resolveVramTotalBytes,
+  samplerIntervalFromEnv,
+  vramReaderOptionsFromEnv,
+} from "./resource-sampler.mjs";
+import { createResourceSampleStore } from "./resource-sample-store.mjs";
+import {
+  aggregateStageResources,
+  correlateSamplesWithStageTimings,
+  groupSamplesByStage,
+  stageSampleCorrelationReport,
+} from "./stage-sample-correlation.mjs";
+import {
   cleanupJobWorkDir,
   createCanceledJobError,
   createJobQueue,
@@ -170,6 +189,7 @@ const port = resolveServerPort();
 const systemParallelism = Math.max(1, availableParallelism());
 const audioJobConcurrency = resolveAudioJobConcurrency(systemParallelism);
 const renderJobConcurrency = resolveRenderJobConcurrency(systemParallelism);
+process.env.SONARA_RENDER_CONCURRENCY = String(renderJobConcurrency);
 
 let renderPreferences = await loadRenderPreferences(renderPreferencesPath);
 applyRenderPreferencesToEnvironment(renderPreferences);
@@ -211,6 +231,119 @@ const audioJobQueue = createJobQueue({
 });
 const activeJobWorkers = new Map();
 const benchmarkExecutions = new Map();
+
+// F4.1 — Buffer de correlação em memória: reconstrução de
+// `timestamp → jobId → stage → recursos` a partir dos `resource-sample` IPC.
+// Sem endpoint, sem persistência, sem decisão de scheduling nesta fase.
+const resourceSampleStore = createResourceSampleStore();
+
+// #79 F2 — Adaptive Scheduler (off por default; conservador: inicialmente só
+// reduz para 2→1; liberar 2→3 = subir SONARA_ADAPTIVE_MAX_CONCURRENCY).
+const adaptiveSchedulerEnabled = process.env.SONARA_ADAPTIVE_SCHEDULER === "1";
+const adaptiveSchedulerState = adaptiveSchedulerEnabled
+  ? adaptiveInitialState({
+      current: renderJobConcurrency,
+      min: envPositiveInt("SONARA_ADAPTIVE_MIN_CONCURRENCY", 1),
+      max: envPositiveInt(
+        "SONARA_ADAPTIVE_MAX_CONCURRENCY",
+        renderJobConcurrency,
+      ),
+      cooldownMs: envPositiveInt("SONARA_ADAPTIVE_COOLDOWN_MS", 30000),
+    })
+  : null;
+let adaptiveSampler = null;
+let adaptiveTimer = null;
+const MAX_ADAPTIVE_INTERVAL_MS = 60000;
+let adaptiveWindowMs = envPositiveInt("SONARA_ADAPTIVE_WINDOW_MS", 30000);
+let adaptiveIntervalMs = envPositiveInt(
+  "SONARA_ADAPTIVE_SCHEDULER_INTERVAL_MS",
+  15000,
+);
+if (adaptiveIntervalMs < 250) adaptiveIntervalMs = 250;
+if (adaptiveIntervalMs > MAX_ADAPTIVE_INTERVAL_MS) {
+  adaptiveIntervalMs = MAX_ADAPTIVE_INTERVAL_MS;
+}
+let adaptiveLastAggregate = null;
+let adaptiveVramTotal = null;
+if (adaptiveSchedulerEnabled) {
+  const additionalReaders = [];
+  if (process.platform === "win32") {
+    // Task A (pós-#79): capacidade física de VRAM resolvida UMA vez no startup —
+    // env tem precedência; ausente, DXGI fallback; falha → guard neutro. A
+    // origem fica observável em /api/jobs (adaptive.vramTotal { source, value }).
+    adaptiveVramTotal = await resolveVramTotalBytes({
+      environment: process.env,
+      dxgiResolver: createWindowsDxgiTotalResolver(),
+    });
+    additionalReaders.push(
+      createWindowsGpuDedicatedUsageReader({
+        ...vramReaderOptionsFromEnv(),
+        totalBytes: adaptiveVramTotal.value,
+      }),
+    );
+  }
+  adaptiveSampler = createResourceSampler({
+    intervalMs: samplerIntervalFromEnv(),
+    getStage: () => "scheduler",
+    enabled: true,
+    additionalReaders,
+  });
+  adaptiveSampler.start();
+  let adaptiveTickMs = adaptiveIntervalMs;
+  if (adaptiveTickMs < 250) adaptiveTickMs = 250;
+  if (adaptiveTickMs > MAX_ADAPTIVE_INTERVAL_MS) {
+    adaptiveTickMs = MAX_ADAPTIVE_INTERVAL_MS;
+  }
+  const autoTune = () => {
+    const aggregate = adaptiveSampler.window(adaptiveWindowMs);
+    adaptiveLastAggregate = aggregate?.summary ?? null;
+    const signal =
+      adaptiveLastAggregate != null
+        ? {
+            sysCpu: adaptiveLastAggregate.sysCpu?.avg,
+            freeMemBytes: adaptiveLastAggregate.freeMemBytes,
+            vramUsedBytes: adaptiveLastAggregate.vramUsedBytes?.peak ?? null,
+            vramTotalBytes: adaptiveLastAggregate.vramTotalBytes || null,
+            minFreeMemBytes: envPositiveInt(
+              "SONARA_ADAPTIVE_MIN_FREE_MEM_BYTES",
+              2 * 1024 * 1024 * 1024,
+            ),
+            riseThreshold: envPositiveInt("SONARA_ADAPTIVE_RISE_THRESHOLD", 65),
+            fallThreshold: envPositiveInt("SONARA_ADAPTIVE_FALL_THRESHOLD", 85),
+            riseSamples: envPositiveInt("SONARA_ADAPTIVE_RISE_SAMPLES", 2),
+            fallSamples: envPositiveInt("SONARA_ADAPTIVE_FALL_SAMPLES", 1),
+            vramHighWatermark: envFloatOr(
+              "SONARA_ADAPTIVE_VRAM_HIGH_WATERMARK",
+              0.85,
+            ),
+            vramLowWatermark: envFloatOr(
+              "SONARA_ADAPTIVE_VRAM_LOW_WATERMARK",
+              0.7,
+            ),
+            recoveryCooldownMs: envPositiveInt(
+              "SONARA_ADAPTIVE_RECOVERY_COOLDOWN_MS",
+              90 * 1000,
+            ),
+          }
+        : null;
+    const { state, decision } = stepAdaptiveScheduler(adaptiveSchedulerState, {
+      signal,
+      now: Date.now(),
+    });
+    Object.assign(adaptiveSchedulerState, state);
+    if (decision.action !== "hold") {
+      renderJobQueue.setConcurrency(decision.next);
+      console.info(
+        `[adaptive] ${decision.action} concurrency=${adaptiveSchedulerState.concurrency} -> ${decision.next} (${decision.reason})`,
+      );
+    }
+  };
+  adaptiveTimer =
+    adaptiveTickMs <= MAX_ADAPTIVE_INTERVAL_MS
+      ? setInterval(autoTune, adaptiveTickMs)
+      : setInterval(autoTune, MAX_ADAPTIVE_INTERVAL_MS);
+  if (adaptiveTimer.unref) adaptiveTimer.unref();
+}
 
 const defaultJsonParser = express.json({ limit: "5mb" });
 app.use("/api", enforceLocalMutationOrigin);
@@ -1497,6 +1630,23 @@ app.get("/api/jobs", (_req, res) => {
       audio: audioJobQueue.snapshot(),
       render: renderJobQueue.snapshot(),
     },
+    adaptive: adaptiveSchedulerEnabled
+      ? {
+          enabled: true,
+          vramTotal: adaptiveVramTotal,
+          state: adaptiveSchedulerState
+            ? {
+                concurrency: adaptiveSchedulerState.concurrency,
+                min: adaptiveSchedulerState.min,
+                max: adaptiveSchedulerState.max,
+                upStreak: adaptiveSchedulerState.upStreak,
+                downStreak: adaptiveSchedulerState.downStreak,
+                lastDecisionAt: adaptiveSchedulerState.lastDecisionAt,
+              }
+            : null,
+          aggregate: adaptiveLastAggregate,
+        }
+      : { enabled: false },
   });
 });
 
@@ -1714,6 +1864,48 @@ async function enqueueRecoveredRenderJob(job) {
   }
 }
 
+function applyRenderHealth(jobId, event) {
+  const current = jobs.get(jobId);
+  if (!current || !event || typeof event !== "object") return;
+  const previous = current.renderHealth ?? {};
+  const next = { ...previous };
+  if (event.type === "context-lost") {
+    next.contextLostCount =
+      Math.max(0, Number(previous.contextLostCount ?? 0)) + 1;
+  }
+  if (event.type === "capture-frame-count") {
+    next.captureFrameCount = {
+      expectedFrames: Number(event.expectedFrames) || 0,
+      capturedFrames: Number(event.capturedFrames) || 0,
+      ratio: Number(event.ratio) || 0,
+      ok: Boolean(event.ok),
+    };
+  }
+  updateJob(jobId, { renderHealth: next });
+}
+
+function attachStageSampleCorrelation(jobId) {
+  const current = jobs.get(jobId);
+  const samples = resourceSampleStore.byJob(jobId);
+  if (
+    !current ||
+    samples.length === 0 ||
+    !Array.isArray(current.stageTimings) ||
+    current.stageTimings.length === 0
+  ) {
+    return;
+  }
+  const correlation = correlateSamplesWithStageTimings({
+    stageTimings: current.stageTimings,
+    samples,
+  });
+  const groups = groupSamplesByStage(correlation);
+  updateJob(jobId, {
+    resourceStageCorrelation: stageSampleCorrelationReport(correlation),
+    stageResources: aggregateStageResources(groups),
+  });
+}
+
 function runRenderWorker(kind, options) {
   const { uploadedFiles: _uploadedFiles, ...payload } = options;
   return runJobWithRetry({
@@ -1736,11 +1928,15 @@ function runRenderWorker(kind, options) {
           workDir,
         },
         updateJob,
+        onResourceSample: (jobId, sample) =>
+          resourceSampleStore.add(jobId, sample),
+        onRenderHealth: applyRenderHealth,
         onWorkerStart: (controller) => {
           activeJobWorkers.set(options.jobId, controller);
         },
         onWorkerDone: () => {
           activeJobWorkers.delete(options.jobId);
+          attachStageSampleCorrelation(options.jobId);
         },
       });
     },
@@ -3427,6 +3623,16 @@ function clampNumber(value, min, max) {
     return min;
   }
   return Math.min(max, Math.max(min, value));
+}
+
+function envPositiveInt(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+function envFloatOr(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function resolveAudioJobConcurrency(cores) {

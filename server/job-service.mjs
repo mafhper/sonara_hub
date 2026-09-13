@@ -139,7 +139,7 @@ export function createJobQueue({
   maxPending = 50,
   onError,
 } = {}) {
-  const limit = Math.max(1, Math.floor(Number(concurrency) || 1));
+  let limit = Math.max(1, Math.floor(Number(concurrency) || 1));
   const pendingLimit = Math.max(1, Math.floor(Number(maxPending) || 50));
   const pending = [];
   let active = 0;
@@ -175,6 +175,10 @@ export function createJobQueue({
   }
 
   return {
+    setConcurrency(value) {
+      limit = Math.max(1, Math.floor(Number(value) || 1));
+      schedule();
+    },
     enqueue(task) {
       if (typeof task !== "function") {
         throw new TypeError("Job queue task must be a function.");

@@ -6,6 +6,14 @@ import {
   renderPublicationAssetJob,
   renderVideoJob,
 } from "./render-job-core.mjs";
+import {
+  createResourceSampler,
+  createSampleStreamThrottle,
+  createWindowsGpuDedicatedUsageReader,
+  createWindowsGpuEngineUsageReader,
+  samplerIntervalFromEnv,
+  vramReaderOptionsFromEnv,
+} from "./resource-sampler.mjs";
 
 let cancelRequested = false;
 
@@ -21,7 +29,42 @@ process.on("message", async (message) => {
 
 async function runWorkerMessage({ kind, jobId, payload }) {
   let finalPatch = null;
+  const stageState = { current: undefined };
+  const gpuReaderEnabled =
+    process.platform === "win32" &&
+    process.env.SONARA_RESOURCE_SAMPLER_DISABLED !== "1" &&
+    (process.env.SONARA_ADAPTIVE_SCHEDULER === "1" ||
+      process.env.SONARA_VRAM_READER_ENABLED === "1");
+  const additionalReaders = gpuReaderEnabled
+    ? [
+        createWindowsGpuDedicatedUsageReader(vramReaderOptionsFromEnv()),
+        createWindowsGpuEngineUsageReader(),
+      ]
+    : [];
+  const sampleIpc = createSampleStreamThrottle({
+    intervalMs: resourceSampleIpcMsFromEnv(),
+  });
+  const sampler = createResourceSampler({
+    intervalMs: samplerIntervalFromEnv(),
+    getStage: () => stageState.current,
+    enabled: process.env.SONARA_RESOURCE_SAMPLER_DISABLED !== "1",
+    additionalReaders,
+    onSample: (sample) => {
+      const forwarded = sampleIpc(sample);
+      if (forwarded) {
+        send({
+          type: "resource-sample",
+          jobId,
+          sample: resourceSamplePayload(forwarded),
+        });
+      }
+    },
+  });
+  sampler.start();
   const updateJob = (_jobId, patch) => {
+    if (patch.stage) {
+      stageState.current = patch.stage;
+    }
     if (patch.status === "done") {
       finalPatch = patch;
     }
@@ -54,6 +97,8 @@ async function runWorkerMessage({ kind, jobId, payload }) {
   try {
     const onGpuTelemetryLine = (line, level) =>
       send({ type: "gpu-log", jobId, line, level });
+    const onRenderHealth = (event) =>
+      send({ type: "render-health", jobId, event });
     if (kind === "video-render") {
       await renderVideoJob({
         ...payload,
@@ -61,6 +106,7 @@ async function runWorkerMessage({ kind, jobId, payload }) {
         updateJob,
         shouldCancel: () => cancelRequested,
         onGpuTelemetryLine,
+        onRenderHealth,
       });
     } else if (kind === "publication-asset") {
       await renderPublicationAssetJob({
@@ -69,13 +115,20 @@ async function runWorkerMessage({ kind, jobId, payload }) {
         updateJob,
         shouldCancel: () => cancelRequested,
         onGpuTelemetryLine,
+        onRenderHealth,
       });
     } else {
       throw workerError(`Tipo de job não suportado pelo worker: ${kind}`);
     }
-    send({ type: "result", jobId, patch: finalPatch ?? {} });
+    const report = sampler.stop();
+    send({
+      type: "result",
+      jobId,
+      patch: { ...(finalPatch ?? {}), ...resourcePatch(report) },
+    });
     scheduleExit(0);
   } catch (error) {
+    sampler.stop();
     send({
       type: "error",
       jobId,
@@ -95,6 +148,42 @@ async function runWorkerMessage({ kind, jobId, payload }) {
     });
     scheduleExit(cancelRequested || error?.code === "JOB_CANCELED" ? 0 : 1);
   }
+}
+
+function resourcePatch(report) {
+  if (!report || !report.aggregate || report.samples.length === 0) return {};
+  return {
+    resourceMetrics: report.aggregate,
+    resourceSamples: report.samples,
+  };
+}
+
+// F4.1 — Projeção mínima do sample sanitizado para o payload de correlação do
+// processo principal: só os campos acordados (jobId vai no envelope da mensagem;
+// `cpu` é o workerCpu observado). `stage` significa "o job estava identificado
+// como `stage` quando a amostra foi produzida" — não prova a pertença de todo o
+// intervalo àquele stage (calibração é papel do F4.2+).
+function resourceSamplePayload(sample) {
+  const vramTotal = sample.vramTotalBytes > 0 ? sample.vramTotalBytes : null;
+  return {
+    t: sample.t,
+    stage: sample.stage,
+    cpu: sample.workerCpu,
+    rss: sample.rssBytes,
+    ramFree: sample.freeMemBytes,
+    gpu3d: sample.gpu3d,
+    gpuCopy: sample.gpuCopy,
+    vcn: sample.vcn,
+    vramUsedBytes: sample.vramUsedBytes,
+    vramTotalBytes: vramTotal,
+    vramUsedPct:
+      vramTotal !== null ? (sample.vramUsedBytes / vramTotal) * 100 : 0,
+  };
+}
+
+function resourceSampleIpcMsFromEnv() {
+  const value = Number(process.env.SONARA_RESOURCE_SAMPLE_IPC_MS);
+  return Number.isFinite(value) && value >= 50 ? Math.floor(value) : 5000;
 }
 
 function send(message) {

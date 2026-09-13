@@ -8,7 +8,14 @@ import {
   normalizeFfmpegSpawnError,
   resolveFfmpegPath,
 } from "./ffmpeg-tool.mjs";
+import {
+  createCpuBudgetFromEnv,
+  ffmpegThreadArgs,
+  resolveFfmpegThreads,
+} from "./resource-budget.mjs";
 import { buildNameFromPattern } from "../shared/file-naming.mjs";
+
+const audioCpuBudget = createCpuBudgetFromEnv();
 
 export function inferAudioTags(filePath) {
   const pathApi = /(^[a-z]:|\\)/i.test(String(filePath))
@@ -881,10 +888,15 @@ function parseLoudnormJson(stderr) {
 
 function runFfmpeg(args) {
   const ffmpegPath = resolveFfmpegPath();
+  const allocation = resolveFfmpegThreads({
+    operation: "audio-analysis",
+    budget: audioCpuBudget,
+  });
+  const finalArgs = [...ffmpegThreadArgs(allocation), ...args];
   return new Promise((resolve, reject) => {
     let stderr = "";
     let stdout = "";
-    const child = spawn(ffmpegPath, args, { windowsHide: true });
+    const child = spawn(ffmpegPath, finalArgs, { windowsHide: true });
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
     child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
     child.on("error", (error) =>

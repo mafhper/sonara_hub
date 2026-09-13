@@ -25,6 +25,13 @@ import {
   resolveFfmpegPath,
 } from "./ffmpeg-tool.mjs";
 import {
+  createCpuBudgetFromEnv,
+  ffmpegThreadArgs,
+  resolveFfmpegThreads,
+} from "./resource-budget.mjs";
+
+const renderCpuBudget = createCpuBudgetFromEnv();
+import {
   clampPublicationLyricsLineSpacing,
   normalizePublicationBookletTheme,
   normalizePublicationLyricsMode,
@@ -47,6 +54,7 @@ export async function renderVideoJob({
   updateJob,
   shouldCancel,
   onGpuTelemetryLine,
+  onRenderHealth,
 }) {
   const stages = createJobStageTracker({ jobId, updateJob });
   assertNotCanceled(shouldCancel);
@@ -135,6 +143,7 @@ export async function renderVideoJob({
     onTelemetry: createPipelineTelemetryLogger(jobId, {
       emit: onGpuTelemetryLine,
     }),
+    onRenderHealth,
     shouldCancel,
   });
   assertNotCanceled(shouldCancel);
@@ -226,6 +235,7 @@ export async function renderPublicationAssetJob({
   updateJob,
   shouldCancel,
   onGpuTelemetryLine,
+  onRenderHealth,
 }) {
   const stages = createJobStageTracker({ jobId, updateJob });
   assertNotCanceled(shouldCancel);
@@ -364,6 +374,7 @@ export async function renderPublicationAssetJob({
       onTelemetry: createPipelineTelemetryLogger(jobId, {
         emit: onGpuTelemetryLine,
       }),
+      onRenderHealth,
       shouldCancel,
     });
     assertNotCanceled(shouldCancel);
@@ -1237,11 +1248,16 @@ ${events.join("\n")}
   return filePath;
 }
 
-function runFfmpeg(args, duration, onProgress) {
+function runFfmpeg(args, duration, onProgress, options = {}) {
   const ffmpegPath = resolveFfmpegPath();
+  const allocation = resolveFfmpegThreads({
+    operation: options.operation ?? "ffmpeg-mux",
+    budget: options.budget ?? renderCpuBudget,
+  });
+  const finalArgs = [...ffmpegThreadArgs(allocation), ...args];
 
   return new Promise((resolve, reject) => {
-    const child = spawn(ffmpegPath, args, { windowsHide: true });
+    const child = spawn(ffmpegPath, finalArgs, { windowsHide: true });
     let stderr = "";
 
     child.stderr.on("data", (chunk) => {
@@ -1274,12 +1290,22 @@ function runFfmpeg(args, duration, onProgress) {
 
 function assertPlayableOutput(outputPath) {
   const ffmpegPath = resolveFfmpegPath();
+  const allocation = resolveFfmpegThreads({
+    operation: "output-validation",
+    budget: renderCpuBudget,
+  });
+  const args = [
+    ...ffmpegThreadArgs(allocation),
+    "-v",
+    "error",
+    "-i",
+    outputPath,
+    "-f",
+    "null",
+    "-",
+  ];
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      ffmpegPath,
-      ["-v", "error", "-i", outputPath, "-f", "null", "-"],
-      { windowsHide: true },
-    );
+    const child = spawn(ffmpegPath, args, { windowsHide: true });
     let stderr = "";
     child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
     child.on("error", (error) =>

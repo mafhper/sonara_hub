@@ -20,6 +20,7 @@ export function summarizeWorkflowBenchmark(allJobs) {
       ...stage,
       jobId: sample.jobId,
       pipeline: sample.pipeline,
+      resource: stageResourceFor(sample, stage.stage),
       status: sample.status,
     })),
   );
@@ -37,16 +38,20 @@ export function summarizeWorkflowBenchmark(allJobs) {
         pipeline: sample.pipeline,
       }),
     ),
-    stages: groupedWorkflowStats(
+    stages: withStageResourceAggregate(
+      groupedWorkflowStats(
+        stageSamples,
+        (stage) => `${stage.domain}:${stage.pipeline}:${stage.stage}`,
+        (stage) => ({
+          domain: stage.domain,
+          label: jobStageLabelForBenchmark(stage.stage),
+          pipeline: stage.pipeline,
+          stage: stage.stage,
+        }),
+      ),
       stageSamples,
-      (stage) => `${stage.domain}:${stage.pipeline}:${stage.stage}`,
-      (stage) => ({
-        domain: stage.domain,
-        label: jobStageLabelForBenchmark(stage.stage),
-        pipeline: stage.pipeline,
-        stage: stage.stage,
-      }),
     ),
+    health: healthAggregate(samples),
   };
 }
 
@@ -54,6 +59,18 @@ function compactWorkflowSample(job) {
   const kind = String(job.kind ?? "unknown");
   const domain = workflowKindDomain(kind);
   const pipeline = workflowKindPipeline(kind);
+  const captureFrameCount = job.renderHealth?.captureFrameCount;
+  const health = {
+    contextLostCount: finiteNumber(job.renderHealth?.contextLostCount, 0),
+    captureFrameCount: captureFrameCount
+      ? {
+          capturedFrames: finiteNumber(captureFrameCount.capturedFrames),
+          expectedFrames: finiteNumber(captureFrameCount.expectedFrames),
+          ok: Boolean(captureFrameCount.ok),
+          ratio: finiteNumber(captureFrameCount.ratio),
+        }
+      : null,
+  };
   const stageTimings = job.stageTimings.map((stage) => {
     const stageName = String(stage.stage ?? "");
     return {
@@ -80,6 +97,110 @@ function compactWorkflowSample(job) {
     attempt: finiteNumber(job.attempt, 0),
     retryCount: Array.isArray(job.retryHistory) ? job.retryHistory.length : 0,
     stageTimings,
+    stageResources: (Array.isArray(job.stageResources)
+      ? job.stageResources
+      : []
+    )
+      .map(normalizeStageResources)
+      .filter((entry) => entry.stage),
+    health,
+  };
+}
+
+function normalizeStageResources(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  return {
+    stage: String(entry.stage ?? ""),
+    sampleCount: finiteNumber(entry.sampleCount, 0),
+    durationMs: finiteNumber(entry.durationMs),
+    cpu: {
+      avg: finiteNumber(entry.cpu?.avg),
+      peak: finiteNumber(entry.cpu?.peak),
+    },
+    gpu3d: { avg: finiteNumber(entry.gpu3d?.avg) },
+    vramUsedBytes: { avg: finiteNumber(entry.vramUsedBytes?.avg) },
+    vramUsedPct: {
+      avg: finiteNumber(entry.vramUsedPct?.avg),
+      peak: finiteNumber(entry.vramUsedPct?.peak),
+    },
+    rss: { avg: finiteNumber(entry.rss?.avg) },
+  };
+}
+
+function stageResourceFor(sample, stageName) {
+  const entry = sample.stageResources?.find((item) => item.stage === stageName);
+  if (!entry) return null;
+  return {
+    cpuAvg: entry.cpu.avg,
+    cpuPeak: entry.cpu.peak,
+    samples: finiteNumber(entry.sampleCount, 0),
+    durationMs: finiteNumber(entry.durationMs),
+    gpu3dAvg: entry.gpu3d.avg,
+    rssAvg: entry.rss.avg,
+    vramUsedBytesAvg: entry.vramUsedBytes.avg,
+    vramUsedPctAvg: entry.vramUsedPct.avg,
+    vramUsedPctPeak: entry.vramUsedPct.peak,
+  };
+}
+
+function withStageResourceAggregate(groups, stageSamples) {
+  const buckets = new Map();
+  for (const item of stageSamples) {
+    if (!item.resource) continue;
+    const key = `${item.domain}:${item.pipeline}:${item.stage}`;
+    const current = buckets.get(key) ?? [];
+    current.push(item.resource);
+    buckets.set(key, current);
+  }
+  return groups.map((group) => {
+    const entries = buckets.get(
+      `${group.domain}:${group.pipeline}:${group.stage}`,
+    );
+    return entries ? { ...group, resource: resourceAggregate(entries) } : group;
+  });
+}
+
+function resourceAggregate(entries) {
+  const series = (key) =>
+    entries.map((entry) => entry[key]).filter((v) => v > 0);
+  const medians = {
+    cpuAvg: percentile(series("cpuAvg"), 0.5),
+    cpuPeak: percentile(series("cpuPeak"), 0.5),
+    gpu3dAvg: percentile(series("gpu3dAvg"), 0.5),
+    rssAvg: percentile(series("rssAvg"), 0.5),
+    vramUsedBytesAvg: percentile(series("vramUsedBytesAvg"), 0.5),
+    vramUsedPctAvg: percentile(series("vramUsedPctAvg"), 0.5),
+    vramUsedPctPeak: percentile(series("vramUsedPctPeak"), 0.5),
+  };
+  const peaks = series("vramUsedPctPeak");
+  return {
+    jobs: entries.length,
+    samples: sumNumbers(entries.map((entry) => entry.samples)),
+    ...medians,
+    vramUsedPctPeakMax: peaks.length ? Math.max(...peaks) : 0,
+  };
+}
+
+function healthAggregate(samples) {
+  const ratios = samples
+    .map((sample) => sample.health?.captureFrameCount?.ratio)
+    .filter((ratio) => Number.isFinite(ratio) && ratio > 0);
+  const okJobs = samples.filter(
+    (sample) => sample.health?.captureFrameCount?.ok,
+  ).length;
+  const ratioSamples = samples.filter(
+    (sample) => sample.health?.captureFrameCount,
+  ).length;
+  return {
+    sampleCount: samples.length,
+    contextLostJobs: samples.filter(
+      (sample) => sample.health?.contextLostCount > 0,
+    ).length,
+    captureFrameRatio: {
+      samples: ratioSamples,
+      okRatio: ratioSamples ? okJobs / ratioSamples : 0,
+      medianRatio: ratios.length ? percentile(ratios, 0.5) : 0,
+    },
   };
 }
 
