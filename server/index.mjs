@@ -114,6 +114,7 @@ import {
   clampPublicationClipDuration,
   clampPublicationClipStart,
   clampPublicationLyricsLineSpacing,
+  evaluatePublicationDurationPolicy,
   normalizePublicationBookletTheme,
   normalizePublicationLyricsMode,
   normalizePublicationLyricsPosition,
@@ -2483,6 +2484,7 @@ async function renderPublicationAsset({
     preset,
     clipStart,
     duration,
+    clipDuration,
     includeFullLyrics,
     lyricsMode,
     lyricsExcerpt,
@@ -3663,6 +3665,7 @@ async function writePublicationManifest({
   preset,
   clipStart,
   duration,
+  clipDuration,
   includeFullLyrics,
   lyricsMode,
   lyricsExcerpt,
@@ -3682,8 +3685,12 @@ async function writePublicationManifest({
     lyricsLineSpacing: normalizedLyricsLineSpacing,
     lyricsMode: normalizedLyricsMode,
   });
+  const durationPolicy = evaluatePublicationDurationPolicy(
+    preset,
+    clipDuration,
+  );
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     preset,
     timing: {
@@ -3712,6 +3719,9 @@ async function writePublicationManifest({
       lyrics: includedLyrics || undefined,
     },
     includeFullLyrics: normalizedLyricsMode === "full",
+    validation: {
+      duration: durationPolicy,
+    },
     files: [
       {
         kind: preset.kind,

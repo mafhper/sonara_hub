@@ -12,9 +12,11 @@ import {
   clampPublicationClipDurationForPreset,
   clampPublicationTextOffset,
   clampPublicationTextScale,
+  evaluatePublicationDurationPolicy,
   normalizePublicationAssetOverrides,
   normalizePublicationBookletTheme,
   publicationConstraintSummary,
+  publicationRecommendationSummary,
   publicationBookletThemeById,
   publicationBookletThemes,
   publicationAssetSettingsForPreset,
@@ -40,14 +42,12 @@ test("publication presets cover social images and short clips", () => {
     "WhatsApp",
   );
   assert.equal(publicationAssetPresetById("whatsapp-status-clip").kind, "clip");
-  assert.equal(
-    publicationAssetPresetById("instagram-story-clip").defaultDurationSeconds,
-    15,
-  );
-  assert.equal(
-    publicationAssetPresetById("instagram-reel").defaultDurationSeconds,
-    30,
-  );
+  const story = publicationAssetPresetById("instagram-story-clip");
+  assert.equal(story.defaultDurationSeconds, 15);
+  assert.equal(story.recommendations?.durationSeconds, 15);
+  const reel = publicationAssetPresetById("instagram-reel");
+  assert.equal(reel.defaultDurationSeconds, 30);
+  assert.equal(reel.recommendations?.durationSeconds, 90);
   assert.equal(
     publicationAssetPresetById("youtube-shorts").platform,
     "YouTube",
@@ -147,12 +147,31 @@ test("publication clip duration is clamped only by exporter capacity", () => {
 test("publication constraint summaries describe platform limits", () => {
   assert.equal(
     publicationConstraintSummary("whatsapp-status-clip"),
-    "até 30s · até 10 MB · H.264/AAC · 9:16",
+    "até 10 MB · H.264/AAC · 9:16",
   );
   assert.equal(
     publicationConstraintSummary("youtube-thumbnail"),
     "JPEG · 16:9",
   );
+});
+
+test("publication recommendation summaries expose recommended duration", () => {
+  assert.equal(
+    publicationRecommendationSummary("instagram-story-clip"),
+    "Recomendado: 15s",
+  );
+  assert.equal(
+    publicationRecommendationSummary("instagram-reel"),
+    "Recomendado: 90s",
+  );
+  assert.equal(publicationRecommendationSummary("youtube-thumbnail"), "");
+});
+
+test("duration policy distinguishes recommendation from constraint", () => {
+  const policy = evaluatePublicationDurationPolicy("youtube-shorts", 90);
+  assert.equal(policy.recommendedDurationSeconds, 60);
+  assert.equal(policy.recommendationExceeded, true);
+  assert.equal(policy.blocking, false);
 });
 
 test("publication file parts are safe for local output", () => {

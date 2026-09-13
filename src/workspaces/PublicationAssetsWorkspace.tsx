@@ -24,6 +24,7 @@ import {
   publicationAssetPresets,
   publicationBookletThemeById,
   publicationConstraintSummary,
+  publicationRecommendationSummary,
 } from "../../shared/publication-assets.mjs";
 import type { ScenePresetV3 } from "../../shared/visual-effects.mjs";
 import {
@@ -112,6 +113,8 @@ export function PublicationAssetsWorkspace({
     selectedSettings.bookletTheme,
   );
   const selectedConstraintSummary = publicationConstraintSummary(preset);
+  const selectedRecommendationSummary =
+    publicationRecommendationSummary(preset);
   const selectedFormatDescription = `${preset.width}x${preset.height} · ${
     preset.kind === "clip"
       ? "clip curto"
@@ -185,7 +188,11 @@ export function PublicationAssetsWorkspace({
           <span className="overline">Em foco</span>
           <strong>{preset.label}</strong>
           <small>
-            {selectedConstraintSummary || selectedFormatDescription}
+            {selectedRecommendationSummary || selectedConstraintSummary
+              ? [selectedRecommendationSummary, selectedConstraintSummary]
+                  .filter(Boolean)
+                  .join(" · ")
+              : selectedFormatDescription}
           </small>
         </div>
         <div>
@@ -329,8 +336,13 @@ export function PublicationAssetsWorkspace({
             <small>
               {preset.extension.toUpperCase()} · {preset.directory} ·{" "}
               {previewTrack?.metadata.title || "sem faixa em foco"}
-              {selectedConstraintSummary
-                ? ` · ${selectedConstraintSummary}`
+              {selectedRecommendationSummary || selectedConstraintSummary
+                ? ` · ${[
+                    selectedRecommendationSummary,
+                    selectedConstraintSummary,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}`
                 : ""}
             </small>
           </div>

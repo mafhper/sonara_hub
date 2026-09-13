@@ -10,6 +10,12 @@ export type PublicationBookletTheme = {
   accent: string;
 };
 
+export type PublicationAssetDurationConstraint = {
+  mode?: "maximum" | "recommended" | "unrestricted";
+  valueSeconds?: number;
+  enforcement?: "blocking" | "warning";
+};
+
 export type PublicationAssetPreset = {
   id: string;
   kind: PublicationAssetKind;
@@ -20,9 +26,12 @@ export type PublicationAssetPreset = {
   directory: "imagens" | "clips" | "encartes";
   extension: "jpg" | "mp4" | "html";
   defaultDurationSeconds?: number;
+  recommendations?: {
+    durationSeconds?: number;
+  };
   bookletTheme?: string;
   constraints?: {
-    maxDurationSeconds?: number;
+    duration?: PublicationAssetDurationConstraint;
     maxFileSizeBytes?: number;
     codec?: string;
     aspectRatio?: string;
@@ -30,7 +39,7 @@ export type PublicationAssetPreset = {
 };
 
 export type PublicationAssetManifest = {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   generatedAt: string;
   preset: PublicationAssetPreset;
   metadata: Record<string, unknown>;
@@ -78,9 +87,23 @@ export function publicationAssetPresetLabel(id: string): string;
 export function clampPublicationClipDuration(value: unknown): number;
 export const EXPORTER_MIN_DURATION_SECONDS: number;
 export const EXPORTER_MAX_DURATION_SECONDS: number;
-export function publicationPresetMaxDurationSeconds(
+export function publicationPresetRecommendedDurationSeconds(
   idOrPreset: string | PublicationAssetPreset,
-): number;
+): number | null;
+export function publicationRecommendationSummary(
+  idOrPreset: string | PublicationAssetPreset,
+): string;
+export function evaluatePublicationDurationPolicy(
+  idOrPreset: string | PublicationAssetPreset,
+  requestedDurationSeconds: unknown,
+): {
+  requestedDurationSeconds: number | null;
+  recommendedDurationSeconds: number | null;
+  durationConstraint: PublicationAssetDurationConstraint | null;
+  recommendationExceeded: boolean;
+  constraintExceeded: boolean;
+  blocking: boolean;
+};
 export function clampPublicationClipDurationForPreset(
   value: unknown,
   idOrPreset: string | PublicationAssetPreset,
