@@ -255,10 +255,14 @@ let adaptiveSampler = null;
 let adaptiveTimer = null;
 const MAX_ADAPTIVE_INTERVAL_MS = 60000;
 let adaptiveWindowMs = envPositiveInt("SONARA_ADAPTIVE_WINDOW_MS", 30000);
-let adaptiveIntervalMs = Math.min(
-  MAX_ADAPTIVE_INTERVAL_MS,
-  envPositiveInt("SONARA_ADAPTIVE_SCHEDULER_INTERVAL_MS", 15000),
+let adaptiveIntervalMs = envPositiveInt(
+  "SONARA_ADAPTIVE_SCHEDULER_INTERVAL_MS",
+  15000,
 );
+if (adaptiveIntervalMs < 250) adaptiveIntervalMs = 250;
+if (adaptiveIntervalMs > MAX_ADAPTIVE_INTERVAL_MS) {
+  adaptiveIntervalMs = MAX_ADAPTIVE_INTERVAL_MS;
+}
 let adaptiveLastAggregate = null;
 let adaptiveVramTotal = null;
 if (adaptiveSchedulerEnabled) {

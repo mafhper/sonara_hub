@@ -261,10 +261,11 @@ export function createResourceSampler({
   onSample = null,
 } = {}) {
   const safeEnabled = Boolean(enabled);
-  const effectiveInterval = Math.min(
-    MAX_TIMER_INTERVAL_MS,
-    Math.max(50, Math.floor(intervalMs) || DEFAULT_INTERVAL_MS),
-  );
+  let effectiveInterval = Math.floor(intervalMs) || DEFAULT_INTERVAL_MS;
+  if (effectiveInterval < 50) effectiveInterval = 50;
+  if (effectiveInterval > MAX_TIMER_INTERVAL_MS) {
+    effectiveInterval = MAX_TIMER_INTERVAL_MS;
+  }
   let timer = null;
   let running = false;
   let pending = false;
@@ -396,7 +397,8 @@ export function samplerIntervalFromEnv(environment = process.env) {
   if (!(Number.isFinite(value) && value >= 50)) {
     return DEFAULT_INTERVAL_MS;
   }
-  return Math.min(MAX_TIMER_INTERVAL_MS, Math.floor(value));
+  if (value > MAX_TIMER_INTERVAL_MS) return MAX_TIMER_INTERVAL_MS;
+  return Math.floor(value);
 }
 
 function parseDedicatedUsage(text) {
@@ -430,10 +432,11 @@ export function createWindowsGpuDedicatedUsageReader({
   totalBytes = null,
   spawn = childSpawn,
 } = {}) {
-  const safeTimeout = Math.min(
-    MAX_READER_TIMEOUT_MS,
-    Math.max(50, Math.floor(timeoutMs) || 4000),
-  );
+  let safeTimeout = Math.floor(timeoutMs) || 4000;
+  if (safeTimeout < 50) safeTimeout = 50;
+  if (safeTimeout > MAX_READER_TIMEOUT_MS) {
+    safeTimeout = MAX_READER_TIMEOUT_MS;
+  }
   const safeBackoff = Math.max(0, Math.floor(backoffMs) || 60000);
   const safeMaxMisses = Math.max(1, Math.floor(maxMisses) || 2);
   const safeTotal =
@@ -526,10 +529,11 @@ export function createWindowsDxgiTotalResolver({
   timeoutMs = 10000,
   spawn = childSpawn,
 } = {}) {
-  const safeTimeout = Math.min(
-    MAX_READER_TIMEOUT_MS,
-    Math.max(50, Math.floor(timeoutMs) || 10000),
-  );
+  let safeTimeout = Math.floor(timeoutMs) || 10000;
+  if (safeTimeout < 50) safeTimeout = 50;
+  if (safeTimeout > MAX_READER_TIMEOUT_MS) {
+    safeTimeout = MAX_READER_TIMEOUT_MS;
+  }
   return function resolveDxgiTotal() {
     return new Promise((resolve) => {
       let child;
@@ -635,10 +639,11 @@ export function createWindowsGpuEngineUsageReader({
   maxMisses = 2,
   spawn = childSpawn,
 } = {}) {
-  const safeTimeout = Math.min(
-    MAX_READER_TIMEOUT_MS,
-    Math.max(50, Math.floor(timeoutMs) || 4000),
-  );
+  let safeTimeout = Math.floor(timeoutMs) || 4000;
+  if (safeTimeout < 50) safeTimeout = 50;
+  if (safeTimeout > MAX_READER_TIMEOUT_MS) {
+    safeTimeout = MAX_READER_TIMEOUT_MS;
+  }
   const safeBackoff = Math.max(0, Math.floor(backoffMs) || 60000);
   const safeMaxMisses = Math.max(1, Math.floor(maxMisses) || 2);
   let misses = 0;
