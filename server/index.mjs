@@ -294,7 +294,7 @@ if (adaptiveSchedulerEnabled) {
   if (adaptiveTickMs > MAX_ADAPTIVE_INTERVAL_MS) {
     adaptiveTickMs = MAX_ADAPTIVE_INTERVAL_MS;
   }
-  adaptiveTimer = setInterval(() => {
+  const autoTune = () => {
     const aggregate = adaptiveSampler.window(adaptiveWindowMs);
     adaptiveLastAggregate = aggregate?.summary ?? null;
     const signal =
@@ -337,7 +337,11 @@ if (adaptiveSchedulerEnabled) {
         `[adaptive] ${decision.action} concurrency=${adaptiveSchedulerState.concurrency} -> ${decision.next} (${decision.reason})`,
       );
     }
-  }, adaptiveTickMs);
+  };
+  adaptiveTimer =
+    adaptiveTickMs <= MAX_ADAPTIVE_INTERVAL_MS
+      ? setInterval(autoTune, adaptiveTickMs)
+      : setInterval(autoTune, MAX_ADAPTIVE_INTERVAL_MS);
   if (adaptiveTimer.unref) adaptiveTimer.unref();
 }
 
