@@ -38,6 +38,7 @@ import {
 const renderCpuBudget = createCpuBudgetFromEnv();
 import {
   clampPublicationLyricsLineSpacing,
+  evaluatePublicationDurationPolicy,
   normalizePublicationBookletTheme,
   normalizePublicationLyricsMode,
   publicationBookletThemeById,
@@ -513,6 +514,7 @@ export async function renderPublicationAssetJob({
       preset,
       clipStart,
       duration,
+      clipDuration,
       includeFullLyrics,
       lyricsMode,
       lyricsExcerpt,
@@ -717,6 +719,7 @@ async function writePublicationManifest({
   preset,
   clipStart,
   duration,
+  clipDuration,
   includeFullLyrics,
   lyricsMode,
   lyricsExcerpt,
@@ -744,8 +747,12 @@ async function writePublicationManifest({
     preset.kind === "booklet"
       ? publicationBookletThemeById(normalizedBookletTheme)
       : null;
+  const durationPolicy = evaluatePublicationDurationPolicy(
+    preset,
+    clipDuration,
+  );
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     preset,
     timing: {
@@ -777,6 +784,7 @@ async function writePublicationManifest({
     includeFullLyrics: normalizedLyricsMode === "full",
     validation: {
       fileSize: fileSizeValidation,
+      duration: durationPolicy,
       warnings,
     },
     files: [

@@ -722,7 +722,7 @@ smoke: try {
     .waitFor();
   await page.getByLabel("Formato base").selectOption("instagram-story-clip");
   await page
-    .getByText("Limites do formato: até 15s · H.264/AAC · 9:16.", {
+    .getByText("Recomendado: 15s · H.264/AAC · 9:16.", {
       exact: true,
     })
     .waitFor();

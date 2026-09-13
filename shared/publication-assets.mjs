@@ -151,9 +151,11 @@ export const publicationAssetPresets = [
     directory: "clips",
     extension: "mp4",
     defaultDurationSeconds: 30,
+    recommendations: {
+      durationSeconds: 30,
+    },
     constraints: {
       codec: "H.264/AAC",
-      maxDurationSeconds: 30,
     },
   },
   {
@@ -166,9 +168,11 @@ export const publicationAssetPresets = [
     directory: "clips",
     extension: "mp4",
     defaultDurationSeconds: 30,
+    recommendations: {
+      durationSeconds: 30,
+    },
     constraints: {
       codec: "H.264/AAC",
-      maxDurationSeconds: 30,
     },
   },
   {
@@ -181,9 +185,11 @@ export const publicationAssetPresets = [
     directory: "clips",
     extension: "mp4",
     defaultDurationSeconds: 30,
+    recommendations: {
+      durationSeconds: 30,
+    },
     constraints: {
       codec: "H.264/AAC",
-      maxDurationSeconds: 30,
       aspectRatio: "9:16",
     },
   },
@@ -197,9 +203,11 @@ export const publicationAssetPresets = [
     directory: "clips",
     extension: "mp4",
     defaultDurationSeconds: 15,
+    recommendations: {
+      durationSeconds: 15,
+    },
     constraints: {
       codec: "H.264/AAC",
-      maxDurationSeconds: 15,
       aspectRatio: "9:16",
     },
   },
@@ -213,9 +221,11 @@ export const publicationAssetPresets = [
     directory: "clips",
     extension: "mp4",
     defaultDurationSeconds: 30,
+    recommendations: {
+      durationSeconds: 90,
+    },
     constraints: {
       codec: "H.264/AAC",
-      maxDurationSeconds: 90,
       aspectRatio: "9:16",
     },
   },
@@ -229,9 +239,11 @@ export const publicationAssetPresets = [
     directory: "clips",
     extension: "mp4",
     defaultDurationSeconds: 30,
+    recommendations: {
+      durationSeconds: 30,
+    },
     constraints: {
       codec: "H.264/AAC",
-      maxDurationSeconds: 30,
       maxFileSizeBytes: 10 * MB,
       aspectRatio: "9:16",
     },
@@ -246,9 +258,11 @@ export const publicationAssetPresets = [
     directory: "clips",
     extension: "mp4",
     defaultDurationSeconds: 30,
+    recommendations: {
+      durationSeconds: 60,
+    },
     constraints: {
       codec: "H.264/AAC",
-      maxDurationSeconds: 60,
       aspectRatio: "9:16",
     },
   },
@@ -262,9 +276,13 @@ export const publicationAssetPresets = [
     directory: "clips",
     extension: "mp4",
     defaultDurationSeconds: 30,
+    recommendations: {
+      // Valor provisório — o TikTok aceita vídeos longos, mas o formato
+      // curto costuma ter melhor desempenho. Revisar com dados reais.
+      durationSeconds: 60,
+    },
     constraints: {
       codec: "H.264/AAC",
-      maxDurationSeconds: 600,
       aspectRatio: "9:16",
     },
   },
@@ -318,21 +336,58 @@ export function clampPublicationClipDuration(value) {
   );
 }
 
-export function publicationPresetMaxDurationSeconds(idOrPreset) {
+export function publicationPresetRecommendedDurationSeconds(idOrPreset) {
   const preset =
     typeof idOrPreset === "string"
       ? publicationAssetPresetById(idOrPreset)
       : idOrPreset;
-  // Mantido para compatibilidade de resumo; o preset não bloqueia mais a
-  // duração — só a capacidade do exportador impõe teto.
-  return Math.max(
-    1,
-    Number(
-      preset?.constraints?.maxDurationSeconds ??
-        preset?.maxDurationSeconds ??
-        EXPORTER_MAX_DURATION_SECONDS,
-    ),
-  );
+  const recommended = Number(preset?.recommendations?.durationSeconds);
+  return Number.isFinite(recommended) && recommended > 0 ? recommended : null;
+}
+
+export function publicationRecommendationSummary(idOrPreset) {
+  const recommended = publicationPresetRecommendedDurationSeconds(idOrPreset);
+  return recommended ? `Recomendado: ${recommended}s` : "";
+}
+
+export function evaluatePublicationDurationPolicy(
+  idOrPreset,
+  requestedDurationSeconds,
+) {
+  const preset =
+    typeof idOrPreset === "string"
+      ? publicationAssetPresetById(idOrPreset)
+      : idOrPreset;
+  const requested = Number(requestedDurationSeconds);
+  const recommended = publicationPresetRecommendedDurationSeconds(preset);
+  const durationConstraint = preset?.constraints?.duration;
+  const constraintValue = Number(durationConstraint?.valueSeconds);
+  const hasRecommendation =
+    recommended != null && Number.isFinite(recommended) && recommended > 0;
+  const recommendationExceeded =
+    hasRecommendation && Number.isFinite(requested) && requested > recommended;
+  const hasConstraint =
+    durationConstraint != null &&
+    Number.isFinite(constraintValue) &&
+    constraintValue > 0;
+  const constraintExceeded =
+    hasConstraint && Number.isFinite(requested) && requested > constraintValue;
+  const enforcement = durationConstraint?.enforcement ?? "blocking";
+  const blocking = constraintExceeded && enforcement === "blocking";
+  return {
+    requestedDurationSeconds: Number.isFinite(requested) ? requested : null,
+    recommendedDurationSeconds: hasRecommendation ? recommended : null,
+    durationConstraint: hasConstraint
+      ? {
+          mode: durationConstraint.mode ?? "maximum",
+          valueSeconds: constraintValue,
+          enforcement,
+        }
+      : null,
+    recommendationExceeded,
+    constraintExceeded,
+    blocking,
+  };
 }
 
 export function clampPublicationClipDurationForPreset(value, _idOrPreset) {
@@ -348,8 +403,11 @@ export function publicationConstraintSummary(idOrPreset) {
   const constraints = preset?.constraints;
   if (!constraints) return "";
   const parts = [];
-  if (constraints.maxDurationSeconds) {
-    parts.push(`até ${constraints.maxDurationSeconds}s`);
+  if (
+    constraints.duration?.valueSeconds &&
+    constraints.duration.enforcement !== "warning"
+  ) {
+    parts.push(`máximo ${constraints.duration.valueSeconds}s`);
   }
   if (constraints.maxFileSizeBytes) {
     parts.push(`até ${formatConstraintBytes(constraints.maxFileSizeBytes)}`);

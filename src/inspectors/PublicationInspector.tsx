@@ -3,8 +3,10 @@ import { Download, FolderOpen, RotateCcw } from "lucide-react";
 import {
   clampPublicationClipDuration,
   clampPublicationClipStart,
+  evaluatePublicationDurationPolicy,
   EXPORTER_MAX_DURATION_SECONDS,
   publicationConstraintSummary,
+  publicationRecommendationSummary,
   publicationBookletThemes,
   publicationAssetPresets,
 } from "../../shared/publication-assets.mjs";
@@ -87,6 +89,12 @@ export function PublicationInspector({
   const lyricsOptions = publicationLyricsExcerptOptions(lyricsText);
   const selectedConstraintSummary =
     publicationConstraintSummary(selectedPreset);
+  const selectedRecommendationSummary =
+    publicationRecommendationSummary(selectedPreset);
+  const durationPolicy = evaluatePublicationDurationPolicy(
+    selectedPreset,
+    assetSettings.clipDuration,
+  );
   return (
     <>
       <InspectorGroup title="Divulgação" open>
@@ -117,7 +125,16 @@ export function PublicationInspector({
             {selectedCount} faixa
             {selectedCount === 1 ? "" : "s"}.
           </p>
-          {selectedConstraintSummary && (
+          {selectedRecommendationSummary && (
+            <p className="helper-copy">
+              {selectedRecommendationSummary}
+              {selectedConstraintSummary
+                ? ` · ${selectedConstraintSummary}`
+                : ""}
+              .
+            </p>
+          )}
+          {!selectedRecommendationSummary && selectedConstraintSummary && (
             <p className="helper-copy">
               Limites do formato: {selectedConstraintSummary}.
             </p>
@@ -201,6 +218,13 @@ export function PublicationInspector({
                   })
                 }
               />
+              {durationPolicy.recommendationExceeded && (
+                <p className="helper-copy warning">
+                  A duração está acima do recomendado para este perfil (
+                  {durationPolicy.recommendedDurationSeconds}s). A exportação
+                  ainda é permitida.
+                </p>
+              )}
             </>
           ) : selectedPreset.kind === "booklet" ? (
             <>
