@@ -471,7 +471,10 @@ export function createWindowsGpuDedicatedUsageReader({
         }
         resolve(value);
       };
-      killTimer = setTimeout(() => finish(null), safeTimeout);
+      killTimer = setTimeout(
+        () => finish(null),
+        Math.max(50, Math.min(MAX_READER_TIMEOUT_MS, safeTimeout)),
+      );
       child.stdout?.on("data", (data) => {
         out += String(data);
       });
@@ -566,7 +569,10 @@ export function createWindowsDxgiTotalResolver({
         }
         resolve(value);
       };
-      killTimer = setTimeout(() => finish(null), safeTimeout);
+      killTimer = setTimeout(
+        () => finish(null),
+        Math.max(50, Math.min(MAX_READER_TIMEOUT_MS, safeTimeout)),
+      );
       child.stdout?.on("data", (data) => {
         out += String(data);
       });
@@ -681,7 +687,10 @@ export function createWindowsGpuEngineUsageReader({
         }
         resolve(value);
       };
-      killTimer = setTimeout(() => finish(null), safeTimeout);
+      killTimer = setTimeout(
+        () => finish(null),
+        Math.max(50, Math.min(MAX_READER_TIMEOUT_MS, safeTimeout)),
+      );
       child.stdout?.on("data", (data) => {
         out += String(data);
       });
