@@ -19,7 +19,7 @@ export type PublicationAssetPreset = {
   height: number;
   directory: "imagens" | "clips" | "encartes";
   extension: "jpg" | "mp4" | "html";
-  maxDurationSeconds?: number;
+  defaultDurationSeconds?: number;
   bookletTheme?: string;
   constraints?: {
     maxDurationSeconds?: number;
@@ -76,6 +76,8 @@ export const publicationAssetPresets: PublicationAssetPreset[];
 export function publicationAssetPresetById(id: string): PublicationAssetPreset;
 export function publicationAssetPresetLabel(id: string): string;
 export function clampPublicationClipDuration(value: unknown): number;
+export const EXPORTER_MIN_DURATION_SECONDS: number;
+export const EXPORTER_MAX_DURATION_SECONDS: number;
 export function publicationPresetMaxDurationSeconds(
   idOrPreset: string | PublicationAssetPreset,
 ): number;

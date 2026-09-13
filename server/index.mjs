@@ -111,7 +111,7 @@ import {
 import { isLyricsTextPath } from "../shared/lyrics-convention.mjs";
 import { buildNameFromPattern } from "../shared/file-naming.mjs";
 import {
-  clampPublicationClipDurationForPreset,
+  clampPublicationClipDuration,
   clampPublicationClipStart,
   clampPublicationLyricsLineSpacing,
   normalizePublicationBookletTheme,
@@ -1315,10 +1315,7 @@ app.post(
     const metadata = normalizeMetadata(req.body);
     const preset = publicationAssetPresetById(req.body.publicationPresetId);
     const clipStart = clampPublicationClipStart(req.body.clipStart);
-    const clipDuration = clampPublicationClipDurationForPreset(
-      req.body.clipDuration,
-      preset,
-    );
+    const clipDuration = clampPublicationClipDuration(req.body.clipDuration);
     const includeFullLyrics =
       String(req.body.includeFullLyrics ?? "false") === "true";
     const lyricsMode = normalizePublicationLyricsMode(

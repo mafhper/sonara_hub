@@ -1,12 +1,12 @@
 import { Download, FolderOpen, RotateCcw } from "lucide-react";
 
 import {
-  clampPublicationClipDurationForPreset,
+  clampPublicationClipDuration,
   clampPublicationClipStart,
+  EXPORTER_MAX_DURATION_SECONDS,
   publicationConstraintSummary,
   publicationBookletThemes,
   publicationAssetPresets,
-  publicationPresetMaxDurationSeconds,
 } from "../../shared/publication-assets.mjs";
 import type {
   PublicationAssetPreset,
@@ -87,8 +87,6 @@ export function PublicationInspector({
   const lyricsOptions = publicationLyricsExcerptOptions(lyricsText);
   const selectedConstraintSummary =
     publicationConstraintSummary(selectedPreset);
-  const selectedMaxDuration =
-    publicationPresetMaxDurationSeconds(selectedPreset);
   return (
     <>
       <InspectorGroup title="Divulgação" open>
@@ -192,17 +190,14 @@ export function PublicationInspector({
               />
               <NumberStepField
                 label="Duração deste asset"
-                max={selectedMaxDuration}
+                max={EXPORTER_MAX_DURATION_SECONDS}
                 min={1}
                 step={1}
                 unit="s"
                 value={assetSettings.clipDuration}
                 onChange={(clipDuration) =>
                   onAssetSettings({
-                    clipDuration: clampPublicationClipDurationForPreset(
-                      clipDuration,
-                      selectedPreset,
-                    ),
+                    clipDuration: clampPublicationClipDuration(clipDuration),
                   })
                 }
               />

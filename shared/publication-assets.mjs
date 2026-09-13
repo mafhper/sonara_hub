@@ -150,7 +150,7 @@ export const publicationAssetPresets = [
     height: 1080,
     directory: "clips",
     extension: "mp4",
-    maxDurationSeconds: 30,
+    defaultDurationSeconds: 30,
     constraints: {
       codec: "H.264/AAC",
       maxDurationSeconds: 30,
@@ -165,7 +165,7 @@ export const publicationAssetPresets = [
     height: 1080,
     directory: "clips",
     extension: "mp4",
-    maxDurationSeconds: 30,
+    defaultDurationSeconds: 30,
     constraints: {
       codec: "H.264/AAC",
       maxDurationSeconds: 30,
@@ -180,7 +180,7 @@ export const publicationAssetPresets = [
     height: 1920,
     directory: "clips",
     extension: "mp4",
-    maxDurationSeconds: 30,
+    defaultDurationSeconds: 30,
     constraints: {
       codec: "H.264/AAC",
       maxDurationSeconds: 30,
@@ -196,7 +196,7 @@ export const publicationAssetPresets = [
     height: 1920,
     directory: "clips",
     extension: "mp4",
-    maxDurationSeconds: 15,
+    defaultDurationSeconds: 15,
     constraints: {
       codec: "H.264/AAC",
       maxDurationSeconds: 15,
@@ -212,7 +212,7 @@ export const publicationAssetPresets = [
     height: 1920,
     directory: "clips",
     extension: "mp4",
-    maxDurationSeconds: 90,
+    defaultDurationSeconds: 30,
     constraints: {
       codec: "H.264/AAC",
       maxDurationSeconds: 90,
@@ -228,7 +228,7 @@ export const publicationAssetPresets = [
     height: 1920,
     directory: "clips",
     extension: "mp4",
-    maxDurationSeconds: 30,
+    defaultDurationSeconds: 30,
     constraints: {
       codec: "H.264/AAC",
       maxDurationSeconds: 30,
@@ -245,7 +245,7 @@ export const publicationAssetPresets = [
     height: 1920,
     directory: "clips",
     extension: "mp4",
-    maxDurationSeconds: 60,
+    defaultDurationSeconds: 30,
     constraints: {
       codec: "H.264/AAC",
       maxDurationSeconds: 60,
@@ -261,7 +261,7 @@ export const publicationAssetPresets = [
     height: 1920,
     directory: "clips",
     extension: "mp4",
-    maxDurationSeconds: 600,
+    defaultDurationSeconds: 30,
     constraints: {
       codec: "H.264/AAC",
       maxDurationSeconds: 600,
@@ -304,10 +304,18 @@ export function publicationAssetPresetLabel(id) {
   return `${preset.label} · ${preset.width}x${preset.height}`;
 }
 
+// Capacidade operacional do exportador local (captura WebGL + mux).
+// 600s (10 min) é o teto atual do pipeline; não é uma regra de plataforma.
+export const EXPORTER_MIN_DURATION_SECONDS = 1;
+export const EXPORTER_MAX_DURATION_SECONDS = 600;
+
 export function clampPublicationClipDuration(value) {
   const duration = Number(value);
   if (Number.isNaN(duration)) return 15;
-  return Math.min(600, Math.max(1, duration));
+  return Math.min(
+    EXPORTER_MAX_DURATION_SECONDS,
+    Math.max(EXPORTER_MIN_DURATION_SECONDS, duration),
+  );
 }
 
 export function publicationPresetMaxDurationSeconds(idOrPreset) {
@@ -315,21 +323,21 @@ export function publicationPresetMaxDurationSeconds(idOrPreset) {
     typeof idOrPreset === "string"
       ? publicationAssetPresetById(idOrPreset)
       : idOrPreset;
+  // Mantido para compatibilidade de resumo; o preset não bloqueia mais a
+  // duração — só a capacidade do exportador impõe teto.
   return Math.max(
     1,
     Number(
       preset?.constraints?.maxDurationSeconds ??
         preset?.maxDurationSeconds ??
-        600,
+        EXPORTER_MAX_DURATION_SECONDS,
     ),
   );
 }
 
-export function clampPublicationClipDurationForPreset(value, idOrPreset) {
-  return Math.min(
-    publicationPresetMaxDurationSeconds(idOrPreset),
-    clampPublicationClipDuration(value),
-  );
+export function clampPublicationClipDurationForPreset(value, _idOrPreset) {
+  // O preset não impõe mais teto de duração; só a capacidade do exportador.
+  return clampPublicationClipDuration(value);
 }
 
 export function publicationConstraintSummary(idOrPreset) {
@@ -463,9 +471,8 @@ export function normalizePublicationAssetOverrides(value = {}) {
       override.clipStart = clampPublicationClipStart(rawOverride.clipStart);
     }
     if (hasOwn(rawOverride, "clipDuration")) {
-      override.clipDuration = clampPublicationClipDurationForPreset(
+      override.clipDuration = clampPublicationClipDuration(
         rawOverride.clipDuration,
-        presetId,
       );
     }
     if (hasOwn(rawOverride, "includeLyrics")) {
@@ -534,9 +541,8 @@ export function publicationAssetSettingsForPreset(
   const preset = publicationAssetPresetById(presetId);
   const base = {
     clipStart: clampPublicationClipStart(defaults.clipStart ?? 0),
-    clipDuration: clampPublicationClipDurationForPreset(
-      defaults.clipDuration ?? 15,
-      preset,
+    clipDuration: clampPublicationClipDuration(
+      defaults.clipDuration ?? preset.defaultDurationSeconds ?? 15,
     ),
     includeLyrics: Boolean(defaults.includeLyrics),
     lyricsMode: normalizePublicationLyricsMode(
@@ -570,10 +576,7 @@ export function publicationAssetSettingsForPreset(
   return {
     ...merged,
     includeLyrics: lyricsMode !== "none",
-    clipDuration: clampPublicationClipDurationForPreset(
-      merged.clipDuration,
-      preset,
-    ),
+    clipDuration: clampPublicationClipDuration(merged.clipDuration),
     lyricsMode,
     lyricsExcerpt: sanitizePublicationLyricsExcerpt(merged.lyricsExcerpt),
     lyricsHideTags: Boolean(merged.lyricsHideTags),

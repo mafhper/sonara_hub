@@ -100,6 +100,7 @@ export async function renderVideoJob({
   );
   let durationMetrics = mergeDurationMetrics(null, {
     requestedDurationSeconds: duration,
+    effectiveDurationSeconds: duration,
   });
   updateJob(jobId, { durationMetrics });
   if (background.type !== "generated" && mediaLayers.length === 0) {
@@ -294,20 +295,27 @@ export async function renderPublicationAssetJob({
   const normalizedBookletTheme = normalizePublicationBookletTheme(
     bookletTheme ?? preset.bookletTheme,
   );
+  const requestedDuration =
+    preset.kind === "clip"
+      ? clipDuration
+      : preset.kind === "booklet"
+        ? Math.max(1, Number(audio.durationSeconds ?? 1))
+        : 1;
   const duration =
     preset.kind === "clip"
       ? Math.min(
-          clipDuration,
+          requestedDuration,
           Math.max(
             1,
-            Number(audio.durationSeconds ?? clipDuration) - clipStart,
+            Number(audio.durationSeconds ?? requestedDuration) - clipStart,
           ),
         )
       : preset.kind === "booklet"
         ? Math.max(0, Number(audio.durationSeconds ?? 0))
         : 1;
   let durationMetrics = mergeDurationMetrics(null, {
-    requestedDurationSeconds: duration,
+    requestedDurationSeconds: requestedDuration,
+    effectiveDurationSeconds: duration,
   });
   updateJob(jobId, { durationMetrics });
   if (background.type !== "generated" && mediaLayers.length === 0) {

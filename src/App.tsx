@@ -3223,6 +3223,16 @@ function App() {
     });
   }
 
+  function handlePublicationPresetChange(id: string) {
+    setPublicationPresetId(id);
+    const preset = publicationAssetPresetById(id);
+    if (preset?.defaultDurationSeconds != null) {
+      setPublicationClipDuration(
+        clampPublicationClipDuration(preset.defaultDurationSeconds),
+      );
+    }
+  }
+
   function setPublicationPresetScope(scope: PublicationAssetMode) {
     setPublicationAssetMode(scope);
     if (scope === "all") {
@@ -3949,18 +3959,22 @@ function App() {
         : "youtube-1080p",
     );
     setQualityProfile(snapshot.qualityProfile);
-    setPublicationPresetId(
-      publicationAssetPresets.some(
-        (preset) => preset.id === snapshot.publicationPresetId,
-      )
-        ? snapshot.publicationPresetId!
-        : "youtube-thumbnail",
-    );
+    const restoredPresetId = publicationAssetPresets.some(
+      (preset) => preset.id === snapshot.publicationPresetId,
+    )
+      ? snapshot.publicationPresetId!
+      : "youtube-thumbnail";
+    const restoredPreset = publicationAssetPresetById(restoredPresetId);
+    setPublicationPresetId(restoredPresetId);
     setPublicationClipStart(
       clampPublicationClipStart(snapshot.publicationClipStart ?? 0),
     );
     setPublicationClipDuration(
-      clampPublicationClipDuration(snapshot.publicationClipDuration ?? 15),
+      clampPublicationClipDuration(
+        snapshot.publicationClipDuration ??
+          restoredPreset.defaultDurationSeconds ??
+          15,
+      ),
     );
     setPublicationIncludeLyrics(Boolean(snapshot.publicationIncludeLyrics));
     setPublicationGenerateDataFiles(
@@ -4677,7 +4691,7 @@ function App() {
             onCopyJobError={(job) => void copyJobError(job)}
             onExport={() => void exportPublicationAssets()}
             onPauseQueue={() => void pauseQueue()}
-            onPreset={setPublicationPresetId}
+            onPreset={handlePublicationPresetChange}
             onPresetScope={setPublicationPresetScope}
             onResumeQueue={() => void resumeQueue()}
             onReviewVideos={() => setVisualStageView("review")}
@@ -4895,7 +4909,7 @@ function App() {
                     normalizeVideoOutputConflictMode(value),
                   )
                 }
-                onPreset={setPublicationPresetId}
+                onPreset={handlePublicationPresetChange}
                 onResetAssetSettings={() =>
                   resetPublicationAssetOverride(publicationPresetId)
                 }
