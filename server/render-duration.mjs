@@ -1,11 +1,11 @@
 import { parseFile } from "music-metadata";
 
-// Semântica das métricas de duração (PR1 — duração de exportação explícita):
+// Semântica das métricas de duração (PR2 — duração configurável):
 //
-//   requestedDurationSeconds      — duração RESOLVIDA para execução, derivada do
-//                                   áudio/metadados/preset (não é a solicitação
-//                                   bruta do cliente, e não existe no enqueue —
-//                                   só no worker após analyzeAudio).
+//   requestedDurationSeconds      — duração SOLICITADA pelo usuário/preset,
+//                                   antes de limitar pelo tamanho do áudio.
+//   effectiveDurationSeconds      — duração EFETIVAMENTE RESOLVIDA para
+//                                   execução (min(requested, áudio − clipStart)).
 //   actualCaptureDurationSeconds  — duração ESTIMADA do material capturado no
 //                                   WebGL/WebM via frames/WebGLFPS. É evidência
 //                                   de frame count; pacing/composição podem
@@ -13,7 +13,7 @@ import { parseFile } from "music-metadata";
 //   actualMuxDurationSeconds      — duração lida do artefato final
 //                                   (format.duration via music-metadata). Fonte
 //                                   mais confiável.
-//   captureRatio                  — capturado / solicitado (diagnóstico).
+//   captureRatio                  — capturado / efetivo (diagnóstico).
 //   captureToMuxDeltaSeconds      — mux − capture (diagnóstico pós-captura;
 //                                   mismatch não é falha — aponta problema).
 //
@@ -22,6 +22,7 @@ import { parseFile } from "music-metadata";
 
 const DURATION_METRIC_KEYS = [
   "requestedDurationSeconds",
+  "effectiveDurationSeconds",
   "actualCaptureDurationSeconds",
   "actualMuxDurationSeconds",
 ];
@@ -43,14 +44,14 @@ export function mergeDurationMetrics(current, patch) {
     const numeric = Number(value);
     next[key] = Number.isFinite(numeric) ? roundSeconds(numeric) : null;
   }
-  const requested = Number(next.requestedDurationSeconds);
+  const effective = Number(next.effectiveDurationSeconds);
   const captured =
     next.actualCaptureDurationSeconds == null
       ? null
       : Number(next.actualCaptureDurationSeconds);
   next.captureRatio =
-    captured != null && Number.isFinite(requested) && requested > 0
-      ? roundSeconds(captured / requested)
+    captured != null && Number.isFinite(effective) && effective > 0
+      ? roundSeconds(captured / effective)
       : null;
   const muxed =
     next.actualMuxDurationSeconds == null

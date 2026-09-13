@@ -37,13 +37,14 @@ test("merge starts empty and accumulates requested duration", () => {
   );
 });
 
-test("merge computes capture ratio from requested and captured", () => {
+test("merge computes capture ratio from effective and captured", () => {
   const metrics = mergeDurationMetrics(
-    { requestedDurationSeconds: 120 },
+    { requestedDurationSeconds: 120, effectiveDurationSeconds: 120 },
     { actualCaptureDurationSeconds: 119.87 },
   );
   assert.deepEqual(metrics, {
     requestedDurationSeconds: 120,
+    effectiveDurationSeconds: 120,
     actualCaptureDurationSeconds: 119.87,
     captureRatio: 0.9989,
     captureToMuxDeltaSeconds: null,
@@ -52,7 +53,7 @@ test("merge computes capture ratio from requested and captured", () => {
 
 test("perfect capture yields a capture ratio of exactly one", () => {
   const metrics = mergeDurationMetrics(
-    { requestedDurationSeconds: 30 },
+    { requestedDurationSeconds: 30, effectiveDurationSeconds: 30 },
     { actualCaptureDurationSeconds: 30 },
   );
   assert.equal(metrics.captureRatio, 1);
@@ -61,12 +62,13 @@ test("perfect capture yields a capture ratio of exactly one", () => {
 test("mux-capture delta exposes post-capture drift as a diagnostic, not a failure", () => {
   const metrics = mergeDurationMetrics(
     mergeDurationMetrics(
-      { requestedDurationSeconds: 120 },
+      { requestedDurationSeconds: 120, effectiveDurationSeconds: 120 },
       { actualCaptureDurationSeconds: 119.87 },
     ),
     { actualMuxDurationSeconds: 117.31 },
   );
   assert.equal(metrics.requestedDurationSeconds, 120);
+  assert.equal(metrics.effectiveDurationSeconds, 120);
   assert.equal(metrics.actualCaptureDurationSeconds, 119.87);
   assert.equal(metrics.actualMuxDurationSeconds, 117.31);
   assert.equal(metrics.captureToMuxDeltaSeconds, -2.56);
@@ -125,7 +127,7 @@ function readDurationInvariant(value) {
 
 test("capture health merge records the captured duration from a frame-count event", () => {
   const metrics = mergeCaptureDurationMetrics(
-    { requestedDurationSeconds: 6 },
+    { requestedDurationSeconds: 6, effectiveDurationSeconds: 6 },
     { type: "capture-frame-count", capturedFrames: 90 },
     24,
   );
