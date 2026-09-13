@@ -289,62 +289,54 @@ if (adaptiveSchedulerEnabled) {
     additionalReaders,
   });
   adaptiveSampler.start();
-  adaptiveTimer = setInterval(
-    () => {
-      const aggregate = adaptiveSampler.window(adaptiveWindowMs);
-      adaptiveLastAggregate = aggregate?.summary ?? null;
-      const signal =
-        adaptiveLastAggregate != null
-          ? {
-              sysCpu: adaptiveLastAggregate.sysCpu?.avg,
-              freeMemBytes: adaptiveLastAggregate.freeMemBytes,
-              vramUsedBytes: adaptiveLastAggregate.vramUsedBytes?.peak ?? null,
-              vramTotalBytes: adaptiveLastAggregate.vramTotalBytes || null,
-              minFreeMemBytes: envPositiveInt(
-                "SONARA_ADAPTIVE_MIN_FREE_MEM_BYTES",
-                2 * 1024 * 1024 * 1024,
-              ),
-              riseThreshold: envPositiveInt(
-                "SONARA_ADAPTIVE_RISE_THRESHOLD",
-                65,
-              ),
-              fallThreshold: envPositiveInt(
-                "SONARA_ADAPTIVE_FALL_THRESHOLD",
-                85,
-              ),
-              riseSamples: envPositiveInt("SONARA_ADAPTIVE_RISE_SAMPLES", 2),
-              fallSamples: envPositiveInt("SONARA_ADAPTIVE_FALL_SAMPLES", 1),
-              vramHighWatermark: envFloatOr(
-                "SONARA_ADAPTIVE_VRAM_HIGH_WATERMARK",
-                0.85,
-              ),
-              vramLowWatermark: envFloatOr(
-                "SONARA_ADAPTIVE_VRAM_LOW_WATERMARK",
-                0.7,
-              ),
-              recoveryCooldownMs: envPositiveInt(
-                "SONARA_ADAPTIVE_RECOVERY_COOLDOWN_MS",
-                90 * 1000,
-              ),
-            }
-          : null;
-      const { state, decision } = stepAdaptiveScheduler(
-        adaptiveSchedulerState,
-        {
-          signal,
-          now: Date.now(),
-        },
-      );
-      Object.assign(adaptiveSchedulerState, state);
-      if (decision.action !== "hold") {
-        renderJobQueue.setConcurrency(decision.next);
-        console.info(
-          `[adaptive] ${decision.action} concurrency=${adaptiveSchedulerState.concurrency} -> ${decision.next} (${decision.reason})`,
-        );
-      }
-    },
-    Math.max(250, Math.min(MAX_ADAPTIVE_INTERVAL_MS, adaptiveIntervalMs)),
+  const adaptiveTickMs = Math.max(
+    250,
+    Math.min(MAX_ADAPTIVE_INTERVAL_MS, adaptiveIntervalMs),
   );
+  adaptiveTimer = setInterval(() => {
+    const aggregate = adaptiveSampler.window(adaptiveWindowMs);
+    adaptiveLastAggregate = aggregate?.summary ?? null;
+    const signal =
+      adaptiveLastAggregate != null
+        ? {
+            sysCpu: adaptiveLastAggregate.sysCpu?.avg,
+            freeMemBytes: adaptiveLastAggregate.freeMemBytes,
+            vramUsedBytes: adaptiveLastAggregate.vramUsedBytes?.peak ?? null,
+            vramTotalBytes: adaptiveLastAggregate.vramTotalBytes || null,
+            minFreeMemBytes: envPositiveInt(
+              "SONARA_ADAPTIVE_MIN_FREE_MEM_BYTES",
+              2 * 1024 * 1024 * 1024,
+            ),
+            riseThreshold: envPositiveInt("SONARA_ADAPTIVE_RISE_THRESHOLD", 65),
+            fallThreshold: envPositiveInt("SONARA_ADAPTIVE_FALL_THRESHOLD", 85),
+            riseSamples: envPositiveInt("SONARA_ADAPTIVE_RISE_SAMPLES", 2),
+            fallSamples: envPositiveInt("SONARA_ADAPTIVE_FALL_SAMPLES", 1),
+            vramHighWatermark: envFloatOr(
+              "SONARA_ADAPTIVE_VRAM_HIGH_WATERMARK",
+              0.85,
+            ),
+            vramLowWatermark: envFloatOr(
+              "SONARA_ADAPTIVE_VRAM_LOW_WATERMARK",
+              0.7,
+            ),
+            recoveryCooldownMs: envPositiveInt(
+              "SONARA_ADAPTIVE_RECOVERY_COOLDOWN_MS",
+              90 * 1000,
+            ),
+          }
+        : null;
+    const { state, decision } = stepAdaptiveScheduler(adaptiveSchedulerState, {
+      signal,
+      now: Date.now(),
+    });
+    Object.assign(adaptiveSchedulerState, state);
+    if (decision.action !== "hold") {
+      renderJobQueue.setConcurrency(decision.next);
+      console.info(
+        `[adaptive] ${decision.action} concurrency=${adaptiveSchedulerState.concurrency} -> ${decision.next} (${decision.reason})`,
+      );
+    }
+  }, adaptiveTickMs);
   if (adaptiveTimer.unref) adaptiveTimer.unref();
 }
 
