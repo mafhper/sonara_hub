@@ -289,10 +289,11 @@ if (adaptiveSchedulerEnabled) {
     additionalReaders,
   });
   adaptiveSampler.start();
-  const adaptiveTickMs = Math.max(
-    250,
-    Math.min(MAX_ADAPTIVE_INTERVAL_MS, adaptiveIntervalMs),
-  );
+  let adaptiveTickMs = adaptiveIntervalMs;
+  if (adaptiveTickMs < 250) adaptiveTickMs = 250;
+  if (adaptiveTickMs > MAX_ADAPTIVE_INTERVAL_MS) {
+    adaptiveTickMs = MAX_ADAPTIVE_INTERVAL_MS;
+  }
   adaptiveTimer = setInterval(() => {
     const aggregate = adaptiveSampler.window(adaptiveWindowMs);
     adaptiveLastAggregate = aggregate?.summary ?? null;
