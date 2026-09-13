@@ -36,6 +36,8 @@ import { spawn as childSpawn } from "node:child_process";
 const DEFAULT_INTERVAL_MS = 5000;
 const DEFAULT_MAX_SAMPLES = 240;
 const DEFAULT_WINDOW_MS = 60000;
+const MAX_TIMER_INTERVAL_MS = 60000;
+const MAX_READER_TIMEOUT_MS = 15000;
 
 // Consulta WMI compacta: entre as instâncias GPUAdapterMemory (uma por LUID),
 // escolhe a de maior DedicatedUsage (a placa discreta — ex.: RX 7600) e imprime
@@ -259,10 +261,11 @@ export function createResourceSampler({
   onSample = null,
 } = {}) {
   const safeEnabled = Boolean(enabled);
-  const effectiveInterval = Math.max(
-    50,
-    Math.floor(intervalMs) || DEFAULT_INTERVAL_MS,
-  );
+  let effectiveInterval = Math.floor(intervalMs) || DEFAULT_INTERVAL_MS;
+  if (effectiveInterval < 50) effectiveInterval = 50;
+  if (effectiveInterval > MAX_TIMER_INTERVAL_MS) {
+    effectiveInterval = MAX_TIMER_INTERVAL_MS;
+  }
   let timer = null;
   let running = false;
   let pending = false;
@@ -391,9 +394,11 @@ export function createResourceSampler({
 
 export function samplerIntervalFromEnv(environment = process.env) {
   const value = Number(environment.SONARA_RESOURCE_SAMPLER_INTERVAL_MS);
-  return Number.isFinite(value) && value >= 50
-    ? Math.floor(value)
-    : DEFAULT_INTERVAL_MS;
+  if (!(Number.isFinite(value) && value >= 50)) {
+    return DEFAULT_INTERVAL_MS;
+  }
+  if (value > MAX_TIMER_INTERVAL_MS) return MAX_TIMER_INTERVAL_MS;
+  return Math.floor(value);
 }
 
 function parseDedicatedUsage(text) {
@@ -427,7 +432,11 @@ export function createWindowsGpuDedicatedUsageReader({
   totalBytes = null,
   spawn = childSpawn,
 } = {}) {
-  const safeTimeout = Math.max(50, Math.floor(timeoutMs) || 4000);
+  let safeTimeout = Math.floor(timeoutMs) || 4000;
+  if (safeTimeout < 50) safeTimeout = 50;
+  if (safeTimeout > MAX_READER_TIMEOUT_MS) {
+    safeTimeout = MAX_READER_TIMEOUT_MS;
+  }
   const safeBackoff = Math.max(0, Math.floor(backoffMs) || 60000);
   const safeMaxMisses = Math.max(1, Math.floor(maxMisses) || 2);
   const safeTotal =
@@ -462,7 +471,10 @@ export function createWindowsGpuDedicatedUsageReader({
         }
         resolve(value);
       };
-      killTimer = setTimeout(() => finish(null), safeTimeout);
+      killTimer =
+        safeTimeout <= MAX_READER_TIMEOUT_MS
+          ? setTimeout(() => finish(null), safeTimeout)
+          : setTimeout(() => finish(null), MAX_READER_TIMEOUT_MS);
       child.stdout?.on("data", (data) => {
         out += String(data);
       });
@@ -520,7 +532,11 @@ export function createWindowsDxgiTotalResolver({
   timeoutMs = 10000,
   spawn = childSpawn,
 } = {}) {
-  const safeTimeout = Math.max(50, Math.floor(timeoutMs) || 10000);
+  let safeTimeout = Math.floor(timeoutMs) || 10000;
+  if (safeTimeout < 50) safeTimeout = 50;
+  if (safeTimeout > MAX_READER_TIMEOUT_MS) {
+    safeTimeout = MAX_READER_TIMEOUT_MS;
+  }
   return function resolveDxgiTotal() {
     return new Promise((resolve) => {
       let child;
@@ -553,7 +569,10 @@ export function createWindowsDxgiTotalResolver({
         }
         resolve(value);
       };
-      killTimer = setTimeout(() => finish(null), safeTimeout);
+      killTimer =
+        safeTimeout <= MAX_READER_TIMEOUT_MS
+          ? setTimeout(() => finish(null), safeTimeout)
+          : setTimeout(() => finish(null), MAX_READER_TIMEOUT_MS);
       child.stdout?.on("data", (data) => {
         out += String(data);
       });
@@ -626,7 +645,11 @@ export function createWindowsGpuEngineUsageReader({
   maxMisses = 2,
   spawn = childSpawn,
 } = {}) {
-  const safeTimeout = Math.max(50, Math.floor(timeoutMs) || 4000);
+  let safeTimeout = Math.floor(timeoutMs) || 4000;
+  if (safeTimeout < 50) safeTimeout = 50;
+  if (safeTimeout > MAX_READER_TIMEOUT_MS) {
+    safeTimeout = MAX_READER_TIMEOUT_MS;
+  }
   const safeBackoff = Math.max(0, Math.floor(backoffMs) || 60000);
   const safeMaxMisses = Math.max(1, Math.floor(maxMisses) || 2);
   let misses = 0;
@@ -664,7 +687,10 @@ export function createWindowsGpuEngineUsageReader({
         }
         resolve(value);
       };
-      killTimer = setTimeout(() => finish(null), safeTimeout);
+      killTimer =
+        safeTimeout <= MAX_READER_TIMEOUT_MS
+          ? setTimeout(() => finish(null), safeTimeout)
+          : setTimeout(() => finish(null), MAX_READER_TIMEOUT_MS);
       child.stdout?.on("data", (data) => {
         out += String(data);
       });

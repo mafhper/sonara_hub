@@ -253,11 +253,16 @@ const adaptiveSchedulerState = adaptiveSchedulerEnabled
   : null;
 let adaptiveSampler = null;
 let adaptiveTimer = null;
+const MAX_ADAPTIVE_INTERVAL_MS = 60000;
 let adaptiveWindowMs = envPositiveInt("SONARA_ADAPTIVE_WINDOW_MS", 30000);
 let adaptiveIntervalMs = envPositiveInt(
   "SONARA_ADAPTIVE_SCHEDULER_INTERVAL_MS",
   15000,
 );
+if (adaptiveIntervalMs < 250) adaptiveIntervalMs = 250;
+if (adaptiveIntervalMs > MAX_ADAPTIVE_INTERVAL_MS) {
+  adaptiveIntervalMs = MAX_ADAPTIVE_INTERVAL_MS;
+}
 let adaptiveLastAggregate = null;
 let adaptiveVramTotal = null;
 if (adaptiveSchedulerEnabled) {
@@ -284,7 +289,12 @@ if (adaptiveSchedulerEnabled) {
     additionalReaders,
   });
   adaptiveSampler.start();
-  adaptiveTimer = setInterval(() => {
+  let adaptiveTickMs = adaptiveIntervalMs;
+  if (adaptiveTickMs < 250) adaptiveTickMs = 250;
+  if (adaptiveTickMs > MAX_ADAPTIVE_INTERVAL_MS) {
+    adaptiveTickMs = MAX_ADAPTIVE_INTERVAL_MS;
+  }
+  const autoTune = () => {
     const aggregate = adaptiveSampler.window(adaptiveWindowMs);
     adaptiveLastAggregate = aggregate?.summary ?? null;
     const signal =
@@ -327,7 +337,11 @@ if (adaptiveSchedulerEnabled) {
         `[adaptive] ${decision.action} concurrency=${adaptiveSchedulerState.concurrency} -> ${decision.next} (${decision.reason})`,
       );
     }
-  }, adaptiveIntervalMs);
+  };
+  adaptiveTimer =
+    adaptiveTickMs <= MAX_ADAPTIVE_INTERVAL_MS
+      ? setInterval(autoTune, adaptiveTickMs)
+      : setInterval(autoTune, MAX_ADAPTIVE_INTERVAL_MS);
   if (adaptiveTimer.unref) adaptiveTimer.unref();
 }
 
