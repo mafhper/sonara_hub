@@ -733,7 +733,18 @@ smoke: try {
     await page
       .getByRole("spinbutton", { name: "Duração deste asset" })
       .inputValue(),
-    "15",
+    "120",
+  );
+  await page
+    .getByText(
+      "A duração está acima do recomendado para este perfil (15s). A exportação continua permitida.",
+      { exact: true },
+    )
+    .waitFor();
+  assert.equal(
+    await page.locator(".publication-stage header .primary-action").isEnabled(),
+    true,
+    "export should stay enabled when only recommendation is exceeded",
   );
   await page
     .getByLabel("Formato base")

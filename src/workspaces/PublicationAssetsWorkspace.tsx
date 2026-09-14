@@ -187,13 +187,15 @@ export function PublicationAssetsWorkspace({
         <div>
           <span className="overline">Em foco</span>
           <strong>{preset.label}</strong>
-          <small>
-            {selectedRecommendationSummary || selectedConstraintSummary
-              ? [selectedRecommendationSummary, selectedConstraintSummary]
-                  .filter(Boolean)
-                  .join(" · ")
-              : selectedFormatDescription}
-          </small>
+          {selectedRecommendationSummary ? (
+            <small>{selectedRecommendationSummary}</small>
+          ) : null}
+          {selectedConstraintSummary ? (
+            <small>{selectedConstraintSummary}</small>
+          ) : null}
+          {!selectedRecommendationSummary && !selectedConstraintSummary ? (
+            <small>{selectedFormatDescription}</small>
+          ) : null}
         </div>
         <div>
           <span className="overline">Disparo</span>
