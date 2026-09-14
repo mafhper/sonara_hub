@@ -1,6 +1,6 @@
-<p align="center">
-  <img src="public/brand/sonara-lockup-art.jpg" alt="Sonara Hub" width="440" />
-</p>
+<a href="https://mafhper.github.io/sonara_hub/" >
+  <img alt="Sonara Hub" src="public/brand/sonara-lockup-art.jpg" />
+</a>
 
 <p align="center">
   <em>Estúdio local para transformar seus álbuns em vídeos ambientes prontos para publicar.</em>
