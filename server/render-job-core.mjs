@@ -337,6 +337,10 @@ export async function renderPublicationAssetJob({
   }
 
   assertNotCanceled(shouldCancel);
+  let fileSizeValidation = null;
+  let reencodeCount = 0;
+  let initialVideoBitrateKbps = null;
+  let finalVideoBitrateKbps = null;
   stages.enter(
     preset.kind === "image"
       ? "poster-render"
@@ -446,7 +450,9 @@ export async function renderPublicationAssetJob({
             style: lyricsStyle,
           })
         : null;
-    const muxPlan = buildWebglMuxPlan({
+    const muxResult = await muxPublicationClipWithBoundedReencode({
+      jobId,
+      webglVideoPath,
       audioPath,
       audioStartSeconds: clipStart,
       duration,
@@ -455,32 +461,19 @@ export async function renderPublicationAssetJob({
       outputSize,
       settings: publicationConstrainedMuxSettings(settings, preset, duration),
       subtitlePath,
-      webglVideoPath,
+      preset,
+      updateJob,
+      stages,
+      shouldCancel,
     });
-    stages.enter("ffmpeg-mux", {
-      progress: 92,
-      message: "Finalizando mux",
-      encoder: muxPlan.encoder.encoder,
-      encoderModeRequested: muxPlan.encoder.modeRequested,
-      encoderModeResolved: muxPlan.encoder.modeResolved,
-      encoderProfile: muxPlan.encoder.profile,
-      encoderFallbackReason: muxPlan.encoder.fallbackReason,
-    });
-    await runFfmpeg(muxPlan.args, duration, (progress, message) =>
-      updateJob(jobId, {
-        progress: Math.max(92, progress),
-        message: message.replace("Renderizando", "Finalizando"),
-      }),
-    );
-    stages.enter("output-validation", {
-      progress: 97,
-      message: "Validando asset final",
-    });
-    await assertPlayableOutput(outputPath);
     durationMetrics = mergeDurationMetrics(durationMetrics, {
       actualMuxDurationSeconds: await readOutputDurationSeconds(outputPath),
     });
     updateJob(jobId, { durationMetrics });
+    fileSizeValidation = muxResult.fileSizeValidation;
+    reencodeCount = muxResult.reencodeCount;
+    initialVideoBitrateKbps = muxResult.initialVideoBitrateKbps;
+    finalVideoBitrateKbps = muxResult.finalVideoBitrateKbps;
   }
 
   if (preset.kind !== "clip") {
@@ -488,12 +481,15 @@ export async function renderPublicationAssetJob({
       progress: 97,
       message: "Medindo asset final",
     });
+    fileSizeValidation = await validatePublicationFileSize(outputPath, preset);
   }
-  const fileSizeValidation = await validatePublicationFileSize(
-    outputPath,
-    preset,
-  );
   const warnings = publicationFileSizeWarnings(fileSizeValidation, preset);
+  const durationSizeWarning = publicationDurationSizeWarning(
+    preset,
+    duration,
+    fileSizeValidation,
+  );
+  if (durationSizeWarning) warnings.push(durationSizeWarning);
 
   // Data files (json/markdown manifest) are optional — sometimes the user only
   // wants the clip/image itself.
@@ -523,6 +519,9 @@ export async function renderPublicationAssetJob({
       bookletTheme: normalizedBookletTheme,
       fileSizeValidation,
       warnings,
+      reencodeCount,
+      initialVideoBitrateKbps,
+      finalVideoBitrateKbps,
     });
   }
   stages.finish({
@@ -547,6 +546,185 @@ export async function renderPublicationAssetJob({
     },
     warnings,
   });
+}
+
+// Mux de um clip a partir do intermediário VP9 (fonte única do loop de
+// re-encode — nunca H.264 → H.264). O runner do ffmpeg e a validação de
+// playability são injetáveis para permitir testes de orquestração sem ffmpeg.
+async function muxPublicationClip({
+  jobId,
+  webglVideoPath,
+  audioPath,
+  audioStartSeconds,
+  duration,
+  metadata,
+  outputPath,
+  outputSize,
+  settings,
+  subtitlePath,
+  updateJob,
+  stages,
+  runFfmpegImpl = runFfmpeg,
+  validateOutputImpl = assertPlayableOutput,
+}) {
+  const muxPlan = buildWebglMuxPlan({
+    audioPath,
+    audioStartSeconds,
+    duration,
+    metadata,
+    outputPath,
+    outputSize,
+    settings,
+    subtitlePath,
+    webglVideoPath,
+  });
+  stages.enter("ffmpeg-mux", {
+    progress: 92,
+    message: "Finalizando mux",
+    encoder: muxPlan.encoder.encoder,
+    encoderModeRequested: muxPlan.encoder.modeRequested,
+    encoderModeResolved: muxPlan.encoder.modeResolved,
+    encoderProfile: muxPlan.encoder.profile,
+    encoderFallbackReason: muxPlan.encoder.fallbackReason,
+  });
+  await runFfmpegImpl(muxPlan.args, duration, (progress, message) =>
+    updateJob(jobId, {
+      progress: Math.max(92, progress),
+      message: message.replace("Renderizando", "Finalizando"),
+    }),
+  );
+  stages.enter("output-validation", {
+    progress: 97,
+    message: "Validando asset final",
+  });
+  await validateOutputImpl(outputPath);
+}
+
+// Loop bounded de re-encode para clips com limite de tamanho (ex. WhatsApp):
+// cada tentativa re-muxa o VP9 com videoBitrateKbps estritamente menor
+// (next < current, piso MIN_VIDEO_BITRATE_KBPS, no máximo MAX_REENCODES).
+// Áudio não participa da redução — só o bitrate de vídeo muda. Cada tentativa
+// grava em candidato separado (.reencode-N.mp4) e só substitui o arquivo
+// válido anterior DEPOIS de validada; falha de encode preserva o anterior.
+export async function muxPublicationClipWithBoundedReencode({
+  jobId,
+  webglVideoPath,
+  audioPath,
+  audioStartSeconds,
+  duration,
+  metadata,
+  outputPath,
+  outputSize,
+  settings,
+  subtitlePath,
+  preset,
+  updateJob,
+  stages,
+  shouldCancel,
+  runFfmpegImpl = runFfmpeg,
+  validateOutputImpl = assertPlayableOutput,
+  validateFileSizeImpl = validatePublicationFileSize,
+  maxReencodes = MAX_REENCODES,
+  reencodeFactor = REENCODE_FACTOR,
+  minVideoBitrateKbps = MIN_VIDEO_BITRATE_KBPS,
+}) {
+  const initialVideoBitrateKbps = Number.isFinite(
+    Number(settings.videoBitrateKbps),
+  )
+    ? Math.round(Number(settings.videoBitrateKbps))
+    : null;
+  const maxFileSizeBytes = Number(preset?.constraints?.maxFileSizeBytes);
+  const canReencode =
+    preset?.kind === "clip" &&
+    Number.isFinite(maxFileSizeBytes) &&
+    maxFileSizeBytes > 0;
+
+  // Primeiro encode existe exatamente como hoje — é o arquivo publicado quando
+  // cabe no limite ou quando o loop não consegue reduzir.
+  const base = {
+    jobId,
+    webglVideoPath,
+    audioPath,
+    audioStartSeconds,
+    duration,
+    metadata,
+    outputSize,
+    updateJob,
+    stages,
+    runFfmpegImpl,
+    validateOutputImpl,
+  };
+  await muxPublicationClip({ ...base, outputPath, settings, subtitlePath });
+
+  let reencodeCount = 0;
+  let currentBitrateKbps = initialVideoBitrateKbps;
+  let finalVideoBitrateKbps = initialVideoBitrateKbps;
+
+  while (
+    canReencode &&
+    currentBitrateKbps != null &&
+    reencodeCount < maxReencodes
+  ) {
+    assertNotCanceled(shouldCancel);
+    const candidateBitrateKbps = Math.max(
+      minVideoBitrateKbps,
+      Math.floor(currentBitrateKbps * reencodeFactor),
+    );
+    // Piso atingido: nunca re-codificar com o mesmo bitrate.
+    if (candidateBitrateKbps === currentBitrateKbps) break;
+
+    const currentValidation = await validateFileSizeImpl(outputPath, preset);
+    if (currentValidation.status !== "exceeded") break;
+
+    const candidatePath = path.join(
+      path.dirname(outputPath),
+      `${path.basename(outputPath)}.reencode-${reencodeCount + 1}.mp4`,
+    );
+    await fs.rm(candidatePath, { force: true });
+
+    reencodeCount += 1;
+    currentBitrateKbps = candidateBitrateKbps;
+    stages.enter("optimizing-size", {
+      progress: 90,
+      message: "Ajustando tamanho para caber no limite",
+    });
+    try {
+      await muxPublicationClip({
+        ...base,
+        outputPath: candidatePath,
+        settings: { ...settings, videoBitrateKbps: candidateBitrateKbps },
+        subtitlePath,
+      });
+      const candidateValidation = await validateFileSizeImpl(
+        candidatePath,
+        preset,
+      );
+      if (candidateValidation.status === "ok") {
+        // Promove o candidato validado — só agora o arquivo anterior é
+        // substituído (integridade: tentativa excedente não sobrescreve o
+        // único arquivo válido anterior).
+        await fs.rm(outputPath, { force: true });
+        await fs.rename(candidatePath, outputPath);
+        finalVideoBitrateKbps = candidateBitrateKbps;
+        break;
+      }
+      await fs.rm(candidatePath, { force: true });
+    } catch {
+      // Falha de encode/validação durante tentativa adicional: mantém o
+      // candidato válido anterior (outputPath intacto) — o job não fica sem
+      // arquivo e não falha por causa de uma tentativa adicional.
+      await fs.rm(candidatePath, { force: true });
+      break;
+    }
+  }
+
+  const fileSizeValidation = await validateFileSizeImpl(outputPath, preset);
+  return {
+    reencodeCount,
+    initialVideoBitrateKbps,
+    finalVideoBitrateKbps,
+    fileSizeValidation,
+  };
 }
 
 function assertNotCanceled(shouldCancel) {
@@ -616,7 +794,20 @@ export function createPipelineTelemetryLogger(
 
 export const createGpuTelemetryLogger = createPipelineTelemetryLogger;
 
-function publicationConstrainedMuxSettings(settings, preset, duration) {
+// Limites operacionais do loop bounded de re-encode (NÃO são política de
+// publicação — mudar 3→2 ou 0.8→0.75 não altera a semântica dos presets).
+export const MAX_REENCODES = 3;
+export const REENCODE_FACTOR = 0.8;
+export const MIN_VIDEO_BITRATE_KBPS = 250;
+
+// Próximo bitrate de vídeo para uma tentativa adicional (monotônico, com piso).
+// Retorna o MESMO valor quando o piso já foi atingido — o loop deve parar.
+export function nextVideoBitrateKbps(current) {
+  const base = Math.floor(Number(current) * REENCODE_FACTOR);
+  return Math.max(MIN_VIDEO_BITRATE_KBPS, base);
+}
+
+export function publicationConstrainedMuxSettings(settings, preset, duration) {
   const maxFileSizeBytes = Number(preset?.constraints?.maxFileSizeBytes);
   if (
     preset?.kind !== "clip" ||
@@ -638,7 +829,7 @@ function publicationConstrainedMuxSettings(settings, preset, duration) {
   };
 }
 
-async function validatePublicationFileSize(outputPath, preset) {
+export async function validatePublicationFileSize(outputPath, preset) {
   const stat = await fs.stat(outputPath);
   const actualBytes = stat.size;
   const maxBytes = Number(preset?.constraints?.maxFileSizeBytes);
@@ -655,11 +846,36 @@ async function validatePublicationFileSize(outputPath, preset) {
   };
 }
 
-function publicationFileSizeWarnings(validation, preset) {
-  if (validation.status !== "exceeded") return [];
+export function publicationFileSizeWarnings(validation, preset) {
+  if (validation?.status !== "exceeded") return [];
   return [
     `Tamanho final acima do limite de ${preset.label}: ${validation.actualLabel} de ${validation.maxLabel} (+${validation.overLabel}).`,
   ];
+}
+
+// Warning derivado da matemática de orçamento, não de regra de duração fixa:
+// quando a duração torna o tamanho-alvo inatingível mesmo no bitrate mínimo de
+// vídeo. Só tem sentido quando o arquivo efetivamente excedeu o limite.
+export function publicationDurationSizeWarning(
+  preset,
+  durationSeconds,
+  validation,
+) {
+  if (preset?.kind !== "clip" || validation?.status !== "exceeded") return null;
+  const maxFileSizeBytes = Number(preset?.constraints?.maxFileSizeBytes);
+  const duration = Number(durationSeconds);
+  if (
+    !Number.isFinite(maxFileSizeBytes) ||
+    maxFileSizeBytes <= 0 ||
+    !Number.isFinite(duration) ||
+    duration <= 0
+  ) {
+    return null;
+  }
+  const totalKbps = (maxFileSizeBytes * 8) / duration / 1000;
+  const sustainedVideoKbps = Math.floor(totalKbps * 0.86 - 192);
+  if (sustainedVideoKbps >= MIN_VIDEO_BITRATE_KBPS) return null;
+  return `A duração (${Math.round(duration)}s) é longa demais para o limite de ${validation.maxLabel}: mesmo no bitrate mínimo de vídeo o arquivo provavelmente excederá o tamanho-alvo.`;
 }
 
 function formatPublicationBytes(value) {
@@ -728,6 +944,9 @@ async function writePublicationManifest({
   bookletTheme,
   fileSizeValidation,
   warnings = [],
+  reencodeCount = 0,
+  initialVideoBitrateKbps = null,
+  finalVideoBitrateKbps = null,
 }) {
   const normalizedLyricsMode = normalizePublicationLyricsMode(
     lyricsMode,
@@ -786,6 +1005,9 @@ async function writePublicationManifest({
       fileSize: fileSizeValidation,
       duration: durationPolicy,
       warnings,
+      reencodeCount,
+      initialVideoBitrateKbps,
+      finalVideoBitrateKbps,
     },
     files: [
       {
