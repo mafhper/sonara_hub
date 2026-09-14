@@ -5356,7 +5356,7 @@ button:disabled {
   font-size: var(--font-xs);
 }
 
-.job-status-line {
+.batch-job-row .job-status-line {
   display: block;
   margin-top: var(--space-1);
   color: var(--text-secondary);
@@ -5364,7 +5364,7 @@ button:disabled {
   white-space: normal;
 }
 
-.job-meta-line {
+.batch-job-row .job-meta-line {
   display: block;
   margin-top: var(--space-1);
   white-space: normal;
