@@ -244,6 +244,7 @@ export const publicationAssetPresets = [
     },
     constraints: {
       codec: "H.264/AAC",
+      // Valor provisório — validar contra limite real da plataforma antes de alterar.
       maxFileSizeBytes: 10 * MB,
       aspectRatio: "9:16",
     },
