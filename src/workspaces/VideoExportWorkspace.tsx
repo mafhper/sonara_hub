@@ -9,7 +9,8 @@ import {
 import type { ReactNode } from "react";
 
 import { BatchJobBoard } from "../jobs/BatchJobBoard";
-import { formatDurationMs, jobStageLabel } from "../jobs/BatchJobBoard";
+import { formatDurationMs } from "../jobs/BatchJobBoard";
+import { jobStageLabel } from "../jobs/jobStageLabels";
 import type { RenderJob } from "../types";
 
 export function VideoExportWorkspace({

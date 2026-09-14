@@ -5356,16 +5356,32 @@ button:disabled {
   font-size: var(--font-xs);
 }
 
-.job-stage-line {
+.batch-job-row .job-status-line {
   display: block;
   margin-top: var(--space-1);
+  color: var(--text-secondary);
+  font-weight: 650;
+  white-space: normal;
+}
+
+.batch-job-row .job-meta-line {
+  display: block;
+  margin-top: var(--space-1);
+  white-space: normal;
 }
 
 .batch-job-row .job-warning-line {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   margin-top: var(--space-1);
-  color: var(--warning);
+  color: var(--status-warn);
   font-weight: 650;
+  white-space: normal;
+}
+
+.batch-job-row .job-warning-line svg {
+  flex-shrink: 0;
 }
 
 .batch-job-row progress {

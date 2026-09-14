@@ -11,6 +11,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { jobStageLabel } from "./jobStageLabels";
 import type { RenderJob } from "../types";
 
 type JobStatusFilter = "all" | "active" | "done" | "failed";
@@ -169,17 +170,25 @@ export function BatchJobBoard({
                   <strong>
                     {job.metadata?.title || readableJobMessage(job.message)}
                   </strong>
-                  <small>
-                    {jobStatusLabel(job.status)} ·{" "}
-                    {readableJobMessage(job.message)}
+                  <small
+                    className="job-status-line"
+                    aria-live="polite"
+                    aria-atomic="true"
+                  >
+                    {job.stage && job.stage !== "complete"
+                      ? jobStageLabel(job.stage)
+                      : jobStatusLabel(job.status)}
                   </small>
-                  {job.stage && job.stage !== "complete" && (
-                    <small className="job-stage-line">
-                      Etapa: {jobStageLabel(job.stage)}
+                  {job.warnings?.slice(0, 2).map((warning, warningIndex) => (
+                    <small
+                      className="job-warning-line"
+                      key={`${warningIndex}:${warning}`}
+                    >
+                      <AlertTriangle size={12} aria-hidden="true" /> {warning}
                     </small>
-                  )}
+                  ))}
                   {job.maxAttempts && job.maxAttempts > 1 ? (
-                    <small className="job-stage-line">
+                    <small className="job-meta-line">
                       Tentativa {job.attempt ?? 0}/{job.maxAttempts}
                       {job.nextAttemptAt
                         ? ` · próxima ${formatRetryTime(job.nextAttemptAt)}`
@@ -187,17 +196,16 @@ export function BatchJobBoard({
                     </small>
                   ) : null}
                   {job.stageTimings?.length ? (
-                    <small className="job-stage-line">
+                    <small className="job-meta-line">
                       Tempos: {formatJobStageTimings(job.stageTimings)}
                     </small>
                   ) : null}
-                  {job.warnings?.slice(0, 2).map((warning) => (
-                    <small className="job-warning-line" key={warning}>
-                      Alerta: {warning}
-                    </small>
-                  ))}
                 </div>
-                <progress max={100} value={job.progress} />
+                <progress
+                  max={100}
+                  value={job.progress}
+                  aria-label={`Progresso de ${job.metadata?.title || readableJobMessage(job.message)}`}
+                />
                 <span>{job.progress}%</span>
                 {terminal ? (
                   <div className="job-terminal-actions">
@@ -294,23 +302,6 @@ function jobStatusLabel(status: RenderJob["status"]) {
   }[status];
 }
 
-export function jobStageLabel(stage: string) {
-  return (
-    {
-      "asset-prepare": "preparo do asset",
-      "audio-analysis": "análise de áudio",
-      "audio-assets": "capas e sidecars",
-      "audio-prepare": "preparo do MP3",
-      "audio-tags": "metadados limpos",
-      "ffmpeg-mux": "mux FFmpeg",
-      manifest: "manifesto",
-      "output-validation": "validação final",
-      "poster-render": "poster",
-      "webgl-render": "render WebGL",
-    }[stage] ?? stage
-  );
-}
-
 function formatJobStageTimings(
   timings: NonNullable<RenderJob["stageTimings"]>,
 ) {
@@ -318,7 +309,7 @@ function formatJobStageTimings(
     .slice(-4)
     .map(
       (item) =>
-        `${jobStageLabel(item.stage)} ${formatDurationMs(item.durationMs)}${item.interrupted ? " interrompido" : ""}`,
+        `${jobStageLabel(item.stage, item.stage)} ${formatDurationMs(item.durationMs)}${item.interrupted ? " interrompido" : ""}`,
     )
     .join(" · ");
 }

@@ -1,5 +1,6 @@
 import type { RenderJob } from "../types";
-import { formatDurationMs, jobStageLabel } from "../jobs/BatchJobBoard";
+import { formatDurationMs } from "../jobs/BatchJobBoard";
+import { jobStageLabel } from "../jobs/jobStageLabels";
 
 export async function copyTextToClipboard(value: string) {
   const text = String(value || "").trim();
@@ -26,12 +27,12 @@ export function jobErrorReport(job: RenderJob) {
     job.maxAttempts && job.maxAttempts > 1
       ? `Tentativa: ${job.attempt ?? 0}/${job.maxAttempts}`
       : "",
-    job.stage ? `Etapa atual: ${jobStageLabel(job.stage)}` : "",
+    job.stage ? `Etapa atual: ${jobStageLabel(job.stage, job.stage)}` : "",
     job.stageTimings?.length
       ? `Tempos:\n${job.stageTimings
           .map(
             (item) =>
-              `- ${jobStageLabel(item.stage)}: ${formatDurationMs(item.durationMs)}${item.interrupted ? " (interrompido)" : ""}`,
+              `- ${jobStageLabel(item.stage, item.stage)}: ${formatDurationMs(item.durationMs)}${item.interrupted ? " (interrompido)" : ""}`,
           )
           .join("\n")}`
       : "",
@@ -39,7 +40,7 @@ export function jobErrorReport(job: RenderJob) {
       ? `Retentativas:\n${job.retryHistory
           .map(
             (item) =>
-              `- tentativa ${item.attempt}: ${item.errorCode} em ${item.stage ? jobStageLabel(item.stage) : "job"} (${item.message})`,
+              `- tentativa ${item.attempt}: ${item.errorCode} em ${item.stage ? jobStageLabel(item.stage, item.stage) : "job"} (${item.message})`,
           )
           .join("\n")}`
       : "",
