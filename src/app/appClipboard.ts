@@ -1,5 +1,6 @@
 import type { RenderJob } from "../types";
-import { formatDurationMs, jobStageLabel } from "../jobs/BatchJobBoard";
+import { formatDurationMs } from "../jobs/BatchJobBoard";
+import { jobStageLabel } from "../jobs/jobStageLabels";
 
 export async function copyTextToClipboard(value: string) {
   const text = String(value || "").trim();
