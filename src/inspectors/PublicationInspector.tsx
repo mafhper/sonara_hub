@@ -1,4 +1,4 @@
-import { Download, FolderOpen, RotateCcw } from "lucide-react";
+import { AlertTriangle, Download, FolderOpen, RotateCcw } from "lucide-react";
 
 import {
   clampPublicationClipDuration,
@@ -219,10 +219,13 @@ export function PublicationInspector({
                 }
               />
               {durationPolicy.recommendationExceeded && (
-                <p className="helper-copy warning">
-                  A duração está acima do recomendado para este perfil (
-                  {durationPolicy.recommendedDurationSeconds}s). A exportação
-                  ainda é permitida.
+                <p className="helper-copy warning" role="status">
+                  <AlertTriangle aria-hidden="true" />
+                  <span>
+                    A duração está acima do recomendado para este perfil (
+                    {durationPolicy.recommendedDurationSeconds}s). A exportação
+                    continua permitida.
+                  </span>
                 </p>
               )}
             </>

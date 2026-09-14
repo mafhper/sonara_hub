@@ -3547,6 +3547,36 @@ svg {
   margin: 10px 0 0;
 }
 
+.helper-copy.warning,
+.helper-copy.error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: var(--font-xs);
+}
+
+.helper-copy.warning {
+  border-left: 3px solid var(--status-warn-border);
+  background: color-mix(in srgb, var(--status-warn) 12%, transparent);
+  color: var(--status-warn);
+}
+
+.helper-copy.error {
+  border-left: 3px solid var(--status-danger-border);
+  background: color-mix(in srgb, var(--status-danger) 12%, transparent);
+  color: var(--status-danger);
+}
+
+.helper-copy.warning svg,
+.helper-copy.error svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+}
+
 .lyrics-suggestion-panel {
   display: grid;
   gap: 0.75rem;
