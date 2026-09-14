@@ -20,7 +20,15 @@ export const STAGE_LABELS: Record<string, string> = {
   "webgl-render": "Renderizando",
 };
 
-export function jobStageLabel(stage: string | undefined): string {
+/**
+ * `fallback` lets diagnostic contexts (clipboard error reports, stage
+ * timings) keep the raw stage identifier when it is not mapped, while UI
+ * display contexts keep the friendly "Processando" default.
+ */
+export function jobStageLabel(
+  stage: string | undefined,
+  fallback: string = "Processando",
+): string {
   if (!stage) return "Processando";
-  return STAGE_LABELS[stage] ?? "Processando";
+  return STAGE_LABELS[stage] ?? fallback;
 }

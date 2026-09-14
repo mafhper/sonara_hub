@@ -179,8 +179,11 @@ export function BatchJobBoard({
                       ? jobStageLabel(job.stage)
                       : jobStatusLabel(job.status)}
                   </small>
-                  {job.warnings?.slice(0, 2).map((warning) => (
-                    <small className="job-warning-line" key={warning}>
+                  {job.warnings?.slice(0, 2).map((warning, warningIndex) => (
+                    <small
+                      className="job-warning-line"
+                      key={`${warningIndex}:${warning}`}
+                    >
                       <AlertTriangle size={12} aria-hidden="true" /> {warning}
                     </small>
                   ))}
@@ -306,7 +309,7 @@ function formatJobStageTimings(
     .slice(-4)
     .map(
       (item) =>
-        `${jobStageLabel(item.stage)} ${formatDurationMs(item.durationMs)}${item.interrupted ? " interrompido" : ""}`,
+        `${jobStageLabel(item.stage, item.stage)} ${formatDurationMs(item.durationMs)}${item.interrupted ? " interrompido" : ""}`,
     )
     .join(" · ");
 }

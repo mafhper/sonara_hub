@@ -28,4 +28,13 @@ describe("jobStageLabel", () => {
     assert.equal(jobStageLabel(""), "Processando");
     assert.equal(jobStageLabel("unknown-future-stage"), "Processando");
   });
+
+  test("contextos diagnósticos preservam o stage cru como fallback", () => {
+    assert.equal(
+      jobStageLabel("unknown-future-stage", "unknown-future-stage"),
+      "unknown-future-stage",
+    );
+    assert.equal(jobStageLabel("ffmpeg-mux", "ffmpeg-mux"), "Codificando");
+    assert.equal(jobStageLabel(undefined, "cru"), "Processando");
+  });
 });
