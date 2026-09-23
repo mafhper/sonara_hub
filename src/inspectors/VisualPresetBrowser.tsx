@@ -1,4 +1,4 @@
-import { Check, Gauge, Layers, Palette } from "lucide-react";
+import { Check, Gauge, Layers, Palette, Search } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import type {
@@ -27,63 +27,101 @@ export function VisualPresetBrowser({
   const selectedCategoryId =
     selectedScene.categoryId || categories[0]?.id || "all";
   const [activeCategoryId, setActiveCategoryId] = useState(selectedCategoryId);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     setActiveCategoryId(selectedCategoryId);
   }, [selectedCategoryId]);
 
+  const normalizedQuery = normalizeSearch(query);
+  const searching = normalizedQuery.length > 0;
+  const searchResults = useMemo(
+    () =>
+      searching
+        ? presets.filter((preset) =>
+            presetSearchText(preset).includes(normalizedQuery),
+          )
+        : [],
+    [presets, normalizedQuery, searching],
+  );
+
   const activeCategory =
     categories.find((category) => category.id === activeCategoryId) ??
     categories[0];
-  const visiblePresets = activeCategory?.presets ?? [];
-  // Variants render in a dedicated row below the grid for whichever preset is
-  // selected — keeping every card uniform instead of stretching one card with a
-  // tall column of variant buttons.
+  const visiblePresets = searching
+    ? searchResults
+    : (activeCategory?.presets ?? []);
   const variantPreset = visiblePresets.find(
     (preset) => preset.id === selectedScene.id && preset.variants.length > 0,
   );
 
   return (
     <div className="visual-preset-browser">
-      <div
-        aria-label="Categoria de atmosfera"
-        className="visual-preset-chips"
-        role="tablist"
-      >
-        {categories.map((category) => {
-          const active = category.id === activeCategory?.id;
-          return (
-            <button
-              aria-controls={`visual-preset-panel-${category.id}`}
-              aria-selected={active}
-              className={`visual-preset-chip ${active ? "active" : ""}`}
-              key={category.id}
-              role="tab"
-              type="button"
-              onClick={() => setActiveCategoryId(category.id)}
-            >
-              {category.label}
-              <span className="visual-preset-chip-count">
-                {category.presets.length}
-              </span>
-            </button>
-          );
-        })}
+      <div className="visual-preset-search" role="search">
+        <Search aria-hidden="true" className="visual-preset-search-icon" />
+        <input
+          aria-label="Buscar atmosferas por nome ou tag"
+          className="visual-preset-search-input"
+          placeholder="Buscar por nome ou tag…"
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        {searching ? (
+          <span className="visual-preset-search-count" role="status">
+            {searchResults.length}{" "}
+            {searchResults.length === 1 ? "resultado" : "resultados"}
+          </span>
+        ) : null}
       </div>
+      {!searching ? (
+        <div
+          aria-label="Categoria de atmosfera"
+          className="visual-preset-chips"
+          role="tablist"
+        >
+          {categories.map((category) => {
+            const active = category.id === activeCategory?.id;
+            return (
+              <button
+                aria-controls={`visual-preset-panel-${category.id}`}
+                aria-selected={active}
+                className={`visual-preset-chip ${active ? "active" : ""}`}
+                key={category.id}
+                role="tab"
+                type="button"
+                onClick={() => setActiveCategoryId(category.id)}
+              >
+                {category.label}
+                <span className="visual-preset-chip-count">
+                  {category.presets.length}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
       <div
         aria-label={
-          activeCategory
-            ? `Atmosferas em ${activeCategory.label}`
-            : "Atmosferas"
+          searching
+            ? "Resultados da busca"
+            : activeCategory
+              ? `Atmosferas em ${activeCategory.label}`
+              : "Atmosferas"
         }
         className="visual-preset-grid"
         id={
-          activeCategory
+          !searching && activeCategory
             ? `visual-preset-panel-${activeCategory.id}`
             : undefined
         }
         role="tabpanel"
       >
+        {visiblePresets.length === 0 ? (
+          <p className="visual-preset-empty">
+            Nenhuma atmosfera encontrada para “{query.trim()}”.
+          </p>
+        ) : null}
         {visiblePresets.map((preset) => {
           const selected = selectedScene.id === preset.id;
           const tooltip = [preset.name, preset.family, preset.note]
@@ -149,6 +187,36 @@ function groupPresetCategories(presets: ScenePresetV3[]): PresetCategory[] {
     groups.set(id, current);
   }
   return [...groups.values()];
+}
+
+function normalizeSearch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function presetSearchText(preset: ScenePresetV3): string {
+  const variantText = (preset.variants ?? [])
+    .flatMap((variant: VisualVariant) => [
+      variant.name,
+      ...(variant.tags ?? []),
+    ])
+    .filter(Boolean);
+  return normalizeSearch(
+    [
+      preset.id,
+      preset.name,
+      preset.category,
+      preset.family,
+      preset.note,
+      ...(preset.tags ?? []),
+      ...variantText,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
 }
 
 function PresetThumb({
