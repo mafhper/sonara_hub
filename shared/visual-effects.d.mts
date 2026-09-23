@@ -180,6 +180,7 @@ export type SceneRendererId =
   | "terrain-flight"
   | "predictive-arc"
   | "data-pixel-arc"
+  | "ribbon-field"
   | PaperShaderRendererId;
 
 export type VisualPostSettings = {

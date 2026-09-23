@@ -174,6 +174,44 @@ void main() {
   color += u_accentColor * (ribbon + echo * 0.42) * (0.22 + u_param4 * 0.62) * pulse(u_audioMid, 0.32);
   gl_FragColor = vec4(finish(color, uv), 1.0);
 }`,
+  // Técnica `ribbon-field` adaptada de ThreeUI "Predictive Arc" / variante
+  // Ribbon Field (MIT): fitas procedurais com grade de pontos e bloom.
+  // Reimplementada para a interface fullscreen u_* do Sonara.
+  "ribbon-field": `${shaderPrelude}
+float ribbonField(vec2 uv, float offset, float width, float phase) {
+  float y = 0.55 + 0.20 * sin((uv.x * 2.15) + phase) + 0.045 * sin((uv.x * 7.0) - phase * 0.7);
+  float d = abs(uv.y - y - offset);
+  return exp(-(d * d) / width);
+}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  float t = u_time * (0.08 + u_speed * 0.55);
+  float r1 = ribbonField(uv, 0.03, 0.0065, t + 0.9);
+  float r2 = ribbonField(uv, -0.23, 0.0085, t + 3.25);
+  float r3 = ribbonField(uv, 0.25, 0.014, t + 1.85);
+  float glow = (r1 * 1.14 + r2 * 1.05 + r3 * 0.48) * (0.55 + u_param1 * 0.9);
+  vec3 col = vec3(0.0);
+  col += u_accentColor * r1 * 0.92;
+  col += u_colorB * r1 * 0.62;
+  col += mix(u_colorB, u_accentColor, 0.4) * r3 * 0.42;
+  col += u_colorB * r2 * 0.66;
+  col += mix(u_accentColor, u_colorB, 0.5) * (r2 + r3) * 0.30;
+  float bloom = exp(-pow(distance(uv, vec2(0.76, 0.40 + 0.035 * sin(t))), 2.0) / 0.050);
+  bloom += exp(-pow(distance(uv, vec2(0.71, 0.75 + 0.025 * cos(t))), 2.0) / 0.030);
+  col += u_accentColor * bloom * (0.18 + u_param2 * 0.4);
+  float gridSize = 4.0 + u_param0 * 10.0;
+  vec2 grid = fract(gl_FragCoord.xy / gridSize) - 0.5;
+  float dotShape = smoothstep(0.29, 0.11, length(grid));
+  float n = hash(floor(gl_FragCoord.xy / gridSize));
+  float scan = 0.72 + 0.28 * sin((uv.x + uv.y) * 38.0 + u_time * 1.3);
+  float dots = dotShape * (0.48 + 0.52 * n) * scan;
+  float micro = hash(gl_FragCoord.xy + u_time) * 0.035;
+  float alpha = clamp((glow * 1.55 + bloom * 0.5) * dots, 0.0, 1.0);
+  vec3 base = u_colorA * 0.05;
+  vec3 finalColor = mix(base, col, clamp(alpha * (1.0 + u_param3), 0.0, 1.0));
+  finalColor += micro;
+  gl_FragColor = vec4(finish(finalColor * pulse(u_audioMid, 0.35), uv), 1.0);
+}`,
   "color-mesh": `${shaderPrelude}
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution.xy;

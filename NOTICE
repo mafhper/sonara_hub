@@ -76,3 +76,10 @@ rewritten for Sonara's Canvas 2D compositing path and reuses Sonara's own
 color/common controls; it does not require or bundle the @designcodeio/threeui
 package. The upstream MIT license text appears above.
 
+The "data-pixel-arc" visual preset ports the Data Pixel variant
+(src/shaders/data-pixel-arc/dataPixelArcRenderer.ts) and the "ribbon-field"
+visual preset ports the Ribbon Field variant
+(src/shaders/ribbon-field/ribbonFieldShaders.ts) of the same collection. Both
+were rewritten for Sonara's runtime (Canvas 2D and WebGL 1 / GLSL ES 1.00
+respectively) and reuse Sonara's own color/common controls.
+

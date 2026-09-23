@@ -44,6 +44,7 @@ const quickPresetIds = new Set([
   "piano-ribbons",
   "predictive-arc",
   "data-pixel-arc",
+  "ribbon-field",
   "audio-dark",
   "lava-lamp",
   "starfield",
