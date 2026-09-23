@@ -2851,8 +2851,16 @@ svg {
 }
 
 .visual-preset-browser {
+  position: relative;
   display: grid;
   gap: var(--space-2);
+}
+
+.visual-preset-preview {
+  position: absolute;
+  z-index: 2;
+  border-radius: calc(var(--radius) - 2px);
+  pointer-events: none;
 }
 
 .atmosphere-performance-warning {

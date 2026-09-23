@@ -1,10 +1,13 @@
 import { Check, Gauge, Layers, Palette, Search } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
+import { createSceneRuntime } from "../../shared/canvas-scene-runtime.mjs";
 import type {
   ScenePresetV3,
   VisualVariant,
 } from "../../shared/visual-effects.mjs";
+
+type PreviewRect = { left: number; top: number; width: number; height: number };
 
 type PresetCategory = {
   id: string;
@@ -77,11 +80,13 @@ export function VisualPresetBrowser({
   const searchResults = useMemo(
     () =>
       searching
-        ? presets.filter(
-            (preset) =>
-              presetSearchText(preset).includes(normalizedQuery) &&
-              matchesFacetFilters(preset, runtimeFilter, tierFilter),
-          )
+        ? presets
+            .filter(
+              (preset) =>
+                presetSearchText(preset).includes(normalizedQuery) &&
+                matchesFacetFilters(preset, runtimeFilter, tierFilter),
+            )
+            .sort(comparePresetsByName)
         : [],
     [presets, normalizedQuery, searching, runtimeFilter, tierFilter],
   );
@@ -118,8 +123,78 @@ export function VisualPresetBrowser({
     setTierFilter([]);
   };
 
+  const browserRef = useRef<HTMLDivElement>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const previewRuntimeRef = useRef<
+    ReturnType<typeof createSceneRuntime> | undefined
+  >(undefined);
+  const previewBrokenRef = useRef(false);
+  const [hoveredPreset, setHoveredPreset] = useState<ScenePresetV3 | null>(
+    null,
+  );
+  const [previewRect, setPreviewRect] = useState<PreviewRect | null>(null);
+
+  useEffect(() => {
+    if (!hoveredPreset || previewBrokenRef.current) return undefined;
+    const canvas = previewCanvasRef.current;
+    if (!canvas) return undefined;
+    let runtime = previewRuntimeRef.current;
+    try {
+      if (!runtime) {
+        runtime = createSceneRuntime(canvas, hoveredPreset, {});
+        previewRuntimeRef.current = runtime;
+      } else {
+        runtime.setScene(hoveredPreset);
+      }
+    } catch {
+      previewBrokenRef.current = true;
+      return undefined;
+    }
+    let frame = 0;
+    const started = performance.now();
+    const draw = () => {
+      const scale = Math.min(1.5, window.devicePixelRatio || 1);
+      runtime.resize(canvas.clientWidth * scale, canvas.clientHeight * scale);
+      runtime.render((performance.now() - started) / 1000);
+      frame = window.requestAnimationFrame(draw);
+    };
+    draw();
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [hoveredPreset]);
+
+  useEffect(
+    () => () => {
+      previewRuntimeRef.current?.destroy();
+      previewRuntimeRef.current = undefined;
+    },
+    [],
+  );
+
+  const handlePreviewEnter = (
+    currentTarget: HTMLButtonElement,
+    preset: ScenePresetV3,
+  ) => {
+    const host = browserRef.current;
+    const thumb = currentTarget.querySelector(".visual-preset-thumb");
+    if (!host || !thumb) return;
+    const thumbRect = thumb.getBoundingClientRect();
+    const hostRect = host.getBoundingClientRect();
+    setPreviewRect({
+      left: thumbRect.left - hostRect.left,
+      top: thumbRect.top - hostRect.top,
+      width: thumbRect.width,
+      height: thumbRect.height,
+    });
+    setHoveredPreset(preset);
+  };
+  const handlePreviewLeave = () => {
+    setHoveredPreset(null);
+  };
+
   return (
-    <div className="visual-preset-browser">
+    <div className="visual-preset-browser" ref={browserRef}>
       <div className="visual-preset-search" role="search">
         <Search aria-hidden="true" className="visual-preset-search-icon" />
         <input
@@ -248,7 +323,15 @@ export function VisualPresetBrowser({
               key={preset.id}
               title={tooltip}
               type="button"
+              onBlur={handlePreviewLeave}
               onClick={() => onSelectPreset(preset.id)}
+              onFocus={(event) =>
+                handlePreviewEnter(event.currentTarget, preset)
+              }
+              onPointerEnter={(event) =>
+                handlePreviewEnter(event.currentTarget, preset)
+              }
+              onPointerLeave={handlePreviewLeave}
             >
               <PresetThumb colors={preset.colors} name={preset.name}>
                 {preset.variants.length ? (
@@ -283,6 +366,21 @@ export function VisualPresetBrowser({
           />
         </div>
       ) : null}
+      <canvas
+        aria-hidden="true"
+        className="visual-preset-preview"
+        ref={previewCanvasRef}
+        style={
+          previewRect
+            ? {
+                left: `${previewRect.left}px`,
+                top: `${previewRect.top}px`,
+                width: `${previewRect.width}px`,
+                height: `${previewRect.height}px`,
+              }
+            : { display: "none" }
+        }
+      />
     </div>
   );
 }
@@ -299,7 +397,14 @@ function groupPresetCategories(presets: ScenePresetV3[]): PresetCategory[] {
     current.presets.push(preset);
     groups.set(id, current);
   }
+  for (const group of groups.values()) {
+    group.presets.sort(comparePresetsByName);
+  }
   return [...groups.values()];
+}
+
+function comparePresetsByName(a: ScenePresetV3, b: ScenePresetV3): number {
+  return a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" });
 }
 
 function normalizeSearch(value: string): string {
