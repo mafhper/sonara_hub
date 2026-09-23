@@ -9,6 +9,8 @@ import type {
 
 type PreviewRect = { left: number; top: number; width: number; height: number };
 
+const PREVIEW_HOVER_DELAY_MS = 140;
+
 type PresetCategory = {
   id: string;
   label: string;
@@ -129,10 +131,28 @@ export function VisualPresetBrowser({
     ReturnType<typeof createSceneRuntime> | undefined
   >(undefined);
   const previewBrokenRef = useRef(false);
+  const previewTimerRef = useRef<number | null>(null);
   const [hoveredPreset, setHoveredPreset] = useState<ScenePresetV3 | null>(
     null,
   );
   const [previewRect, setPreviewRect] = useState<PreviewRect | null>(null);
+
+  const clearPreviewTimer = () => {
+    if (previewTimerRef.current !== null) {
+      window.clearTimeout(previewTimerRef.current);
+      previewTimerRef.current = null;
+    }
+  };
+
+  const clearPreviewCanvas = () => {
+    const canvas = previewCanvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+    context.save();
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.restore();
+  };
 
   useEffect(() => {
     if (!hoveredPreset || previewBrokenRef.current) return undefined;
@@ -150,15 +170,18 @@ export function VisualPresetBrowser({
       previewBrokenRef.current = true;
       return undefined;
     }
+    const scale = Math.min(1.5, window.devicePixelRatio || 1);
+    runtime.resize(canvas.clientWidth * scale, canvas.clientHeight * scale);
+    // Renderiza o primeiro frame de forma síncrona para não exibir o frame do
+    // preset anterior por um frame (contaminação visual entre presets).
+    runtime.render(0);
     let frame = 0;
     const started = performance.now();
     const draw = () => {
-      const scale = Math.min(1.5, window.devicePixelRatio || 1);
-      runtime.resize(canvas.clientWidth * scale, canvas.clientHeight * scale);
       runtime.render((performance.now() - started) / 1000);
       frame = window.requestAnimationFrame(draw);
     };
-    draw();
+    frame = window.requestAnimationFrame(draw);
     return () => {
       window.cancelAnimationFrame(frame);
     };
@@ -166,6 +189,7 @@ export function VisualPresetBrowser({
 
   useEffect(
     () => () => {
+      clearPreviewTimer();
       previewRuntimeRef.current?.destroy();
       previewRuntimeRef.current = undefined;
     },
@@ -176,20 +200,26 @@ export function VisualPresetBrowser({
     currentTarget: HTMLButtonElement,
     preset: ScenePresetV3,
   ) => {
-    const host = browserRef.current;
-    const thumb = currentTarget.querySelector(".visual-preset-thumb");
-    if (!host || !thumb) return;
-    const thumbRect = thumb.getBoundingClientRect();
-    const hostRect = host.getBoundingClientRect();
-    setPreviewRect({
-      left: thumbRect.left - hostRect.left,
-      top: thumbRect.top - hostRect.top,
-      width: thumbRect.width,
-      height: thumbRect.height,
-    });
-    setHoveredPreset(preset);
+    clearPreviewTimer();
+    previewTimerRef.current = window.setTimeout(() => {
+      previewTimerRef.current = null;
+      const host = browserRef.current;
+      const thumb = currentTarget.querySelector(".visual-preset-thumb");
+      if (!host || !thumb || !currentTarget.isConnected) return;
+      clearPreviewCanvas();
+      const thumbRect = thumb.getBoundingClientRect();
+      const hostRect = host.getBoundingClientRect();
+      setPreviewRect({
+        left: thumbRect.left - hostRect.left,
+        top: thumbRect.top - hostRect.top,
+        width: thumbRect.width,
+        height: thumbRect.height,
+      });
+      setHoveredPreset(preset);
+    }, PREVIEW_HOVER_DELAY_MS);
   };
   const handlePreviewLeave = () => {
+    clearPreviewTimer();
     setHoveredPreset(null);
   };
 
@@ -300,6 +330,7 @@ export function VisualPresetBrowser({
             : undefined
         }
         role="tabpanel"
+        onScroll={handlePreviewLeave}
       >
         {visiblePresets.length === 0 ? (
           <p className="visual-preset-empty">
