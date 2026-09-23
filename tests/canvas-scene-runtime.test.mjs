@@ -1146,6 +1146,7 @@ test("scene runtime renders canvas 2d atmosphere renderers", () => {
       "playful-shapes",
       "piano-ribbons",
       "predictive-arc",
+      "data-pixel-arc",
     ]) {
       const context = fakeCanvasContext();
       const runtime = createSceneRuntime(

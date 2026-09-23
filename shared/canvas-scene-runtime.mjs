@@ -1332,6 +1332,16 @@ export function createSceneRuntime(
         time,
         rendererCache,
       );
+    } else if (scene.rendererId === "data-pixel-arc") {
+      drawDataPixelArc(
+        context,
+        width,
+        height,
+        scene,
+        audio,
+        time,
+        rendererCache,
+      );
     } else {
       drawDarkSurface(context, width, height, scene, audio, time);
     }
@@ -2103,6 +2113,84 @@ function drawPredictiveArc(
     }
   }
   context.globalCompositeOperation = "source-over";
+}
+
+// Técnica `data-pixel-arc` (adaptada de ThreeUI "Predictive Arc" / variante
+// Data Pixel, MIT): grid de blocos grosso sobre um arco, com queda radial e
+// alfa por bloco. Reimplementada para o runtime compartilhado (cores do preset).
+function getDataPixelArcRenderState(scene, rendererCache) {
+  if (rendererCache?.dataPixelArcState) return rendererCache.dataPixelArcState;
+  const state = {
+    audioReaction: (scene.common.audioReaction / 100) * 0.3,
+    base: scene.colors.base,
+    brightness: 0.6 + (scene.common.brightness / 100) * 0.9,
+    pixelSize: 4 + (scene.advanced.pixelSize / 100) * 14,
+    arcCenter: 0.25 + (scene.advanced.arcCenter / 100) * 0.4,
+    arcDrop: 0.4 + (scene.advanced.arcDrop / 100) * 0.7,
+    thickness: 0.12 + (scene.advanced.thickness / 100) * 0.45,
+    speed: 0.5 + (scene.common.speed / 100) * 2.5,
+    effectRgb: hexToRgb(scene.colors.effect),
+    lightRgb: hexToRgb(scene.colors.light),
+  };
+  if (rendererCache) rendererCache.dataPixelArcState = state;
+  return state;
+}
+
+function drawDataPixelArc(
+  context,
+  width,
+  height,
+  scene,
+  audio,
+  time,
+  rendererCache,
+) {
+  const state = getDataPixelArcRenderState(scene, rendererCache);
+  const layerAlpha = context.globalAlpha;
+  const pulse = 1 + (audio.mid ?? 0) * state.audioReaction;
+  const cols = Math.ceil(width / state.pixelSize);
+  const rows = Math.ceil(height / state.pixelSize);
+  const arcCenterY = height * state.arcCenter;
+  const arcDrop = height * state.arcDrop;
+  const thickness = height * state.thickness;
+  const gap = Math.max(1, Math.round(state.pixelSize * 0.12));
+  const cell = Math.max(1, state.pixelSize - gap);
+  const effect = state.effectRgb;
+  const light = state.lightRgb;
+  const drift = time * state.speed;
+  context.globalAlpha = 1;
+  context.fillStyle = state.base;
+  context.fillRect(0, 0, width, height);
+  for (let x = 0; x < cols; x += 1) {
+    for (let y = 0; y < rows; y += 1) {
+      const px = x * state.pixelSize;
+      const py = y * state.pixelSize;
+      const nx = (px / width) * 2 - 1;
+      const curveY = arcCenterY + Math.pow(Math.abs(nx), 1.8) * arcDrop;
+      let intensity = Math.max(0, 1 - Math.abs(py - curveY) / thickness);
+      if (intensity <= 0.01) continue;
+      const wave1 = Math.sin(nx * 4 - drift * 1.5) * 0.1;
+      const wave2 = Math.cos(py * 0.01 + drift) * 0.1;
+      intensity = Math.max(0, Math.min(1, intensity + wave1 + wave2));
+      intensity *= Math.max(0, 1 - Math.pow(Math.abs(nx), 2.5));
+      if (intensity <= 0.02) continue;
+      const core = Math.pow(intensity, 3);
+      const mix = Math.min(1, Math.pow(intensity, 1.5) * pulse);
+      const red =
+        (effect[0] * (1 - mix) + light[0] * mix + core * 0.35) *
+        state.brightness;
+      const green =
+        (effect[1] * (1 - mix) + light[1] * mix + core * 0.35) *
+        state.brightness;
+      const blue =
+        (effect[2] * (1 - mix) + light[2] * mix + core * 0.35) *
+        state.brightness;
+      context.fillStyle = `rgb(${Math.min(255, Math.floor(red * 255))},${Math.min(255, Math.floor(green * 255))},${Math.min(255, Math.floor(blue * 255))})`;
+      context.globalAlpha = layerAlpha * Math.min(1, intensity);
+      context.fillRect(px, py, cell, cell);
+    }
+  }
+  context.globalAlpha = layerAlpha;
 }
 
 function drawPlayfulShapes(

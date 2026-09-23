@@ -72,6 +72,7 @@ const expectedIds = [
   "terrain-magic",
   "terrain-flight",
   "predictive-arc",
+  "data-pixel-arc",
   ...paperShaderDefinitions.map((definition) => definition.rendererId),
 ];
 
