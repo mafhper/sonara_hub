@@ -12,6 +12,42 @@ type PresetCategory = {
   presets: ScenePresetV3[];
 };
 
+type RuntimeFacet = "canvas" | "webgl" | "webgl2";
+
+const RUNTIME_FACETS: { id: RuntimeFacet; label: string }[] = [
+  { id: "canvas", label: "Canvas" },
+  { id: "webgl", label: "WebGL" },
+  { id: "webgl2", label: "WebGL2" },
+];
+
+const CANVAS_RENDERER_IDS = new Set<string>([
+  "vector-aura",
+  "playful-shapes",
+  "piano-ribbons",
+  "predictive-arc",
+  "data-pixel-arc",
+]);
+
+const PERFORMANCE_TIERS = [1, 2, 3];
+
+function presetRuntime(preset: ScenePresetV3): RuntimeFacet {
+  if (CANVAS_RENDERER_IDS.has(preset.rendererId)) return "canvas";
+  if (preset.rendererId.startsWith("paper-")) return "webgl2";
+  return "webgl";
+}
+
+function matchesFacetFilters(
+  preset: ScenePresetV3,
+  runtimeFilter: RuntimeFacet[],
+  tierFilter: number[],
+): boolean {
+  if (runtimeFilter.length && !runtimeFilter.includes(presetRuntime(preset)))
+    return false;
+  if (tierFilter.length && !tierFilter.includes(preset.performanceTier))
+    return false;
+  return true;
+}
+
 export function VisualPresetBrowser({
   presets,
   selectedScene,
@@ -28,6 +64,8 @@ export function VisualPresetBrowser({
     selectedScene.categoryId || categories[0]?.id || "all";
   const [activeCategoryId, setActiveCategoryId] = useState(selectedCategoryId);
   const [query, setQuery] = useState("");
+  const [runtimeFilter, setRuntimeFilter] = useState<RuntimeFacet[]>([]);
+  const [tierFilter, setTierFilter] = useState<number[]>([]);
 
   useEffect(() => {
     setActiveCategoryId(selectedCategoryId);
@@ -35,25 +73,50 @@ export function VisualPresetBrowser({
 
   const normalizedQuery = normalizeSearch(query);
   const searching = normalizedQuery.length > 0;
+  const facetsActive = runtimeFilter.length > 0 || tierFilter.length > 0;
   const searchResults = useMemo(
     () =>
       searching
-        ? presets.filter((preset) =>
-            presetSearchText(preset).includes(normalizedQuery),
+        ? presets.filter(
+            (preset) =>
+              presetSearchText(preset).includes(normalizedQuery) &&
+              matchesFacetFilters(preset, runtimeFilter, tierFilter),
           )
         : [],
-    [presets, normalizedQuery, searching],
+    [presets, normalizedQuery, searching, runtimeFilter, tierFilter],
   );
 
   const activeCategory =
     categories.find((category) => category.id === activeCategoryId) ??
     categories[0];
-  const visiblePresets = searching
-    ? searchResults
-    : (activeCategory?.presets ?? []);
+  const categoryPresets = useMemo(
+    () =>
+      (activeCategory?.presets ?? []).filter((preset) =>
+        matchesFacetFilters(preset, runtimeFilter, tierFilter),
+      ),
+    [activeCategory, runtimeFilter, tierFilter],
+  );
+  const visiblePresets = searching ? searchResults : categoryPresets;
   const variantPreset = visiblePresets.find(
     (preset) => preset.id === selectedScene.id && preset.variants.length > 0,
   );
+
+  const toggleRuntime = (id: RuntimeFacet) =>
+    setRuntimeFilter((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
+  const toggleTier = (tier: number) =>
+    setTierFilter((current) =>
+      current.includes(tier)
+        ? current.filter((item) => item !== tier)
+        : [...current, tier],
+    );
+  const clearFacets = () => {
+    setRuntimeFilter([]);
+    setTierFilter([]);
+  };
 
   return (
     <div className="visual-preset-browser">
@@ -72,6 +135,52 @@ export function VisualPresetBrowser({
             {searchResults.length}{" "}
             {searchResults.length === 1 ? "resultado" : "resultados"}
           </span>
+        ) : null}
+      </div>
+      <div
+        aria-label="Filtros de atmosfera"
+        className="visual-preset-facets"
+        role="group"
+      >
+        <span className="visual-preset-facet-label">Runtime</span>
+        {RUNTIME_FACETS.map((facet) => {
+          const active = runtimeFilter.includes(facet.id);
+          return (
+            <button
+              aria-pressed={active}
+              className={`visual-preset-chip ${active ? "active" : ""}`}
+              key={facet.id}
+              type="button"
+              onClick={() => toggleRuntime(facet.id)}
+            >
+              {facet.label}
+            </button>
+          );
+        })}
+        <span className="visual-preset-facet-label">Desempenho</span>
+        {PERFORMANCE_TIERS.map((tier) => {
+          const active = tierFilter.includes(tier);
+          return (
+            <button
+              aria-label={`Desempenho tier ${tier}`}
+              aria-pressed={active}
+              className={`visual-preset-chip ${active ? "active" : ""}`}
+              key={tier}
+              type="button"
+              onClick={() => toggleTier(tier)}
+            >
+              T{tier}
+            </button>
+          );
+        })}
+        {facetsActive ? (
+          <button
+            className="visual-preset-facet-clear"
+            type="button"
+            onClick={clearFacets}
+          >
+            Limpar
+          </button>
         ) : null}
       </div>
       {!searching ? (
@@ -119,7 +228,11 @@ export function VisualPresetBrowser({
       >
         {visiblePresets.length === 0 ? (
           <p className="visual-preset-empty">
-            Nenhuma atmosfera encontrada para “{query.trim()}”.
+            {searching
+              ? `Nenhuma atmosfera encontrada para “${query.trim()}”.`
+              : facetsActive
+                ? "Nenhuma atmosfera corresponde a estes filtros."
+                : "Nenhuma atmosfera nesta categoria."}
           </p>
         ) : null}
         {visiblePresets.map((preset) => {
