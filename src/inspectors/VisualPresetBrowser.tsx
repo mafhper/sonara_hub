@@ -7,8 +7,6 @@ import type {
   VisualVariant,
 } from "../../shared/visual-effects.mjs";
 
-type PreviewRect = { left: number; top: number; width: number; height: number };
-
 const PREVIEW_HOVER_DELAY_MS = 140;
 
 type PresetCategory = {
@@ -125,17 +123,16 @@ export function VisualPresetBrowser({
     setTierFilter([]);
   };
 
-  const browserRef = useRef<HTMLDivElement>(null);
-  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const previewRuntimeRef = useRef<
     ReturnType<typeof createSceneRuntime> | undefined
   >(undefined);
+  const previewCanvasElRef = useRef<HTMLCanvasElement | null>(null);
   const previewBrokenRef = useRef(false);
   const previewTimerRef = useRef<number | null>(null);
-  const [hoveredPreset, setHoveredPreset] = useState<ScenePresetV3 | null>(
-    null,
-  );
-  const [previewRect, setPreviewRect] = useState<PreviewRect | null>(null);
+  const [hoveredPreview, setHoveredPreview] = useState<{
+    preset: ScenePresetV3;
+    button: HTMLButtonElement;
+  } | null>(null);
 
   const clearPreviewTimer = () => {
     if (previewTimerRef.current !== null) {
@@ -144,36 +141,38 @@ export function VisualPresetBrowser({
     }
   };
 
-  const clearPreviewCanvas = () => {
-    const canvas = previewCanvasRef.current;
-    const context = canvas?.getContext("2d");
-    if (!canvas || !context) return;
-    context.save();
-    context.setTransform(1, 0, 0, 1, 0, 0);
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.restore();
-  };
-
   useEffect(() => {
-    if (!hoveredPreset || previewBrokenRef.current) return undefined;
-    const canvas = previewCanvasRef.current;
-    if (!canvas) return undefined;
+    if (!hoveredPreview || previewBrokenRef.current) return undefined;
+    const thumb = hoveredPreview.button.querySelector(".visual-preset-thumb");
+    if (!thumb) return undefined;
+    let canvas = previewCanvasElRef.current;
+    if (!canvas) {
+      canvas = document.createElement("canvas");
+      canvas.className = "visual-preset-preview";
+      canvas.setAttribute("aria-hidden", "true");
+      previewCanvasElRef.current = canvas;
+    }
+    // O canvas vive DENTRO do card: rola junto e nunca "desgruda" do ponteiro.
+    if (canvas.parentElement !== thumb) thumb.appendChild(canvas);
     let runtime = previewRuntimeRef.current;
     try {
       if (!runtime) {
-        runtime = createSceneRuntime(canvas, hoveredPreset, {});
+        runtime = createSceneRuntime(canvas, hoveredPreview.preset, {});
         previewRuntimeRef.current = runtime;
       } else {
-        runtime.setScene(hoveredPreset);
+        runtime.setScene(hoveredPreview.preset);
       }
     } catch {
       previewBrokenRef.current = true;
+      canvas.remove();
       return undefined;
     }
     const scale = Math.min(1.5, window.devicePixelRatio || 1);
-    runtime.resize(canvas.clientWidth * scale, canvas.clientHeight * scale);
-    // Renderiza o primeiro frame de forma síncrona para não exibir o frame do
-    // preset anterior por um frame (contaminação visual entre presets).
+    runtime.resize(
+      canvas.clientWidth * scale || 124 * scale,
+      canvas.clientHeight * scale || 56 * scale,
+    );
+    // Primeiro frame síncrono: evita exibir o frame do preset anterior.
     runtime.render(0);
     let frame = 0;
     const started = performance.now();
@@ -184,17 +183,35 @@ export function VisualPresetBrowser({
     frame = window.requestAnimationFrame(draw);
     return () => {
       window.cancelAnimationFrame(frame);
+      canvas.remove();
     };
-  }, [hoveredPreset]);
+  }, [hoveredPreview]);
 
   useEffect(
     () => () => {
       clearPreviewTimer();
       previewRuntimeRef.current?.destroy();
       previewRuntimeRef.current = undefined;
+      previewCanvasElRef.current?.remove();
+      previewCanvasElRef.current = null;
     },
     [],
   );
+
+  // Rolar com o ponteiro parado NÃO dispara pointerleave; escondemos o preview
+  // em qualquer scroll/wheel/resize (fase de captura, pega todo container).
+  useEffect(() => {
+    if (!hoveredPreview) return undefined;
+    const hide = () => setHoveredPreview(null);
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("wheel", hide, { passive: true });
+    window.addEventListener("resize", hide);
+    return () => {
+      window.removeEventListener("scroll", hide, true);
+      window.removeEventListener("wheel", hide);
+      window.removeEventListener("resize", hide);
+    };
+  }, [hoveredPreview]);
 
   const handlePreviewEnter = (
     currentTarget: HTMLButtonElement,
@@ -203,28 +220,17 @@ export function VisualPresetBrowser({
     clearPreviewTimer();
     previewTimerRef.current = window.setTimeout(() => {
       previewTimerRef.current = null;
-      const host = browserRef.current;
-      const thumb = currentTarget.querySelector(".visual-preset-thumb");
-      if (!host || !thumb || !currentTarget.isConnected) return;
-      clearPreviewCanvas();
-      const thumbRect = thumb.getBoundingClientRect();
-      const hostRect = host.getBoundingClientRect();
-      setPreviewRect({
-        left: thumbRect.left - hostRect.left,
-        top: thumbRect.top - hostRect.top,
-        width: thumbRect.width,
-        height: thumbRect.height,
-      });
-      setHoveredPreset(preset);
+      if (!currentTarget.isConnected) return;
+      setHoveredPreview({ preset, button: currentTarget });
     }, PREVIEW_HOVER_DELAY_MS);
   };
   const handlePreviewLeave = () => {
     clearPreviewTimer();
-    setHoveredPreset(null);
+    setHoveredPreview(null);
   };
 
   return (
-    <div className="visual-preset-browser" ref={browserRef}>
+    <div className="visual-preset-browser">
       <div className="visual-preset-search" role="search">
         <Search aria-hidden="true" className="visual-preset-search-icon" />
         <input
@@ -397,21 +403,6 @@ export function VisualPresetBrowser({
           />
         </div>
       ) : null}
-      <canvas
-        aria-hidden="true"
-        className="visual-preset-preview"
-        ref={previewCanvasRef}
-        style={
-          previewRect
-            ? {
-                left: `${previewRect.left}px`,
-                top: `${previewRect.top}px`,
-                width: `${previewRect.width}px`,
-                height: `${previewRect.height}px`,
-              }
-            : { display: "none" }
-        }
-      />
     </div>
   );
 }
