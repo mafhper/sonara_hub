@@ -42,6 +42,7 @@ const quickPresetIds = new Set([
   "vector-aura",
   "playful-shapes",
   "piano-ribbons",
+  "predictive-arc",
   "audio-dark",
   "lava-lamp",
   "starfield",

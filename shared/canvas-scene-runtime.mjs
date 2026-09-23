@@ -1322,6 +1322,16 @@ export function createSceneRuntime(
         time,
         rendererCache,
       );
+    } else if (scene.rendererId === "predictive-arc") {
+      drawPredictiveArc(
+        context,
+        width,
+        height,
+        scene,
+        audio,
+        time,
+        rendererCache,
+      );
     } else {
       drawDarkSurface(context, width, height, scene, audio, time);
     }
@@ -2019,6 +2029,80 @@ function getVectorAuraRenderState(scene, rendererCache) {
   };
   if (rendererCache) rendererCache.vectorState = state;
   return state;
+}
+
+// Técnica `dot-grid-arc-field` (adaptada de ThreeUI "Predictive Arc", MIT):
+// grid de pontos amostrando uma curva de arco paramétrica, com queda radial,
+// modulação senoidal e blend aditivo. Reimplementada para o runtime compartilhado.
+function getPredictiveArcRenderState(scene, rendererCache) {
+  if (rendererCache?.predictiveArcState)
+    return rendererCache.predictiveArcState;
+  const state = {
+    audioReaction: (scene.common.audioReaction / 100) * 0.3,
+    base: scene.colors.base,
+    brightness: 0.6 + (scene.common.brightness / 100) * 0.9,
+    spacing: 3 + (scene.advanced.spacing / 100) * 14,
+    dotSize: 1 + (scene.advanced.dotSize / 100) * 9,
+    archHeight: 0.35 + (scene.advanced.archHeight / 100) * 0.55,
+    thickness: 40 + (scene.advanced.thickness / 100) * 200,
+    glow: 0.4 + (scene.advanced.glow / 100) * 0.6,
+    speed: 0.5 + (scene.common.speed / 100) * 2.5,
+    effectRgb: hexToRgb(scene.colors.effect),
+    lightRgb: hexToRgb(scene.colors.light),
+  };
+  if (rendererCache) rendererCache.predictiveArcState = state;
+  return state;
+}
+
+function drawPredictiveArc(
+  context,
+  width,
+  height,
+  scene,
+  audio,
+  time,
+  rendererCache,
+) {
+  const state = getPredictiveArcRenderState(scene, rendererCache);
+  const pulse = 1 + (audio.mid ?? 0) * state.audioReaction;
+  context.fillStyle = state.base;
+  context.fillRect(0, 0, width, height);
+  const centerX = width / 2;
+  const archPeakY = height * 0.35;
+  const archWidth = width * 1.5;
+  const archHeight = height * state.archHeight;
+  const spacing = state.spacing;
+  const baseThickness = state.thickness;
+  const dotSize = state.dotSize * pulse;
+  const effect = state.effectRgb;
+  const light = state.lightRgb;
+  const drift = time * state.speed;
+  context.globalCompositeOperation = "lighter";
+  for (let x = 0; x < width; x += spacing) {
+    const normX = (x - centerX) / (archWidth / 2);
+    const radial = Math.max(0, 1 - Math.pow(Math.abs(normX), 2.5));
+    if (radial <= 0.02) continue;
+    const curveY = archPeakY + normX * normX * archHeight;
+    const thickness = baseThickness * (1 + (1 - Math.abs(normX)) * 0.6);
+    for (let y = 0; y < height; y += spacing) {
+      const distance = Math.abs(y - curveY);
+      if (distance >= thickness) continue;
+      let intensity = 1 - distance / thickness;
+      const waveX = Math.sin(x * 0.015 + drift);
+      const waveY = Math.cos(y * 0.02 + drift);
+      intensity = intensity * 0.7 + waveX * waveY * 0.3 * intensity;
+      intensity *= radial;
+      if (intensity <= 0.02) continue;
+      const mix = Math.min(1, intensity * state.glow);
+      const red = (effect[0] * (1 - mix) + light[0] * mix) * state.brightness;
+      const green = (effect[1] * (1 - mix) + light[1] * mix) * state.brightness;
+      const blue = (effect[2] * (1 - mix) + light[2] * mix) * state.brightness;
+      context.fillStyle = `rgb(${Math.min(255, Math.floor(red * 255))},${Math.min(255, Math.floor(green * 255))},${Math.min(255, Math.floor(blue * 255))})`;
+      const size = dotSize * intensity;
+      context.fillRect(x, y, size, size);
+    }
+  }
+  context.globalCompositeOperation = "source-over";
 }
 
 function drawPlayfulShapes(

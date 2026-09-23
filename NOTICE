@@ -64,3 +64,15 @@ the shaders are written from scratch using Sonara's own shader prelude.
 
 The cosine-palette formula used by "iridescent-bloom" follows the freely
 published technique by Inigo Quilez.
+
+----------------------------------------------------------------------
+ThreeUI / Design+Code (github.com/MengTo/threeui)
+License: MIT
+----------------------------------------------------------------------
+The "predictive-arc" visual preset (shared/canvas-scene-runtime.mjs) ports the
+`dot-grid-arc-field` technique from ThreeUI's "Predictive Arc" renderer
+(src/shaders/predictive-arc/predictiveArcRenderer.ts). The implementation was
+rewritten for Sonara's Canvas 2D compositing path and reuses Sonara's own
+color/common controls; it does not require or bundle the @designcodeio/threeui
+package. The upstream MIT license text appears above.
+

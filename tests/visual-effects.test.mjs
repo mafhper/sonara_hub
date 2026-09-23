@@ -71,6 +71,7 @@ const expectedIds = [
   "fluid-flow",
   "terrain-magic",
   "terrain-flight",
+  "predictive-arc",
   ...paperShaderDefinitions.map((definition) => definition.rendererId),
 ];
 

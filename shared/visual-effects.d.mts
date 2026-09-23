@@ -178,6 +178,7 @@ export type SceneRendererId =
   | "fluid-flow"
   | "terrain-magic"
   | "terrain-flight"
+  | "predictive-arc"
   | PaperShaderRendererId;
 
 export type VisualPostSettings = {

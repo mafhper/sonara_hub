@@ -1141,7 +1141,12 @@ test("scene runtime writes grain bytes with the same seeded pattern", () => {
 test("scene runtime renders canvas 2d atmosphere renderers", () => {
   const cleanup = installFakeDocument();
   try {
-    for (const id of ["vector-aura", "playful-shapes", "piano-ribbons"]) {
+    for (const id of [
+      "vector-aura",
+      "playful-shapes",
+      "piano-ribbons",
+      "predictive-arc",
+    ]) {
       const context = fakeCanvasContext();
       const runtime = createSceneRuntime(
         fakeCanvas(context),
