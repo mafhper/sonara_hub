@@ -29,6 +29,8 @@ const CANVAS_RENDERER_IDS = new Set<string>([
   "piano-ribbons",
   "predictive-arc",
   "data-pixel-arc",
+  "signal-particles",
+  "override-grid",
 ]);
 
 const PERFORMANCE_TIERS = [1, 2, 3];

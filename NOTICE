@@ -83,3 +83,26 @@ visual preset ports the Ribbon Field variant
 were rewritten for Sonara's runtime (Canvas 2D and WebGL 1 / GLSL ES 1.00
 respectively) and reuse Sonara's own color/common controls.
 
+Five further variants of the same technique family were adapted from the
+"neuform-isolated" sources (MIT), completing the family at eight variants:
+
+  "signal-particles"   src/shaders/neuform-isolated/sources/signal-particles.html
+  "override-grid"      src/shaders/neuform-isolated/sources/override-grid.html
+  "void-field"         src/shaders/neuform-isolated/sources/void-protocol.html
+  "halftone-flow"      src/shaders/neuform-isolated/sources/nexus-unified-flow.html
+  "amber-halftone"     src/shaders/neuform-isolated/sources/amber-halftone.html
+
+The techniques (cross-wave point activation with rare hashed highlights;
+radial-pulse block grid; barrel-distorted breathing dot matrix with scanlines;
+domain-warped flow painted as a halftone; sinusoidal radial point grid with a
+vertical phosphor gradient) were reimplemented for Sonara's shared runtime so
+preview and export use the same code path. Upstream's per-frame time
+accumulators were replaced by the runtime's deterministic time, and upstream's
+fixed palettes were replaced by Sonara preset colors. Three deliberate
+departures: the mouse-parallax uniform in void-protocol was removed (the Sonara
+runtime is deterministic and pointer-free); the float loop counter in
+nexus-unified-flow was converted to an int (GLSL ES 1.00 has no float loop
+index); and the three.js point cloud in amber-halftone became a procedural
+fragment-shader grid. None of these presets require or bundle the
+@designcodeio/threeui package.
+

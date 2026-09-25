@@ -212,6 +212,110 @@ void main() {
   finalColor += micro;
   gl_FragColor = vec4(finish(finalColor * pulse(u_audioMid, 0.35), uv), 1.0);
 }`,
+  // Técnica `void-field` adaptada de ThreeUI "Void Protocol"
+  // (src/shaders/neuform-isolated/sources/void-protocol.html, MIT): matriz de
+  // pontos com distorção barrel, respiração radial, scanlines e flicker.
+  // Adaptação: o `uMouse` do upstream foi removido — o runtime do Sonara é
+  // determinístico e sem ponteiro (paridade preview↔export é regra dura).
+  // O palette fixo roxo foi substituído pelas cores do preset.
+  "void-field": `${shaderPrelude}
+vec2 barrel(vec2 uv, float amount) {
+  vec2 center = uv - 0.5;
+  float r = dot(center, center);
+  return uv + center * r * amount;
+}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  uv = barrel(uv, 0.12 + u_param0 * 0.22);
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    return;
+  }
+  vec2 gridCount = vec2(70.0 + u_param1 * 90.0);
+  gridCount.y *= u_resolution.y / u_resolution.x;
+  vec2 gridUv = fract(uv * gridCount);
+  vec2 id = floor(uv * gridCount);
+  vec2 cellCenter = id / gridCount - 0.5;
+  float dist = length(cellCenter);
+  float breathe = sin(u_time * (0.5 + u_speed * 0.9) - dist * 10.0) * 0.5 + 0.5;
+  float dotSize = (0.18 + u_param2 * 0.28) * breathe;
+  float circle = smoothstep(dotSize, dotSize - 0.05, length(gridUv - 0.5));
+  float scanline = sin(uv.y * (420.0 + u_param3 * 700.0)) * 0.03;
+  // Flicker determinístico: depende só de u_time e da linha da célula.
+  float flicker = hash(vec2(floor(u_time * 12.0), id.y)) > 0.97 ? 0.45 : 1.0;
+  vec3 tint = mix(u_colorB, u_accentColor, smoothstep(0.0, 0.9, dist));
+  vec3 col = tint * circle * breathe * flicker;
+  col = max(col - scanline, 0.0);
+  // Vinheta suave: o upstream usava smoothstep(0.8, 0.2) e um offset de
+  // 0.05px que apagavam a borda da matriz quase inteira num preset 16:9.
+  // A vinheta foi alargada e a matriz ganhou um brilho de campo fraco, para
+  // que a grade continue legível até as bordas.
+  col *= smoothstep(1.05, 0.25, dist);
+  col += tint * 0.045;
+  col += u_colorB * pow(breathe, 6.0) * (0.06 + u_param4 * 0.18) * pulse(u_audioMid, 0.3);
+  gl_FragColor = vec4(finish(col, uv), 1.0);
+}`,
+  // Técnica `halftone-flow` adaptada de ThreeUI "Nexus Unified Flow"
+  // (src/shaders/neuform-isolated/sources/nexus-unified-flow.html, MIT):
+  // campo de fluxo com domain warping, pintado em retícula halftone cuja
+  // área do ponto segue a intensidade. Adaptação: contador de loop `int`
+  // (GLSL ES 1.00 não aceita `float`) e paleta vinda do preset.
+  "halftone-flow": `${shaderPrelude}
+mat2 rot(float a) {
+  float s = sin(a), c = cos(a);
+  return mat2(c, -s, s, c);
+}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  vec2 p = uv * 2.0 - 1.0;
+  p.x *= u_resolution.x / u_resolution.y;
+  vec2 flowUv = p;
+  float t = u_time * (0.12 + u_speed * 0.4);
+  for (int index = 1; index < 4; index++) {
+    float f = float(index);
+    flowUv *= rot(t * 0.1);
+    flowUv.x += sin(flowUv.y * 2.0 * f + t) * (0.25 + u_param0 * 0.5);
+    flowUv.y += cos(flowUv.x * 1.5 * f - t * 0.8) * (0.25 + u_param0 * 0.5);
+  }
+  float intensity = sin(flowUv.x * 2.0 + flowUv.y * 3.0) * 0.5 + 0.5;
+  intensity = clamp(intensity * (0.55 + u_param1 * 0.8), 0.0, 1.0);
+  vec3 fluidColor = mix(u_colorA * 0.35, u_colorB, smoothstep(0.2, 0.6, intensity));
+  fluidColor = mix(fluidColor, u_accentColor, smoothstep(0.65, 1.0, intensity));
+  float gridSize = 4.0 + u_param2 * 8.0;
+  vec2 cellUv = fract(gl_FragCoord.xy / gridSize) - 0.5;
+  float radius = intensity * (0.20 + u_param3 * 0.30);
+  float dotMask = smoothstep(radius, radius - 0.1, length(cellUv));
+  vec3 finalColor = mix(u_colorA * 0.1, fluidColor, dotMask);
+  finalColor += fluidColor * (0.06 + u_param4 * 0.16) * pulse(u_audioMid, 0.28);
+  gl_FragColor = vec4(finish(finalColor, uv), 1.0);
+}`,
+  // Técnica `amber-halftone` adaptada de ThreeUI "Amber Halftone"
+  // (src/shaders/neuform-isolated/sources/amber-halftone.html, MIT):
+  // retícula de pontos cujo brilho é uma onda radial senoidal, em gradiente
+  // vertical. Adaptação: o point-field three.js (gl_PointSize + atributo
+  // `scale`) virou grade procedural no fragment shader; a cor fixa do
+  // upstream foi substituída pelas cores do preset. O upstream semeava 4000
+  // pontos preenchendo o quadro; numa grade procedural o raio zera onde
+  // `scale` cai, então o raio ganhou um piso e o campo ganhou uma névoa de
+  // fósforo — sem isso a maior parte do frame fica preta morta.
+  "amber-halftone": `${shaderPrelude}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  float cells = 18.0 + u_param0 * 42.0;
+  vec2 gridUv = uv * cells;
+  gridUv.x *= u_resolution.x / u_resolution.y;
+  vec2 cellUv = fract(gridUv) - 0.5;
+  float dist = length(uv - 0.5) * 2.0;
+  float scale = sin(dist * 6.0 - u_time * (0.6 + u_speed * 1.8)) * 0.5 + 0.5;
+  float radius = (0.10 + u_param1 * 0.32) * (0.45 + scale * 0.55);
+  float dot = smoothstep(radius, radius * 0.18, length(cellUv));
+  vec3 phosphor = mix(u_colorB, u_accentColor, clamp(uv.y + u_param2 * 0.4, 0.0, 1.0));
+  vec3 col = phosphor * (0.05 + dot * (0.35 + scale * 0.65));
+  float scan = 0.92 + 0.08 * sin(uv.y * (300.0 + u_param3 * 500.0));
+  col *= scan;
+  col += u_accentColor * pow(scale, 8.0) * u_param4 * 0.28 * pulse(u_audioMid, 0.26);
+  gl_FragColor = vec4(finish(col, uv), 1.0);
+}`,
   "color-mesh": `${shaderPrelude}
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution.xy;
@@ -1380,6 +1484,26 @@ export function createSceneRuntime(
         time,
         rendererCache,
       );
+    } else if (scene.rendererId === "signal-particles") {
+      drawSignalParticles(
+        context,
+        width,
+        height,
+        scene,
+        audio,
+        time,
+        rendererCache,
+      );
+    } else if (scene.rendererId === "override-grid") {
+      drawOverrideGrid(
+        context,
+        width,
+        height,
+        scene,
+        audio,
+        time,
+        rendererCache,
+      );
     } else {
       drawDarkSurface(context, width, height, scene, audio, time);
     }
@@ -2226,6 +2350,154 @@ function drawDataPixelArc(
       context.fillStyle = `rgb(${Math.min(255, Math.floor(red * 255))},${Math.min(255, Math.floor(green * 255))},${Math.min(255, Math.floor(blue * 255))})`;
       context.globalAlpha = layerAlpha * Math.min(1, intensity);
       context.fillRect(px, py, cell, cell);
+    }
+  }
+  context.globalAlpha = layerAlpha;
+}
+
+// Técnica `signal-particles` adaptada de ThreeUI "Signal Particles"
+// (src/shaders/neuform-isolated/sources/signal-particles.html, MIT): grade de
+// pontos cuja ativação vem de duas ondas cruzadas, com "highlights" raros
+// sorteados por hash das coordenadas da célula. Adaptação: o tempo por frame
+// do upstream virou o tempo determinístico do runtime compartilhado, e as
+// três cores fixas viraram as cores do preset.
+function getSignalParticlesRenderState(scene, rendererCache) {
+  if (rendererCache?.signalParticlesState)
+    return rendererCache.signalParticlesState;
+  const state = {
+    audioReaction: (scene.common.audioReaction / 100) * 0.3,
+    base: scene.colors.base,
+    brightness: 0.6 + (scene.common.brightness / 100) * 0.9,
+    spacing: 8 + (scene.advanced.spacing / 100) * 34,
+    dotSize: 1 + (scene.advanced.dotSize / 100) * 6,
+    highlight: scene.advanced.highlight / 100,
+    speed: 0.6 + (scene.common.speed / 100) * 2.0,
+    effectRgb: hexToRgb(scene.colors.effect),
+    lightRgb: hexToRgb(scene.colors.light),
+  };
+  if (rendererCache) rendererCache.signalParticlesState = state;
+  return state;
+}
+
+function drawSignalParticles(
+  context,
+  width,
+  height,
+  scene,
+  audio,
+  time,
+  rendererCache,
+) {
+  const state = getSignalParticlesRenderState(scene, rendererCache);
+  const layerAlpha = context.globalAlpha;
+  const t = time * state.speed;
+  const cols = Math.floor(width / state.spacing);
+  const rows = Math.floor(height / state.spacing);
+  const offsetX = (width - cols * state.spacing) / 2;
+  const offsetY = (height - rows * state.spacing) / 2;
+  const dotSize = state.dotSize * (1 + (audio.mid ?? 0) * state.audioReaction);
+  const effect = state.effectRgb;
+  const light = state.lightRgb;
+  const highlightCut = 0.995 - state.highlight * 0.02;
+  context.fillStyle = state.base;
+  context.fillRect(0, 0, width, height);
+  for (let i = 0; i <= cols; i += 1) {
+    for (let j = 0; j <= rows; j += 1) {
+      const nx = i * 0.1;
+      const ny = j * 0.1;
+      const wave1 = Math.sin(nx + t * 0.5) * Math.cos(ny - t * 0.3);
+      const wave2 = Math.sin(nx * 0.5 - ny * 0.5 + t * 0.8);
+      const value = wave1 + wave2;
+      if (value <= 0.1) continue;
+      // Mesmo sorteio de destaque do upstream (sin/cos das coordenadas da
+      // célula), com o limiar parametrizado em vez de fixo em 0.98. O
+      // contrato de preset tem 3 cores, então os dois raros do upstream
+      // (azul e violeta) viram a cor de luz e a mesma cor puxada 55% para a
+      // cor de efeito — as duas classes continuam distinguíveis.
+      const highlight = Math.sin(i * 12.34) * Math.cos(j * 56.78);
+      const x = offsetX + i * state.spacing;
+      const y = offsetY + j * state.spacing;
+      let rgb = effect;
+      let alpha = Math.min(0.6, (value - 0.1) * 0.8);
+      if (highlight > highlightCut) {
+        rgb = light;
+        alpha = 0.95;
+      } else if (highlight < -highlightCut) {
+        rgb = [
+          light[0] * 0.45 + effect[0] * 0.55,
+          light[1] * 0.45 + effect[1] * 0.55,
+          light[2] * 0.45 + effect[2] * 0.55,
+        ];
+        alpha = 0.9;
+      }
+      const k = alpha * state.brightness;
+      context.fillStyle = `rgb(${Math.min(255, Math.floor(rgb[0] * 255 * k))},${Math.min(255, Math.floor(rgb[1] * 255 * k))},${Math.min(255, Math.floor(rgb[2] * 255 * k))})`;
+      context.beginPath();
+      context.arc(x, y, dotSize, 0, Math.PI * 2);
+      context.fill();
+    }
+  }
+  context.globalAlpha = layerAlpha;
+}
+
+// Técnica `override-grid` adaptada de ThreeUI "Override Grid"
+// (src/shaders/neuform-isolated/sources/override-grid.html, MIT): grade de
+// blocos pulsando com uma onda radial que sai do centro, com escala e alfa
+// derivados da fase. Adaptação: o tamanho de bloco fixo em px do upstream
+// virou um parâmetro 0–100, o laranja fixo virou a cor do preset e o tempo
+// por frame virou o tempo determinístico do runtime.
+// O upstream desenha isto como overlay a 50% de opacidade ATRÁS de conteúdo
+// (alfa máximo 0.15). Como preset autonome o efeito precisa se sustentar
+// sozinho, então o alfa foi elevado — a curva `wave` e a escala Z-depth são
+// as mesmas do upstream.
+function getOverrideGridRenderState(scene, rendererCache) {
+  if (rendererCache?.overrideGridState) return rendererCache.overrideGridState;
+  const state = {
+    audioReaction: (scene.common.audioReaction / 100) * 0.3,
+    base: scene.colors.base,
+    brightness: 0.6 + (scene.common.brightness / 100) * 0.9,
+    blockSize: 10 + (scene.advanced.blockSize / 100) * 46,
+    gap: 1 + (scene.advanced.gap / 100) * 7,
+    depth: 0.2 + (scene.advanced.depth / 100) * 0.8,
+    speed: 0.4 + (scene.common.speed / 100) * 1.6,
+    effectRgb: hexToRgb(scene.colors.effect),
+  };
+  if (rendererCache) rendererCache.overrideGridState = state;
+  return state;
+}
+
+function drawOverrideGrid(
+  context,
+  width,
+  height,
+  scene,
+  audio,
+  time,
+  rendererCache,
+) {
+  const state = getOverrideGridRenderState(scene, rendererCache);
+  const layerAlpha = context.globalAlpha;
+  const t = time * state.speed;
+  const pitch = state.blockSize + state.gap;
+  const cols = Math.ceil(width / pitch);
+  const rows = Math.ceil(height / pitch);
+  const centerX = cols / 2;
+  const centerY = rows / 2;
+  const effect = state.effectRgb;
+  context.fillStyle = state.base;
+  context.fillRect(0, 0, width, height);
+  context.globalAlpha = layerAlpha;
+  for (let i = 0; i < cols; i += 1) {
+    for (let j = 0; j < rows; j += 1) {
+      const dist = Math.sqrt((i - centerX) ** 2 + (j - centerY) ** 2);
+      const wave = Math.sin(t - dist * 0.4);
+      if (wave <= 0) continue;
+      const alpha = wave * (0.3 + state.depth * 0.45);
+      const size = state.blockSize * (wave * 0.7 + 0.3);
+      const offset = (pitch - size) / 2;
+      const k = (1 + (audio.mid ?? 0) * state.audioReaction) * state.brightness;
+      context.fillStyle = `rgba(${Math.min(255, Math.floor(effect[0] * 255 * k))},${Math.min(255, Math.floor(effect[1] * 255 * k))},${Math.min(255, Math.floor(effect[2] * 255 * k))},${alpha})`;
+      context.fillRect(i * pitch + offset, j * pitch + offset, size, size);
     }
   }
   context.globalAlpha = layerAlpha;

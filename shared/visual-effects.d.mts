@@ -181,6 +181,11 @@ export type SceneRendererId =
   | "predictive-arc"
   | "data-pixel-arc"
   | "ribbon-field"
+  | "signal-particles"
+  | "override-grid"
+  | "void-field"
+  | "halftone-flow"
+  | "amber-halftone"
   | PaperShaderRendererId;
 
 export type VisualPostSettings = {

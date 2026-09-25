@@ -74,6 +74,11 @@ const expectedIds = [
   "predictive-arc",
   "data-pixel-arc",
   "ribbon-field",
+  "signal-particles",
+  "override-grid",
+  "void-field",
+  "halftone-flow",
+  "amber-halftone",
   ...paperShaderDefinitions.map((definition) => definition.rendererId),
 ];
 
