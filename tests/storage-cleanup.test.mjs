@@ -10,9 +10,14 @@ import {
 
 test("storage cleanup removes only selected app-owned files and recreates directories", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-storage-"));
-  const uploadDir = path.join(root, ".dev", "uploads");
-  const workDir = path.join(root, ".dev", "work");
-  const artworkPreviewDir = path.join(root, ".dev", "artwork-previews");
+  const uploadDir = path.join(root, ".dev", "runtime", "uploads");
+  const workDir = path.join(root, ".dev", "runtime", "work");
+  const artworkPreviewDir = path.join(
+    root,
+    ".dev",
+    "runtime",
+    "artwork-previews",
+  );
   const outputDir = path.join(root, "outputs");
   const treatedOutputDir = path.join(outputDir, "audio");
   const externalDir = path.join(root, "external-treated");

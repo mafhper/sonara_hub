@@ -636,8 +636,9 @@ export default function BenchmarkDashboard() {
           <p className="bench-kicker">Benchmarks locais</p>
           <h1>Benchmark Center</h1>
           <p>
-            Histórico local lido de <code>.dev/bench</code>, com comparação por
-            commit, baseline e limpeza segura dos dados coletados.
+            Histórico local lido de <code>.dev/runtime/bench</code>, com
+            comparação por commit, baseline e limpeza segura dos dados
+            coletados.
           </p>
         </div>
         <div className="bench-hero-actions">
@@ -993,7 +994,7 @@ export default function BenchmarkDashboard() {
           </span>
         </div>
         <div>
-          <span>Dados privados em .dev/bench</span>
+          <span>Dados privados em .dev/runtime/bench</span>
           <span>Desktop empacotado exigirá um modo diagnóstico próprio</span>
         </div>
       </footer>
@@ -2355,7 +2356,7 @@ function CleanupPanel({
         <div>
           <strong>Retenção de dados</strong>
           <span>
-            Controla somente histórico e artefatos locais em .dev/bench.
+            Controla somente histórico e artefatos locais em .dev/runtime/bench.
           </span>
         </div>
       </div>

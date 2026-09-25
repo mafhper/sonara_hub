@@ -12,8 +12,8 @@ import { publicationAssetPresets } from "../shared/publication-assets.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const clientUrl = process.env.SONARA_CLIENT_URL ?? "http://127.0.0.1:5173";
 const focusTextProfiles = process.env.SONARA_UI_SMOKE_FOCUS === "text-profiles";
-const screenshotDir = path.join(root, ".dev", "screenshots");
-const assetDir = path.join(root, ".dev", "ui-smoke-assets");
+const screenshotDir = path.join(root, ".dev", "runtime", "screenshots");
+const assetDir = path.join(root, ".dev", "runtime", "ui-smoke-assets");
 const publicationClipPresetCount = publicationAssetPresets.filter(
   (preset) => preset.kind === "clip",
 ).length;

@@ -20,7 +20,7 @@
 // stage quando o recurso foi observado".
 //
 // Sanitização (mesma regra do sampler offline em
-// .dev/tasks/gpu-plus/probes/resource-sampler.ps1): percentuais não-finitos
+// .dev/tasks/active/gpu-plus/probes/resource-sampler.ps1): percentuais não-finitos
 // viram 0 e valores são clampados a 0..100. Dados corrompidos de contador não
 // chegam aos agregadores.
 //

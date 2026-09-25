@@ -16,7 +16,7 @@ const root = path.resolve(
   path.dirname(new URL(import.meta.url).pathname.slice(1)),
   "..",
 );
-const outputDir = path.join(root, ".dev", "render-smoke");
+const outputDir = path.join(root, ".dev", "runtime", "render-smoke");
 await fs.mkdir(outputDir, { recursive: true });
 
 const smokeProfile = normalizeSmokeProfile(

@@ -23,7 +23,7 @@ import {
 } from "./workflow-flow-helpers.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const benchRoot = path.join(root, ".dev", "bench");
+const benchRoot = path.join(root, ".dev", "runtime", "bench");
 const runsDir = path.join(benchRoot, "runs");
 const historyPath = path.join(benchRoot, "render-history.jsonl");
 const latestReportPath = path.join(benchRoot, "latest-workflow-e2e-report.md");

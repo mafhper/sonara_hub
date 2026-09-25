@@ -136,9 +136,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 const inputDir = path.join(rootDir, "input");
-const uploadDir = path.join(rootDir, ".dev", "uploads");
-const workDir = path.join(rootDir, ".dev", "work");
-const artworkPreviewDir = path.join(rootDir, ".dev", "artwork-previews");
+// Diretórios que o app cria e possui em runtime (não é documentação do workspace).
+// Ver ADR-006 / nota SH-N2: moram em `.dev/runtime/`, nunca são realocados pelo --tidy.
+const runtimeDir = path.join(rootDir, ".dev", "runtime");
+const uploadDir = path.join(runtimeDir, "uploads");
+const workDir = path.join(runtimeDir, "work");
+const artworkPreviewDir = path.join(runtimeDir, "artwork-previews");
 const outputDir = path.join(rootDir, "outputs");
 const treatedOutputDir = path.join(outputDir, "audio");
 const audioFilePattern = /\.(mp3|wav|m4a|flac|aac)$/i;
@@ -147,21 +150,14 @@ const maxInternalSnapshotBytes = 50 * 1024 * 1024;
 const maxInternalProjectSaves = 200;
 const maxRetainedJobs = 500;
 const benchmarkHistoryPath = path.join(
-  rootDir,
-  ".dev",
+  runtimeDir,
   "bench",
   "render-history.jsonl",
 );
-const benchmarkRunsDir = path.join(rootDir, ".dev", "bench", "runs");
-const benchmarkBaselinePath = path.join(
-  rootDir,
-  ".dev",
-  "bench",
-  "baselines.json",
-);
+const benchmarkRunsDir = path.join(runtimeDir, "bench", "runs");
+const benchmarkBaselinePath = path.join(runtimeDir, "bench", "baselines.json");
 const benchmarkCleanupPolicyPath = path.join(
-  rootDir,
-  ".dev",
+  runtimeDir,
   "bench",
   "cleanup-policy.json",
 );
@@ -171,7 +167,7 @@ const customPresetPath = path.join(
   "custom-presets.local.json",
 );
 const jobHistoryPath = path.join(rootDir, "data", "jobs.local.json");
-const crashReportsDir = path.join(rootDir, ".dev", "crashes");
+const crashReportsDir = path.join(runtimeDir, "crashes");
 installCrashReporter(crashReportsDir);
 const renderPreferencesPath = path.join(
   rootDir,

@@ -96,7 +96,7 @@ test("treated album directory uses a player-compatible stable album name", () =>
 });
 
 test("temporary uploads validate the original MP3 name instead of the multer path", () => {
-  assert.equal(isEditableMp3("D:\\.dev\\uploads\\8ff0ce"), false);
+  assert.equal(isEditableMp3("D:\\.dev\\runtime\\uploads\\8ff0ce"), false);
   assert.equal(isEditableMp3("Track treated.MP3"), true);
 });
 
