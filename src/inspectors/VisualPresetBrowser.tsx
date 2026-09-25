@@ -2,9 +2,12 @@ import { Check, Gauge, Layers, Palette, Search } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { createSceneRuntime } from "../../shared/canvas-scene-runtime.mjs";
-import type {
-  ScenePresetV3,
-  VisualVariant,
+import {
+  getVisualOrigin,
+  VISUAL_COLLECTIONS,
+  VISUAL_ORIGINS,
+  type ScenePresetV3,
+  type VisualVariant,
 } from "../../shared/visual-effects.mjs";
 
 const PREVIEW_HOVER_DELAY_MS = 140;
@@ -35,22 +38,58 @@ const CANVAS_RENDERER_IDS = new Set<string>([
 
 const PERFORMANCE_TIERS = [1, 2, 3];
 
+/** Coleções do preset, tolera presets antigos salvos antes das coleções. */
+function presetCollections(preset: ScenePresetV3): string[] {
+  return preset.collections ?? [];
+}
+
+function presetOriginId(preset: ScenePresetV3): string {
+  return getVisualOrigin(preset.originId).id;
+}
+
 function presetRuntime(preset: ScenePresetV3): RuntimeFacet {
   if (CANVAS_RENDERER_IDS.has(preset.rendererId)) return "canvas";
   if (preset.rendererId.startsWith("paper-")) return "webgl2";
   return "webgl";
 }
 
+type FacetFilters = {
+  runtime: RuntimeFacet[];
+  tiers: number[];
+  collections: string[];
+  origins: string[];
+};
+
 function matchesFacetFilters(
   preset: ScenePresetV3,
-  runtimeFilter: RuntimeFacet[],
-  tierFilter: number[],
+  { runtime, tiers, collections, origins }: FacetFilters,
 ): boolean {
-  if (runtimeFilter.length && !runtimeFilter.includes(presetRuntime(preset)))
-    return false;
-  if (tierFilter.length && !tierFilter.includes(preset.performanceTier))
-    return false;
+  if (runtime.length && !runtime.includes(presetRuntime(preset))) return false;
+  if (tiers.length && !tiers.includes(preset.performanceTier)) return false;
+  if (collections.length) {
+    // Coleção é multi-membro: um preset casa se tiver QUALQUER coleção ativa.
+    const owned = presetCollections(preset);
+    if (!collections.some((id) => owned.includes(id))) return false;
+  }
+  if (origins.length && !origins.includes(presetOriginId(preset))) return false;
   return true;
+}
+
+/** "ThreeUI · MIT" — o porquê de o efeito existir, curto o bastante p/ tooltip. */
+function presetOriginLabel(preset: ScenePresetV3): string {
+  const origin = getVisualOrigin(preset.originId);
+  return `${origin.label} · ${origin.license}`;
+}
+
+/**
+ * Texto do selo. `inspired` não tem licença (o license é "—"), e um badge só com
+ * um travessão não informa nada — a palavra é o que distingue "inspirado" de
+ * "portado", que é justamente a distinção que importa.
+ */
+function originBadgeText(origin: { license: string; code: string }): string {
+  if (origin.code === "inspired") return "inspirado";
+  if (origin.code === "original") return "original";
+  return origin.license;
 }
 
 export function VisualPresetBrowser({
@@ -71,14 +110,29 @@ export function VisualPresetBrowser({
   const [query, setQuery] = useState("");
   const [runtimeFilter, setRuntimeFilter] = useState<RuntimeFacet[]>([]);
   const [tierFilter, setTierFilter] = useState<number[]>([]);
+  const [collectionFilter, setCollectionFilter] = useState<string[]>([]);
+  const [originFilter, setOriginFilter] = useState<string[]>([]);
 
   useEffect(() => {
     setActiveCategoryId(selectedCategoryId);
   }, [selectedCategoryId]);
 
+  // Um objeto só: as 5 dimensões de filtro crescem rápido e 5 parâmetros
+  // posicionais viram armadilha de ordem.
+  const filters: FacetFilters = {
+    runtime: runtimeFilter,
+    tiers: tierFilter,
+    collections: collectionFilter,
+    origins: originFilter,
+  };
+
   const normalizedQuery = normalizeSearch(query);
   const searching = normalizedQuery.length > 0;
-  const facetsActive = runtimeFilter.length > 0 || tierFilter.length > 0;
+  const facetsActive =
+    runtimeFilter.length > 0 ||
+    tierFilter.length > 0 ||
+    collectionFilter.length > 0 ||
+    originFilter.length > 0;
   const searchResults = useMemo(
     () =>
       searching
@@ -86,11 +140,21 @@ export function VisualPresetBrowser({
             .filter(
               (preset) =>
                 presetSearchText(preset).includes(normalizedQuery) &&
-                matchesFacetFilters(preset, runtimeFilter, tierFilter),
+                matchesFacetFilters(preset, filters),
             )
             .sort(comparePresetsByName)
         : [],
-    [presets, normalizedQuery, searching, runtimeFilter, tierFilter],
+    // `filters` é um objeto novo por render; o conteúdo é o que importa.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      presets,
+      normalizedQuery,
+      searching,
+      runtimeFilter,
+      tierFilter,
+      collectionFilter,
+      originFilter,
+    ],
   );
 
   const activeCategory =
@@ -99,14 +163,43 @@ export function VisualPresetBrowser({
   const categoryPresets = useMemo(
     () =>
       (activeCategory?.presets ?? []).filter((preset) =>
-        matchesFacetFilters(preset, runtimeFilter, tierFilter),
+        matchesFacetFilters(preset, filters),
       ),
-    [activeCategory, runtimeFilter, tierFilter],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeCategory, runtimeFilter, tierFilter, collectionFilter, originFilter],
   );
+
+  // Contagens vêm sempre da lista inteira, nunca do resultado filtrado: se
+  // contassem sobre o recorte, ativar um chip zeraria os outros.
+  const collectionCounts = useMemo(() => {
+    const counts = new Map(VISUAL_COLLECTIONS.map((item) => [item.id, 0]));
+    for (const preset of presets) {
+      for (const id of presetCollections(preset)) {
+        counts.set(id, (counts.get(id) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [presets]);
+  const originCounts = useMemo(() => {
+    const counts = new Map(Object.keys(VISUAL_ORIGINS).map((id) => [id, 0]));
+    for (const preset of presets) {
+      const id = presetOriginId(preset);
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    return counts;
+  }, [presets]);
+
   const visiblePresets = searching ? searchResults : categoryPresets;
   const variantPreset = visiblePresets.find(
     (preset) => preset.id === selectedScene.id && preset.variants.length > 0,
   );
+
+  // Proveniência do preset ATIVO (não do card sob o cursor): responde "por que
+  // este efeito existe" sem depender de hover, que não existe no toque.
+  const selectedOrigin = getVisualOrigin(selectedScene.originId);
+  const selectedOriginCollections = presetCollections(selectedScene)
+    .map((id) => VISUAL_COLLECTIONS.find((item) => item.id === id)?.label)
+    .filter((label): label is string => Boolean(label));
 
   const toggleRuntime = (id: RuntimeFacet) =>
     setRuntimeFilter((current) =>
@@ -120,9 +213,23 @@ export function VisualPresetBrowser({
         ? current.filter((item) => item !== tier)
         : [...current, tier],
     );
+  const toggleCollection = (id: string) =>
+    setCollectionFilter((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
+  const toggleOrigin = (id: string) =>
+    setOriginFilter((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
   const clearFacets = () => {
     setRuntimeFilter([]);
     setTierFilter([]);
+    setCollectionFilter([]);
+    setOriginFilter([]);
   };
 
   const previewRuntimeRef = useRef<
@@ -296,6 +403,49 @@ export function VisualPresetBrowser({
           </button>
         ) : null}
       </div>
+      <div
+        aria-label="Coleções curadas e origem dos efeitos"
+        className="visual-preset-facets"
+        role="group"
+      >
+        <span className="visual-preset-facet-label">Coleção</span>
+        {VISUAL_COLLECTIONS.map((collection) => {
+          const active = collectionFilter.includes(collection.id);
+          const count = collectionCounts.get(collection.id) ?? 0;
+          return (
+            <button
+              aria-pressed={active}
+              className={`visual-preset-chip ${active ? "active" : ""}`}
+              key={collection.id}
+              title={collection.summary}
+              type="button"
+              onClick={() => toggleCollection(collection.id)}
+            >
+              {collection.label}
+              <span className="visual-preset-chip-count">{count}</span>
+            </button>
+          );
+        })}
+        <span className="visual-preset-facet-label">Origem</span>
+        {Object.values(VISUAL_ORIGINS).map((origin) => {
+          const active = originFilter.includes(origin.id);
+          return (
+            <button
+              aria-pressed={active}
+              className={`visual-preset-chip ${active ? "active" : ""}`}
+              key={origin.id}
+              title={`${origin.summary}${origin.url ? `\n${origin.url}` : ""}`}
+              type="button"
+              onClick={() => toggleOrigin(origin.id)}
+            >
+              {origin.label}
+              <span className="visual-preset-chip-count">
+                {originCounts.get(origin.id) ?? 0}
+              </span>
+            </button>
+          );
+        })}
+      </div>
       {!searching ? (
         <div
           aria-label="Categoria de atmosfera"
@@ -351,9 +501,22 @@ export function VisualPresetBrowser({
         ) : null}
         {visiblePresets.map((preset) => {
           const selected = selectedScene.id === preset.id;
-          const tooltip = [preset.name, preset.family, preset.note]
+          const origin = getVisualOrigin(preset.originId);
+          // A licença é o dado que o usuário não consegue deduzir do visual, e
+          // só interessa quando a origem é de terceiros: 26 de 67 são
+          // originais e um selo "Original" em 26 cards seria ruído.
+          const isThirdParty = origin.code !== "original";
+          const collectionLabels = presetCollections(preset)
+            .map((id) => VISUAL_COLLECTIONS.find((c) => c.id === id)?.label)
+            .filter(Boolean);
+          const tooltip = [
+            preset.name,
+            collectionLabels.join(" · "),
+            `${origin.label} · ${origin.license}`,
+            preset.note,
+          ]
             .filter(Boolean)
-            .join(" · ");
+            .join("\n");
           return (
             <button
               aria-label={`Selecionar atmosfera ${preset.name}`}
@@ -373,6 +536,14 @@ export function VisualPresetBrowser({
               onPointerLeave={handlePreviewLeave}
             >
               <PresetThumb colors={preset.colors} name={preset.name}>
+                {isThirdParty ? (
+                  <span
+                    className="visual-preset-thumb-badge license"
+                    title={`${origin.label} · ${origin.license} — ${origin.holder}\n${origin.summary}`}
+                  >
+                    {originBadgeText(origin)}
+                  </span>
+                ) : null}
                 {preset.variants.length ? (
                   <span className="visual-preset-thumb-badge variants">
                     <Layers /> {preset.variants.length}
@@ -392,6 +563,23 @@ export function VisualPresetBrowser({
             </button>
           );
         })}
+      </div>
+      <div className="visual-preset-origin-row">
+        <span className="visual-preset-origin-name">{selectedScene.name}</span>
+        <span className="visual-preset-origin-badge">
+          {originBadgeText(selectedOrigin)}
+        </span>
+        <span className="visual-preset-origin-meta">
+          {selectedOrigin.label} · {selectedOrigin.holder}
+        </span>
+        {selectedOriginCollections.length ? (
+          <span className="visual-preset-origin-collections">
+            {selectedOriginCollections.join(" · ")}
+          </span>
+        ) : null}
+        <span className="visual-preset-origin-why">
+          {selectedOrigin.summary}
+        </span>
       </div>
       {variantPreset ? (
         <div className="visual-preset-variants-row">
@@ -446,6 +634,10 @@ function presetSearchText(preset: ScenePresetV3): string {
       ...(variant.tags ?? []),
     ])
     .filter(Boolean);
+  const origin = getVisualOrigin(preset.originId);
+  const collectionText = presetCollections(preset).map(
+    (id) => VISUAL_COLLECTIONS.find((item) => item.id === id)?.label ?? id,
+  );
   return normalizeSearch(
     [
       preset.id,
@@ -454,6 +646,11 @@ function presetSearchText(preset: ScenePresetV3): string {
       preset.family,
       preset.note,
       ...(preset.tags ?? []),
+      // Coleção e origem também são buscáveis: "threeui" e "papagaio"
+      // precisam achar o preset, senão a curadoria fica invisível na busca.
+      ...collectionText,
+      origin.label,
+      origin.license,
       ...variantText,
     ]
       .filter(Boolean)

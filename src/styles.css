@@ -3085,6 +3085,26 @@ svg {
   left: 4px;
 }
 
+/* Selo de proveniência. Topo-direito é o único slot livre: o badge padrão
+   ocupa base-direita (T{tier}/Check) e .variants base-esquerda. Só aparece em
+   efeitos de terceiros, então 26 dos 67 cards não ganham ruído visual. */
+.visual-preset-thumb-badge.license {
+  top: 4px;
+  right: 4px;
+  bottom: auto;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+  background: rgb(0 0 0 / 64%);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visual-preset-thumb-badge.license:hover {
+  background: rgb(0 0 0 / 82%);
+}
+
 .visual-preset-thumb-badge svg {
   width: 11px;
   height: 11px;
@@ -3097,6 +3117,57 @@ svg {
   font-size: var(--font-xs);
   font-weight: 720;
   line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Linha de proveniência do preset ativo. Fica acima das variantes e é sempre
+   visível: a resposta de "por que este efeito existe" não pode depender de
+   hover, que não existe em toque. Encolhe por priority: nome+selo > origem >
+   coleções > resumo longo. */
+.visual-preset-origin-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: var(--space-2);
+  font-size: var(--font-xs);
+}
+
+.visual-preset-origin-name {
+  color: var(--text-primary);
+  font-weight: 760;
+}
+
+.visual-preset-origin-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 8%);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.02em;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.visual-preset-origin-meta,
+.visual-preset-origin-collections {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.visual-preset-origin-collections::before {
+  content: "· ";
+}
+
+.visual-preset-origin-why {
+  flex: 1 1 14rem;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  opacity: 0.86;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

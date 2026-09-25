@@ -7,14 +7,22 @@ import {
   atmosphereStackPerformance,
   builtinPresetMap,
   builtinVisualPresets,
+  countPresetsByCollection,
+  countPresetsByOrigin,
   effectIds,
+  getVisualCollection,
+  getVisualOrigin,
   normalizeAtmosphereBlendMode,
   normalizeAtmosphereLayers,
   normalizeVisualPresetList,
   normalizeVisualSettings,
   parseVisualCollection,
+  PRESET_COLLECTIONS,
+  PRESET_ORIGIN_OVERRIDES,
   resolveAtmosphereLayers,
   removedEffectIds,
+  VISUAL_COLLECTIONS,
+  VISUAL_ORIGINS,
   VISUAL_SCHEMA_VERSION,
   visualCommonControlKeys,
   visualPostDefaults,
@@ -93,6 +101,181 @@ test("catalog exposes the broad families plus the ported shader presets", () => 
   assert.ok(removedEffectIds.includes("rain-window"));
   assert.ok(removedEffectIds.includes("volumetric-clouds-dawn"));
   assert.equal(new Set(expectedIds).size, builtinVisualPresets.length);
+});
+
+// ---------------------------------------------------------------------------
+// SH9C — coleções curadas e proveniência
+// ---------------------------------------------------------------------------
+
+test("toda coleção curada tem rótulo, resumo e id único", () => {
+  assert.ok(VISUAL_COLLECTIONS.length >= 5);
+  const ids = VISUAL_COLLECTIONS.map((collection) => collection.id);
+  assert.equal(new Set(ids).size, ids.length, "ids de coleção duplicados");
+  for (const collection of VISUAL_COLLECTIONS) {
+    assert.ok(collection.label.trim(), `coleção ${collection.id} sem rótulo`);
+    assert.ok(collection.summary.trim(), `coleção ${collection.id} sem resumo`);
+    assert.match(collection.id, /^[a-z0-9-]+$/);
+  }
+});
+
+test("nenhum preset fica fora das coleções (curadoria sem órfãos)", () => {
+  const orphans = builtinVisualPresets.filter(
+    (preset) => !preset.collections.length,
+  );
+  assert.deepEqual(
+    orphans.map((preset) => preset.id),
+    [],
+    "presets sem nenhuma coleção — adicionar a curadoria em PRESET_COLLECTIONS",
+  );
+});
+
+test("curadoria referencia só coleções e presets que existem", () => {
+  const known = new Set(builtinVisualPresets.map((preset) => preset.id));
+  const collectionIds = new Set(VISUAL_COLLECTIONS.map((item) => item.id));
+  const stale = Object.keys(PRESET_COLLECTIONS).filter((id) => !known.has(id));
+  assert.deepEqual(stale, [], "chaves mortas em PRESET_COLLECTIONS");
+  for (const [id, collections] of Object.entries(PRESET_COLLECTIONS)) {
+    for (const collection of collections) {
+      assert.ok(
+        collectionIds.has(collection),
+        `${id} aponta para coleção inexistente "${collection}"`,
+      );
+    }
+    assert.equal(
+      new Set(collections).size,
+      collections.length,
+      `${id} repete a mesma coleção`,
+    );
+  }
+});
+
+test("as contagens por coleção batem com a curadoria declarada", () => {
+  const counts = countPresetsByCollection(builtinVisualPresets);
+  const expected = new Map(VISUAL_COLLECTIONS.map((item) => [item.id, 0]));
+  for (const preset of builtinVisualPresets) {
+    for (const id of preset.collections) expected.set(id, expected.get(id) + 1);
+  }
+  assert.deepEqual(
+    [...counts.entries()].sort(),
+    [...expected.entries()].sort(),
+  );
+  // Coleção vazia não deve aparecer como chip: seria um filtro sem resultado.
+  for (const [id, count] of counts) {
+    assert.ok(count > 0, `coleção "${id}" está vazia`);
+  }
+});
+
+test("proveniência deriva a origem real de cada preset", () => {
+  const counts = Object.fromEntries(countPresetsByOrigin(builtinVisualPresets));
+  // Distribuição travada de propósito: a origem vem de regra
+  // (rendererId/family) com 4 exceções explícitas. Se um preset novo entrar
+  // sem revisar a regra, este número muda e o teste pede revisão.
+  assert.deepEqual(counts, {
+    sonara: 26,
+    "paper-shaders": 29,
+    threeui: 8,
+    lumen: 1,
+    inspired: 3,
+  });
+});
+
+test("toda origem declara licença, titular e se houve port de código", () => {
+  const codeKinds = new Set(["ported", "inspired", "original"]);
+  for (const [id, origin] of Object.entries(VISUAL_ORIGINS)) {
+    assert.equal(origin.id, id);
+    assert.ok(origin.label.trim(), `${id} sem rótulo`);
+    assert.ok(origin.license.trim(), `${id} sem licença`);
+    assert.ok(origin.holder.trim(), `${id} sem titular`);
+    assert.ok(origin.summary.trim(), `${id} sem resumo`);
+    assert.ok(codeKinds.has(origin.code), `${id} com code "${origin.code}"`);
+    // "inspirado" nunca pode virar "portado": é a distinção legal que importa.
+    if (origin.code === "inspired") {
+      assert.equal(
+        origin.license,
+        "—",
+        `${id} não pode declarar licença concreta`,
+      );
+    }
+  }
+});
+
+test("exceções de origem apontam para origens existentes e são intencionais", () => {
+  for (const [id, originId] of Object.entries(PRESET_ORIGIN_OVERRIDES)) {
+    assert.ok(
+      builtinPresetMap.has(id),
+      `PRESET_ORIGIN_OVERRIDES cita preset inexistente "${id}"`,
+    );
+    assert.ok(
+      Object.hasOwn(VISUAL_ORIGINS, originId),
+      `${id} aponta para origem inexistente "${originId}"`,
+    );
+  }
+  // A regra por família não pode esconder predefinição: o preset `predictive-arc`
+  // não declara `family` e cai no fallback para o rendererId.
+  assert.equal(
+    builtinPresetMap.get("predictive-arc").originId,
+    "threeui",
+    "o fallback de family=|rendererId classificou predictive-arc como sonara",
+  );
+});
+
+test("a família dot-grid-arc-field inteira é da origem ThreeUI e mora em Dados", () => {
+  const family = builtinVisualPresets.filter(
+    (preset) => preset.family === "predictive-arc",
+  );
+  assert.equal(family.length, 8);
+  for (const preset of family) {
+    assert.equal(preset.originId, "threeui", preset.id);
+    // Só a presença em "dados" é invariante; coleções secundárias são curadoria.
+    assert.ok(
+      preset.collections.includes("dados"),
+      `${preset.id} fora de "dados"`,
+    );
+  }
+});
+
+test("lookup de origem e coleção degrada sem lançar", () => {
+  assert.equal(getVisualOrigin("paper-shaders").license, "Apache-2.0");
+  assert.equal(getVisualOrigin("inexistente").id, "sonara");
+  assert.equal(getVisualOrigin(undefined).id, "sonara");
+  assert.equal(getVisualCollection("dados").label, "Dados");
+  assert.equal(getVisualCollection("inexistente"), undefined);
+});
+
+test("coleções inválidas são descartadas ao normalizar presets custom", () => {
+  const base = builtinPresetMap.get("starfield");
+  const custom = normalizeVisualSettings({
+    ...base,
+    id: "meu-starfield",
+    source: "custom",
+    collections: ["espaco", "colecao-que-nao-existe", "espaco", "dados"],
+  });
+  assert.deepEqual(
+    custom.collections,
+    ["espaco", "dados"],
+    "deduplicou e validou",
+  );
+  // Sem o campo (um *.local.json antigo) herda do pai em vez de esvaziar.
+  const inherited = normalizeVisualSettings({ ...base, source: "custom" });
+  assert.deepEqual(inherited.collections, base.collections);
+});
+
+test("presets custom não reimplementam a técnica de terceiros", () => {
+  // Ajustar cores/parâmetros de um preset Apache/MIT não torna o preset custom
+  // uma obra derivada: a origem continua sendo a da técnica.
+  const custom = normalizeVisualSettings({
+    ...builtinPresetMap.get("paper-waves"),
+    id: "meu-waves",
+    source: "custom",
+  });
+  assert.equal(custom.source, "custom");
+  assert.equal(custom.originId, "paper-shaders");
+  const original = normalizeVisualSettings({
+    ...builtinPresetMap.get("liquid-chrome"),
+    id: "meu-chrome",
+    source: "custom",
+  });
+  assert.equal(original.originId, "lumen");
 });
 
 test("Paper Shaders catalog exposes every official shader and preset", () => {

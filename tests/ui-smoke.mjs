@@ -239,6 +239,64 @@ smoke: try {
   await page
     .getByRole("button", { name: "Selecionar atmosfera Aura vetorial" })
     .click();
+
+  // SH9C — coleções curadas e proveniência. Filtros não mudam a seleção, então
+  // este bloco pode limpar tudo no fim e deixar o estado como estava.
+  const fullCount = await page.locator(".visual-preset-card").count();
+  // Contagem do chip vem da lista inteira, não do recorte: 18 em "Dados".
+  assert.equal(
+    await page.getByRole("button", { name: /^Dados\s*18$/u }).count(),
+    1,
+    "chip da coleção Dados deveria anunciar 18 presets",
+  );
+  await page.getByRole("button", { name: /^Dados\s*18$/u }).click();
+  const dadosCount = await page.locator(".visual-preset-card").count();
+  assert.ok(
+    dadosCount > 0 && dadosCount <= fullCount,
+    `filtro Dados mostrou ${dadosCount} de ${fullCount}`,
+  );
+  // LUMEN é a única origem com 1 preset, e ele é de Superficies — a categoria
+  // já ativa aqui. As facetas são AND entre si, então "Dados" precisa sair
+  // antes: Cromo líquido não está em Dados e a interseção daria vazio.
+  await page.getByRole("button", { name: /^Dados\s*18$/u }).click();
+  await page.getByRole("button", { name: /^LUMEN\s*1$/u }).click();
+  const lumenNames = await page
+    .locator(".visual-preset-name")
+    .allTextContents();
+  assert.deepEqual(
+    lumenNames,
+    ["Cromo líquido"],
+    `filtro de origem deveria mostrar 1 preset, mostrou ${lumenNames.length}`,
+  );
+  await page.locator(".visual-preset-search-input").fill("");
+  // A linha de proveniência é sempre visível — é a resposta de "por que este
+  // efeito existe", que não pode depender de hover.
+  await page.locator(".visual-preset-origin-row").waitFor();
+  assert.ok(
+    (await page.locator(".visual-preset-origin-why").textContent())?.trim(),
+    "linha de proveniência sem resumo de origem",
+  );
+  await page.getByRole("button", { name: "Limpar" }).click();
+  assert.equal(
+    await page.locator(".visual-preset-card").count(),
+    fullCount,
+    "Limpar não restaurou a grade da categoria",
+  );
+  // Só efeitos de terceiros ganham selo de licença. "Infantil" tem 3 presets,
+  // todos originais; "Efeitos simples" tem vários Paper Shaders (Apache-2.0).
+  await page.getByRole("tab", { name: /Infantil/ }).click();
+  assert.equal(
+    await page.locator(".visual-preset-thumb-badge.license").count(),
+    0,
+    "efeitos originais não deveriam ter selo de licença",
+  );
+  await page.getByRole("tab", { name: /Efeitos simples/ }).click();
+  assert.ok(
+    (await page.locator(".visual-preset-thumb-badge.license").count()) > 0,
+    "efeitos de Paper Shaders deveriam exibir a licença",
+  );
+
+  await page.getByRole("tab", { name: /Superficies/ }).click();
   await page.waitForTimeout(450);
   const centerPixel = await page
     .locator("canvas.scene-canvas")

@@ -228,6 +228,242 @@ const paletteProfiles = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Coleções curadas (SH9C)
+// ---------------------------------------------------------------------------
+//
+// NÃO confundir com `family` nem com `category`:
+//   - `category`    = onde o efeito foi listado por tradição do catálogo (12 grupos)
+//   - `family`      = eixo técnico do renderer (54 valores, 44 deles com 1 só preset)
+//   - `collections` = curadoria de sabor/uso, feita à mão, multi-membro por preset
+//
+// `family` não serve para agrupar: 44 dos 54 valores são singletons, o que
+// produziria um filtro inútil. Estas coleções são o agrupamento de descoberta.
+export const VISUAL_COLLECTIONS = [
+  {
+    id: "dados",
+    label: "Dados",
+    summary:
+      "Grades, matrizes e campos de pontos com leitura de dado ou terminal.",
+  },
+  {
+    id: "espaco",
+    label: "Cósmico",
+    summary: "Profundidade, galáxias, plasma e movimento orbital.",
+  },
+  {
+    id: "fluido",
+    label: "Fluido",
+    summary: "Líquidos, lava, fluxes e distorções que escorrem.",
+  },
+  {
+    id: "atmosfera",
+    label: "Atmosfera",
+    summary: "Céu, nuvens e terreno: fundos que situam uma cena.",
+  },
+  {
+    id: "textura",
+    label: "Superfície",
+    summary: "Ruído, grão e matéria difusa para usar como camada de fundo.",
+  },
+  {
+    id: "luz",
+    label: "Luz & Cor",
+    summary: "Gradientes, raios, brilhos e molduras de cor.",
+  },
+  {
+    id: "calmo",
+    label: "Calmo",
+    summary: "Movimento lento e contemplativo, sem competir com o conteúdo.",
+  },
+  {
+    id: "vetorial",
+    label: "Vetorial",
+    summary: "Traço cheio e formas geométricas lúdicas.",
+  },
+];
+
+// Curadoria explícita: preset id -> coleções. Um preset pode estar em mais de
+// uma. `tests/visual-effects.test.mjs` garante cobertura total (nenhum preset
+// órfão) e que todo id usado aqui existe em VISUAL_COLLECTIONS.
+export const PRESET_COLLECTIONS = {
+  // Cósmico
+  starfield: ["espaco"],
+  "vortex-galaxy": ["espaco"],
+  "vortex-whirlpool": ["espaco"],
+  "plasma-nebula": ["espaco"],
+  "ether-birth": ["espaco"],
+  "fractal-sphere": ["espaco", "calmo"],
+  "iridescent-bloom": ["espaco", "luz"],
+  // Fluido
+  "liquid-mesh": ["fluido"],
+  "liquid-chrome": ["fluido", "textura"],
+  "fluid-volume": ["fluido"],
+  "fluid-flow": ["fluido"],
+  "endless-shallows": ["fluido"],
+  "lava-lamp": ["fluido"],
+  "plasma-lava": ["fluido"],
+  "paper-metaballs": ["fluido"],
+  "paper-warp": ["fluido"],
+  "paper-swirl": ["fluido"],
+  "paper-water": ["fluido", "atmosfera"],
+  "paper-liquid-metal": ["fluido", "textura"],
+  // Atmosfera
+  "volumetric-clouds": ["atmosfera"],
+  "aurora-ribbons": ["atmosfera", "luz"],
+  "storybook-dream": ["atmosfera"],
+  "terrain-magic": ["atmosfera"],
+  "terrain-flight": ["atmosfera"],
+  "stratosphere-flight": ["atmosfera"],
+  "paper-smoke-ring": ["atmosfera"],
+  "paper-gem-smoke": ["atmosfera"],
+  // Dados — a família dot-grid-arc-field inteira mora aqui
+  "predictive-arc": ["dados"],
+  "data-pixel-arc": ["dados", "calmo"],
+  "ribbon-field": ["dados", "luz"],
+  "signal-particles": ["dados"],
+  "override-grid": ["dados"],
+  "void-field": ["dados", "calmo"],
+  "halftone-flow": ["dados"],
+  "amber-halftone": ["dados"],
+  "holo-topography": ["dados", "luz"],
+  vinyl: ["dados"],
+  "paper-dot-grid": ["dados"],
+  "paper-dot-orbit": ["dados", "calmo"],
+  "paper-halftone-dots": ["dados"],
+  "paper-halftone-cmyk": ["dados"],
+  "paper-dithering": ["dados", "textura"],
+  "paper-image-dithering": ["dados", "textura"],
+  "paper-heatmap": ["dados", "luz"],
+  "light-trails": ["dados", "luz"],
+  // Superfície
+  "neural-haze": ["textura", "calmo"],
+  "paper-neuro-noise": ["textura"],
+  "paper-simplex-noise": ["textura"],
+  "paper-perlin-noise": ["textura"],
+  "paper-voronoi": ["textura"],
+  "paper-paper-texture": ["textura"],
+  "paper-fluted-glass": ["textura", "calmo"],
+  "paper-grain-gradient": ["textura", "luz"],
+  // Luz & Cor
+  "shambhala-passage": ["luz", "calmo"],
+  "paper-god-rays": ["luz"],
+  "paper-pulsing-border": ["luz"],
+  "paper-color-panels": ["luz"],
+  "paper-mesh-gradient": ["luz"],
+  "paper-static-mesh-gradient": ["luz"],
+  "paper-static-radial-gradient": ["luz", "calmo"],
+  // Calmo
+  "audio-dark": ["calmo"],
+  "paper-waves": ["calmo"],
+  "paper-spiral": ["calmo"],
+  // Vetorial
+  "playful-shapes": ["vetorial"],
+  "color-mesh": ["vetorial"],
+  "piano-ribbons": ["vetorial"],
+  "vector-aura": ["vetorial"],
+};
+
+// ---------------------------------------------------------------------------
+// Proveniência (SH9C)
+// ---------------------------------------------------------------------------
+//
+// `source: "builtin"` não dizia nada — só marcava "é embutido, não custom".
+// Estas são as origens reais, extraídas do NOTICE.
+//
+// `code` distingue o que importa juridicamente e editorialmente:
+//   "ported"   = reimplementado a partir de código-fonte de terceiros
+//   "inspired" = o visual foi inspirado em estudos públicos; nenhum código copiado
+//   "original" = técnica escrita do zero para o runtime do Sonara
+export const VISUAL_ORIGINS = {
+  sonara: {
+    id: "sonara",
+    label: "Sonara original",
+    license: "Original",
+    holder: "sonara-hub",
+    code: "original",
+    summary: "Técnica escrita do zero para o runtime compartilhado do Sonara.",
+  },
+  threeui: {
+    id: "threeui",
+    label: "ThreeUI",
+    license: "MIT",
+    holder: "Design+Code · MengTo",
+    code: "ported",
+    url: "https://github.com/MengTo/threeui",
+    summary:
+      "Técnica portada e reescrita para a interface u_* do Sonara. Sem dependência do pacote threeui.",
+  },
+  "paper-shaders": {
+    id: "paper-shaders",
+    label: "Paper Shaders",
+    license: "Apache-2.0",
+    holder: "Lost Coast Labs, Inc.",
+    code: "ported",
+    url: "https://shaders.paper.design",
+    summary:
+      "Fork vendorizado de Paper Shaders 0.0.76, com mapeamento determinístico de áudio e tradução de paleta.",
+  },
+  lumen: {
+    id: "lumen",
+    label: "LUMEN",
+    license: "MIT",
+    holder: "lumenshaders",
+    code: "ported",
+    summary:
+      "Técnica de height-field com normal map anisotrópico, portada para a interface fullscreen do Sonara.",
+  },
+  inspired: {
+    id: "inspired",
+    label: "Referência artística",
+    license: "—",
+    holder: "estudos públicos",
+    code: "inspired",
+    summary:
+      "O visual foi inspirado em estudos públicos; nenhum código de terceiros é usado ou redistribuído.",
+  },
+};
+
+// Exceções explícitas ao derivamento por regra. O resto é deduzido de
+// `rendererId`/`family`, e o teste trava a distribuição resultante
+// (26 sonara / 29 paper-shaders / 8 threeui / 1 lumen / 3 inspired) para que uma
+// alteração silenciosa de catálogo não mude a atribuição.
+export const PRESET_ORIGIN_OVERRIDES = {
+  "liquid-chrome": "lumen",
+  "fluid-volume": "inspired",
+  "endless-shallows": "inspired",
+  "iridescent-bloom": "inspired",
+};
+
+// A origem é propriedade da TÉCNICA, não do preset resultante: um custom
+// derivado de `liquid-chrome` continua sendo um port de LUMEN. Por isso a
+// exceção é sempre procurada por `techniqueId`, nunca pelo id novo do custom.
+function resolveOriginId(techniqueId, rendererId, normalizedFamily) {
+  const override = PRESET_ORIGIN_OVERRIDES[techniqueId];
+  if (override) return override;
+  if (normalizeIdentifier(rendererId, "").startsWith("paper-"))
+    return "paper-shaders";
+  if (normalizedFamily === "predictive-arc") return "threeui";
+  return "sonara";
+}
+
+const visualCollectionIdSet = new Set(
+  VISUAL_COLLECTIONS.map((collection) => collection.id),
+);
+
+// Aceita só coleções que existem no catálogo e descarta ordem/parência inválida,
+// para que um `data/*.local.json` editado à mão não quebre a UI.
+function normalizeCollections(value, fallback = []) {
+  const source = Array.isArray(value) ? value : fallback;
+  const result = [];
+  for (const item of source) {
+    const id = normalizeIdentifier(item, "");
+    if (!visualCollectionIdSet.has(id) || result.includes(id)) continue;
+    result.push(id);
+  }
+  return result;
+}
+
 const control = (key, label, min = 0, max = 100, unit = "%") => ({
   key,
   label,
@@ -277,15 +513,23 @@ function preset({
     ...variant,
     common: { ...variant.common, audioReaction: 0 },
   }));
+  // Normaliza `family` UMA vez e usa para o campo e para a proveniência. Antes
+  // `resolveOriginId` recebia o valor cru enquanto o preset recebia o
+  // normalizado: `predictive-arc` não declara `family` (cai no fallback para o
+  // rendererId), então era classificado como `sonara` apesar de o campo lido
+  // dizer "predictive-arc". Um valor, uma normalização.
+  const normalizedFamily = normalizeIdentifier(family, rendererId);
   return {
     schemaVersion: VISUAL_SCHEMA_VERSION,
     id,
     name,
     rendererId,
     source: "builtin",
+    originId: resolveOriginId(id, rendererId, normalizedFamily),
+    collections: PRESET_COLLECTIONS[id] ?? [],
     category,
     categoryId: normalizeCategoryId(categoryId, category),
-    family: normalizeIdentifier(family, rendererId),
+    family: normalizedFamily,
     tags: normalizeTags(tags),
     variants: normalizedVariants,
     performanceTier: normalizePerformanceTier(performanceTier),
@@ -1407,6 +1651,40 @@ export function getBuiltinPreset(id) {
   return builtinPresetMap.get(id) ?? builtinVisualPresets[0];
 }
 
+// Lookups de proveniência/coleção para a UI (SH9C). Desconhecido cai em
+// `sonara`/`undefined` em vez de lançar: um preset custom de um `*.local.json`
+// antigo pode não ter o campo, e a UI não pode quebrar por isso.
+export function getVisualOrigin(id) {
+  const key = normalizeIdentifier(id, "sonara");
+  return VISUAL_ORIGINS[key] ?? VISUAL_ORIGINS.sonara;
+}
+
+export function getVisualCollection(id) {
+  return VISUAL_COLLECTIONS.find(
+    (collection) => collection.id === normalizeIdentifier(id, ""),
+  );
+}
+
+// Contagem por coleção, para os chips mostrarem o tamanho real do grupo.
+export function countPresetsByCollection(presets = builtinVisualPresets) {
+  const counts = new Map(VISUAL_COLLECTIONS.map((item) => [item.id, 0]));
+  for (const preset of presets) {
+    for (const id of preset.collections ?? []) {
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+export function countPresetsByOrigin(presets = builtinVisualPresets) {
+  const counts = new Map(Object.keys(VISUAL_ORIGINS).map((id) => [id, 0]));
+  for (const preset of presets) {
+    const id = getVisualOrigin(preset.originId).id;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return counts;
+}
+
 export function normalizeVisualPresetList(value = builtinVisualPresets) {
   const normalized = [];
   const seen = new Set();
@@ -1497,6 +1775,17 @@ export function normalizeVisualSettings(input = {}) {
       source.source === "custom" ? String(source.name ?? base.name) : base.name,
     rendererId: base.rendererId,
     source: source.source === "custom" ? "custom" : "builtin",
+    // Um preset custom derivado de um builtin herda a proveniência da técnica do
+    // pai (por rendererId), mas continua sendo `sonara` no espírito: ninguém
+    // reimplementou a técnica de terceiros — adaptation de params não é
+    // reimplementação. As coleções sim são herdadas, porque descrevem o
+    // caráter visual, que o usuário não mudou ao trocar cor.
+    originId: resolveOriginId(
+      base.id,
+      base.rendererId,
+      normalizeIdentifier(source.family ?? base.family, base.rendererId),
+    ),
+    collections: normalizeCollections(source.collections, base.collections),
     category: String(source.category ?? base.category),
     categoryId: normalizeCategoryId(
       source.categoryId ?? base.categoryId,
