@@ -3,6 +3,7 @@ import { useState, useSyncExternalStore } from "react";
 
 import type { TextOverlaySettings } from "../types";
 import type { TextBatchApplyMode } from "../../shared/composition-scope.mjs";
+import { cloneTextSettings } from "./text-presets";
 
 const TEXT_PROFILES_KEY = "sonara.textProfiles";
 const TEXT_PROFILES_LIMIT = 50;
@@ -49,7 +50,7 @@ const textProfilesStore = (() => {
       const clean = name.trim().slice(0, 60);
       if (!clean) return;
       profiles = [
-        { name: clean, settings },
+        { name: clean, settings: cloneTextSettings(settings) },
         ...profiles.filter((entry) => entry.name !== clean),
       ].slice(0, TEXT_PROFILES_LIMIT);
       persist();
