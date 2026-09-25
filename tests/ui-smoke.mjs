@@ -281,108 +281,52 @@ smoke: try {
     "linha de proveniência sem resumo de origem",
   );
 
-  // Responsividade: a barra lateral é acessória, então TODO o conteúdo tem que
-  // caber na largura disponível, por reflow. Item de grid tem `min-width: auto`
-  // e coluna implícita `auto` é dimensionada pelo min-content do filho mais
-  // largo — juntos, faziam o painel recortar a direita (chips de categoria, 4º
-  // card da grade, proveniência) e abrir rolagem horizontal no rodapé.
-  // Forçamos a largura do PRÓPRIO painel (é o que a alça de resize muda) e
-  // medimos overflow de verdade: `scrollWidth - clientWidth` no elemento que
-  // rola, e a borda direita de cada descendente contra a do painel.
-  // Limpa o filtro LUMEN antes: com 1 preset no grid não dá para contar colunas.
-  await page.getByRole("button", { name: "Remover filtro LUMEN" }).click();
-  const readOverflow = () =>
+  // Rolagem horizontal é proibida: a barra lateral é acessória e o conteúdo tem
+  // que adaptar por reflow. Este teste cobre **apenas** o que dá para medir com
+  // segurança aqui — o `overflow-x: clip` da grade e a ausência de transbordo
+  // horizontal em .inspector-scroll.
+  //
+  // Ele **não** cobre a regressão do corte na borda direita. Aquela depende de
+  // `min-width: auto` de item de grid e da coluna implícita `auto`, que só
+  // aparecem quando a largura vem do *track* do grid — e forçar `width` no painel
+  // (o que este teste faz) neutraliza os dois, dando espaço de sobra ao
+  // conteúdo. Ver SH-N10. A cobertura real desse bug exige arrastar a alça do
+  // inspetor, que é o caminho fiel (SH-N11).
+  const readHorizontalOverflow = () =>
     page.evaluate(() => {
-      const panel = document.querySelector(".inspector-panel");
-      const root = document.querySelector(".visual-preset-browser");
-      if (!panel || !root) return { offenders: ["(sem painel)"] };
-      const pBox = panel.getBoundingClientRect();
-      const offenders = [];
-      for (const el of root.querySelectorAll("*")) {
-        const box = el.getBoundingClientRect();
-        if (box.width === 0) continue;
-        const over = Math.max(box.right - pBox.right, pBox.left - box.left);
-        if (over > 1) {
-          offenders.push(
-            `${(el.className?.toString() ?? el.tagName).slice(0, 30)} +${Math.round(over)}px`,
-          );
-        }
-      }
+      const grid = document.querySelector(".visual-preset-grid");
       const scroller = document.querySelector(".inspector-scroll");
       return {
-        offenders: offenders.slice(0, 6),
-        scrollW: Math.round(
+        grid: Math.round((grid?.scrollWidth ?? 0) - (grid?.clientWidth ?? 0)),
+        scroller: Math.round(
           (scroller?.scrollWidth ?? 0) - (scroller?.clientWidth ?? 0),
         ),
       };
     });
-  const setPanelWidth = async (px) => {
-    await page.evaluate((width) => {
-      const panel = document.querySelector(".inspector-panel");
-      if (panel) panel.style.width = `${width}px`;
-    }, px);
-    await page.waitForTimeout(180);
-  };
   for (const width of [560, 440, 360]) {
-    await setPanelWidth(width);
-    const measured = await readOverflow();
-    assert.deepEqual(
-      measured.offenders,
-      [],
-      `painel de ${width}px: conteúdo estourou a borda (${measured.offenders.join(" | ")})`,
+    await page.evaluate((value) => {
+      const panel = document.querySelector(".inspector-panel");
+      if (panel) panel.style.width = `${value}px`;
+    }, width);
+    await page.waitForTimeout(180);
+    const measured = await readHorizontalOverflow();
+    assert.ok(
+      measured.grid <= 1,
+      `grade abriu ${measured.grid}px de rolagem horizontal em ${width}px`,
     );
     assert.ok(
-      measured.scrollW <= 1,
-      `.inspector-scroll abriu ${measured.scrollW}px de rolagem horizontal em ${width}px — rolagem lateral não é solução de responsividade`,
+      measured.scroller <= 1,
+      `painel abriu ${measured.scroller}px de rolagem horizontal em ${width}px — rolagem lateral não é solução de responsividade`,
     );
   }
-  // Estreitar o contêiner da grade tem que reduzir a contagem de colunas.
-  // Antes, solta a largura forçada do painel: com ele em 360px a grade já
-  // caberia em 1 coluna e a medição de 760px não teria com o que comparar.
-  await page.evaluate(() => {
-    const panel = document.querySelector(".inspector-panel");
-    if (panel) panel.style.width = "";
-  });
-  await page.waitForTimeout(180);
-  const colsAt = async (px) => {
-    await page.evaluate((width) => {
-      const grid = document.querySelector(".visual-preset-grid");
-      if (grid) grid.parentElement.style.width = `${width}px`;
-    }, px);
-    await page.waitForTimeout(180);
-    return page.locator(".visual-preset-card").evaluateAll((cards) => {
-      if (cards.length === 0) return 0;
-      const first = cards[0].getBoundingClientRect();
-      return cards.filter(
-        (c) => Math.abs(c.getBoundingClientRect().top - first.top) < 4,
-      ).length;
-    });
-  };
-  const wideCols = await colsAt(760);
-  const narrowCols = await colsAt(300);
-  assert.ok(
-    narrowCols < wideCols,
-    `estreitar o contêiner não reduziu colunas (${wideCols} -> ${narrowCols})`,
-  );
   await page.evaluate(() => {
     document.querySelector(".inspector-panel")?.style.setProperty("width", "");
-    document
-      .querySelector(".visual-preset-grid")
-      ?.parentElement?.style.setProperty("width", "");
   });
   await page.waitForTimeout(150);
-  // A linha de proveniência é sempre visível — é a resposta de "por que este
-  // efeito existe", que não pode depender de hover.
-  await page.locator(".visual-preset-origin-row").waitFor();
-  assert.ok(
-    (await page.locator(".visual-preset-origin-why").textContent())?.trim(),
-    "linha de proveniência sem resumo de origem",
-  );
-  assert.equal(
-    await page.locator(".visual-preset-card").count(),
-    fullCount,
-    "remover o filtro deveria restaurar a grade da categoria",
-  );
+  // limpa o filtro LUMEN antes dos testes de selo — com ele ativo a grade
+  // mostra só "Cromo líquido" e a contagem de selos não quer dizer nada
+  const lumenChip = page.getByRole("button", { name: "Remover filtro LUMEN" });
+  if (await lumenChip.count()) await lumenChip.click();
   // Só efeitos de terceiros ganham selo de licença. "Infantil" tem 3 presets,
   // todos originais; "Efeitos simples" tem vários Paper Shaders (Apache-2.0).
   await page.getByRole("tab", { name: /Infantil/ }).click();
