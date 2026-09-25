@@ -306,7 +306,7 @@ export const PRESET_COLLECTIONS = {
   "paper-metaballs": ["fluido"],
   "paper-warp": ["fluido"],
   "paper-swirl": ["fluido"],
-  "paper-water": ["fluido", "atmosfera"],
+  "paper-water": ["fluido"],
   "paper-liquid-metal": ["fluido", "textura"],
   // Atmosfera
   "volumetric-clouds": ["atmosfera"],
@@ -315,8 +315,11 @@ export const PRESET_COLLECTIONS = {
   "terrain-magic": ["atmosfera"],
   "terrain-flight": ["atmosfera"],
   "stratosphere-flight": ["atmosfera"],
-  "paper-smoke-ring": ["atmosfera"],
-  "paper-gem-smoke": ["atmosfera"],
+  // Anel e fumaça de gema foram para a categoria Composicoes: são elementos
+  // que se sobrepõem a algo, não fundos. A coleção "atmosfera" é definida como
+  // "fundos que situam uma cena", então ficaria incoerente mantê-los lá.
+  "paper-smoke-ring": ["textura"],
+  "paper-gem-smoke": ["textura"],
   // Dados — a família dot-grid-arc-field inteira mora aqui
   "predictive-arc": ["dados"],
   "data-pixel-arc": ["dados", "calmo"],

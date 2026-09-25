@@ -75,14 +75,36 @@ test("static Paper shaders are identified and grouped as simple effects", () => 
     "paper-halftone-cmyk",
   ]);
 
+  // A categoria segue a regra motion (estático → Efeitos simples), exceto pela
+  // curadoria de composição: camadas que se sobrepõem a algo vão para
+  // Composicoes mesmo quando animadas. Isso não toca as variações — elas moram
+  // dentro do preset e viajam junto na realocação.
+  const compositionIds = new Set([
+    "paper-gem-smoke",
+    "paper-liquid-metal",
+    "paper-dithering",
+    "paper-smoke-ring",
+    "paper-pulsing-border",
+    "paper-water",
+  ]);
   for (const preset of paperShaderPresetConfigs) {
     const definition = paperShaderDefinitions.find(
       (candidate) => candidate.rendererId === preset.rendererId,
     );
-    assert.equal(
-      preset.category,
-      definition.motion === "static" ? "Efeitos simples" : definition.category,
-      preset.id,
+    const expected = compositionIds.has(preset.id)
+      ? "Composicoes"
+      : definition.motion === "static"
+        ? "Efeitos simples"
+        : definition.category;
+    assert.equal(preset.category, expected, preset.id);
+  }
+
+  // Toda a curadoria precisa preservar as variações que já existiam upstream.
+  for (const id of compositionIds) {
+    const config = paperShaderPresetConfigs.find((preset) => preset.id === id);
+    assert.ok(
+      config.variants.length > 0,
+      `${id} perdeu as variações na realocação`,
     );
   }
 });

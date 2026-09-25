@@ -325,13 +325,50 @@ test("every builtin atmosphere and reusable option starts with music reaction di
   );
 });
 
-test("static Paper shaders are grouped as simple effects", () => {
+test("efeitos de composição (camadas) ficam em Composicoes, não em fundos", () => {
+  // Anel, moldura, retícula, dithering, metal e fumaça de gema se sobrepõem a
+  // algo — não são fundos que situam a cena. A curadoria é explícita e travada.
+  const composicoes = new Set([
+    "paper-gem-smoke",
+    "paper-liquid-metal",
+    "paper-dithering",
+    "paper-smoke-ring",
+    "paper-pulsing-border",
+    "paper-water",
+  ]);
+  for (const preset of builtinVisualPresets) {
+    if (composicoes.has(preset.id)) {
+      assert.equal(preset.categoryId, "compositions", preset.id);
+    }
+  }
+  // Nenhum deles pode continuar numa coleção definida como "fundo de cena".
+  for (const preset of builtinVisualPresets) {
+    if (composicoes.has(preset.id)) {
+      assert.ok(
+        !preset.collections.includes("atmosfera"),
+        `${preset.id} virou composição mas ainda está na coleção de fundos`,
+      );
+    }
+  }
+});
+
+test("efeitos de composição (camadas) ficam em Composicoes, não em fundos", () => {
   const visual = normalizeVisualSettings({ id: "paper-dot-grid" });
   assert.equal(visual.category, "Efeitos simples");
   assert.equal(visual.categoryId, "simple-effects");
+  // Animações preservam a categoria upstream (Superficies)…
+  assert.equal(
+    normalizeVisualSettings({ id: "paper-neuro-noise" }).category,
+    "Superficies",
+  );
+  // …exceto as curadas para Composicoes, que são camadas, não fundos.
   assert.equal(
     normalizeVisualSettings({ id: "paper-water" }).category,
-    "Fluidos",
+    "Composicoes",
+  );
+  assert.equal(
+    normalizeVisualSettings({ id: "paper-water" }).categoryId,
+    "compositions",
   );
 });
 

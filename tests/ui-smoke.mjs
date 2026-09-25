@@ -240,10 +240,12 @@ smoke: try {
     .getByRole("button", { name: "Selecionar atmosfera Aura vetorial" })
     .click();
 
-  // SH9C — coleções curadas e proveniência. Filtros não mudam a seleção, então
-  // este bloco pode limpar tudo no fim e deixar o estado como estava.
+  // SH9C — coleções curadas e proveniência. As dimensões de filtro são
+  // disclosures colapsados (padrão), então abrimos Coleção e Origem antes de
+  // clicar. Filtros não mudam a seleção: o bloco limpa tudo no fim.
   const fullCount = await page.locator(".visual-preset-card").count();
-  // Contagem do chip vem da lista inteira, não do recorte: 18 em "Dados".
+  await page.getByText("Coleção", { exact: true }).click();
+  await page.getByText("Origem", { exact: true }).click();
   assert.equal(
     await page.getByRole("button", { name: /^Dados\s*18$/u }).count(),
     1,
@@ -255,10 +257,12 @@ smoke: try {
     dadosCount > 0 && dadosCount <= fullCount,
     `filtro Dados mostrou ${dadosCount} de ${fullCount}`,
   );
-  // LUMEN é a única origem com 1 preset, e ele é de Superficies — a categoria
-  // já ativa aqui. As facetas são AND entre si, então "Dados" precisa sair
-  // antes: Cromo líquido não está em Dados e a interseção daria vazio.
-  await page.getByRole("button", { name: /^Dados\s*18$/u }).click();
+  // Com um filtro ativo, ele aparece como chip removível fora do grupo colapsado
+  // — é o que torna colapsar os grupos seguro em vez de enganoso.
+  await page.getByRole("button", { name: "Remover filtro Dados" }).waitFor();
+  // As facetas são AND entre si, então "Dados" precisa sair antes de LUMEN:
+  // Cromo líquido não está em Dados e a interseção daria vazio sem causa visível.
+  await page.getByRole("button", { name: "Remover filtro Dados" }).click();
   await page.getByRole("button", { name: /^LUMEN\s*1$/u }).click();
   const lumenNames = await page
     .locator(".visual-preset-name")
@@ -269,6 +273,104 @@ smoke: try {
     `filtro de origem deveria mostrar 1 preset, mostrou ${lumenNames.length}`,
   );
   await page.locator(".visual-preset-search-input").fill("");
+  // A linha de proveniência é sempre visível: responde "por que este efeito
+  // existe" e não pode depender de hover, que não existe no toque.
+  await page.locator(".visual-preset-origin-row").waitFor();
+  assert.ok(
+    (await page.locator(".visual-preset-origin-why").textContent())?.trim(),
+    "linha de proveniência sem resumo de origem",
+  );
+
+  // Responsividade: a barra lateral é acessória, então TODO o conteúdo tem que
+  // caber na largura disponível, por reflow. Item de grid tem `min-width: auto`
+  // e coluna implícita `auto` é dimensionada pelo min-content do filho mais
+  // largo — juntos, faziam o painel recortar a direita (chips de categoria, 4º
+  // card da grade, proveniência) e abrir rolagem horizontal no rodapé.
+  // Forçamos a largura do PRÓPRIO painel (é o que a alça de resize muda) e
+  // medimos overflow de verdade: `scrollWidth - clientWidth` no elemento que
+  // rola, e a borda direita de cada descendente contra a do painel.
+  // Limpa o filtro LUMEN antes: com 1 preset no grid não dá para contar colunas.
+  await page.getByRole("button", { name: "Remover filtro LUMEN" }).click();
+  const readOverflow = () =>
+    page.evaluate(() => {
+      const panel = document.querySelector(".inspector-panel");
+      const root = document.querySelector(".visual-preset-browser");
+      if (!panel || !root) return { offenders: ["(sem painel)"] };
+      const pBox = panel.getBoundingClientRect();
+      const offenders = [];
+      for (const el of root.querySelectorAll("*")) {
+        const box = el.getBoundingClientRect();
+        if (box.width === 0) continue;
+        const over = Math.max(box.right - pBox.right, pBox.left - box.left);
+        if (over > 1) {
+          offenders.push(
+            `${(el.className?.toString() ?? el.tagName).slice(0, 30)} +${Math.round(over)}px`,
+          );
+        }
+      }
+      const scroller = document.querySelector(".inspector-scroll");
+      return {
+        offenders: offenders.slice(0, 6),
+        scrollW: Math.round(
+          (scroller?.scrollWidth ?? 0) - (scroller?.clientWidth ?? 0),
+        ),
+      };
+    });
+  const setPanelWidth = async (px) => {
+    await page.evaluate((width) => {
+      const panel = document.querySelector(".inspector-panel");
+      if (panel) panel.style.width = `${width}px`;
+    }, px);
+    await page.waitForTimeout(180);
+  };
+  for (const width of [560, 440, 360]) {
+    await setPanelWidth(width);
+    const measured = await readOverflow();
+    assert.deepEqual(
+      measured.offenders,
+      [],
+      `painel de ${width}px: conteúdo estourou a borda (${measured.offenders.join(" | ")})`,
+    );
+    assert.ok(
+      measured.scrollW <= 1,
+      `.inspector-scroll abriu ${measured.scrollW}px de rolagem horizontal em ${width}px — rolagem lateral não é solução de responsividade`,
+    );
+  }
+  // Estreitar o contêiner da grade tem que reduzir a contagem de colunas.
+  // Antes, solta a largura forçada do painel: com ele em 360px a grade já
+  // caberia em 1 coluna e a medição de 760px não teria com o que comparar.
+  await page.evaluate(() => {
+    const panel = document.querySelector(".inspector-panel");
+    if (panel) panel.style.width = "";
+  });
+  await page.waitForTimeout(180);
+  const colsAt = async (px) => {
+    await page.evaluate((width) => {
+      const grid = document.querySelector(".visual-preset-grid");
+      if (grid) grid.parentElement.style.width = `${width}px`;
+    }, px);
+    await page.waitForTimeout(180);
+    return page.locator(".visual-preset-card").evaluateAll((cards) => {
+      if (cards.length === 0) return 0;
+      const first = cards[0].getBoundingClientRect();
+      return cards.filter(
+        (c) => Math.abs(c.getBoundingClientRect().top - first.top) < 4,
+      ).length;
+    });
+  };
+  const wideCols = await colsAt(760);
+  const narrowCols = await colsAt(300);
+  assert.ok(
+    narrowCols < wideCols,
+    `estreitar o contêiner não reduziu colunas (${wideCols} -> ${narrowCols})`,
+  );
+  await page.evaluate(() => {
+    document.querySelector(".inspector-panel")?.style.setProperty("width", "");
+    document
+      .querySelector(".visual-preset-grid")
+      ?.parentElement?.style.setProperty("width", "");
+  });
+  await page.waitForTimeout(150);
   // A linha de proveniência é sempre visível — é a resposta de "por que este
   // efeito existe", que não pode depender de hover.
   await page.locator(".visual-preset-origin-row").waitFor();
@@ -276,11 +378,10 @@ smoke: try {
     (await page.locator(".visual-preset-origin-why").textContent())?.trim(),
     "linha de proveniência sem resumo de origem",
   );
-  await page.getByRole("button", { name: "Limpar" }).click();
   assert.equal(
     await page.locator(".visual-preset-card").count(),
     fullCount,
-    "Limpar não restaurou a grade da categoria",
+    "remover o filtro deveria restaurar a grade da categoria",
   );
   // Só efeitos de terceiros ganham selo de licença. "Infantil" tem 3 presets,
   // todos originais; "Efeitos simples" tem vários Paper Shaders (Apache-2.0).

@@ -1,4 +1,4 @@
-import { Check, Gauge, Layers, Palette, Search } from "lucide-react";
+import { Check, Gauge, Layers, Palette, Search, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { createSceneRuntime } from "../../shared/canvas-scene-runtime.mjs";
@@ -232,6 +232,45 @@ export function VisualPresetBrowser({
     setOriginFilter([]);
   };
 
+  // "Você está aqui": com os grupos colapsados, um filtro ativo precisa ficar
+  // visível fora deles — senão o resultado some e não há causa à vista. É o que
+  // torna colapsar os grupos seguro em vez de enganoso.
+  const activeFilterChips = useMemo(() => {
+    const chips: { key: string; label: string; onRemove: () => void }[] = [];
+    for (const id of runtimeFilter) {
+      const facet = RUNTIME_FACETS.find((item) => item.id === id);
+      chips.push({
+        key: `runtime-${id}`,
+        label: facet?.label ?? id,
+        onRemove: () => toggleRuntime(id),
+      });
+    }
+    for (const tier of tierFilter) {
+      chips.push({
+        key: `tier-${tier}`,
+        label: `T${tier}`,
+        onRemove: () => toggleTier(tier),
+      });
+    }
+    for (const id of collectionFilter) {
+      const collection = VISUAL_COLLECTIONS.find((item) => item.id === id);
+      chips.push({
+        key: `collection-${id}`,
+        label: collection?.label ?? id,
+        onRemove: () => toggleCollection(id),
+      });
+    }
+    for (const id of originFilter) {
+      const origin = getVisualOrigin(id);
+      chips.push({
+        key: `origin-${id}`,
+        label: origin.label,
+        onRemove: () => toggleOrigin(id),
+      });
+    }
+    return chips;
+  }, [runtimeFilter, tierFilter, collectionFilter, originFilter]);
+
   const previewRuntimeRef = useRef<
     ReturnType<typeof createSceneRuntime> | undefined
   >(undefined);
@@ -357,43 +396,25 @@ export function VisualPresetBrowser({
           </span>
         ) : null}
       </div>
-      <div
-        aria-label="Filtros de atmosfera"
-        className="visual-preset-facets"
-        role="group"
-      >
-        <span className="visual-preset-facet-label">Runtime</span>
-        {RUNTIME_FACETS.map((facet) => {
-          const active = runtimeFilter.includes(facet.id);
-          return (
+      {facetsActive ? (
+        <div
+          aria-label="Filtros ativos"
+          className="visual-preset-active-filters"
+          role="group"
+        >
+          <span className="visual-preset-facet-label">Filtros</span>
+          {activeFilterChips.map((chip) => (
             <button
-              aria-pressed={active}
-              className={`visual-preset-chip ${active ? "active" : ""}`}
-              key={facet.id}
+              aria-label={`Remover filtro ${chip.label}`}
+              className="visual-preset-chip active removable"
+              key={chip.key}
               type="button"
-              onClick={() => toggleRuntime(facet.id)}
+              onClick={chip.onRemove}
             >
-              {facet.label}
+              {chip.label}
+              <X aria-hidden="true" />
             </button>
-          );
-        })}
-        <span className="visual-preset-facet-label">Desempenho</span>
-        {PERFORMANCE_TIERS.map((tier) => {
-          const active = tierFilter.includes(tier);
-          return (
-            <button
-              aria-label={`Desempenho tier ${tier}`}
-              aria-pressed={active}
-              className={`visual-preset-chip ${active ? "active" : ""}`}
-              key={tier}
-              type="button"
-              onClick={() => toggleTier(tier)}
-            >
-              T{tier}
-            </button>
-          );
-        })}
-        {facetsActive ? (
+          ))}
           <button
             className="visual-preset-facet-clear"
             type="button"
@@ -401,51 +422,8 @@ export function VisualPresetBrowser({
           >
             Limpar
           </button>
-        ) : null}
-      </div>
-      <div
-        aria-label="Coleções curadas e origem dos efeitos"
-        className="visual-preset-facets"
-        role="group"
-      >
-        <span className="visual-preset-facet-label">Coleção</span>
-        {VISUAL_COLLECTIONS.map((collection) => {
-          const active = collectionFilter.includes(collection.id);
-          const count = collectionCounts.get(collection.id) ?? 0;
-          return (
-            <button
-              aria-pressed={active}
-              className={`visual-preset-chip ${active ? "active" : ""}`}
-              key={collection.id}
-              title={collection.summary}
-              type="button"
-              onClick={() => toggleCollection(collection.id)}
-            >
-              {collection.label}
-              <span className="visual-preset-chip-count">{count}</span>
-            </button>
-          );
-        })}
-        <span className="visual-preset-facet-label">Origem</span>
-        {Object.values(VISUAL_ORIGINS).map((origin) => {
-          const active = originFilter.includes(origin.id);
-          return (
-            <button
-              aria-pressed={active}
-              className={`visual-preset-chip ${active ? "active" : ""}`}
-              key={origin.id}
-              title={`${origin.summary}${origin.url ? `\n${origin.url}` : ""}`}
-              type="button"
-              onClick={() => toggleOrigin(origin.id)}
-            >
-              {origin.label}
-              <span className="visual-preset-chip-count">
-                {originCounts.get(origin.id) ?? 0}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+        </div>
+      ) : null}
       {!searching ? (
         <div
           aria-label="Categoria de atmosfera"
@@ -564,6 +542,84 @@ export function VisualPresetBrowser({
           );
         })}
       </div>
+      {/*
+        As 4 dimensões de filtro ficam ABAIXO da grade e colapsadas. Faceta é
+        refinamento de um conjunto candidato: quem chega aqui primeiro quer ver
+        as miniaturas, não escolher critérios antes de saber o que existe.
+        Categoria fica acima porque é o ponto de entrada.
+
+        Um disclosure por dimensão, e não um "Filtros" único: quatro rótulos
+        colapsados dizem que existem quatro maneiras de filtrar, enquanto um
+        bloco só esconde a própria existência do filtro por runtime ou origem.
+      */}
+      <div aria-label="Refinar resultados" className="visual-preset-refine">
+        <FacetGroup activeCount={runtimeFilter.length} label="Runtime">
+          {RUNTIME_FACETS.map((facet) => (
+            <button
+              aria-pressed={runtimeFilter.includes(facet.id)}
+              className={`visual-preset-chip ${runtimeFilter.includes(facet.id) ? "active" : ""}`}
+              key={facet.id}
+              type="button"
+              onClick={() => toggleRuntime(facet.id)}
+            >
+              {facet.label}
+            </button>
+          ))}
+        </FacetGroup>
+        <FacetGroup activeCount={tierFilter.length} label="Desempenho">
+          {PERFORMANCE_TIERS.map((tier) => (
+            <button
+              aria-label={`Desempenho tier ${tier}`}
+              aria-pressed={tierFilter.includes(tier)}
+              className={`visual-preset-chip ${tierFilter.includes(tier) ? "active" : ""}`}
+              key={tier}
+              type="button"
+              onClick={() => toggleTier(tier)}
+            >
+              T{tier}
+            </button>
+          ))}
+        </FacetGroup>
+        <FacetGroup activeCount={collectionFilter.length} label="Coleção">
+          {VISUAL_COLLECTIONS.map((collection) => (
+            <button
+              aria-pressed={collectionFilter.includes(collection.id)}
+              className={`visual-preset-chip ${collectionFilter.includes(collection.id) ? "active" : ""}`}
+              key={collection.id}
+              title={collection.summary}
+              type="button"
+              onClick={() => toggleCollection(collection.id)}
+            >
+              {collection.label}
+              <span className="visual-preset-chip-count">
+                {collectionCounts.get(collection.id) ?? 0}
+              </span>
+            </button>
+          ))}
+        </FacetGroup>
+        <FacetGroup activeCount={originFilter.length} label="Origem">
+          {Object.values(VISUAL_ORIGINS).map((origin) => (
+            <button
+              aria-pressed={originFilter.includes(origin.id)}
+              className={`visual-preset-chip ${originFilter.includes(origin.id) ? "active" : ""}`}
+              key={origin.id}
+              title={`${origin.summary}${origin.url ? `\n${origin.url}` : ""}`}
+              type="button"
+              onClick={() => toggleOrigin(origin.id)}
+            >
+              {origin.label}
+              <span className="visual-preset-chip-count">
+                {originCounts.get(origin.id) ?? 0}
+              </span>
+            </button>
+          ))}
+        </FacetGroup>
+      </div>
+      {/*
+        A linha de proveniência fica logo acima das variantes, colada ao
+        resultado, e não junto dos filtros: descreve o preset escolhido, não
+        um critério de busca.
+      */}
       <div className="visual-preset-origin-row">
         <span className="visual-preset-origin-name">{selectedScene.name}</span>
         <span className="visual-preset-origin-badge">
@@ -655,6 +711,50 @@ function presetSearchText(preset: ScenePresetV3): string {
     ]
       .filter(Boolean)
       .join(" "),
+  );
+}
+
+/**
+ * Uma dimensão de filtro em disclosure nativo: teclado, leitor de tela e
+ * estado aberto/fechado saem de graça, sem portal nem focus trap.
+ *
+ * `<details>` não tem `defaultOpen` no React, só `open` — que é controlado e
+ * reescreveria o estado a cada render, impedindo o usuário de recolher um
+ * grupo que tem filtro ativo. Por isso o `open` é estado local que espelha o
+ * toggle do navegador, e o grupo só abre sozinho na transição 0 -> 1 filtro.
+ * O badge no summary cobre o caso de "recolhi com filtro dentro": o resultado
+ * continua explicável.
+ */
+function FacetGroup({
+  activeCount,
+  children,
+  label,
+}: {
+  activeCount: number;
+  children: ReactNode;
+  label: string;
+}) {
+  const [open, setOpen] = useState(activeCount > 0);
+  const previousActiveCount = useRef(activeCount);
+  useEffect(() => {
+    if (previousActiveCount.current === 0 && activeCount > 0) setOpen(true);
+    previousActiveCount.current = activeCount;
+  }, [activeCount]);
+  return (
+    <details
+      className="visual-preset-facet-group"
+      data-active={activeCount > 0 ? "true" : undefined}
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary>
+        <span className="visual-preset-facet-label">{label}</span>
+        {activeCount > 0 ? (
+          <span className="visual-preset-facet-badge">{activeCount}</span>
+        ) : null}
+      </summary>
+      <div className="visual-preset-facets">{children}</div>
+    </details>
   );
 }
 
