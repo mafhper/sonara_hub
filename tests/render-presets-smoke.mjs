@@ -53,6 +53,7 @@ const quickPresetIds = new Set([
   "laser",
   "crt",
   "liquid-form",
+  "bell-field",
   "audio-dark",
   "lava-lamp",
   "starfield",

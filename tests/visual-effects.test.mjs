@@ -93,6 +93,7 @@ const expectedIds = [
   "laser",
   "crt",
   "liquid-form",
+  "bell-field",
   ...paperShaderDefinitions.map((definition) => definition.rendererId),
 ];
 
@@ -181,7 +182,7 @@ test("proveniência deriva a origem real de cada preset", () => {
   assert.deepEqual(counts, {
     sonara: 26,
     "paper-shaders": 29,
-    threeui: 11,
+    threeui: 12,
     lumen: 1,
     inspired: 3,
   });
@@ -380,6 +381,87 @@ test("o runtime mapeia u_paramN pela ordem de `advanced`, não de `controls`", (
   // o caso 3 acima (3 cru vs 0.03 se fosse dividido) — `variant=0` não
   // distingue nada porque 0 e 0/100 são o mesmo número.
   assert.equal(visualUniforms(laser).advanced[0], 0);
+});
+
+test("o bell-field tem 4 metais, 6 controles reais e nenhum ponteiro", () => {
+  const bf = builtinVisualPresets.find(
+    (preset) => preset.family === "bell-field",
+  );
+  assert.ok(bf, "deve existir um preset da família bell-field");
+  assert.equal(bf.rendererId, "bellfield");
+  assert.equal(bf.originId, "threeui", bf.id);
+  // Sem raymarch: custo desprezível.
+  assert.equal(bf.performanceTier, 1);
+
+  assert.deepEqual(
+    bf.variants.map((v) => v.id),
+    ["bronze", "steel", "copper", "obsidian"],
+  );
+  assert.deepEqual(
+    bf.variants.map((v) => v.advanced.variant),
+    [0, 1, 2, 3],
+  );
+
+  // O upstream tem SÓ 1 uniform controlável (u_strike). Os 6 slots livres foram
+  // preenchidos com parâmetros que a figura de Chladni realmente tem — em vez
+  // de controles decorativos, que é o modo de falha do SH-N13.
+  const keys = Object.keys(bf.advanced);
+  assert.equal(keys.length, 7, "advanced não pode passar de 7 slots");
+  assert.deepEqual(keys, [
+    "variant",
+    "density",
+    "spokes",
+    "detail",
+    "lineWidth",
+    "glow",
+    "strikeRate",
+  ]);
+  assert.ok(!bf.controls.some((c) => c.key === "variant"));
+  assert.deepEqual(
+    bf.controls.map((c) => c.key),
+    keys.slice(1),
+  );
+
+  // O golpe tem de acontecer SEMPRE, a partir de u_time — `audioReaction` é
+  // zerado pela normalização em todos os presets, então um shader que só toca no
+  // onset fica permanentemente mudo com o default.
+  assert.equal(
+    bf.common.audioReaction,
+    0,
+    "audioReaction é zerado por normalização; o shader não pode depender dele",
+  );
+
+  const runtimeSource = readFileSync(
+    fileURLToPath(
+      new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
+    ),
+    "utf8",
+  );
+  const stripComments = (source) =>
+    source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+  const start = runtimeSource.indexOf("bellfield: `${shaderPrelude}");
+  assert.ok(start > 0, "não achei o shader bellfield no runtime");
+  const shader = stripComments(
+    runtimeSource.slice(
+      start,
+      runtimeSource.indexOf("gl_FragColor = vec4(col, 1.0);\n}`,\n};", start),
+    ),
+  );
+  assert.ok(
+    shader.includes("bfMap") || shader.includes("bfBess"),
+    "stripper comeu código",
+  );
+  for (const needle of ["u_mouse", "u_pointer"]) {
+    assert.ok(
+      !shader.includes(needle),
+      `"${needle}" não pode aparecer no bell-field: export determinístico é regra`,
+    );
+  }
+  // E o golpe tem de vir de u_time, não de um uniform solto.
+  assert.ok(
+    shader.includes("fract(u_time"),
+    "o golpe deveria ser uma fase derivada de u_time, para ser automático e determinístico",
+  );
 });
 
 test("o liquid-form é UM preset com 4 MATERIAIS e nenhum ponteiro", () => {

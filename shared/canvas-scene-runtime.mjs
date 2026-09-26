@@ -1669,6 +1669,106 @@ void main() {
   col = pow(max(col, 0.0), vec3(1.0 / 2.2));
   gl_FragColor = vec4(col, 1.0);
 }`,
+  // Bell Field — figura de Chladni: as linhas nodais (onde o metal fica parado) e
+  // os antinós (onde ele se move e brilha) de um disco de metal solicitado. Do
+  // ThreeUI (src/shaders/bell-field/bellFieldShaders.ts, MIT). Física de domínio
+  // público, sem texto, marca ou asset.
+  //
+  // O u_mouse do upstream Sai: ele desloca o padrão inteiro conforme o mouse, o
+  // que torna o export irreprodutível (mesmo motivo do laser e do metal líquido).
+  // Num padrão radialmente simétrico, "o mouse moveu o padrão 0.11" e "o
+  // controle de offset moveu o padrão" são a mesma coisa — sem determinismo.
+  //
+  // O u_strike deixa de ser parâmetro solto e vira FASE: o sino é golpeado
+  // periodicamente a partir de u_time, a onda de choque expande e morre. E a
+  // amplitude da onda soma u_audioOnset, então o sino toca no beat — o áudio faz
+  // parte do envelope de render, então isso não quebra o determinismo.
+  //
+  // Contrato de params (avançado = contrato com o shader, controls = camada de UI):
+  //   param0 variant (índice cru 0..3, nunca normalizado)
+  //   param1 density    param2 spokes   param3 detail
+  //   param4 lineWidth  param5 glow     param6 strikeRate
+  bellfield: `${shaderPrelude}
+float bfHash(vec2 p){ return fract(sin(dot(p, vec2(23.71, 91.37))) * 41537.1234); }
+
+// aproximação de cosseno amortecido para o envelope de Bessel (como o upstream)
+float bfBess(float x){ return cos(x - 0.785398) / sqrt(1.0 + abs(x)); }
+
+// Paleta por variante: o padrão é o mesmo, o metal que muda.
+void bfPalette(int v, out vec3 deep, out vec3 patina, out vec3 hot, out vec3 ash) {
+  if (v == 1) {            // aço: frio e neutro
+    deep = vec3(0.035, 0.045, 0.055); patina = vec3(0.42, 0.50, 0.58);
+    hot = vec3(0.72, 0.80, 0.90); ash = vec3(0.95, 0.97, 1.0);
+  } else if (v == 2) {     // cobre: alaranjado e lustroso
+    deep = vec3(0.055, 0.032, 0.020); patina = vec3(0.72, 0.42, 0.22);
+    hot = vec3(1.0, 0.62, 0.30); ash = vec3(1.0, 0.90, 0.74);
+  } else if (v == 3) {     // obsidiana: quase preto, só o brilho
+    deep = vec3(0.012, 0.012, 0.016); patina = vec3(0.16, 0.15, 0.22);
+    hot = vec3(0.55, 0.42, 0.85); ash = vec3(0.92, 0.90, 1.0);
+  } else {                 // bronze: patina verde, quente
+    deep = vec3(0.031, 0.055, 0.051); patina = vec3(0.306, 0.608, 0.541);
+    hot = vec3(0.847, 0.608, 0.247); ash = vec3(0.937, 0.914, 0.863);
+  }
+}
+
+void main() {
+  vec2 res = max(u_resolution, vec2(1.0));
+  vec2 uv = gl_FragCoord.xy / res;
+  vec2 p = uv * 2.0 - 1.0;
+  p.x *= res.x / res.y;
+  p.y += 0.08;
+
+  float t = u_time * 0.09 * (0.35 + u_speed * 0.8);
+  int v = int(u_param0 + 0.5);
+
+  float r = length(p);
+  float a = atan(p.y, p.x);
+
+  // O sino deriva entre parciais, como um sino realmente golpeado deriva.
+  float ang = 1.6 + u_param2 * 4.4 + 1.6 * sin(t * 0.37) + sin(t * 0.19 + 1.7);
+  float k   = 1.2 + u_param1 * 4.6 + 1.0 * sin(t * 0.23 + 0.6);
+
+  // O golpe é uma FASE, não um parâmetro: toca, a onda expande, morre. O ritmo
+  // vem do strikeRate e é determinístico, então o sino SEMPRE toca. O áudio
+  // (onset) só ACENTUA o golpe quando o usuário liga o audioReaction — que é
+  // zerado por default em todos os presets, então depender dele para existir
+  // deixaria o efeito mudo.
+  float rate = 0.10 + u_param6 * 0.55;
+  float strike = fract(u_time * rate);
+  float onset = u_audioOnset * u_audioReaction;
+  float amp = (1.0 + onset * 1.6) * (1.0 - strike * 0.55);
+
+  float f1 = bfBess(r * k * 3.14159265 - t * 2.2) * cos(ang * a + t * 0.5);
+  float f2 = bfBess(r * k * 1.6 * 3.14159265 + t * 1.4) * cos((ang * 2.0 + 1.0) * a - t * 0.31);
+  float f = (f1 + f2 * (0.10 + u_param3 * 0.45)) * amp;
+
+  // linha nodal — onde o metal fica parado
+  float node = 1.0 - smoothstep(0.0, 0.030 + u_param4 * 0.16, abs(f));
+  // antinó — onde ele se move, e brilha quente
+  float anti = smoothstep(0.40, 0.95, abs(f));
+
+  // a coroa fica quieta: abre uma zona de leitura no centro
+  float open = smoothstep(0.14, 0.92, r);
+  node *= open;
+  anti *= open;
+
+  vec3 deep, patina, hot, ash;
+  bfPalette(v, deep, patina, hot, ash);
+
+  vec3 col = deep;
+  col = mix(col, patina, node * 0.50);
+  col = mix(col, hot, anti * (0.10 + u_param5 * 0.34));
+  col += ash * pow(node, 3.0) * 0.13;
+
+  // onda de choque expandindo a partir do golpe
+  float ring = smoothstep(0.06, 0.0, abs(r - strike * 2.3)) * (1.0 - strike);
+  col += mix(hot, ash, 0.4) * ring * (0.45 + onset * 0.9);
+
+  col *= mix(0.10, 1.0, smoothstep(2.0, 0.28, r));
+  col += (bfHash(gl_FragCoord.xy) - 0.5) * 0.022;
+
+  gl_FragColor = vec4(col, 1.0);
+}`,
 };
 
 const blendModes = {

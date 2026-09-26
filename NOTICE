@@ -234,3 +234,39 @@ GPU), so absolute frame times are inflated by an order of magnitude — even the
 cheap laser preset measures 231 ms/frame at 1080p. Only the ratio between
 presets is meaningful in that environment.
 
+The "bell-field" visual preset ports ThreeUI's Chladni pattern shader
+(src/shaders/bell-field/bellFieldShaders.ts, MIT): the nodal lines and antinodes
+of a struck metal disc. Audited by content before porting: no text, no logo, no
+SVG, no third-party asset. A standing-wave figure is public-domain physics, not
+third-party content, so nothing had to be excluded.
+
+The four variations are metals — the pattern is identical and what changes is
+the palette of the light rig:
+
+  bronze    patina green, warm
+  steel     cold and neutral
+  copper    orange and glossy
+  obsidian  nearly black, glow only
+
+Three deliberate departures:
+
+  1. THE MOUSE UNIFORM IS GONE. Upstream shifts the whole pattern by
+     p -= m * 0.11 following the mouse, which is not reproducible. In a radially
+     symmetric pattern that shift reads as "the pattern moved", which is exactly
+     what an offset control would do — so this one cost nothing to drop.
+  2. u_strike BECAME A PHASE. Upstream takes it as a loose 0..1 parameter that
+     the caller animates. Here it is derived from u_time, so the bell is struck
+     on a period, the shock ring expands and dies, and the motion is
+     deterministic without anything external driving it.
+  3. The strike is audio-reactive on top of that: its amplitude adds
+     u_audioOnset. Audio is part of the render envelope, so this does not break
+     deterministic export — the envelope is recorded with the video. Note that
+     audioReaction is normalized to 0 for every preset in Sonara (it is a user
+     control, not an author default), so the bell always strikes on its own
+     schedule and audio only accents it.
+
+Upstream exposes a single controllable uniform; the six free u_param slots were
+filled with quantities a Chladni figure actually has — radial frequency,
+angular mode, second-partial weight, nodal line width, antinode glow and strike
+rate — rather than leaving decorative sliders that move nothing.
+

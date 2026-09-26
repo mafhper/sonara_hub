@@ -304,6 +304,7 @@ export const PRESET_COLLECTIONS = {
   "liquid-chrome": ["fluido", "textura"],
   "fluid-volume": ["fluido"],
   "liquid-form": ["fluido", "textura"],
+  "bell-field": ["atmosfera", "dados"],
   "fluid-flow": ["fluido"],
   "endless-shallows": ["fluido"],
   "lava-lamp": ["fluido"],
@@ -457,6 +458,7 @@ function resolveOriginId(techniqueId, rendererId, normalizedFamily) {
   if (normalizedFamily === "laser") return "threeui";
   if (normalizedFamily === "crt") return "threeui";
   if (normalizedFamily === "liquid-form") return "threeui";
+  if (normalizedFamily === "bell-field") return "threeui";
   return "sonara";
 }
 
@@ -1873,6 +1875,93 @@ export const builtinVisualPresets = [
         tags: ["metal", "cobre", "quente"],
         colors: { base: "#0a0605", effect: "#c97b4a", light: "#ffd9b0" },
         advanced: { variant: 3, morph: 70, noiseScale: 48, camera: 48 },
+      },
+    ],
+  }),
+  // ---- Bell Field / figura de Chladni --------------------------------------
+  // As linhas nodais (onde o metal fica parado) e os antinós (onde ele se move e
+  // brilha) de um disco de metal solicitado. ThreeUI
+  // (src/shaders/bell-field/bellFieldShaders.ts, MIT). Física de domínio público.
+  //
+  // Auditado por CONTEÚDO antes de portar (lição do SH-N15, aplicada antes):
+  // fillText, logo, brand, svg, trademark, @font-face = zero. Legalmente limpo.
+  //
+  // O `u_mouse` do upstream sai: ele desloca o padrão inteiro conforme o mouse
+  // (p -= m * 0.11), o que torna o export irreprodutível. Num padrão
+  // radialmente simétrico isso é visualmente idêntico a um controle de offset —
+  // e sem determinismo.
+  //
+  // O `u_strike` deixa de ser parâmetro solto e vira fase: o sino é golpeado
+  // periodicamente a partir de u_time, a onda de choque expande e morre. E a
+  // amplitude soma `u_audioOnset`, então o sino toca no beat — o áudio faz parte
+  // do envelope de render, então o export continua reproduzível.
+  //
+  // O upstream só tem 1 uniform controlável. Os 6 slots livres foram preenchidos
+  // com parâmetros que o padrão de Chladni realmente tem (frequência radial, modo
+  // angular, peso do 2º parcial, largura da linha, brilho do antinó, frequência do
+  // golpe) — melhor que deixar controles decorativos.
+  preset({
+    id: "bell-field",
+    rendererId: "bellfield",
+    name: "Campo de Sino",
+    category: "Atmosferas",
+    family: "bell-field",
+    note: "Figura de Chladni: linhas nodais e antinós de um disco de metal solicitado, em quatro metais (bronze, aço, cobre, obsidiana). O sino é golpeado periodicamente e a onda de choque reage ao audio — o que faz o padrao tocar no beat. Sem ponteiro, para o export ser reproduzível. Adaptado do ThreeUI (MIT, coleção Bell Field).",
+    tags: ["sino", "chladni", "onda", "metal", "threeui"],
+    performanceTier: 1,
+    colors: { base: "#08100e", effect: "#4e9b8a", light: "#ebeadc" },
+    // audioReaction é zerado pela normalização de todos os presets (é controle
+    // do usuário, não default do autor), então o golpe NÃO pode depender dele
+    // para existir — só para intensificar. O que faz o sino tocar no beat é o
+    // `audioReaction` que o usuário liga no inspector; desligado, o sino segue
+    // batendo no ritmo do `strikeRate`, que é determinístico.
+    common: { speed: 22, brightness: 84, audioReaction: 0, shade: 0 },
+    advanced: {
+      variant: 0,
+      density: 40,
+      spokes: 34,
+      detail: 30,
+      lineWidth: 32,
+      glow: 45,
+      strikeRate: 28,
+    },
+    controls: [
+      // `variant` não é control: a escolha é do picker.
+      control("density", "Densidade"),
+      control("spokes", "Raios"),
+      control("detail", "Detalhe"),
+      control("lineWidth", "Largura da linha"),
+      control("glow", "Brilho"),
+      control("strikeRate", "Frequência do golpe"),
+    ],
+    variants: [
+      {
+        id: "bronze",
+        name: "Bronze",
+        tags: ["sino", "bronze", "patina"],
+        colors: { base: "#08100e", effect: "#4e9b8a", light: "#ebeadc" },
+        advanced: { variant: 0, density: 40, spokes: 34, lineWidth: 32 },
+      },
+      {
+        id: "steel",
+        name: "Aço",
+        tags: ["sino", "aco", "frio"],
+        colors: { base: "#090b0e", effect: "#6b8095", light: "#f2f7ff" },
+        advanced: { variant: 1, density: 52, spokes: 22, lineWidth: 26 },
+      },
+      {
+        id: "copper",
+        name: "Cobre",
+        tags: ["sino", "cobre", "quente"],
+        colors: { base: "#0e0805", effect: "#b86b38", light: "#ffe6bd" },
+        advanced: { variant: 2, density: 34, spokes: 44, lineWidth: 38 },
+      },
+      {
+        id: "obsidian",
+        name: "Obsidiana",
+        tags: ["sino", "obsidiana", "escuro"],
+        colors: { base: "#050508", effect: "#2a2640", light: "#eae6ff" },
+        advanced: { variant: 3, density: 62, spokes: 30, lineWidth: 22 },
       },
     ],
   }),
