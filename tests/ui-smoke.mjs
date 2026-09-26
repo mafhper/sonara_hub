@@ -323,7 +323,7 @@ smoke: try {
     document.querySelector(".inspector-panel")?.style.setProperty("width", "");
   });
   await page.waitForTimeout(150);
-  // limpa o filtro LUMEN antes dos testes de selo — com ele ativo a grade
+  // Limpa o filtro LUMEN antes dos testes de selo — com ele ativo a grade
   // mostra só "Cromo líquido" e a contagem de selos não quer dizer nada
   const lumenChip = page.getByRole("button", { name: "Remover filtro LUMEN" });
   if (await lumenChip.count()) await lumenChip.click();
@@ -2030,6 +2030,20 @@ async function assertPanelResize(page) {
     inspectorAfter.width > inspectorBefore.width + 32 &&
       inspectorAfter.width <= 620,
     `inspector panel should resize within bounds, before=${inspectorBefore.width}, after=${inspectorAfter.width}`,
+  );
+  // O gesto de arrastar é o único caminho em que `min-width: auto` de grid item e
+  // a coluna implícita `auto` se manifestam de verdade — forçar `width` no
+  // painel neutraliza os dois (ver SH-N10). Por isso a medição de transbordo
+  // fica AQUI, logo após o arraste real, e não numa manipulação sintética.
+  const inspectorOverflow = await page.evaluate(() => {
+    const scroller = document.querySelector(".inspector-scroll");
+    return Math.round(
+      (scroller?.scrollWidth ?? 0) - (scroller?.clientWidth ?? 0),
+    );
+  });
+  assert.ok(
+    inspectorOverflow <= 1,
+    `inspetor arrastado abriu ${inspectorOverflow}px de rolagem horizontal — a barra é acessória e o conteúdo tem que caber nela`,
   );
 }
 
