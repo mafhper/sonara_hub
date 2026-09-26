@@ -305,6 +305,7 @@ export const PRESET_COLLECTIONS = {
   "fluid-volume": ["fluido"],
   "liquid-form": ["fluido", "textura"],
   "bell-field": ["atmosfera", "dados"],
+  "stream-convergence": ["fluido", "dados"],
   "fluid-flow": ["fluido"],
   "endless-shallows": ["fluido"],
   "lava-lamp": ["fluido"],
@@ -459,6 +460,7 @@ function resolveOriginId(techniqueId, rendererId, normalizedFamily) {
   if (normalizedFamily === "crt") return "threeui";
   if (normalizedFamily === "liquid-form") return "threeui";
   if (normalizedFamily === "bell-field") return "threeui";
+  if (normalizedFamily === "stream-convergence") return "threeui";
   return "sonara";
 }
 
@@ -1962,6 +1964,83 @@ export const builtinVisualPresets = [
         tags: ["sino", "obsidiana", "escuro"],
         colors: { base: "#050508", effect: "#2a2640", light: "#eae6ff" },
         advanced: { variant: 3, density: 62, spokes: 30, lineWidth: 22 },
+      },
+    ],
+  }),
+  // ---- Stream Convergence ---------------------------------------------------
+  // Três camadas de onda senoidal que convergem, com um smoothstep que as
+  // transforma em linhas finas. ThreeUI
+  // (src/shaders/stream-convergence/streamConvergenceShaders.ts, MIT). Auditado
+  // por CONTEÚDO antes (lição do SH-N15 aplicada antes): sem texto, marca, svg ou
+  // asset. Legalmente limpo.
+  //
+  // Diferente dos outros: aqui o upstream só tem 3 uniforms, e o
+  // "u_interactive_fidelity" apesar do nome não é ponteiro — verifiquei, é um
+  // número (default 0.5) que só pesa o spread das camadas, passado como prop.
+  // Nome enganoso, comportamento limpo: não há o que remover.
+  //
+  // As 4 variações são temas de cor, que é a forma natural de variar aqui: no
+  // upstream a mistura r/g/b por camada sao 3 linhas fixas ("the violet-indigo
+  // theme"). E os 6 slots livres foram preenchidos com grandezas que a onda
+  // realmente tem (spread, frequência, velocidade, onda lateral, espessura da
+  // linha pela janela do smoothstep e rotação).
+  preset({
+    id: "stream-convergence",
+    rendererId: "streamconvergence",
+    name: "Convergência",
+    category: "Fluidos",
+    family: "stream-convergence",
+    note: "Três camadas de onda que convergem em linhas finas, em quatro temas (violeta, ciano, âmbar, monócrono). A espessura da linha é a janela do smoothstep. O controle 'fidelity' do upstream Despite nome enganoso ser um número, não o mouse — então o export continua reproduzível. Adaptado do ThreeUI (MIT, coleção Stream Convergence).",
+    tags: ["onda", "convergencia", "linhas", "fluido", "threeui"],
+    performanceTier: 1,
+    colors: { base: "#0a0618", effect: "#a855f7", light: "#e9d5ff" },
+    common: { speed: 24, brightness: 86, audioReaction: 0, shade: 0 },
+    advanced: {
+      variant: 0,
+      spread: 34,
+      waveFreq: 38,
+      waveSpeed: 30,
+      lateral: 42,
+      thickness: 26,
+      rotation: 30,
+    },
+    controls: [
+      // `variant` não é control: a escolha é o picker (aqui a cor É a variação).
+      control("spread", "Separação"),
+      control("waveFreq", "Frequência"),
+      control("waveSpeed", "Velocidade da onda"),
+      control("lateral", "Onda lateral"),
+      control("thickness", "Espessura"),
+      control("rotation", "Rotação"),
+    ],
+    variants: [
+      {
+        id: "violet",
+        name: "Violeta",
+        tags: ["onda", "violeta", "indigo"],
+        colors: { base: "#0a0618", effect: "#a855f7", light: "#e9d5ff" },
+        advanced: { variant: 0, spread: 34, waveFreq: 38, thickness: 26 },
+      },
+      {
+        id: "cyan",
+        name: "Ciano",
+        tags: ["onda", "ciano", "teal"],
+        colors: { base: "#04121a", effect: "#22d3ee", light: "#cffafe" },
+        advanced: { variant: 1, spread: 44, waveFreq: 52, thickness: 20 },
+      },
+      {
+        id: "amber",
+        name: "Âmbar",
+        tags: ["onda", "ambar", "dourado"],
+        colors: { base: "#140c04", effect: "#f59e0b", light: "#fef3c7" },
+        advanced: { variant: 2, spread: 28, waveFreq: 30, thickness: 34 },
+      },
+      {
+        id: "mono",
+        name: "Monócrono",
+        tags: ["onda", "monocromo", "neutro"],
+        colors: { base: "#0b0b0d", effect: "#d4d4d8", light: "#fafafa" },
+        advanced: { variant: 3, spread: 52, waveFreq: 62, thickness: 16 },
       },
     ],
   }),

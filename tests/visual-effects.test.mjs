@@ -94,6 +94,7 @@ const expectedIds = [
   "crt",
   "liquid-form",
   "bell-field",
+  "stream-convergence",
   ...paperShaderDefinitions.map((definition) => definition.rendererId),
 ];
 
@@ -182,7 +183,7 @@ test("proveniência deriva a origem real de cada preset", () => {
   assert.deepEqual(counts, {
     sonara: 26,
     "paper-shaders": 29,
-    threeui: 12,
+    threeui: 13,
     lumen: 1,
     inspired: 3,
   });
@@ -381,6 +382,80 @@ test("o runtime mapeia u_paramN pela ordem de `advanced`, não de `controls`", (
   // o caso 3 acima (3 cru vs 0.03 se fosse dividido) — `variant=0` não
   // distingue nada porque 0 e 0/100 são o mesmo número.
   assert.equal(visualUniforms(laser).advanced[0], 0);
+});
+
+test("o stream-convergence tem 4 temas e nenhum uniform de ponteiro", () => {
+  const sc = builtinVisualPresets.find(
+    (preset) => preset.family === "stream-convergence",
+  );
+  assert.ok(sc, "deve existir um preset da família stream-convergence");
+  assert.equal(sc.rendererId, "streamconvergence");
+  assert.equal(sc.originId, "threeui", sc.id);
+  assert.equal(sc.performanceTier, 1);
+
+  assert.deepEqual(
+    sc.variants.map((v) => v.id),
+    ["violet", "cyan", "amber", "mono"],
+  );
+  assert.deepEqual(
+    sc.variants.map((v) => v.advanced.variant),
+    [0, 1, 2, 3],
+  );
+
+  const keys = Object.keys(sc.advanced);
+  assert.equal(keys.length, 7);
+  assert.deepEqual(keys, [
+    "variant",
+    "spread",
+    "waveFreq",
+    "waveSpeed",
+    "lateral",
+    "thickness",
+    "rotation",
+  ]);
+  assert.ok(!sc.controls.some((c) => c.key === "variant"));
+  assert.deepEqual(
+    sc.controls.map((c) => c.key),
+    keys.slice(1),
+  );
+  sc.variants.forEach((variant, index) => {
+    const uniforms = visualUniforms(
+      normalizeVisualSettings({ ...sc, appliedVariantId: variant.id }),
+    );
+    assert.equal(
+      uniforms.advanced[0],
+      index,
+      `${variant.id} → u_param0=${index}`,
+    );
+  });
+
+  // O upstream tem SÓ 3 uniforms, um deles "u_interactive_fidelity" — nome que
+  // sugere ponteiro mas é um número (default 0.5) que pesa o spread. Não há
+  // mouse para remover aqui, mas a regra do projeto é não depender de ponteiro,
+  // então o teste garante que nenhum uniform dele entrou por outra via.
+  const runtimeSource = readFileSync(
+    fileURLToPath(
+      new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
+    ),
+    "utf8",
+  );
+  const stripComments = (source) =>
+    source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+  const start = runtimeSource.indexOf("streamconvergence: `${shaderPrelude}");
+  assert.ok(start > 0, "não achei o shader streamconvergence");
+  const shader = stripComments(
+    runtimeSource.slice(
+      start,
+      runtimeSource.indexOf("gl_FragColor = vec4(color, 1.0);\n}`,\n};", start),
+    ),
+  );
+  assert.ok(shader.includes("scRot"), "stripper comeu código");
+  for (const needle of ["u_mouse", "u_pointer", "u_interactive_fidelity"]) {
+    assert.ok(
+      !shader.includes(needle),
+      `"${needle}" não pode aparecer no stream-convergence`,
+    );
+  }
 });
 
 test("o bell-field tem 4 metais, 6 controles reais e nenhum ponteiro", () => {

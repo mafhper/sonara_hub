@@ -1769,6 +1769,66 @@ void main() {
 
   gl_FragColor = vec4(col, 1.0);
 }`,
+  // Stream Convergence — 3 camadas de onda senoidal que convergem, com um
+  // smoothstep que as transforma em linhas finas. Do ThreeUI
+  // (src/shaders/stream-convergence/streamConvergenceShaders.ts, MIT). Sem texto,
+  // marca ou asset.
+  //
+  // O upstream chama o controle de "u_interactive_fidelity", o que sugere ponteiro
+  // — e não é. Verifiquei: é um número (default 0.5) que só pesa o spread das
+  // camadas, passado como prop. Logo NÃO há o que remover aqui, ao contrário do
+  // laser, do metal líquido e do sino. Nome enganoso, comportamento limpo.
+  //
+  // O shader upstream tem só 1 uniform de controle, então os 6 slots livres foram
+  // preenchidos com grandes que a onda realmente tem. E as 4 variações são temas
+  // de cor: no upstream a mistura r/g/b por camada são 3 linhas fixas ("the
+  // violet-indigo theme"), entãovariar a cor É a forma natural de variar.
+  //
+  // Contrato de params (avançado = contrato com o shader, controls = camada de UI):
+  //   param0 variant (índice cru 0..3, nunca normalizado)
+  //   param1 spread     param2 waveFreq  param3 waveSpeed
+  //   param4 lateral    param5 thickness param6 rotation
+  streamconvergence: `${shaderPrelude}
+mat2 scRot(float a){ return mat2(cos(a), -sin(a), sin(a), cos(a)); }
+
+// Peso por camada (r, g, b) — é a identidade da variação, não um slider.
+vec3 scLayerTint(int v, int i) {
+  if (v == 1) {            // ciano / teal
+    return i == 0 ? vec3(0.15, 1.10, 1.30) : (i == 1 ? vec3(0.55, 0.95, 0.70) : vec3(0.10, 0.60, 1.40));
+  } else if (v == 2) {     // âmbar / dourado
+    return i == 0 ? vec3(1.40, 0.85, 0.20) : (i == 1 ? vec3(1.00, 0.45, 0.55) : vec3(0.75, 0.30, 0.95));
+  } else if (v == 3) {     // monócrono
+    return vec3(1.15, 1.18, 1.25);
+  }
+  return i == 0 ? vec3(1.20, 0.00, 0.00) : (i == 1 ? vec3(0.00, 0.50, 0.00) : vec3(0.00, 0.00, 1.80));
+}
+
+void main() {
+  vec2 res = max(u_resolution, vec2(1.0));
+  vec2 p = (gl_FragCoord.xy / res) * 2.0 - 1.0;
+  p.x *= res.x / res.y;
+  p = scRot(0.18 + u_param6 * 1.2) * p;
+
+  int v = int(u_param0 + 0.5);
+  vec3 color = vec3(0.0);
+  float spread = 0.012 + u_param1 * 0.13;
+  float t = u_time * (0.5 + u_speed * 0.6);
+
+  for (int i = 0; i < 3; i++) {
+    float offset = float(1 - i) * spread;
+    // A onda lateral é o que impede as 3 camadas de serem cópias deslocadas.
+    float y = p.y + offset + sin(p.x * (1.2 + u_param4 * 3.4) - t * 1.5) * (0.03 + u_param4 * 0.16);
+    float phase = y * (2.5 + u_param2 * 9.0) + t * (0.8 + u_param3 * 2.6);
+    // A janela do smoothstep é a ESPESSURA da linha: estreita = fio, larga = banda.
+    float hi = 0.995 - u_param5 * 0.14;
+    float wave = smoothstep(hi - 0.045, hi, sin(phase) * 0.5 + 0.5);
+    color += scLayerTint(v, i) * wave;
+  }
+
+  float vignette = exp(-length(gl_FragCoord.xy / res * 2.0 - 1.0) * 0.8);
+  color *= vignette;
+  gl_FragColor = vec4(color, 1.0);
+}`,
 };
 
 const blendModes = {

@@ -54,6 +54,7 @@ const quickPresetIds = new Set([
   "crt",
   "liquid-form",
   "bell-field",
+  "stream-convergence",
   "audio-dark",
   "lava-lamp",
   "starfield",

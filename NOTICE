@@ -270,3 +270,31 @@ filled with quantities a Chladni figure actually has — radial frequency,
 angular mode, second-partial weight, nodal line width, antinode glow and strike
 rate — rather than leaving decorative sliders that move nothing.
 
+The "stream-convergence" visual preset ports ThreeUI's stream shader
+(src/shaders/stream-convergence/streamConvergenceShaders.ts, MIT): three
+converging sine layers turned into thin lines by a smoothstep. Audited by
+content before porting: no text, no logo, no SVG, no third-party asset.
+
+The four variations are colour themes, which is the natural axis of variation
+here — upstream mixes r/g/b per layer in three fixed lines described in its own
+comment as "the violet-indigo theme":
+
+  violet   violet / indigo      cyan    cyan / teal
+  amber    amber / gold         mono    monochrome
+
+Three deliberate departures:
+
+  1. u_interactive_fidelity IS GONE, but nothing was lost. The name suggests a
+     pointer; it is not one. Checked: it is a number (default 0.5) that only
+     weights the layer spread, passed in as a prop. The deterministic-export
+     rule still applies, so the slot was not carried over, and a test asserts the
+     uniform cannot reappear by any route.
+  2. The three free u_param slots became real wave quantities — spread, wave
+     frequency, wave speed, the lateral travelling wave, the line thickness (the
+     smoothstep window) and the rotation. Upstream exposes one uniform; a
+     decorative slider that moves nothing is worse than no slider (see the
+     control-inert pattern).
+  3. The smoothstep window is the exposed thickness control, so the line can go
+     from a hairline to a band. That is the shape parameter the effect was
+     missing.
+
