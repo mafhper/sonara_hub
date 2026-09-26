@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   ATMOSPHERE_BASE_LAYER_ID,
   ATMOSPHERE_EXTRA_LAYER_ID,
@@ -88,10 +90,7 @@ const expectedIds = [
   "void-field",
   "halftone-flow",
   "amber-halftone",
-  "laser-blade",
-  "laser-array",
-  "laser-prism",
-  "laser-relay",
+  "laser",
   ...paperShaderDefinitions.map((definition) => definition.rendererId),
 ];
 
@@ -175,45 +174,184 @@ test("proveniência deriva a origem real de cada preset", () => {
   // Distribuição travada de propósito: a origem vem de regra
   // (rendererId/family) com 4 exceções explícitas. Se um preset novo entrar
   // sem revisar a regra, este número muda e o teste pede revisão.
-  // 2026-09-25: threeui 8 → 12 com a família `laser` (SH11).
+  // 2026-09-25: threeui 8 → 12 com a família `laser` (SH11); depois 12 → 9
+  // quando as 4 variantes viraram UM preset com 4 variações (`laser`).
   assert.deepEqual(counts, {
     sonara: 26,
     "paper-shaders": 29,
-    threeui: 12,
+    threeui: 9,
     lumen: 1,
     inspired: 3,
   });
 });
 
-test("as famílias do ThreeUI (dot-grid-arc-field e laser) são da origem threeui", () => {
-  const laser = builtinVisualPresets.filter(
+test("o runtime escreve todos os params que o prelude declara (u_param0..N)", () => {
+  // Regressão real (SH11), quatro vezes: o limite de 6 params aparecia em
+  // quatro lugares independentes — declaração no prelude, tamanho do array em
+  // `visualUniforms`, tamanho do array em `buildUniforms` (o JS do runtime) e o
+  // `for` que escreve cada uniform. Cada um destes sozinho produzia o mesmo
+  // modo de falha SILENCIOSO: o control aparece no inspector, o uniform existe,
+  // e nada acontece. A rotação media exatamente 0.0000 de diferença.
+  //
+  // Este teste amarra as pontas: se qualquer um dos quatro divergir, ele falha.
+  const laser = builtinVisualPresets.find(
     (preset) => preset.family === "laser",
   );
-  assert.equal(laser.length, 4, "a família laser tem 4 variantes");
-  for (const preset of laser) {
-    assert.equal(preset.originId, "threeui", preset.id);
-    assert.ok(preset.collections.includes("dados"), preset.id);
-    assert.ok(preset.collections.includes("luz"), preset.id);
-  }
-  // Cada variante do laser seleciona um ramo distinto do shader por u_param0,
-  // e `variant` tem que ser a PRIMEIRA chave de `advanced` (define u_param0).
-  const variants = laser.map((preset) => preset.advanced.variant);
-  assert.deepEqual(variants, [0, 1, 2, 3]);
-  for (const preset of laser) {
-    assert.equal(
-      Object.keys(preset.advanced)[0],
-      "variant",
-      `${preset.id}: 'variant' precisa ser a primeira chave de advanced`,
+  const controls = laser.controls.length;
+  assert.ok(
+    controls >= 7,
+    `o laser usa ${controls} params; se subir, todos os quatro pontos precisam subir juntos`,
+  );
+  // O array posicional precisa ter lugar para todos os controls.
+  const uniforms = visualUniforms(normalizeVisualSettings(laser));
+  assert.ok(
+    uniforms.advanced.length >= controls,
+    `o array de uniforms (${uniforms.advanced.length}) não comporta ${controls} controls`,
+  );
+  // E o runtime precisa ter o renderer (o resto é verificado compilando GLSL
+  // no probe `provar-controles.mjs`, que é o que pega a divergência de verdade).
+  assert.ok(sceneRuntimeHasRenderer(laser.rendererId));
+  // A lista de nomes de uniform do runtime precisa cobrir todos os params que o
+  // shader declara. Esta é a QUARTA ocorrência do limite de 6 — as outras três
+  // (prelude, array em visualUniforms, array em buildUniforms) o teste acima
+  // cobre; esta verificação cala a boca no teste unitário. A divergência real
+  // desta só aparece compilando GLSL, que é o probe.
+  const runtimeSource = readFileSync(
+    fileURLToPath(
+      new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
+    ),
+    "utf8",
+  );
+  const declared = [
+    ...runtimeSource.matchAll(/uniform float u_param(\d+);/g),
+  ].map((m) => Number(m[1]));
+  const maxDeclared = Math.max(...declared);
+  const collected = [...runtimeSource.matchAll(/"param(\d+)",/g)].map((m) =>
+    Number(m[1]),
+  );
+  for (let i = 0; i <= maxDeclared; i += 1) {
+    assert.ok(
+      collected.includes(i),
+      `u_param${i} é declarado no shader mas não está na lista de nomes do runtime — o uniform nunca é escrito (controle decorativo)`,
     );
   }
-  // As 4 variantes compartilham UM rendererId (o shader é único, a variante vem
-  // de u_param0). Se um preset pedir um rendererId que não existe no runtime,
-  // o frame sai VAZIO sem erro — por isso o runtime é importado aqui e a
-  // cobertura é conferida de verdade, não presumida.
+});
+
+test("a variação escolhida manda no preset (cores e advanced), preservando o resto", () => {
+  // Regressão real (SH11): o picker de variações do laser não fazia nada. O
+  // merge era `source.advanced ?? variant.advanced` e o preset TEM advanced
+  // próprio, então a variante era sempre ignorada — as 4 variações renderizavam
+  // a mesma, sem erro. Corrigido para mesclar por chave, com a variante
+  // prevalecendo (ela é a escolha do usuário).
+  const laser = builtinVisualPresets.find(
+    (preset) => preset.family === "laser",
+  );
+  const seenVariants = new Set();
+  const seenColors = new Set();
+  for (const variant of laser.variants) {
+    const applied = normalizeVisualSettings({
+      ...laser,
+      appliedVariantId: variant.id,
+    });
+    assert.equal(
+      applied.advanced.variant,
+      variant.advanced.variant,
+      `${variant.id}: a variação tem de escolher o ramo do shader`,
+    );
+    assert.equal(applied.colors.effect, variant.colors.effect, variant.id);
+    // As chaves que a variação NÃO declara (o posicionamento) sobrevivem do base.
+    assert.equal(
+      applied.advanced.offsetX,
+      50,
+      `${variant.id} perdeu o offsetX`,
+    );
+    assert.equal(
+      applied.advanced.rotation,
+      50,
+      `${variant.id} perdeu o rotation`,
+    );
+    seenVariants.add(applied.advanced.variant);
+    seenColors.add(applied.colors.effect);
+  }
+  assert.equal(
+    seenVariants.size,
+    4,
+    "as 4 variações precisam cair em ramos distintos",
+  );
+  assert.equal(
+    seenColors.size,
+    4,
+    "as 4 variações precisam ter cores distintas",
+  );
+});
+
+test("o laser é UM preset com 4 variações e controle de posicionamento", () => {
+  const laser = builtinVisualPresets.find(
+    (preset) => preset.family === "laser",
+  );
+  assert.ok(laser, "deve existir um preset da família laser");
+  // UM preset, não quatro: as quatro são o mesmo efeito (feixe/elemento central)
+  // com geometria diferente, então são variações (como os Paper Shaders), não
+  // presets separados. Consolidar reduz o ruído da lista e expõe o picker de
+  // variações, que já existe na UI.
+  assert.equal(laser.id, "laser");
+  assert.equal(laser.rendererId, "laser");
+  assert.equal(laser.originId, "threeui", laser.id);
+  assert.ok(laser.collections.includes("dados"), laser.id);
+  assert.ok(laser.collections.includes("luz"), laser.id);
+  assert.equal(laser.common.audioReaction, 0, "reação musical default 0");
+
+  // As 4 variações, cada uma apontando para um ramo distinto do shader.
+  assert.equal(laser.variants.length, 4);
   assert.deepEqual(
-    [...new Set(laser.map((preset) => preset.rendererId))],
-    ["laser"],
-    "as 4 variantes devem compartilhar o rendererId",
+    laser.variants.map((v) => v.id),
+    ["blade", "array", "prism", "relay"],
+  );
+  assert.deepEqual(
+    laser.variants.map((v) => v.advanced.variant),
+    [0, 1, 2, 3],
+  );
+
+  // `variant` é a PRIMEIRA chave de `advanced` (define u_param0) e a ordem
+  // inteira é fixa: os params de posicionamento vêm depois de size/length/density.
+  assert.deepEqual(Object.keys(laser.advanced), [
+    "variant",
+    "size",
+    "length",
+    "density",
+    "offsetX",
+    "offsetY",
+    "rotation",
+  ]);
+
+  // Controle de posicionamento do elemento central: no upstream isso vinha do
+  // mouse (u_pointer, não-determinístico); aqui é determinístico e ajustável.
+  for (const key of ["offsetX", "offsetY", "rotation"]) {
+    assert.equal(laser.advanced[key], 50, `${key} deveria começar centrado`);
+    assert.ok(
+      laser.controls.some((c) => c.key === key),
+      `${key} precisa de um control visível no inspector`,
+    );
+  }
+});
+
+test("os params de posicionamento do laser chegam ao shader", () => {
+  // Declarar o param não basta: ele tem que sobreviver à normalização e chegar
+  // ao array posicional de uniforms. É o mesmo caminho que o `variant` percorre.
+  const laser = builtinVisualPresets.find(
+    (preset) => preset.family === "laser",
+  );
+  assert.ok(laser, "preset laser presente");
+  assert.ok(
+    sceneRuntimeHasRenderer(laser.rendererId),
+    "o runtime precisa ter o renderer 'laser'",
+  );
+  const uniforms = visualUniforms(normalizeVisualSettings(laser));
+  assert.equal(uniforms.rendererId, "laser");
+  assert.ok(Array.isArray(uniforms.advanced));
+  assert.ok(
+    uniforms.advanced.length >= 7,
+    `os 7 params precisam chegar ao shader (veio ${uniforms.advanced.length})`,
   );
 });
 

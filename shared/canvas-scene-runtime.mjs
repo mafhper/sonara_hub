@@ -65,6 +65,7 @@ uniform float u_param2;
 uniform float u_param3;
 uniform float u_param4;
 uniform float u_param5;
+uniform float u_param6;
 uniform float u_cloudSunEnabled;
 uniform float u_cloudSunIntensity;
 uniform float u_cloudSunX;
@@ -281,10 +282,20 @@ vec2 laserProfile(float distanceToLine, float coreWidth, float glowWidth) {
   float glow = exp(-pow(distanceToLine / max(glowWidth, 0.001), 1.25));
   return vec2(core, glow);
 }
+mat2 laserRotate(float angle) {
+  float s = sin(angle), c = cos(angle);
+  return mat2(c, -s, s, c);
+}
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution.xy;
   vec2 p = (gl_FragCoord.xy * 2.0 - u_resolution.xy) / min(u_resolution.x, u_resolution.y);
-  vec2 pointer = laserAnchor();
+  // Controle de posicionamento do elemento central: deslocamento X/Y e rotação
+  // aplicados pelo usuário (params 4/5/6). Substituem o "ponteiro" do upstream de
+  // forma determinística: o offset move a âncora, a rotação gira o espaço em
+  // volta do centro. A deriva temporal continua por baixo (movimento vivo).
+  vec2 offset = vec2((u_param4 - 0.5) * 0.9, (u_param5 - 0.5) * 0.9);
+  p = laserRotate((u_param6 - 0.5) * 6.2831853) * p;
+  vec2 pointer = vec2(0.5 + sin(u_time * 0.34) * 0.22, 0.5 + cos(u_time * 0.26) * 0.16) + offset;
   float variant = u_param0;                 // 0..3, arredondado nos 4 ramos
   float size = 0.35 + u_param1 * 2.15;      // u_size   (clamp 0.35..2.5)
   // "span" e nao "length": length e palavra reservada em GLSL (builtin) e o
@@ -1985,6 +1996,7 @@ function createWebglRenderer(canvas) {
       "param3",
       "param4",
       "param5",
+      "param6",
       "cloudSunEnabled",
       "cloudSunIntensity",
       "cloudSunX",
@@ -2075,7 +2087,11 @@ function createWebglRenderer(canvas) {
       set3fv("colorA", uniforms.colorA);
       set3fv("colorB", uniforms.colorB);
       set3fv("accentColor", uniforms.accentColor);
-      for (let index = 0; index < 6; index += 1) {
+      // 7 = o tamanho do array em `buildUniforms` e o que o prelude declara.
+      // Este loop usava < 6: o uniform `u_param6` era criado, receberia valor,
+      // e nunca era escrito — o control de rotação aparecia no inspector e não
+      // fazia nada. Os três lugares (prelude, array, loop) precisam concordar.
+      for (let index = 0; index < 7; index += 1) {
         set1f(`param${index}`, uniforms.params[index] ?? 0);
       }
       set1f("cloudSunEnabled", uniforms.cloudSunEnabled);
@@ -2178,7 +2194,10 @@ function createWebglRenderer(canvas) {
       colorA: hexToRgb(scene.colors.base),
       colorB: hexToRgb(scene.colors.effect),
       accentColor: hexToRgb(scene.colors.light),
-      params: Array.from({ length: 6 }, (_, index) => values[index] ?? 0),
+      // 7 posições = o que o prelude declara (u_param0..u_param6). Aumentar
+      // aqui e no prelude juntos: se o array for maior que o declarado, o
+      // uniform é criado e nunca escrito (controle na UI que não faz nada).
+      params: Array.from({ length: 7 }, (_, index) => values[index] ?? 0),
       cloudSunEnabled: cloudLight.enabled ? 1 : 0,
       cloudSunIntensity: (cloudLight.intensity ?? 0) / 100,
       cloudSunX: (cloudLight.x ?? 28) / 100,

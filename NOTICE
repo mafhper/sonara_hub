@@ -106,28 +106,32 @@ index); and the three.js point cloud in amber-halftone became a procedural
 fragment-shader grid. None of these presets require or bundle the
 @designcodeio/threeui package.
 
-The "laser" collection ports four variants of ThreeUI's Laser shader
-(src/shaders/laser/laserShaders.ts, MIT) as four Sonara presets sharing one
-fragment shader, with the variant selected by a uniform:
+The "laser" visual preset ports four variants of ThreeUI's Laser shader
+(src/shaders/laser/laserShaders.ts, MIT) as four variations of a single Sonara
+preset, with the variant selected by a uniform:
 
-  "laser-blade"   atmospheric-blade  — fog-borne beam with mirage and contact point
-  "laser-array"   vanishing-array    — angular spokes decaying with radius, plus rings
-  "laser-prism"   prism-aperture     — diamond aperture with red/blue dispersion fringes
-  "laser-relay"   halftone-relay     — twin beams, horizontal relay and a halftone grid
+  blade  atmospheric-blade  — fog-borne beam with mirage and contact point
+  array  vanishing-array    — angular spokes decaying with radius, plus rings
+  prism  prism-aperture     — diamond aperture with red/blue dispersion fringes
+  relay  halftone-relay     — twin beams, horizontal relay and a halftone grid
 
 The techniques (Gaussian beam profile, fbm fog, angular spokes, dispersion
 fringes, halftone relay) were reimplemented for Sonara's WebGL 1 / GLSL ES 1.00
-fullscreen u_* interface, reusing Sonara's own color and common controls. Four
+fullscreen u_* interface, reusing Sonara's own color and common controls. Five
 deliberate departures:
 
-  1. The pointer uniform was FIXED to a deterministic anchor (frame centre with
-     a slow u_time-only drift). Upstream lerps the pointer per frame from the
-     mouse position, which is not reproducible; export determinism is a hard
-     Sonara rule, and the drift keeps the beam alive without a cursor.
+  1. The pointer uniform was REPLACED BY USER CONTROLS. Upstream lerps the
+     pointer per frame from the mouse position, which is not reproducible; export
+     determinism is a hard Sonara rule. The three Sonara controls offsetX,
+     offsetY and rotation move and turn the central element deterministically,
+     with a slow u_time-only drift kept underneath for motion.
   2. The u_hue and u_saturation uniforms became Sonara preset colors.
   3. The upstream `length` uniform was renamed `span` — `length` is a reserved
      GLSL builtin and fails to compile.
   4. Upstream's HSV accent helper was replaced by mixes of the preset palette.
+  5. The four variants are Sonara preset *variations*, not four separate
+     presets, so they share one entry in the atmosphere browser and use the
+     existing variation picker.
 
 The upstream Reinhard tonemap (color / (color + 0.72)) was kept: it is what
 keeps the background black and the beam core reading as light rather than paint.

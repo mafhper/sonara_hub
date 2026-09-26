@@ -332,10 +332,7 @@ export const PRESET_COLLECTIONS = {
   "void-field": ["dados", "calmo"],
   "halftone-flow": ["dados"],
   "amber-halftone": ["dados"],
-  "laser-blade": ["dados", "luz"],
-  "laser-array": ["dados", "luz"],
-  "laser-prism": ["dados", "luz"],
-  "laser-relay": ["dados", "luz"],
+  laser: ["dados", "luz"],
   "holo-topography": ["dados", "luz"],
   vinyl: ["dados"],
   "paper-dot-grid": ["dados"],
@@ -1613,80 +1610,75 @@ export const builtinVisualPresets = [
   // selected by u_param0; the pointer of the upstream was fixed to a
   // deterministic center with drift (see the candidato). The order of `advanced`
   // defines u_param0..N, so `variant` MUST stay first.
+  // Técnica `laser` adaptada de ThreeUI "Laser"
+  // (src/shaders/laser/laserShaders.ts, MIT). UM preset com 4 variações: as
+  // quatro são o mesmo efeito (feixe/elemento central de laser) com geometria
+  // diferente, então são variações de parâmetro, não presets separados — como
+  // os Paper Shaders. O `variant` é a PRIMEIRA chave de `advanced` (define
+  // u_param0) e a variação escolhe o ramo do shader.
+  //
+  // Controles além dos do upstream: `offsetX`, `offsetY` e `rotation` permitem
+  // posicionar e girar o elemento central — no upstream isso vinha do mouse
+  // (u_pointer), que é não-determinístico. Aqui o usuário controla de forma
+  // determinística, mantendo export reproduzível.
   preset({
-    id: "laser-blade",
+    id: "laser",
     rendererId: "laser",
-    name: "Lâmina de laser",
+    name: "Laser",
     category: "Luz & Pixels",
     family: "laser",
-    note: "Feixe de laser atmosférico com névoa por fbm, miragem e ponto de contato. O ponteiro do upstream foi fixado em um centro com deriva temporal para manter o export determinístico. Adaptado do ThreeUI (MIT, coleção Laser / Atmospheric Blade).",
+    note: "Feixe de laser com quatro variações (lâmina atmosférica, array radial, abertura prismática, relé halftone). O elemento central é deslocável em X/Y e rotacionável; o ponteiro do upstream virou controle determinístico. Adaptado do ThreeUI (MIT, coleção Laser).",
     tags: ["laser", "feixe", "nevoa", "threeui"],
     performanceTier: 1,
     colors: { base: "#05070a", effect: "#7dd3fc", light: "#e0f2fe" },
     common: { speed: 18, brightness: 78, audioReaction: 0, shade: 0 },
-    advanced: { variant: 0, size: 55, length: 60, density: 50 },
+    advanced: {
+      variant: 0,
+      size: 55,
+      length: 60,
+      density: 50,
+      offsetX: 50,
+      offsetY: 50,
+      rotation: 50,
+    },
     controls: [
-      control("variant", "Variante", 0, 3, ""),
+      control("variant", "Variação", 0, 3, ""),
       control("size", "Espessura"),
       control("length", "Alcance"),
       control("density", "Densidade"),
+      control("offsetX", "Deslocar X"),
+      control("offsetY", "Deslocar Y"),
+      control("rotation", "Girar"),
     ],
-  }),
-  preset({
-    id: "laser-array",
-    rendererId: "laser",
-    name: "Array laser",
-    category: "Luz & Pixels",
-    family: "laser",
-    note: "Arranjo de raios angulares que somem na distância, com anéis e horizonte girando ao redor de um centro. Adaptado do ThreeUI (MIT, coleção Laser / Vanishing Array).",
-    tags: ["laser", "raios", "anéis", "threeui"],
-    performanceTier: 1,
-    colors: { base: "#0a0512", effect: "#a78bfa", light: "#fde68a" },
-    common: { speed: 20, brightness: 76, audioReaction: 0, shade: 0 },
-    advanced: { variant: 1, size: 50, length: 62, density: 55 },
-    controls: [
-      control("variant", "Variante", 0, 3, ""),
-      control("size", "Espessura"),
-      control("length", "Alcance"),
-      control("density", "Raios"),
-    ],
-  }),
-  preset({
-    id: "laser-prism",
-    rendererId: "laser",
-    name: "Abertura prismática",
-    category: "Luz & Pixels",
-    family: "laser",
-    note: "Losango de laser com franjas de dispersão vermelha e azul nas bordas, eixos de luz e pacotes perimetrais. Adaptado do ThreeUI (MIT, coleção Laser / Prism Aperture).",
-    tags: ["laser", "prisma", "dispersao", "losango", "threeui"],
-    performanceTier: 1,
-    colors: { base: "#0b0710", effect: "#c084fc", light: "#f0abfc" },
-    common: { speed: 16, brightness: 80, audioReaction: 0, shade: 0 },
-    advanced: { variant: 2, size: 52, length: 58, density: 48 },
-    controls: [
-      control("variant", "Variante", 0, 3, ""),
-      control("size", "Espessura"),
-      control("length", "Abertura"),
-      control("density", "Dispersão"),
-    ],
-  }),
-  preset({
-    id: "laser-relay",
-    rendererId: "laser",
-    name: "Relé halftone",
-    category: "Luz & Pixels",
-    family: "laser",
-    note: "Feixe duplo com relé horizontal, névoa por fbm e retícula de pontos cuja área segue a intensidade do feixe. Adaptado do ThreeUI (MIT, coleção Laser / Halftone Relay).",
-    tags: ["laser", "halftone", "reticula", "threeui"],
-    performanceTier: 1,
-    colors: { base: "#05080d", effect: "#67e8f9", light: "#fef9c3" },
-    common: { speed: 22, brightness: 74, audioReaction: 0, shade: 0 },
-    advanced: { variant: 3, size: 54, length: 60, density: 56 },
-    controls: [
-      control("variant", "Variante", 0, 3, ""),
-      control("size", "Espessura"),
-      control("length", "Alcance"),
-      control("density", "Retícula"),
+    variants: [
+      {
+        id: "blade",
+        name: "Lâmina",
+        tags: ["laser", "feixe", "nevoa"],
+        colors: { base: "#05070a", effect: "#7dd3fc", light: "#e0f2fe" },
+        advanced: { variant: 0, size: 55, length: 60, density: 50 },
+      },
+      {
+        id: "array",
+        name: "Array",
+        tags: ["laser", "raios", "anel"],
+        colors: { base: "#0a0512", effect: "#a78bfa", light: "#fde68a" },
+        advanced: { variant: 1, size: 50, length: 62, density: 55 },
+      },
+      {
+        id: "prism",
+        name: "Prisma",
+        tags: ["laser", "prisma", "dispersao"],
+        colors: { base: "#0b0710", effect: "#c084fc", light: "#f0abfc" },
+        advanced: { variant: 2, size: 52, length: 58, density: 48 },
+      },
+      {
+        id: "relay",
+        name: "Relé",
+        tags: ["laser", "halftone", "reticula"],
+        colors: { base: "#05080d", effect: "#67e8f9", light: "#fef9c3" },
+        advanced: { variant: 3, size: 54, length: 60, density: 56 },
+      },
     ],
   }),
   ...paperShaderPresetConfigs.map((item) => preset(item)),
@@ -1845,17 +1837,28 @@ export function normalizeVisualSettings(input = {}) {
       ? source
       : (selectedVariant?.common ?? aliasPalette?.common)) ??
     source;
+  // Mesma regra do `advanced`: a variação é a presetagem escolhida pelo
+  // usuário e tem precedência sobre o preset base. `hasColorFields` só
+  // protege o caso de um preset de cor plana (campo legado `colorA`), em que
+  // não há `colors` para a variação sobrepor.
   const incomingColors =
-    source.colors ??
-    (hasColorFields(source)
-      ? {}
-      : (selectedVariant?.colors ?? aliasPalette?.colors)) ??
+    selectedVariant?.colors ??
+    (hasColorFields(source) ? {} : source.colors) ??
+    aliasPalette?.colors ??
     {};
-  const incomingAdvanced =
-    source.advanced ??
-    selectedVariant?.advanced ??
-    aliasPalette?.advanced ??
-    {};
+  // A variante tem MESMO PRECEDIMENTO sobre `advanced` (ela é a presetagem
+  // escolhida pelo usuário), mas MESCLA por chave em vez de substituir:
+  // uma variação que declara só parte das chaves (ex.: a do laser, que troca
+  // só variant/size/length/density e deixa o posicionamento no base) não pode
+  // apagar as chaves que não declarou. Antes o `source.advanced ?? variant`
+  // fazia a variante ser ignorada sempre que o preset tinha advanced próprio —
+  // o picker de variações não fazia nada, e todas as variações renderizavam a
+  // mesma sem erro. `aliasPalette` continua com precedência mais fraca.
+  const incomingAdvanced = {
+    ...(aliasPalette?.advanced ?? {}),
+    ...(source.advanced ?? {}),
+    ...(selectedVariant?.advanced ?? {}),
+  };
   const incomingCloudLight = source.cloudLight ?? selectedVariant?.cloudLight;
   const incomingWaveform = source.waveform ?? {};
   const incomingWaveformAdvanced = incomingWaveform.advanced ?? {};
@@ -2105,7 +2108,10 @@ export function visualUniforms(settings) {
       shade: visual.common.shade / 100,
     },
     colors: visual.colors,
-    advanced: Array.from({ length: 6 }, (_, index) => values[index] ?? 0),
+    // 7 posições = u_param0..u_param6 no prelude do runtime. Os três pontos
+    // (length 6 aqui e no runtime) truncavam `rotation`: o control aparecia no
+    // inspector e não chegava ao shader. Ao mexer num, mexer no outro.
+    advanced: Array.from({ length: 7 }, (_, index) => values[index] ?? 0),
     waveform: visual.waveform,
     cloudLight: visual.cloudLight,
   };
