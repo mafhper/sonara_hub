@@ -197,16 +197,18 @@ test("o runtime escreve todos os params que o prelude declara (u_param0..N)", ()
   const laser = builtinVisualPresets.find(
     (preset) => preset.family === "laser",
   );
-  const controls = laser.controls.length;
+  // Conta `advanced`, não `controls`: `controls` é a camada de UI e pode ter
+  // menos entradas (o laser esconde `variant`, que o picker escolhe).
+  const params = Object.keys(laser.advanced).length;
   assert.ok(
-    controls >= 7,
-    `o laser usa ${controls} params; se subir, todos os quatro pontos precisam subir juntos`,
+    params >= 7,
+    `o laser usa ${params} params; se subir, os quatro pontos precisam subir juntos`,
   );
-  // O array posicional precisa ter lugar para todos os controls.
+  // O array posicional precisa ter lugar para todos.
   const uniforms = visualUniforms(normalizeVisualSettings(laser));
   assert.ok(
-    uniforms.advanced.length >= controls,
-    `o array de uniforms (${uniforms.advanced.length}) não comporta ${controls} controls`,
+    uniforms.advanced.length >= params,
+    `o array de uniforms (${uniforms.advanced.length}) não comporta ${params} params`,
   );
   // E o runtime precisa ter o renderer (o resto é verificado compilando GLSL
   // no probe `provar-controles.mjs`, que é o que pega a divergência de verdade).
@@ -285,6 +287,56 @@ test("a variação escolhida manda no preset (cores e advanced), preservando o r
   );
 });
 
+test("todo control de todo preset existe em `advanced` (o mapeamento u_paramN)", () => {
+  // `u_paramN` é a Nª chave de `advanced`; `controls` é só a camada de UI e
+  // pode ter MENOS entradas (o laser esconde `variant`). Se um control
+  // apontar para uma chave que não existe em `advanced`, o uniform recebe
+  // `undefined` e o slider não faz nada — silenciosamente.
+  for (const preset of builtinVisualPresets) {
+    for (const control of preset.controls) {
+      assert.ok(
+        Object.hasOwn(preset.advanced, control.key),
+        `${preset.id}: control "${control.key}" não existe em advanced`,
+      );
+    }
+  }
+});
+
+test("controles que o shader não lê são um problema de catálogo, não de UI", () => {
+  // Um control só é real se o `u_paramN` correspondente é lido pelo fragment
+  // shader. Medido em 2026-09-25: 0 controles inertes nos 39 presets WebGL de
+  // `src/`, então isto é uma trava de regressão, não uma correção pendente.
+  // A verificação real (compilando GLSL) está em
+  // `.dev/tasks/active/laser-collection/probes/controles-inertes.mjs`.
+  const runtimeSource = readFileSync(
+    fileURLToPath(
+      new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
+    ),
+    "utf8",
+  );
+  const readShader = (rendererId) => {
+    if (rendererId.startsWith("paper-")) return null;
+    const at = runtimeSource.indexOf(
+      `  ${JSON.stringify(rendererId)}: \`\${shaderPrelude}`,
+    );
+    if (at < 0) return null;
+    const start = runtimeSource.indexOf("`", at) + 1;
+    return runtimeSource.slice(start, runtimeSource.indexOf("`", start));
+  };
+  for (const preset of builtinVisualPresets) {
+    const body = readShader(preset.rendererId);
+    if (!body) continue; // Canvas 2D não usa u_paramN
+    preset.controls.forEach((control, index) => {
+      const advancedKeys = Object.keys(preset.advanced);
+      const position = advancedKeys.indexOf(control.key);
+      assert.ok(
+        body.includes(`u_param${position}`),
+        `${preset.id}: control "${control.key}" ocupa u_param${position}, que o shader não lê — controle decorativo`,
+      );
+    });
+  }
+});
+
 test("o laser é UM preset com 4 variações e controle de posicionamento", () => {
   const laser = builtinVisualPresets.find(
     (preset) => preset.family === "laser",
@@ -323,6 +375,25 @@ test("o laser é UM preset com 4 variações e controle de posicionamento", () =
     "offsetY",
     "rotation",
   ]);
+
+  // `variant` NÃO é um control: a escolha é do picker de variações do browser.
+  // Um slider aqui duplicaria a escolha e, pior, a variação mescla por cima a
+  // cada normalização — então ele pareceria vivo e não faria nada.
+  assert.ok(
+    !laser.controls.some((c) => c.key === "variant"),
+    "variant não deve ser um control: a variação é escolhida pelo picker",
+  );
+  // E `controls` pode legitimamente ter MENOS entradas que `advanced` — o
+  // mapeamento u_paramN é pela ordem de `advanced`, não de `controls`. Se um
+  // preset esconder um control, nenhum param pode se deslocar.
+  const advancedKeys = Object.keys(laser.advanced);
+  for (const control of laser.controls) {
+    const position = advancedKeys.indexOf(control.key);
+    assert.ok(
+      position >= 0,
+      `control "${control.key}" não existe em advanced — mapeamento quebrado`,
+    );
+  }
 
   // Controle de posicionamento do elemento central: no upstream isso vinha do
   // mouse (u_pointer, não-determinístico); aqui é determinístico e ajustável.

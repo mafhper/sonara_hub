@@ -1642,7 +1642,13 @@ export const builtinVisualPresets = [
       rotation: 50,
     },
     controls: [
-      control("variant", "Variação", 0, 3, ""),
+      // `variant` NAO aparece como control: a escolha da variação é feita pelo
+      // picker do browser (que tem rótulo, cor e preview), não por um slider
+      // numérico que a duplicaria. Pior: como o preset tem `advanced` próprio e
+      // a variação mescla por cima, um control aqui seria sobrescrito a cada
+      // normalização — pareceria vivo e não faria nada. O param continua em
+      // `advanced` (é o que o shader lê via u_param0), só não é editável por
+      // slider.
       control("size", "Espessura"),
       control("length", "Alcance"),
       control("density", "Densidade"),
@@ -2096,7 +2102,17 @@ function normalizeLayerScene(input = {}) {
 
 export function visualUniforms(settings) {
   const visual = normalizeVisualSettings(settings);
-  const values = visual.controls.map(({ key }) => visual.advanced[key] / 100);
+  // Mapeia por ORDEM DE `advanced`, não por ordem de `controls`.
+  //
+  // `advanced` é o contrato com o shader: a Nª chave é `u_paramN`. `controls`
+  // é só a camada de UI (o que aparece como slider), e pode legitimamente ter
+  // menos entradas que `advanced` — o laser esconde `variant` porque a escolha
+  // da variação é do picker. Mapear por `controls` fazia o `size` ocupar
+  // `u_param0` (que o shader lê como `variant`) e o `rotation` caíam fora do
+  // array: dois controles quebrados, silenciosamente.
+  const values = Object.keys(visual.advanced).map(
+    (key) => (visual.advanced[key] ?? 0) / 100,
+  );
   return {
     rendererId: visual.rendererId,
     common: {
