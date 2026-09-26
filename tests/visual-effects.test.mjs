@@ -92,6 +92,7 @@ const expectedIds = [
   "amber-halftone",
   "laser",
   "crt",
+  "liquid-form",
   ...paperShaderDefinitions.map((definition) => definition.rendererId),
 ];
 
@@ -180,7 +181,7 @@ test("proveniência deriva a origem real de cada preset", () => {
   assert.deepEqual(counts, {
     sonara: 26,
     "paper-shaders": 29,
-    threeui: 10,
+    threeui: 11,
     lumen: 1,
     inspired: 3,
   });
@@ -379,6 +380,106 @@ test("o runtime mapeia u_paramN pela ordem de `advanced`, não de `controls`", (
   // o caso 3 acima (3 cru vs 0.03 se fosse dividido) — `variant=0` não
   // distingue nada porque 0 e 0/100 são o mesmo número.
   assert.equal(visualUniforms(laser).advanced[0], 0);
+});
+
+test("o liquid-form é UM preset com 4 MATERIAIS e nenhum ponteiro", () => {
+  const lf = builtinVisualPresets.find(
+    (preset) => preset.family === "liquid-form",
+  );
+  assert.ok(lf, "deve existir um preset da família liquid-form");
+  assert.equal(lf.id, "liquid-form");
+  assert.equal(lf.rendererId, "liquidform");
+  assert.equal(lf.originId, "threeui", lf.id);
+  // Raymarch é caro: o tier 3 é o mesmo do terrain-flight, que já é aceito.
+  assert.equal(lf.performanceTier, 3, "raymarch tem de ficar no tier 3");
+
+  assert.equal(lf.variants.length, 4);
+  assert.deepEqual(
+    lf.variants.map((v) => v.id),
+    ["chrome", "mercury", "oil", "copper"],
+  );
+  assert.deepEqual(
+    lf.variants.map((v) => v.advanced.variant),
+    [0, 1, 2, 3],
+  );
+
+  // 7 slots, o 0 é o variant -> 6 controles. `metal` NÃO é control: é a
+  // identidade do material, que é o que a variante carrega.
+  const keys = Object.keys(lf.advanced);
+  assert.equal(keys.length, 7, "advanced não pode passar de 7 slots");
+  assert.equal(keys[0], "variant");
+  assert.deepEqual(keys, [
+    "variant",
+    "morph",
+    "noiseScale",
+    "camera",
+    "rotateX",
+    "rotateY",
+    "rotate",
+  ]);
+  assert.ok(
+    !lf.controls.some((c) => c.key === "metal"),
+    "metal é a identidade da variante, não um slider",
+  );
+  assert.ok(!lf.controls.some((c) => c.key === "variant"));
+  assert.deepEqual(
+    lf.controls.map((c) => c.key),
+    keys.slice(1),
+  );
+
+  // `variant` cru: 3, nunca 0.03.
+  lf.variants.forEach((variant, index) => {
+    const uniforms = visualUniforms(
+      normalizeVisualSettings({ ...lf, appliedVariantId: variant.id }),
+    );
+    assert.equal(
+      uniforms.advanced[0],
+      index,
+      `${variant.id} → u_param0=${index}`,
+    );
+  });
+
+  // DETERMINISMO DE EXPORT. O upstream interpola a câmera pelo MOUSE a cada
+  // frame (u_mouse + u_mouse_amount), o que torna o export irreprodutível — foi o
+  // mesmo motivo que trocou o ponteiro do laser por controles. A câmera aqui é
+  // rotateX/rotateY/rotate. Nenhum vestígio de ponteiro pode existir no shader.
+  const runtimeSource = readFileSync(
+    fileURLToPath(
+      new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
+    ),
+    "utf8",
+  );
+  // Só o shader do liquidform: outros renderers legítimamente usam ponteiro.
+  // E só o CÓDIGO, sem comentários — o bloco que explica por que o ponteiro
+  // saiu precisa poder citar "u_mouse", senão o teste acusa a própria documentação
+  // de infração e acaba tolerando o uniform de volta.
+  const stripComments = (source) =>
+    source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+  const lfStart = runtimeSource.indexOf("liquidform: `${shaderPrelude}");
+  assert.ok(lfStart > 0, "não achei o shader liquidform no runtime");
+  const lfShader = stripComments(
+    runtimeSource.slice(
+      lfStart,
+      runtimeSource.indexOf("gl_FragColor = vec4(col, 1.0);\n}`,\n};", lfStart),
+    ),
+  );
+  assert.ok(lfShader.length > 0, "não consegui isolar o shader do liquidform");
+  assert.ok(lfShader.includes("lfMap"), "o stripper comeu código demais");
+  for (const needle of ["u_mouse", "u_pointer", "mouseAmount"]) {
+    assert.ok(
+      !lfShader.includes(needle),
+      `"${needle}" não pode aparecer no liquid-form: export determinístico é regra`,
+    );
+  }
+
+  // pow(x, 2.0) com x possivelmente negativo é INDEFINIDO em GLSL (pow é
+  // exp2(y*log2(x)), e log2 de negativo é NaN). O upstream usava isso no termo
+  // de painel, com base negativa na maior parte da esfera. O conserto é
+  // multiplicar. Se alguém reintroduzir o pow, o teste pega.
+  assert.ok(
+    !/pow\(\s*\([^,]*-[\d.]+\s*\)\s*\*[\d.]+\s*,\s*2\.0\s*\)/.test(lfShader),
+    "pow() com base possivelmente negativa e expoente fracionário/2.0: use x*x",
+  );
 });
 
 test("o crt é UM preset com 4 scopes e NENHUMA tela de terceiro", () => {

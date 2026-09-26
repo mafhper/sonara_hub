@@ -188,3 +188,49 @@ a Microsoft screen and a Warner Bros. screen, neither of which has anything to
 do with the host — stayed invisible. Auditing by content (what a shader draws)
 rather than by host is what surfaced them.
 
+The "liquid-form" visual preset ports ThreeUI's liquid metal shader
+(src/shaders/liquid-form/liquidFormShaders.ts, MIT): a raymarched metaball
+displaced by simplex noise, lit by a three-light rig (key, rim, fill) plus a
+panel term. Audited by content before porting, per the lesson above: no text,
+no logo, no SVG, no third-party asset. Pure technique.
+
+The four variations are materials, not shapes — the metaball is the same and
+what changes is the tint, the ambient and the key gain of the light rig:
+
+  chrome   polished chrome  — hard specular, deep shadow (ambient 0.008)
+  mercury  mercury          — high contrast, almost no fill
+  oil      oil film         — thin-film iridescence by thickness
+  copper   copper           — warm, hollow shadow
+
+Four deliberate departures:
+
+  1. THE MOUSE UNIFORMS ARE GONE. Upstream lerps the camera toward u_mouse
+     every frame and weights it with u_mouse_amount. That is not reproducible,
+     and deterministic export is a hard Sonara rule — the same reason the
+     laser preset replaced its pointer with controls. The camera is now
+     rotateX, rotateY and rotate, with a slow u_time drift underneath so the
+     blob is never static. u_mouse_amount disappeared with the mouse, since
+     its only job was to weight it. A test fails if any pointer uniform
+     reappears in this shader.
+  2. The oil variation's iridescence is a thin-film term driven by distance
+     to the core, added here; upstream has no such variant.
+  3. MAX_STEPS is 72 (as upstream) rather than lower. A draft tried 48 and
+     the appearance was unchanged at preview size, but the raymarch budget
+     is what keeps grazing rays from terminating early and shading as if they
+     had hit, so the saving was not worth the risk of a hard edge appearing.
+  4. A latent upstream bug was fixed. Upstream computes the panel term as
+     exp(-pow((rd.y - 0.2) * 4.0, 2.0)). That is undefined in GLSL: the spec
+     defines pow(x,y) as exp2(y * log2(x)), and log2 of the negative value
+     that occurs over most of the sphere is NaN. The NaN reaches the
+     framebuffer as a dark streak across the metal. It is driver-dependent, so
+     it may never appear on a real GPU while still being wrong. Multiplying
+     the two terms is always defined and cheaper.
+
+Note on cost: this is a raymarcher, roughly 1.4x the cost of the existing
+terrain-flight preset in the same measurement, and it is filed at performance
+tier 3 for that reason. A caveat on that measurement: the headless browser
+used for verification here falls back to SwiftShader (CPU rasterization, no
+GPU), so absolute frame times are inflated by an order of magnitude — even the
+cheap laser preset measures 231 ms/frame at 1080p. Only the ratio between
+presets is meaningful in that environment.
+

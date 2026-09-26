@@ -303,6 +303,7 @@ export const PRESET_COLLECTIONS = {
   "liquid-mesh": ["fluido"],
   "liquid-chrome": ["fluido", "textura"],
   "fluid-volume": ["fluido"],
+  "liquid-form": ["fluido", "textura"],
   "fluid-flow": ["fluido"],
   "endless-shallows": ["fluido"],
   "lava-lamp": ["fluido"],
@@ -455,6 +456,7 @@ function resolveOriginId(techniqueId, rendererId, normalizedFamily) {
   if (normalizedFamily === "predictive-arc") return "threeui";
   if (normalizedFamily === "laser") return "threeui";
   if (normalizedFamily === "crt") return "threeui";
+  if (normalizedFamily === "liquid-form") return "threeui";
   return "sonara";
 }
 
@@ -1793,6 +1795,84 @@ export const builtinVisualPresets = [
           scanDepth: 38,
           chroma: 58,
         },
+      },
+    ],
+  }),
+  // ---- Liquid Form / metal líquido ----------------------------------------
+  // Metaball raymarched com deslocamento por simplex noise e iluminação de
+  // ambiente (key + rim + fill + painel). ThreeUI
+  // (src/shaders/liquid-form/liquidFormShaders.ts, MIT).
+  //
+  // Auditado por CONTEÚDO antes de portar (a lição do SH-N15, aplicada antes em
+  // vez de depois): zero texto, zero logo, zero svg, zero asset de terceiro. É
+  // técnica pura — o oposto do CRT.
+  //
+  // O `u_mouse` do upstream NÃO vem: ele interpola a câmera pelo mouse a cada
+  // frame, o que não é reproduzível, e export determinístico é regra do Sonara
+  // (o mesmo motivo que trocou o ponteiro do laser por controles). A câmera
+  // vira rotateX/rotateY/rotate, com deriva lenta por u_time por baixo.
+  // `u_mouse_amount` morre junto — existia só para pesar o mouse.
+  //
+  // As 4 variações são MATERIAIS, não formas: a metaball é a mesma, o que muda
+  // é o tint do rig de luz e o reflexo. `metal` não é slider — é a identidade
+  // da variação.
+  preset({
+    id: "liquid-form",
+    rendererId: "liquidform",
+    name: "Metal Líquido",
+    category: "Fluidos",
+    family: "liquid-form",
+    note: "Blob metálico raymarched com quatro materiais (cromo, mercúrio, película de óleo, cobre). A câmera é controlada por sliders em vez do ponteiro do upstream, para o export ser reproduzível. Adaptado do ThreeUI (MIT, coleção Liquid Form).",
+    tags: ["metal", "liquido", "raymarch", "cromo", "threeui"],
+    performanceTier: 3,
+    colors: { base: "#05060a", effect: "#dfe7f2", light: "#ffffff" },
+    common: { speed: 16, brightness: 80, audioReaction: 0, shade: 0 },
+    advanced: {
+      variant: 0,
+      morph: 68,
+      noiseScale: 42,
+      camera: 45,
+      rotateX: 50,
+      rotateY: 50,
+      rotate: 50,
+    },
+    controls: [
+      // `variant` não é control: a escolha é do picker.
+      control("morph", "Deformação"),
+      control("noiseScale", "Escala do ruído"),
+      control("camera", "Distância"),
+      control("rotateX", "Mirar X"),
+      control("rotateY", "Mirar Y"),
+      control("rotate", "Girar"),
+    ],
+    variants: [
+      {
+        id: "chrome",
+        name: "Cromo",
+        tags: ["metal", "cromo", "espelho"],
+        colors: { base: "#05060a", effect: "#dfe7f2", light: "#ffffff" },
+        advanced: { variant: 0, morph: 68, noiseScale: 44, camera: 45 },
+      },
+      {
+        id: "mercury",
+        name: "Mercúrio",
+        tags: ["metal", "mercurio", "liquido"],
+        colors: { base: "#06070c", effect: "#aab4c8", light: "#e8eef8" },
+        advanced: { variant: 1, morph: 64, noiseScale: 54, camera: 54 },
+      },
+      {
+        id: "oil",
+        name: "Óleo",
+        tags: ["metal", "oleo", "iridescente"],
+        colors: { base: "#07060e", effect: "#8b7ad6", light: "#c4f1ea" },
+        advanced: { variant: 2, morph: 82, noiseScale: 60, camera: 42 },
+      },
+      {
+        id: "copper",
+        name: "Cobre",
+        tags: ["metal", "cobre", "quente"],
+        colors: { base: "#0a0605", effect: "#c97b4a", light: "#ffd9b0" },
+        advanced: { variant: 3, morph: 70, noiseScale: 48, camera: 48 },
       },
     ],
   }),

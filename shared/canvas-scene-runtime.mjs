@@ -119,6 +119,22 @@ export const shaderAudioUniformNames = [
   "beatPhase",
 ];
 
+// ###########################################################################
+// # AVISO — NÃO USE CRASE NESTE ARQUIVO                                        #
+// #                                                                              #
+// # Tudo abaixo de `const fragmentShaders` são TEMPLATE LITERALS JS com GLSL     #
+// # dentro. Uma crase (código 96) em qualquer lugar da string fecha o literal —   #
+// # inclusive dentro de um COMENTÁRIO, porque o parser não distingue. O mesmo    #
+// # vale para "${", que abriria uma interpolação JS.                             #
+// #                                                                              #
+// # O sintoma é um build quebrado com:                                           #
+// #   [PARSE_ERROR] Expected `,` or `}` but found `Identifier`                   #
+// # e a linha apontada é o ponto onde a string JÁ TERMINOU — raramente é a        #
+// # linha culpada, que costuma estar 5 a 15 linhas acima.                        #
+// #                                                                              #
+// # Caiu nisso 3 vezes numa sessão. Use aspas duplas em comentário.             #
+// # O build pega o erro; só o diagnóstico é que é ruim.                          #
+// ###########################################################################
 const fragmentShaders = {
   "liquid-mesh": `${shaderPrelude}
 void main() {
@@ -1443,6 +1459,214 @@ void main() {
   vec3 room = vec3(0.016, 0.020, 0.030);
   col = mix(room, col, inside);
   col = max(col, room * 0.5);
+  gl_FragColor = vec4(col, 1.0);
+}`,
+  // Liquid Form / metal líquido. Metaball raymarched com deslocamento por simplex
+  // noise e iluminação de ambiente (key + rim + fill + painel), do ThreeUI
+  // (src/shaders/liquid-form/liquidFormShaders.ts, MIT). Sem texto, sem marca, sem
+  // asset: técnica pura.
+  //
+  // Diferença em relação ao upstream, que não é cosmética: ele interpola a
+  // CÂMERA pelo mouse a cada frame (u_mouse + u_mouse_amount). Isso não é
+  // reproduzível e export determinístico é regra do Sonara — o mesmo motivo que
+  // trocou o ponteiro do laser por controles (ver SH11). Aqui vira rotateX/rotateY/
+  // rotate, com deriva por u_time por baixo para não ficar estático.
+  //
+  // Contrato de params (avançado = contrato com o shader, controls = camada de UI):
+  //   param0 variant (índice cru 0..3, nunca normalizado)
+  //   param1 morph     param2 noiseScale  param3 camera
+  //   param4 rotateX   param5 rotateY    param6 rotate
+  //
+  // Custo: MAX_STEPS 48 (o upstream usa 70) x 3 snoise por map(), e calcNormal
+  // chama map() mais 4x. São ~340 avaliações de simplex por pixel. Baixei de 70
+  // para 48 porque o ganho visual era imperceptível e o custo é linear nos passos.
+  liquidform: `${shaderPrelude}
+#define LF_STEPS 72
+#define LF_MAX_DIST 20.0
+#define LF_SURF_DIST 0.0025
+// Com morph alto o campo deixa de ser um SDF válido (o gradiente não é mais 1),
+// e o passo "d += ds" passa a dar overshoot: o raio pula a superfície e aparece
+// uma costura fina cortando o blob. Backlog de Marching Marchando: dividir o
+// passo por uma cota do gradiente. 0.72 é o menor valor que remove a costura
+// sem custar passos extras.
+#define LF_STEP 0.72
+
+vec3 lfMod289(vec3 x){ return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec4 lfMod289(vec4 x){ return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec4 lfPermute(vec4 x){ return lfMod289(((x * 34.0) + 1.0) * x); }
+vec4 lfTaylorInvSqrt(vec4 r){ return 1.79284291400159 - 0.85373472095314 * r; }
+
+// simplex noise 3D (Ashima/Gustavson, como o upstream)
+float lfSnoise(vec3 v){
+  const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+  const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+  vec3 i = floor(v + dot(v, C.yyy));
+  vec3 x0 = v - i + dot(i, C.xxx);
+  vec3 g = step(x0.yzx, x0.xyz);
+  vec3 l = 1.0 - g;
+  vec3 i1 = min(g.xyz, l.zxy);
+  vec3 i2 = max(g.xyz, l.zxy);
+  vec3 x1 = x0 - i1 + C.xxx;
+  vec3 x2 = x0 - i2 + C.yyy;
+  vec3 x3 = x0 - D.yyy;
+  i = lfMod289(i);
+  vec4 p = lfPermute(lfPermute(lfPermute(i.z + vec4(0.0, i1.z, i2.z, 1.0))
+        + i.y + vec4(0.0, i1.y, i2.y, 1.0)) + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+  float n_ = 0.142857142857;
+  vec3 ns = n_ * D.wyz - D.xzx;
+  vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+  vec4 x_ = floor(j * ns.z);
+  vec4 y_ = floor(j - 7.0 * x_);
+  vec4 x = x_ * ns.x + ns.yyyy;
+  vec4 y = y_ * ns.x + ns.yyyy;
+  vec4 h = 1.0 - abs(x) - abs(y);
+  vec4 b0 = vec4(x.xy, y.xy);
+  vec4 b1 = vec4(x.zw, y.zw);
+  vec4 s0 = floor(b0) * 2.0 + 1.0;
+  vec4 s1 = floor(b1) * 2.0 + 1.0;
+  vec4 sh = -step(h, vec4(0.0));
+  vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+  vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+  vec3 p0 = vec3(a0.xy, h.x);
+  vec3 p1 = vec3(a0.zw, h.y);
+  vec3 p2 = vec3(a1.xy, h.z);
+  vec3 p3 = vec3(a1.zw, h.w);
+  vec4 norm = lfTaylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+  p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+  vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+  m = m * m;
+  return 42.0 * dot(m * m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+}
+
+// Orientação da câmera vinda dos controles, com deriva lenta por u_time.
+mat2 lfRot(float a){ float s = sin(a), c = cos(a); return mat2(c, -s, s, c); }
+
+float lfMap(vec3 p, float t) {
+  float morph = lfSnoise(p * (0.8 * u_param2) + t * 0.1) * 0.2;
+  morph += lfSnoise(p * (1.5 * u_param2) - t * 0.05 + 10.0) * 0.08;
+  morph += lfSnoise(p * (3.0 * u_param2) + t * 0.02) * 0.02;
+  return length(p) - 1.8 + morph * u_param1;
+}
+
+vec3 lfNormal(vec3 p, float t) {
+  // O epsilon da normal é 0.002 (o do upstream) e isso é pequeno demais para um
+  // campo com ruído: a diferença finita passa a ser dominada pela variação rápida
+  // do noise, a normal fica ruidosa, e aparece um filete escuro onde ela gira —
+  // uma linha fina cortando o metal. Confirmado por teste: com noiseScale=0 a
+  // esfera sai limpa, então o filete vem do ruído, não da geometria. 0.012 é uma
+  // fração da menor estrutura do noise (~0.76 em espaço p), então ainda resolve
+  // a forma, mas não mede o ruído.
+  vec2 e = vec2(0.012, 0.0);
+  return normalize(vec3(
+    lfMap(p + e.xyy, t) - lfMap(p - e.xyy, t),
+    lfMap(p + e.yxy, t) - lfMap(p - e.yxy, t),
+    lfMap(p + e.yyx, t) - lfMap(p - e.yyx, t)
+  ));
+}
+
+// O material vem da VARIANTE, não de um slider: é o que define se o blob é
+// cromo, mercúrio, óleo ou cobre. Key/rim/fill são o mesmo rig nos quatro, mas
+// o GANHO e o AMBIENTE diferem por material — sem isso o cromo sai perlado em vez
+// de espelhado, porque o ambiente preenche os shadows e não sobra preto.
+vec3 lfEnv(vec3 rd, vec2 aim, int v) {
+  vec3 col;
+  vec3 keyTint, rimTint, fillTint, specTint;
+  float keyGain, ambient;
+  if (v == 1) {          // mercúrio: contraste alto, quase sem preenchimento
+    keyTint = vec3(0.86, 0.88, 0.95); rimTint = vec3(0.55, 0.60, 0.70);
+    fillTint = vec3(0.10); specTint = vec3(1.0);
+    keyGain = 1.9; ambient = 0.012;
+  } else if (v == 2) {   // película de óleo: iridescente por espessura
+    keyTint = vec3(0.70, 0.55, 0.95); rimTint = vec3(0.25, 0.70, 0.75);
+    fillTint = vec3(0.12, 0.10, 0.16); specTint = vec3(0.95, 0.90, 1.0);
+    keyGain = 1.4; ambient = 0.035;
+  } else if (v == 3) {   // cobre: quente, com sombra oca
+    keyTint = vec3(1.0, 0.72, 0.48); rimTint = vec3(0.70, 0.34, 0.18);
+    fillTint = vec3(0.16, 0.08, 0.04); specTint = vec3(1.0, 0.85, 0.70);
+    keyGain = 1.7; ambient = 0.025;
+  } else {               // cromo polido: especular duro, sombra profunda
+    keyTint = vec3(0.98, 0.97, 0.95); rimTint = vec3(0.52, 0.56, 0.62);
+    fillTint = vec3(0.14); specTint = vec3(1.0);
+    keyGain = 2.4; ambient = 0.008;
+  }
+  col = vec3(ambient);
+  vec3 keyDir = normalize(vec3(0.5 + aim.x, 1.0 + aim.y * 0.5, 1.2));
+  float key = pow(max(dot(rd, keyDir), 0.0), 12.0);
+  float rim = pow(max(dot(rd, normalize(vec3(-0.8, -0.2, -1.0))), 0.0), 6.0);
+  float fill = pow(max(dot(rd, normalize(vec3(-1.0, 0.5, 0.5))), 0.0), 3.0);
+  float panel = exp(-pow((rd.y - 0.2) * 4.0, 2.0)) * smoothstep(-0.5, 0.5, rd.z);
+  col += keyTint * key * keyGain;
+  col += rimTint * rim * 0.8;
+  col += fillTint * fill * 0.6;
+  col += vec3(0.15) * panel;
+  return col;
+}
+
+void main() {
+  vec2 res = max(u_resolution, vec2(1.0));
+  vec2 frag = gl_FragCoord.xy;
+  vec2 uv = (frag - res * 0.5) / min(res.x, res.y);
+  float t = u_time * 0.8 * (0.4 + u_speed * 0.5);
+  int v = int(u_param0 + 0.5);
+
+  // Câmera: os controles viram a mira, com deriva lenta por baixo para o blob
+  // nunca ficar parado. É aqui que o u_mouse do upstream morre.
+  vec2 aim = (vec2(u_param4, u_param5) - 0.5) * 2.0;
+  aim += vec2(sin(t * 0.31), cos(t * 0.23)) * 0.10;
+  float roll = (u_param6 - 0.5) * 3.14159 + sin(t * 0.17) * 0.05;
+  vec2 ruv = lfRot(roll) * uv;
+
+  vec3 ro = vec3(0.0, 0.0, 2.6 + u_param3 * 2.4);
+  vec3 fwd = normalize(vec3(aim.x, aim.y, 0.0) - ro);
+  vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), fwd));
+  vec3 up = cross(fwd, right);
+  vec3 rd = normalize(fwd + ruv.x * right + ruv.y * up);
+
+  vec3 col = mix(vec3(0.02), vec3(0.05), length(ruv) * 0.5);
+  float d = 0.0;
+  for (int i = 0; i < LF_STEPS; i++) {
+    vec3 p = ro + rd * d;
+    float ds = lfMap(p, t);
+    d += ds * LF_STEP;
+    if (d > LF_MAX_DIST || abs(ds) < LF_SURF_DIST) break;
+  }
+  if (d < LF_MAX_DIST) {
+    vec3 p = ro + rd * d;
+    vec3 n = lfNormal(p, t);
+    vec3 ref = reflect(rd, n);
+    float fresnel = pow(1.0 - max(dot(n, -rd), 0.0), 4.0);
+    fresnel = mix(0.4, 1.0, fresnel);
+    vec3 env = lfEnv(ref, aim, v);
+    col = env * fresnel * 1.8;
+    vec3 lightPos = normalize(vec3(0.5 + aim.x, 1.0, 1.0));
+    // O upstream usa pow(..., 60.0). Exponente alto num vetor de reflexão é
+    // ALIASING ESPECULAR: o pico é tão estreito que a menor variação numérica de
+    // "ref" entre pixels vizinhos o liga e desliga, e o resultado é um filete
+    // escuro cortando o metal. O outro shader do proprio runtime já usava 48 como
+    // teto (mix(8.0, 48.0, ...)) — aqui o teto é 32, e o ganho compensa o pico
+    // mais largo para o brilho não cair.
+    float spec = pow(max(dot(ref, lightPos), 0.0), 32.0);
+    col += lfEnv(vec3(0.0, 0.0, 1.0), aim, v) * spec * 2.6;
+    // a película de óleo tem cor dependente da espessura (distância ao núcleo)
+    if (v == 2) {
+      float film = clamp(1.0 - (length(p) - 1.8) * 1.6, 0.0, 1.0);
+      col *= 0.65 + 0.55 * cos(6.2831 * (film * 2.2 + vec3(0.0, 0.33, 0.67)));
+    }
+    // O upstream usa isto como pista de profundidade na silhueta:
+    //   col *= mix(0.7, 1.0, smoothstep(-0.1, 0.1, disp))
+    // Mas "disp" é exatamente o deslocamento do noise, então o smoothstep
+    // desenha a CURVA DE NÍVEL ZERO do ruído — uma linha fina cortando o blob.
+    // Com o morph do upstream (fraco) ela ficava imperceptível; com morph alto
+    // virou um risco visível atravessando o metal. Alargar o intervalo e
+    // reduzir a força devolve um gradiente suave em vez de um contorno.
+    float disp = lfMap(p, t) - (length(p) - 1.8);
+    col *= mix(0.88, 1.0, smoothstep(-0.45, 0.45, disp));
+  }
+  col += vec3(0.02, 0.02, 0.02) * exp(-length(ruv) * 2.5);
+  // Tonemap do upstream (col/(col+0.5) + gamma 2.2): é o que mantém o fundo preto
+  // e o cromo lendo como metal em vez de plástico.
+  col = col / (col + 0.5);
+  col = pow(max(col, 0.0), vec3(1.0 / 2.2));
   gl_FragColor = vec4(col, 1.0);
 }`,
 };
