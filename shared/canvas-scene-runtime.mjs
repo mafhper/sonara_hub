@@ -1272,6 +1272,179 @@ void main() {
   tone *= 1.0 + u_audioEnergy * u_audioReaction * 0.3;
   gl_FragColor = vec4(finish(tone, frag), 1.0);
 }`,
+  // CRT / tubo de fósforo. A TÉCNICA (curva, scanline, máscara tríade, halation,
+  // barra de rolagem, sheen, vinheta, flicker, grão) é o shader upstream do ThreeUI
+  // (crtShaders.ts, MIT). O CONTEÚDO é gerado aqui, no próprio shader: o upstream
+  // amostrava uma textura com telas de terceiros (BSOD do Windows, terminal ZION do
+  // Matrix) e isso foi excluído na auditoria SH12. Gerar o conteúdo no shader é o que
+  // torna a exclusão estrutural em vez de uma promessa: não existe textura onde
+  // possa haver tela de terceiro. Ver .dev/tasks/completed/legal-audit/.
+  //
+  // Contrato de params (avançado = contrato com o shader, controls = camada de UI).
+  // São 7 slots: param0..param6. O 0 é o variant (índice cru, do picker), então
+  // restam 6 controles. A velocidade NÃO é um deles — vem do controle comum `speed`.
+  //   param0 variant (índice cru 0..3, nunca normalizado)
+  //   param1 curve      param2 scanDensity  param3 scanDepth
+  //   param4 chroma     param5 grain        param6 vignette
+  crt: `${shaderPrelude}
+// Duas funções de ruído com corpos diferentes, de propósito: crtHash é
+// determinística por célula (o conteúdo do scope precisa ser estável no tempo),
+// crtHash21 é o grão de estática e muda a cada frame.
+float crtHash(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float crtHash21(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+
+// O slot de movimento não existe: o runtime expõe u_param0..u_param6 (7 slots, e
+// o 0 é o variant), então o oitavo controle seria o nono. A velocidade do tubo vem
+// do controle COMUM "speed", que já existe e é exatamente onde o usuário espera
+// regular velocidade — um "Movimento" duplicando isso seria um slider a mais.
+float motionOf(){ return 0.30 + u_speed * 0.9; }
+
+// Conteúdo autoral, desenhado no espaço da tela. Os 4 ramos são formas de scope
+// de áudio: onda, espectro, grade+varredura, anéis. Nenhuma letra, nenhum logo.
+vec3 crtContent(vec2 uv, float t) {
+  vec2 p = uv - 0.5;
+  float energy = u_audioEnergy;
+  int v = int(u_param0 + 0.5);
+
+  if (v == 0) {
+    // scope de onda: traço de fósforo com brilho e cauda
+    float f = 1.6 + u_audioMid * 2.2;
+    float wave = sin(uv.x * f * 6.28318 + t * 1.7) * 0.5;
+    wave += sin(uv.x * f * 2.1 * 6.28318 - t * 1.1) * 0.22 * (0.4 + energy);
+    float y = 0.5 + wave * (0.16 + u_audioBass * 0.20);
+    float d = abs(uv.y - y);
+    float core = smoothstep(0.012, 0.0, d);
+    float tail = smoothstep(0.075, 0.0, d) * 0.30;
+    float axis = smoothstep(0.0015, 0.0, abs(p.y)) * 0.22;
+    float tick = step(0.965, fract(uv.x * 8.0)) * 0.06;
+    return vec3(0.16, 1.0, 0.42) * (core + tail) + vec3(0.10, 0.55, 0.26) * (axis + tick);
+  }
+
+  if (v == 1) {
+    // espectro: barras com pico suavizado
+    float bins = 34.0;
+    float idx = floor(uv.x * bins);
+    float f = crtHash21(vec2(idx, 3.0));
+    float h = 0.10 + f * 0.20 + u_audioEnergy * (0.20 + f * 0.34);
+    float inBar = step(uv.y, h) * step(0.18, fract(uv.x * bins));
+    float peak = smoothstep(0.010, 0.0, abs(uv.y - h));
+    float floorLine = smoothstep(0.002, 0.0, abs(uv.y - 0.09)) * 0.30;
+    vec3 tint = mix(vec3(0.20, 1.0, 0.55), vec3(0.35, 0.85, 1.0), uv.x);
+    return tint * (inBar * 0.42 + peak * 0.85) + vec3(0.10, 0.42, 0.28) * floorLine;
+  }
+
+  if (v == 2) {
+    // grade + linha de varredura girando a partir do centro
+    vec2 g = abs(fract(uv * vec2(12.0, 8.0)) - 0.5);
+    float grid = smoothstep(0.055, 0.0, min(g.x, g.y)) * 0.20;
+    float a = t * 0.55 * (0.4 + motionOf());
+    float r = length(p);
+    // um raio girando: distância angular ao ângulo atual, 0 = sobre o raio
+    float sweep = abs(fract((atan(p.y, p.x) + a) * 0.1592) - 0.5);
+    float line = smoothstep(0.045, 0.0, sweep) * smoothstep(0.46, 0.10, r);
+    float dot0 = smoothstep(0.030, 0.0, r) * 0.9;
+    return vec3(1.0, 0.68, 0.22) * (grid + line * 0.85) + vec3(0.9, 0.55, 0.15) * dot0;
+  }
+
+  // Túnel: anéis recuando para o centro. O aspect precisa entrar pelo X (não pelo
+  // Y) para o resultado ser um círculo e não um disco achatado — escalando o Y a
+  // forma vira uma elipse larga e a leitura perde a profundidade.
+  float aspect = u_resolution.x / max(u_resolution.y, 1.0);
+  float r = length(vec2(p.x * aspect, p.y)) / max(aspect, 1.0) * 1.9;
+  float spin = t * 0.55 * (0.4 + motionOf());
+  // anéis finos e nítidos, com brilho caindo para fora
+  float band = abs(fract(r * 6.0 - spin) - 0.5) * 2.0;
+  float ring = smoothstep(0.42, 0.02, band);
+  float depth = smoothstep(1.05, 0.06, r);
+  // núcleo: o ponto de fuga do túnel
+  float core = smoothstep(0.13, 0.0, r);
+  vec3 cold = vec3(0.30, 0.62, 1.0);
+  vec3 hot = vec3(0.92, 0.97, 1.0);
+  vec3 col = cold * ring * depth * 1.55;
+  col += hot * core * (0.85 + u_audioEnergy * 0.9);
+  // luz do anel mais próximo de dentro, para o profundidade aparecer
+  col += cold * smoothstep(0.30, 0.0, r) * 0.20;
+  return col;
+}
+
+void main() {
+  vec2 res = max(u_resolution, vec2(1.0));
+  vec2 raw = gl_FragCoord.xy / res;
+  float t = u_time;
+  float motion = motionOf();
+
+  // --- técnica do tubo (upstream) -------------------------------------------
+  float curve = 0.06 + u_param1 * 0.26;
+  vec2 uv = raw * 2.0 - 1.0;
+  vec2 o = uv.yx * uv.yx;
+  uv += uv * o * curve;
+  uv = uv * 0.5 + 0.5;
+
+  // dentro/fora da tela (a curvatura empurra as bordas para fora)
+  vec2 inb = step(vec2(0.0), uv) * step(uv, vec2(1.0));
+  float inside = inb.x * inb.y;
+  vec2 ed = min(uv, 1.0 - uv);
+  inside *= smoothstep(0.0, 0.020, min(ed.x, ed.y));
+
+  // aberração cromática radial
+  vec2 dir = uv - 0.5;
+  float d2 = dot(dir, dir);
+  vec2 ab = dir * (0.0012 + 0.0085 * d2) * (0.4 + u_param4 * 1.6);
+  vec3 col;
+  col.r = crtContent(uv + ab, t).r;
+  col.g = crtContent(uv, t).g;
+  col.b = crtContent(uv - ab, t).b;
+
+  // halation: anel largo de amostras para o fósforo florescer no vidro
+  float halo = 0.045 + u_audioEnergy * 0.05;
+  float hs = 0.0042;
+  vec3 wide = crtContent(uv + vec2(hs, 0.0), t) + crtContent(uv - vec2(hs, 0.0), t)
+            + crtContent(uv + vec2(0.0, hs), t) + crtContent(uv - vec2(0.0, hs), t);
+  col += wide * (halo / 4.0);
+
+  // scanline: seno ao longo de y, rolando com o tempo
+  // Scanline: a densidade é medida em PIXELS, não em linhas absolutas. Com um
+  // número fixo (194 linhas), a 270px de altura isso dá 2,8px por ciclo e cai
+  // acima de Nyquist: a grade vira ruído e mudar o controle não muda nada — foi
+  // medido como inerte. Derivando da altura, o ciclo fica entre ~24px e ~7px em
+  // qualquer resolução, então o controle volta a ter efeito e a aparência
+  // continua igual entre o preview e o export.
+  float density = (u_resolution.y / 6.0) * (0.5 + u_param2 * 1.2);
+  float sl = sin(uv.y * 3.14159265 * density + t * 4.0 * motion);
+  col *= mix(1.0 - u_param3 * 0.62, 1.0, sl * sl);
+
+  // máscara tríade (grade de abertura de fósforo)
+  float triad = 180.0 + u_param4 * 120.0;
+  float gx = gl_FragCoord.x * (6.2831853 / triad);
+  float grille = 0.10 + u_param4 * 0.22;
+  vec3 mask = (1.0 - grille) + grille * cos(gx + vec3(0.0, 2.094, 4.188));
+  col *= mix(vec3(1.0), mask, 0.85);
+
+  // barra de rolagem + flicker
+  float bar = fract(uv.y * 0.5 - t * 0.07 * motion);
+  bar = smoothstep(0.0, 0.05, bar) * smoothstep(0.18, 0.05, bar);
+  col += bar * 0.022 * motion;
+  col *= 1.0 - (0.012 + u_audioOnset * 0.02) * sin(t * 8.0);
+
+  // brilho de vidro no topo + vinheta
+  float sheen = smoothstep(0.55, 0.0, distance(uv, vec2(0.50, 0.15)));
+  col += sheen * 0.028;
+  // Vinheta: o falloff precisa cobrir área VISÍVEL. Começando em 0.98, o controle
+  // só agia onde a sala já era preta, então não havia pixel para escurecer e ele
+  // media 0.0002 — inerte. Escurecendo a partir de 1.15 e com o alcance todo,
+  // ele passa a actuar sobre a parte útil da imagem.
+  float vig = smoothstep(1.15, 0.15, length((uv - 0.5) * vec2(1.05, 1.0)));
+  col *= mix(1.0 - u_param6 * 0.85, 1.0, vig);
+
+  // grão
+  col += (crtHash(raw * res * 0.5 + vec2(floor(t * 24.0))) - 0.5) * u_param5 * 0.20;
+
+  // sala escura fora do tubo
+  vec3 room = vec3(0.016, 0.020, 0.030);
+  col = mix(room, col, inside);
+  col = max(col, room * 0.5);
+  gl_FragColor = vec4(col, 1.0);
+}`,
 };
 
 const blendModes = {

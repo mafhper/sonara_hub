@@ -198,6 +198,7 @@ const visualCategoryIdsByLabel = new Map([
   ["Paisagem", "landscape"],
   ["Superficies", "surfaces"],
   ["Efeitos simples", "simple-effects"],
+  ["Telas", "screens"],
 ]);
 
 const paletteProfiles = [
@@ -333,6 +334,7 @@ export const PRESET_COLLECTIONS = {
   "halftone-flow": ["dados"],
   "amber-halftone": ["dados"],
   laser: ["dados", "luz"],
+  crt: ["dados", "luz"],
   "holo-topography": ["dados", "luz"],
   vinyl: ["dados"],
   "paper-dot-grid": ["dados"],
@@ -452,6 +454,7 @@ function resolveOriginId(techniqueId, rendererId, normalizedFamily) {
     return "paper-shaders";
   if (normalizedFamily === "predictive-arc") return "threeui";
   if (normalizedFamily === "laser") return "threeui";
+  if (normalizedFamily === "crt") return "threeui";
   return "sonara";
 }
 
@@ -1688,6 +1691,108 @@ export const builtinVisualPresets = [
         tags: ["laser", "halftone", "reticula"],
         colors: { base: "#05080d", effect: "#67e8f9", light: "#fef9c3" },
         advanced: { variant: 3, size: 54, length: 60, density: 56 },
+      },
+    ],
+  }),
+  // ---- CRT / tubo de fósforo ---------------------------------------------
+  // Porta a TÉCNICA do CRT do ThreeUI (MIT): curvatura de vidro, scanline, máscara
+  // de tríade, halation de fósforo, barra de rolagem, sheen, vinheta, flicker e grão.
+  //
+  // O CONTEÚDO não é portado, e isso é deliberado (auditoria SH12). O upstream
+  // amostrava uma textura preenchida com telas de terceiros: a blue screen do
+  // Windows (fundo #161d92, "A fault was detected…", STOP: 0x…) e um terminal com
+  // o ZION/Nebuchadnezzar de The Matrix. Aqui o conteúdo é gerado dentro do shader
+  // (scope de áudio: onda, espectro, grade+varredura, anéis) — sem letra, sem logo,
+  // sem marca. A exclusão é estrutural: não existe textura onde possa haver tela de
+  // terceiro, então não há como reintroduzir o problema por descuido.
+  //
+  // Os 4 ramos são variação de conteúdo, não de vidro: o vidro (curva, máscara,
+  // grão) é o mesmo e é o que o usuário controla. `variant` é a primeira chave de
+  // `advanced` = u_param0, e chega como índice cru.
+  preset({
+    id: "crt",
+    rendererId: "crt",
+    name: "CRT",
+    category: "Telas",
+    family: "crt",
+    note: "Tubo de fósforo com quatro scopes de áudio (onda, espectro, varredura, anéis). Curvatura de vidro, scanline, máscara de tríade, halation, flicker e grão. Conteúdo gerado no shader — nenhuma tela de terceiro. Técnica adaptada do ThreeUI (MIT, coleção CRT).",
+    tags: ["crt", "fosforo", "scope", "analogico", "threeui"],
+    performanceTier: 1,
+    colors: { base: "#050806", effect: "#4ade80", light: "#dcfce7" },
+    common: { speed: 12, brightness: 82, audioReaction: 0, shade: 0 },
+    advanced: {
+      variant: 0,
+      curve: 45,
+      scanDensity: 40,
+      scanDepth: 34,
+      chroma: 40,
+      grain: 26,
+      vignette: 45,
+    },
+    controls: [
+      // `variant` não é control: a escolha é do picker. Como no laser, um slider
+      // aqui seria sobrescrito pela variação a cada normalização.
+      // A velocidade do tubo é o controle COMUM `speed` — 7 slots no total
+      // (param0..param6) e o 0 é o variant, então são 6 controles, não 7.
+      control("curve", "Curvatura"),
+      control("scanDensity", "Scanlines"),
+      control("scanDepth", "Profundidade"),
+      control("chroma", "Aberração"),
+      control("grain", "Grão"),
+      control("vignette", "Vinheta"),
+    ],
+    variants: [
+      {
+        id: "oscillo",
+        name: "Onda",
+        tags: ["crt", "scope", "onda"],
+        colors: { base: "#050806", effect: "#4ade80", light: "#dcfce7" },
+        advanced: {
+          variant: 0,
+          curve: 45,
+          scanDensity: 40,
+          scanDepth: 34,
+          chroma: 40,
+        },
+      },
+      {
+        id: "spectrum",
+        name: "Espectro",
+        tags: ["crt", "scope", "espectro"],
+        colors: { base: "#04080c", effect: "#22d3ee", light: "#cffafe" },
+        advanced: {
+          variant: 1,
+          curve: 38,
+          scanDensity: 52,
+          scanDepth: 42,
+          chroma: 52,
+        },
+      },
+      {
+        id: "vector",
+        name: "Varredura",
+        tags: ["crt", "scope", "varredura"],
+        colors: { base: "#0a0704", effect: "#fbbf24", light: "#fef3c7" },
+        advanced: {
+          variant: 2,
+          curve: 50,
+          scanDensity: 34,
+          scanDepth: 30,
+          chroma: 34,
+        },
+      },
+      {
+        id: "tunnel",
+        name: "Anéis",
+        tags: ["crt", "scope", "anéis"],
+        colors: { base: "#04060c", effect: "#60a5fa", light: "#e0f2fe" },
+        advanced: {
+          variant: 3,
+          curve: 58,
+          scanDensity: 46,
+          scanDepth: 38,
+          chroma: 58,
+        },
       },
     ],
   }),

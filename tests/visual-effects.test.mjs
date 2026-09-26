@@ -91,6 +91,7 @@ const expectedIds = [
   "halftone-flow",
   "amber-halftone",
   "laser",
+  "crt",
   ...paperShaderDefinitions.map((definition) => definition.rendererId),
 ];
 
@@ -179,7 +180,7 @@ test("proveniência deriva a origem real de cada preset", () => {
   assert.deepEqual(counts, {
     sonara: 26,
     "paper-shaders": 29,
-    threeui: 9,
+    threeui: 10,
     lumen: 1,
     inspired: 3,
   });
@@ -378,6 +379,130 @@ test("o runtime mapeia u_paramN pela ordem de `advanced`, não de `controls`", (
   // o caso 3 acima (3 cru vs 0.03 se fosse dividido) — `variant=0` não
   // distingue nada porque 0 e 0/100 são o mesmo número.
   assert.equal(visualUniforms(laser).advanced[0], 0);
+});
+
+test("o crt é UM preset com 4 scopes e NENHUMA tela de terceiro", () => {
+  const crt = builtinVisualPresets.find((preset) => preset.family === "crt");
+  assert.ok(crt, "deve existir um preset da família crt");
+  assert.equal(crt.id, "crt");
+  assert.equal(crt.rendererId, "crt");
+  assert.equal(crt.originId, "threeui", crt.id);
+  assert.ok(crt.collections.includes("dados"), crt.id);
+  assert.ok(crt.collections.includes("luz"), crt.id);
+
+  // 4 variações, cada uma um ramo distinto do shader.
+  assert.equal(crt.variants.length, 4);
+  assert.deepEqual(
+    crt.variants.map((v) => v.id),
+    ["oscillo", "spectrum", "vector", "tunnel"],
+  );
+  assert.deepEqual(
+    crt.variants.map((v) => v.advanced.variant),
+    [0, 1, 2, 3],
+  );
+
+  // SÓ 7 SLOTS. u_param0..u_param6, e o 0 é o variant — então 6 controles, não
+  // 7. Já caiu neste limite uma vez (declarar u_param7 e o shader não compilava:
+  // "ERROR: 0:114: 'u_param7' : undeclared identifier"). A velocidade do tubo é
+  // o controle COMUM `speed`, não um sétimo param.
+  const advancedKeys = Object.keys(crt.advanced);
+  assert.equal(advancedKeys.length, 7, "advanced não pode passar de 7 slots");
+  assert.equal(advancedKeys[0], "variant", "variant precisa ser u_param0");
+  assert.deepEqual(advancedKeys, [
+    "variant",
+    "curve",
+    "scanDensity",
+    "scanDepth",
+    "chroma",
+    "grain",
+    "vignette",
+  ]);
+  assert.ok(
+    !advancedKeys.includes("motion"),
+    "motion não existe como param: a velocidade vem do controle comum speed",
+  );
+  assert.ok(
+    crt.common.speed > 0,
+    "a velocidade do tubo tem de vir do controle comum speed",
+  );
+  assert.ok(
+    !crt.controls.some((c) => c.key === "motion"),
+    "motion não deve ser um control duplicado do speed comum",
+  );
+
+  // `variant` não é um control: a escolha é do picker.
+  assert.ok(
+    !crt.controls.some((c) => c.key === "variant"),
+    "variant não deve ser um control: a variação é escolhida pelo picker",
+  );
+  // Os 6 controles são exatamente as 6 chaves depois de `variant`.
+  assert.deepEqual(
+    crt.controls.map((c) => c.key),
+    advancedKeys.slice(1),
+  );
+
+  // `variant` chega como índice CRU. Foi exatamente assim que o laser renderizou
+  // a variação errada antes: normalizado como percentual, 3 virava 0.03.
+  crt.variants.forEach((variant, index) => {
+    const uniforms = visualUniforms(
+      normalizeVisualSettings({ ...crt, appliedVariantId: variant.id }),
+    );
+    assert.equal(
+      uniforms.advanced[0],
+      index,
+      `${variant.id} → u_param0=${index}`,
+    );
+  });
+
+  // REGRA LEGAL (auditoria SH12). O CRT upstream pinta a blue screen do Windows e
+  // um terminal com o ZION/Nebuchadnezzar de The Matrix. Nenhum vestígio pode
+  // Cuidado ao ler isto: o arquivo do runtime CONTÉM a palavra "ZION" e
+  // "nintendo" — no comentário que documenta justamente a exclusão, que é onde
+  // elas têm que estar. Então o teste varre o CÓDIGO do shader (sem comentários) e
+  // o preset inteiro. Se incluísse o comentário, ele acusaria a própria
+  // documentação de infração e acabaria tolheando a exclusão.
+  const stripComments = (source) =>
+    source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+  const crtSources = [
+    stripComments(
+      readFileSync(
+        fileURLToPath(
+          new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
+        ),
+        "utf8",
+      ),
+    ),
+    JSON.stringify(crt),
+  ];
+  const forbidden = [
+    "161d92", // cor de fundo do BSOD do Windows
+    "0x0000CA7E", // código de erro real do Windows
+    "RASTER.SYS", // módulo do Windows
+    "SIGNAL HALTED", // cabeçalho do BSOD
+    "ZION", // Matrix
+    "Nebuchadnezzar", // Matrix
+    "/dev/mind", // Matrix
+    "nintendo",
+  ];
+  for (const needle of forbidden) {
+    for (const [index, source] of crtSources.entries()) {
+      assert.ok(
+        !source.toLowerCase().includes(needle.toLowerCase()),
+        `"${needle}" não pode aparecer no CRT (fonte #${index}) — ver .dev/tasks/completed/legal-audit/`,
+      );
+    }
+  }
+  // Sanidade do stripper: se ele parasse de remover comentários, o teste acima
+  // passaria por acidente. Garante que um termo de exclusão escrito em um
+  // comentário NÃO conta como infração, e que o resto do texto continua visível.
+  assert.ok(
+    !crtSources[0].includes("terminal ZION"),
+    "o stripper de comentários não está funcionando",
+  );
+  assert.ok(
+    crtSources[0].includes("crtContent"),
+    "o stripper comeu código demais",
+  );
 });
 
 test("o laser é UM preset com 4 variações e controle de posicionamento", () => {

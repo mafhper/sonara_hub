@@ -136,3 +136,55 @@ deliberate departures:
 The upstream Reinhard tonemap (color / (color + 0.72)) was kept: it is what
 keeps the background black and the beam core reading as light rather than paint.
 
+The "crt" visual preset ports the CRT *technique* from ThreeUI's CRT shader
+(src/shaders/crt/crtShaders.ts, MIT): tube curvature, scanline roll, phosphor
+triad mask, halation, rolling bar, glass sheen, vignette, flicker and grain. The
+four variations are audio-scope contents, all generated inside the fragment
+shader:
+
+  oscillo   scope trace   — phosphor waveform with core and tail
+  spectrum  spectrum bars — bars with smoothed peak caps
+  vector    vector scope  — grid with a rotating sweep and trail
+  tunnel    depth rings   — receding rings toward a bright core
+
+The tube techniques were reimplemented for Sonara's WebGL 1 / GLSL ES 1.00
+fullscreen u_* interface. Six deliberate departures, the first three of which
+exist for legal reasons rather than technical ones:
+
+  1. THE SCREEN CONTENT IS NOT PORTED. Upstream samples a texture painted with
+     third-party screens, and Sonara ships none of them. Excluded by name:
+
+       - the "blue-screen" style, which reproduces the Microsoft Windows blue
+         screen: the #161d92 ground, the wording of its fault text, its
+         STOP: 0x… and RASTER.SYS module lines, and its "press any key to
+         restart" prompt;
+       - the "nintendo" style, whose screen evokes a registered console
+         trademark;
+       - the "terminal" style, whose text is The Matrix's ZION mainframe,
+         the Nebuchadnezzar, "Hacking Matrix grid nodes" and /dev/mind.
+
+     Sonara's CRT therefore generates its own content in the shader, with no
+     letter, no logo and no mark of any kind. The exclusion is structural: with
+     no screen texture, there is no place a third-party screen could reappear.
+  2. "cinematic" was not carried over as a style; the glass character it
+     described is expressed through Sonara's own controls.
+  3. The ~16 upstream style uniforms were reduced to six controls plus the
+     variation index, because Sonara exposes seven u_param slots. Tube speed is
+     the existing common `speed` control rather than a duplicate slider.
+  4. The u_uTex sampler and its offscreen canvas were dropped: the content is
+     procedural, so one fullscreen pass replaces the two-pass pipeline.
+  5. u_hue and u_saturation became Sonara preset colors.
+  6. The four variations are Sonara preset *variations*, not four separate
+     presets, sharing one browser entry and the existing variation picker.
+
+The scanline density is derived from the render height rather than fixed in
+lines, so the control keeps its effect and the appearance matches between
+preview and export at any resolution.
+
+A note on method: an earlier draft of this work classified candidate effects by
+host and tier (Canvas 2D, WebGL, three.js) and by effort. That classification
+rated the CRT "useful, exclude the Nintendo variant" and the real problems —
+a Microsoft screen and a Warner Bros. screen, neither of which has anything to
+do with the host — stayed invisible. Auditing by content (what a shader draws)
+rather than by host is what surfaced them.
+

@@ -51,6 +51,7 @@ const quickPresetIds = new Set([
   "halftone-flow",
   "amber-halftone",
   "laser",
+  "crt",
   "audio-dark",
   "lava-lamp",
   "starfield",
