@@ -64,3 +64,237 @@ the shaders are written from scratch using Sonara's own shader prelude.
 
 The cosine-palette formula used by "iridescent-bloom" follows the freely
 published technique by Inigo Quilez.
+
+----------------------------------------------------------------------
+ThreeUI / Design+Code (github.com/MengTo/threeui)
+License: MIT
+----------------------------------------------------------------------
+The "predictive-arc" visual preset (shared/canvas-scene-runtime.mjs) ports the
+`dot-grid-arc-field` technique from ThreeUI's "Predictive Arc" renderer
+(src/shaders/predictive-arc/predictiveArcRenderer.ts). The implementation was
+rewritten for Sonara's Canvas 2D compositing path and reuses Sonara's own
+color/common controls; it does not require or bundle the @designcodeio/threeui
+package. The upstream MIT license text appears above.
+
+The "data-pixel-arc" visual preset ports the Data Pixel variant
+(src/shaders/data-pixel-arc/dataPixelArcRenderer.ts) and the "ribbon-field"
+visual preset ports the Ribbon Field variant
+(src/shaders/ribbon-field/ribbonFieldShaders.ts) of the same collection. Both
+were rewritten for Sonara's runtime (Canvas 2D and WebGL 1 / GLSL ES 1.00
+respectively) and reuse Sonara's own color/common controls.
+
+Five further variants of the same technique family were adapted from the
+"neuform-isolated" sources (MIT), completing the family at eight variants:
+
+  "signal-particles"   src/shaders/neuform-isolated/sources/signal-particles.html
+  "override-grid"      src/shaders/neuform-isolated/sources/override-grid.html
+  "void-field"         src/shaders/neuform-isolated/sources/void-protocol.html
+  "halftone-flow"      src/shaders/neuform-isolated/sources/nexus-unified-flow.html
+  "amber-halftone"     src/shaders/neuform-isolated/sources/amber-halftone.html
+
+The techniques (cross-wave point activation with rare hashed highlights;
+radial-pulse block grid; barrel-distorted breathing dot matrix with scanlines;
+domain-warped flow painted as a halftone; sinusoidal radial point grid with a
+vertical phosphor gradient) were reimplemented for Sonara's shared runtime so
+preview and export use the same code path. Upstream's per-frame time
+accumulators were replaced by the runtime's deterministic time, and upstream's
+fixed palettes were replaced by Sonara preset colors. Three deliberate
+departures: the mouse-parallax uniform in void-protocol was removed (the Sonara
+runtime is deterministic and pointer-free); the float loop counter in
+nexus-unified-flow was converted to an int (GLSL ES 1.00 has no float loop
+index); and the three.js point cloud in amber-halftone became a procedural
+fragment-shader grid. None of these presets require or bundle the
+@designcodeio/threeui package.
+
+The "laser" visual preset ports four variants of ThreeUI's Laser shader
+(src/shaders/laser/laserShaders.ts, MIT) as four variations of a single Sonara
+preset, with the variant selected by a uniform:
+
+  blade  atmospheric-blade  — fog-borne beam with mirage and contact point
+  array  vanishing-array    — angular spokes decaying with radius, plus rings
+  prism  prism-aperture     — diamond aperture with red/blue dispersion fringes
+  relay  halftone-relay     — twin beams, horizontal relay and a halftone grid
+
+The techniques (Gaussian beam profile, fbm fog, angular spokes, dispersion
+fringes, halftone relay) were reimplemented for Sonara's WebGL 1 / GLSL ES 1.00
+fullscreen u_* interface, reusing Sonara's own color and common controls. Five
+deliberate departures:
+
+  1. The pointer uniform was REPLACED BY USER CONTROLS. Upstream lerps the
+     pointer per frame from the mouse position, which is not reproducible; export
+     determinism is a hard Sonara rule. The three Sonara controls offsetX,
+     offsetY and rotation move and turn the central element deterministically,
+     with a slow u_time-only drift kept underneath for motion.
+  2. The u_hue and u_saturation uniforms became Sonara preset colors.
+  3. The upstream `length` uniform was renamed `span` — `length` is a reserved
+     GLSL builtin and fails to compile.
+  4. Upstream's HSV accent helper was replaced by mixes of the preset palette.
+  5. The four variants are Sonara preset *variations*, not four separate
+     presets, so they share one entry in the atmosphere browser and use the
+     existing variation picker.
+
+The upstream Reinhard tonemap (color / (color + 0.72)) was kept: it is what
+keeps the background black and the beam core reading as light rather than paint.
+
+The "crt" visual preset ports the CRT *technique* from ThreeUI's CRT shader
+(src/shaders/crt/crtShaders.ts, MIT): tube curvature, scanline roll, phosphor
+triad mask, halation, rolling bar, glass sheen, vignette, flicker and grain. The
+four variations are audio-scope contents, all generated inside the fragment
+shader:
+
+  oscillo   scope trace   — phosphor waveform with core and tail
+  spectrum  spectrum bars — bars with smoothed peak caps
+  vector    vector scope  — grid with a rotating sweep and trail
+  tunnel    depth rings   — receding rings toward a bright core
+
+The tube techniques were reimplemented for Sonara's WebGL 1 / GLSL ES 1.00
+fullscreen u_* interface. Six deliberate departures, the first three of which
+exist for legal reasons rather than technical ones:
+
+  1. THE SCREEN CONTENT IS NOT PORTED. Upstream samples a texture painted with
+     third-party screens, and Sonara ships none of them. Excluded by name:
+
+       - the "blue-screen" style, which reproduces the Microsoft Windows blue
+         screen: the #161d92 ground, the wording of its fault text, its
+         STOP: 0x… and RASTER.SYS module lines, and its "press any key to
+         restart" prompt;
+       - the "nintendo" style, whose screen evokes a registered console
+         trademark;
+       - the "terminal" style, whose text is The Matrix's ZION mainframe,
+         the Nebuchadnezzar, "Hacking Matrix grid nodes" and /dev/mind.
+
+     Sonara's CRT therefore generates its own content in the shader, with no
+     letter, no logo and no mark of any kind. The exclusion is structural: with
+     no screen texture, there is no place a third-party screen could reappear.
+  2. "cinematic" was not carried over as a style; the glass character it
+     described is expressed through Sonara's own controls.
+  3. The ~16 upstream style uniforms were reduced to six controls plus the
+     variation index, because Sonara exposes seven u_param slots. Tube speed is
+     the existing common `speed` control rather than a duplicate slider.
+  4. The u_uTex sampler and its offscreen canvas were dropped: the content is
+     procedural, so one fullscreen pass replaces the two-pass pipeline.
+  5. u_hue and u_saturation became Sonara preset colors.
+  6. The four variations are Sonara preset *variations*, not four separate
+     presets, sharing one browser entry and the existing variation picker.
+
+The scanline density is derived from the render height rather than fixed in
+lines, so the control keeps its effect and the appearance matches between
+preview and export at any resolution.
+
+A note on method: an earlier draft of this work classified candidate effects by
+host and tier (Canvas 2D, WebGL, three.js) and by effort. That classification
+rated the CRT "useful, exclude the Nintendo variant" and the real problems —
+a Microsoft screen and a Warner Bros. screen, neither of which has anything to
+do with the host — stayed invisible. Auditing by content (what a shader draws)
+rather than by host is what surfaced them.
+
+The "liquid-form" visual preset ports ThreeUI's liquid metal shader
+(src/shaders/liquid-form/liquidFormShaders.ts, MIT): a raymarched metaball
+displaced by simplex noise, lit by a three-light rig (key, rim, fill) plus a
+panel term. Audited by content before porting, per the lesson above: no text,
+no logo, no SVG, no third-party asset. Pure technique.
+
+The four variations are materials, not shapes — the metaball is the same and
+what changes is the tint, the ambient and the key gain of the light rig:
+
+  chrome   polished chrome  — hard specular, deep shadow (ambient 0.008)
+  mercury  mercury          — high contrast, almost no fill
+  oil      oil film         — thin-film iridescence by thickness
+  copper   copper           — warm, hollow shadow
+
+Four deliberate departures:
+
+  1. THE MOUSE UNIFORMS ARE GONE. Upstream lerps the camera toward u_mouse
+     every frame and weights it with u_mouse_amount. That is not reproducible,
+     and deterministic export is a hard Sonara rule — the same reason the
+     laser preset replaced its pointer with controls. The camera is now
+     rotateX, rotateY and rotate, with a slow u_time drift underneath so the
+     blob is never static. u_mouse_amount disappeared with the mouse, since
+     its only job was to weight it. A test fails if any pointer uniform
+     reappears in this shader.
+  2. The oil variation's iridescence is a thin-film term driven by distance
+     to the core, added here; upstream has no such variant.
+  3. MAX_STEPS is 72 (as upstream) rather than lower. A draft tried 48 and
+     the appearance was unchanged at preview size, but the raymarch budget
+     is what keeps grazing rays from terminating early and shading as if they
+     had hit, so the saving was not worth the risk of a hard edge appearing.
+  4. A latent upstream bug was fixed. Upstream computes the panel term as
+     exp(-pow((rd.y - 0.2) * 4.0, 2.0)). That is undefined in GLSL: the spec
+     defines pow(x,y) as exp2(y * log2(x)), and log2 of the negative value
+     that occurs over most of the sphere is NaN. The NaN reaches the
+     framebuffer as a dark streak across the metal. It is driver-dependent, so
+     it may never appear on a real GPU while still being wrong. Multiplying
+     the two terms is always defined and cheaper.
+
+Note on cost: this is a raymarcher, roughly 1.4x the cost of the existing
+terrain-flight preset in the same measurement, and it is filed at performance
+tier 3 for that reason. A caveat on that measurement: the headless browser
+used for verification here falls back to SwiftShader (CPU rasterization, no
+GPU), so absolute frame times are inflated by an order of magnitude — even the
+cheap laser preset measures 231 ms/frame at 1080p. Only the ratio between
+presets is meaningful in that environment.
+
+The "bell-field" visual preset ports ThreeUI's Chladni pattern shader
+(src/shaders/bell-field/bellFieldShaders.ts, MIT): the nodal lines and antinodes
+of a struck metal disc. Audited by content before porting: no text, no logo, no
+SVG, no third-party asset. A standing-wave figure is public-domain physics, not
+third-party content, so nothing had to be excluded.
+
+The four variations are metals — the pattern is identical and what changes is
+the palette of the light rig:
+
+  bronze    patina green, warm
+  steel     cold and neutral
+  copper    orange and glossy
+  obsidian  nearly black, glow only
+
+Three deliberate departures:
+
+  1. THE MOUSE UNIFORM IS GONE. Upstream shifts the whole pattern by
+     p -= m * 0.11 following the mouse, which is not reproducible. In a radially
+     symmetric pattern that shift reads as "the pattern moved", which is exactly
+     what an offset control would do — so this one cost nothing to drop.
+  2. u_strike BECAME A PHASE. Upstream takes it as a loose 0..1 parameter that
+     the caller animates. Here it is derived from u_time, so the bell is struck
+     on a period, the shock ring expands and dies, and the motion is
+     deterministic without anything external driving it.
+  3. The strike is audio-reactive on top of that: its amplitude adds
+     u_audioOnset. Audio is part of the render envelope, so this does not break
+     deterministic export — the envelope is recorded with the video. Note that
+     audioReaction is normalized to 0 for every preset in Sonara (it is a user
+     control, not an author default), so the bell always strikes on its own
+     schedule and audio only accents it.
+
+Upstream exposes a single controllable uniform; the six free u_param slots were
+filled with quantities a Chladni figure actually has — radial frequency,
+angular mode, second-partial weight, nodal line width, antinode glow and strike
+rate — rather than leaving decorative sliders that move nothing.
+
+The "stream-convergence" visual preset ports ThreeUI's stream shader
+(src/shaders/stream-convergence/streamConvergenceShaders.ts, MIT): three
+converging sine layers turned into thin lines by a smoothstep. Audited by
+content before porting: no text, no logo, no SVG, no third-party asset.
+
+The four variations are colour themes, which is the natural axis of variation
+here — upstream mixes r/g/b per layer in three fixed lines described in its own
+comment as "the violet-indigo theme":
+
+  violet   violet / indigo      cyan    cyan / teal
+  amber    amber / gold         mono    monochrome
+
+Three deliberate departures:
+
+  1. u_interactive_fidelity IS GONE, but nothing was lost. The name suggests a
+     pointer; it is not one. Checked: it is a number (default 0.5) that only
+     weights the layer spread, passed in as a prop. The deterministic-export
+     rule still applies, so the slot was not carried over, and a test asserts the
+     uniform cannot reappear by any route.
+  2. The three free u_param slots became real wave quantities — spread, wave
+     frequency, wave speed, the lateral travelling wave, the line thickness (the
+     smoothstep window) and the rotation. Upstream exposes one uniform; a
+     decorative slider that moves nothing is worse than no slider (see the
+     control-inert pattern).
+  3. The smoothstep window is the exposed thickness control, so the line can go
+     from a hairline to a band. That is the shape parameter the effect was
+     missing.
+

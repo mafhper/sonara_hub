@@ -1,7 +1,7 @@
 // CPU budget central para consumidores do FFmpeg (#78).
 //
 // Modelo (determinístico por processo — decisão em
-// .dev/tasks/gpu-plus/docs/2026-09-11-nota-cpu-budget.md e evidência em
+// .dev/tasks/active/gpu-plus/docs/2026-09-11-nota-cpu-budget.md e evidência em
 // docs/performance/compare-2026-09-11-baseline-vs-78.md):
 //   capacidade = availableParallelism()  (8)
 //   reserve    = 1                         (margem do sistema)

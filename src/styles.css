@@ -2139,8 +2139,15 @@ svg {
   color: #7d8692;
 }
 
+/* `min-width: 0` aqui não é cosmético: item de grid tem `min-width: auto` por
+ * padrão, que o impede de encolher abaixo do seu min-content. Sem isto, estreitar
+ * a barra lateral NÃO reflui o conteúdo: o painel continua com a largura do
+ * conteúdo mais largo e o resto aparece cortado na borda direita, com barra de
+ * rolagem horizontal no rodapé (é o que aparece nas capturas de largura média e
+ * mínima). A barra lateral é acessória, então o conteúdo tem que caber nela. */
 .inspector-panel {
   grid-area: inspector;
+  min-width: 0;
   border-left: 1px solid var(--line);
 }
 
@@ -2160,6 +2167,7 @@ svg {
 
 .inspector-scroll {
   height: calc(100% - 39px);
+  min-width: 0;
   overflow: auto;
 }
 
@@ -2850,9 +2858,34 @@ svg {
   background: var(--button-hover-bg);
 }
 
+/* Cadeia de encolhimento do browser de atmosfera.
+ *
+ * Cada container aqui é `display: grid`, e item de grid tem `min-width: auto`
+ * por padrão: ele recusa encolher abaixo do seu min-content. Um único elo sem
+ * `min-width: 0` trava a largura mínima de todo o conteúdo abaixo dele — e o
+ * resultado é o painel recortando a direita (chips da categoria, 4º card da
+ * grade, linha de proveniência) com barra de rolagem horizontal no rodapé.
+ * É por isso que precisa em TODOS os elos, não só no painel. */
 .visual-preset-browser {
   display: grid;
+  min-width: 0;
   gap: var(--space-2);
+  /* `minmax(0, 1fr)` e NÃO a coluna implícita `auto`. Sem track explícito, a
+   * coluna é dimensionada pelo min-content do filho mais largo, e o browser
+   * cresce para além do painel estourando a borda direita — `min-width: 0` no
+   * container não impede isso, porque o problema é o dimensionamento da coluna,
+   * não a largura mínima do container. */
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.visual-preset-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  pointer-events: none;
 }
 
 .atmosphere-performance-warning {
@@ -2862,31 +2895,242 @@ svg {
   padding: var(--space-2);
 }
 
+/* min-width: 0 em CADA item direto do browser.
+ *
+ * `min-width: 0` no container NÃO basta: cada filho é um grid item com
+ * `min-width: auto` próprio, e é ele que se recusa a encolher abaixo do próprio
+ * min-content. Sem isto, a busca, os chips de categoria e a grade ficam cortados
+ * na borda direita, com barra de rolagem horizontal no rodapé de .inspector-scroll. */
+.visual-preset-search,
+.visual-preset-chips,
+.visual-preset-grid,
+.visual-preset-origin-row,
+.visual-preset-variants-row,
+.visual-preset-active-filters {
+  min-width: 0;
+}
+
+.visual-preset-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.visual-preset-search-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--text-dim);
+}
+
+.visual-preset-search-input {
+  min-width: 0;
+  min-height: 30px;
+  flex: 1;
+  border: 1px solid var(--button-border);
+  border-radius: 999px;
+  background: var(--button-bg);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-xs);
+  padding: 0 12px;
+}
+
+.visual-preset-search-input::placeholder {
+  color: var(--text-dim);
+}
+
+.visual-preset-search-input:focus-visible {
+  border-color: var(--focus);
+  box-shadow: var(--glow-focus);
+  outline: none;
+}
+
+.visual-preset-search-count {
+  flex: none;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-weight: 720;
+}
+
+/* Grupos de refinamento: um disclosure por dimensão de filtro, colapsado por
+ * padrão e posicionado DEPOIS da grade. Faceta refina um conjunto candidato —
+ * quem chega aqui primeiro quer ver as miniaturas. Categoria fica acima porque
+ * é o ponto de entrada.
+ *
+ * Os quatro rótulos colapsados são autodescritivos: dizem que existem quatro
+ * maneiras de filtrar, ao contrário de um "Filtros" único que esconderia a
+ * própria existência das dimensões. */
+.visual-preset-refine {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: var(--space-2);
+}
+
+.visual-preset-facet-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  list-style: none;
+  padding: 3px 2px;
+  user-select: none;
+}
+
+.visual-preset-facet-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Marca de aberto/fechado sem depender de cor: o chevron gira. */
+.visual-preset-facet-group > summary::after {
+  content: "›";
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+
+.visual-preset-facet-group[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+.visual-preset-facet-group > summary:hover {
+  background: var(--button-bg);
+}
+
+.visual-preset-facet-group > .visual-preset-facets {
+  padding: 4px 0 6px;
+}
+
+/* Grupo com filtro ativo fica marcado mesmo recolhido. */
+.visual-preset-facet-group[data-active] > summary .visual-preset-facet-label {
+  color: var(--text-primary);
+  font-weight: 780;
+}
+
+.visual-preset-facet-badge {
+  display: inline-flex;
+  min-width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--focus-soft);
+  color: var(--text-primary);
+  font-size: 10px;
+  font-weight: 780;
+}
+
+/* "Você está aqui": com os grupos recolhidos, o filtro ativo precisa existir
+ * fora deles — senão o resultado some sem causa visível. */
+.visual-preset-active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.visual-preset-chip.removable {
+  gap: 4px;
+  padding-right: 6px;
+}
+
+.visual-preset-chip.removable svg {
+  width: 10px;
+  height: 10px;
+  opacity: 0.7;
+  stroke-width: 2.6;
+}
+
+.visual-preset-chip.removable:hover svg {
+  opacity: 1;
+}
+
+.visual-preset-facets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.visual-preset-facets .visual-preset-chip {
+  min-height: 24px;
+  padding: 0 9px;
+}
+
+.visual-preset-facet-label {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.55px;
+  margin-right: 2px;
+  text-transform: uppercase;
+}
+
+.visual-preset-facet-clear {
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--font-xs);
+  font-weight: 720;
+  padding: 0 6px;
+  text-decoration: underline;
+}
+
+.visual-preset-facet-clear:hover,
+.visual-preset-facet-clear:focus-visible {
+  color: var(--text-primary);
+}
+
+.visual-preset-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  padding: var(--space-2);
+}
+
 .visual-preset-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
 }
 
+/* Chips do browser de atmosfera.
+ *
+ * Densidade: são 31 chips expostos por padrão (3 runtime + 3 tier + 8 coleção +
+ * 5 origem + 12 categoria). Com `--button-bg` sólido e `--button-border` claro
+ * cada um virava um bloco preenchido *mais* um pill interno, e o peso visual
+ * dos filtros chegava antes das miniaturas. Por isso: fundo transparente e
+ * borda discreta no repouso; o preenchimento volta no hover e no estado ativo,
+ * que é onde a affordance importa. O ativo também ganha `box-shadow`, então a
+ * distinção não depende só de cor.
+ */
 .visual-preset-chip {
   display: inline-flex;
-  min-height: 28px;
+  min-height: 26px;
   align-items: center;
   gap: 5px;
-  border: 1px solid var(--button-border);
+  border: 1px solid color-mix(in srgb, var(--button-border) 38%, transparent);
   border-radius: 999px;
-  background: var(--button-bg);
+  background: transparent;
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
   font-size: var(--font-xs);
-  font-weight: 720;
-  padding: 0 10px;
+  font-weight: 700;
+  padding: 0 9px;
 }
 
 .visual-preset-chip:hover,
 .visual-preset-chip:focus-visible {
-  border-color: var(--focus);
+  border-color: color-mix(in srgb, var(--button-border) 70%, transparent);
+  background: var(--button-bg);
   color: var(--text-primary);
 }
 
@@ -2899,12 +3143,12 @@ svg {
 
 .visual-preset-chip-count {
   display: inline-flex;
-  min-width: 17px;
-  height: 17px;
+  min-width: 16px;
+  height: 16px;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent);
   color: var(--text-dim);
   font-size: 10px;
   font-weight: 760;
@@ -2916,13 +3160,21 @@ svg {
   color: var(--text-primary);
 }
 
+/* Grade de presets: coluna acompanha a largura real do painel. A barra lateral é
+ * acessória (o palco tem o piso de 520px), então a grade não pode assumir 3
+ * colunas fixas nem ter um piso de 124px que trave a 2 colunas. O `min(100%, …)`
+ * permite 1 coluna e o `minmax` baixo deixa o navegador reduzir a contagem
+ * conforme a barra encolhe, em vez de estourar. */
 .visual-preset-grid {
   display: grid;
   max-height: min(380px, 48vh);
   gap: var(--space-2);
-  overflow: auto;
+  /* Só vertical. `overflow: auto` abriria os dois eixos e produziria rolagem
+   * lateral — que não é solução de responsividade: a grade tem que reflowar. */
+  overflow-x: clip;
+  overflow-y: auto;
   padding: 1px 2px 2px 1px;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 124px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 96px), 1fr));
   scrollbar-width: thin;
 }
 
@@ -2986,6 +3238,26 @@ svg {
   left: 4px;
 }
 
+/* Selo de proveniência. Topo-direito é o único slot livre: o badge padrão
+   ocupa base-direita (T{tier}/Check) e .variants base-esquerda. Só aparece em
+   efeitos de terceiros, então 26 dos 67 cards não ganham ruído visual. */
+.visual-preset-thumb-badge.license {
+  top: 4px;
+  right: 4px;
+  bottom: auto;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+  background: rgb(0 0 0 / 64%);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visual-preset-thumb-badge.license:hover {
+  background: rgb(0 0 0 / 82%);
+}
+
 .visual-preset-thumb-badge svg {
   width: 11px;
   height: 11px;
@@ -2998,6 +3270,57 @@ svg {
   font-size: var(--font-xs);
   font-weight: 720;
   line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Linha de proveniência do preset ativo. Fica acima das variantes e é sempre
+   visível: a resposta de "por que este efeito existe" não pode depender de
+   hover, que não existe em toque. Encolhe por priority: nome+selo > origem >
+   coleções > resumo longo. */
+.visual-preset-origin-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: var(--space-2);
+  font-size: var(--font-xs);
+}
+
+.visual-preset-origin-name {
+  color: var(--text-primary);
+  font-weight: 760;
+}
+
+.visual-preset-origin-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 8%);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.02em;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.visual-preset-origin-meta,
+.visual-preset-origin-collections {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.visual-preset-origin-collections::before {
+  content: "· ";
+}
+
+.visual-preset-origin-why {
+  flex: 1 1 14rem;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  opacity: 0.86;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3464,11 +3787,13 @@ svg {
 
 .stack-detail-body {
   display: grid;
+  min-width: 0;
   gap: var(--space-3);
   padding: 11px;
 }
 
 .stack-detail-disclosure {
+  min-width: 0;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   background: var(--stage-surface-low);

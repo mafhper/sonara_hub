@@ -22,7 +22,7 @@ const runId = String(Date.now()).slice(-6);
 const clientUrl = process.env.SONARA_CLIENT_URL ?? "http://127.0.0.1:5173";
 const apiUrl = "http://127.0.0.1:4175";
 const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-hub-flow-"));
-const screenshotDir = path.join(root, ".dev", "flow-smoke");
+const screenshotDir = path.join(root, ".dev", "runtime", "flow-smoke");
 const coverPath = path.join(workDir, "album-cover.png");
 const layerPath = path.join(workDir, "overlay-layer.png");
 await fs.mkdir(screenshotDir, { recursive: true });

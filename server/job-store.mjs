@@ -30,7 +30,26 @@ export async function saveJobHistory(filePath, jobs, limit = 50) {
     // unlink which works even when the destination is open.
     if (err?.code !== "EPERM" && err?.code !== "EBUSY") throw err;
     await fs.copyFile(tempPath, filePath);
-    await fs.unlink(tempPath).catch(() => undefined);
+    await removeJobHistoryTemp(tempPath);
+  }
+}
+
+// The copy above already landed, so the save itself succeeded and failing the
+// caller over a leftover temp file would be wrong. But it must not be silent
+// either: a stale <file>.tmp outlives the process and resurfaces as untracked
+// state with nothing to explain it.
+export async function removeJobHistoryTemp(tempPath) {
+  try {
+    await fs.unlink(tempPath);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return true;
+    console.warn(
+      `[job-store] temporario ${tempPath} nao removido: ${
+        error?.code ?? error?.message
+      }`,
+    );
+    return false;
   }
 }
 

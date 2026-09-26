@@ -653,11 +653,29 @@ export const paperShaderPresetCount = paperShaderDefinitions.reduce(
   (total, item) => total + item.presets.length,
   0,
 );
+// Curadoria de categoria (SH9C): alguns shaders Paper não são "atmosfera" de
+// fundo — são camadas/elementos compositivos (anel, moldura, retícula de
+// imagem, fumaça de gema, metal, dithering). Esses vão para "Composicoes",
+// que antes só tinha o `vinyl`. Chaveado por rendererId, explícito e auditável.
+const PAPER_COMPOSITION_RENDERER_IDS = new Set([
+  "paper-gem-smoke",
+  "paper-liquid-metal",
+  "paper-dithering",
+  "paper-smoke-ring",
+  "paper-pulsing-border",
+  "paper-water",
+]);
+
+function categoryForPaperShader(item) {
+  if (PAPER_COMPOSITION_RENDERER_IDS.has(item.rendererId)) return "Composicoes";
+  return item.motion === "static" ? "Efeitos simples" : item.category;
+}
+
 export const paperShaderPresetConfigs = paperShaderDefinitions.map((item) => ({
   id: item.rendererId,
   rendererId: item.rendererId,
   name: item.name,
-  category: item.motion === "static" ? "Efeitos simples" : item.category,
+  category: categoryForPaperShader(item),
   family: `paper-${item.slug}`,
   tags: [
     ...PAPER_SHADER_TAGS,

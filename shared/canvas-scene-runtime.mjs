@@ -65,6 +65,7 @@ uniform float u_param2;
 uniform float u_param3;
 uniform float u_param4;
 uniform float u_param5;
+uniform float u_param6;
 uniform float u_cloudSunEnabled;
 uniform float u_cloudSunIntensity;
 uniform float u_cloudSunX;
@@ -118,6 +119,22 @@ export const shaderAudioUniformNames = [
   "beatPhase",
 ];
 
+// ###########################################################################
+// # AVISO — NÃO USE CRASE NESTE ARQUIVO                                        #
+// #                                                                              #
+// # Tudo abaixo de `const fragmentShaders` são TEMPLATE LITERALS JS com GLSL     #
+// # dentro. Uma crase (código 96) em qualquer lugar da string fecha o literal —   #
+// # inclusive dentro de um COMENTÁRIO, porque o parser não distingue. O mesmo    #
+// # vale para "${", que abriria uma interpolação JS.                             #
+// #                                                                              #
+// # O sintoma é um build quebrado com:                                           #
+// #   [PARSE_ERROR] Expected `,` or `}` but found `Identifier`                   #
+// # e a linha apontada é o ponto onde a string JÁ TERMINOU — raramente é a        #
+// # linha culpada, que costuma estar 5 a 15 linhas acima.                        #
+// #                                                                              #
+// # Caiu nisso 3 vezes numa sessão. Use aspas duplas em comentário.             #
+// # O build pega o erro; só o diagnóstico é que é ruim.                          #
+// ###########################################################################
 const fragmentShaders = {
   "liquid-mesh": `${shaderPrelude}
 void main() {
@@ -173,6 +190,317 @@ void main() {
   vec3 color = mix(u_colorA, u_colorB, haze * 0.22);
   color += u_accentColor * (ribbon + echo * 0.42) * (0.22 + u_param4 * 0.62) * pulse(u_audioMid, 0.32);
   gl_FragColor = vec4(finish(color, uv), 1.0);
+}`,
+  // Técnica `ribbon-field` adaptada de ThreeUI "Predictive Arc" / variante
+  // Ribbon Field (MIT): fitas procedurais com grade de pontos e bloom.
+  // Reimplementada para a interface fullscreen u_* do Sonara.
+  "ribbon-field": `${shaderPrelude}
+float ribbonField(vec2 uv, float offset, float width, float phase) {
+  float y = 0.55 + 0.20 * sin((uv.x * 2.15) + phase) + 0.045 * sin((uv.x * 7.0) - phase * 0.7);
+  float d = abs(uv.y - y - offset);
+  return exp(-(d * d) / width);
+}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  float t = u_time * (0.08 + u_speed * 0.55);
+  float r1 = ribbonField(uv, 0.03, 0.0065, t + 0.9);
+  float r2 = ribbonField(uv, -0.23, 0.0085, t + 3.25);
+  float r3 = ribbonField(uv, 0.25, 0.014, t + 1.85);
+  float glow = (r1 * 1.14 + r2 * 1.05 + r3 * 0.48) * (0.55 + u_param1 * 0.9);
+  vec3 col = vec3(0.0);
+  col += u_accentColor * r1 * 0.92;
+  col += u_colorB * r1 * 0.62;
+  col += mix(u_colorB, u_accentColor, 0.4) * r3 * 0.42;
+  col += u_colorB * r2 * 0.66;
+  col += mix(u_accentColor, u_colorB, 0.5) * (r2 + r3) * 0.30;
+  float bloom = exp(-pow(distance(uv, vec2(0.76, 0.40 + 0.035 * sin(t))), 2.0) / 0.050);
+  bloom += exp(-pow(distance(uv, vec2(0.71, 0.75 + 0.025 * cos(t))), 2.0) / 0.030);
+  col += u_accentColor * bloom * (0.18 + u_param2 * 0.4);
+  float gridSize = 4.0 + u_param0 * 10.0;
+  vec2 grid = fract(gl_FragCoord.xy / gridSize) - 0.5;
+  float dotShape = smoothstep(0.29, 0.11, length(grid));
+  float n = hash(floor(gl_FragCoord.xy / gridSize));
+  float scan = 0.72 + 0.28 * sin((uv.x + uv.y) * 38.0 + u_time * 1.3);
+  float dots = dotShape * (0.48 + 0.52 * n) * scan;
+  float micro = hash(gl_FragCoord.xy + u_time) * 0.035;
+  float alpha = clamp((glow * 1.55 + bloom * 0.5) * dots, 0.0, 1.0);
+  vec3 base = u_colorA * 0.05;
+  vec3 finalColor = mix(base, col, clamp(alpha * (1.0 + u_param3), 0.0, 1.0));
+  finalColor += micro;
+  gl_FragColor = vec4(finish(finalColor * pulse(u_audioMid, 0.35), uv), 1.0);
+}`,
+  // Técnica `void-field` adaptada de ThreeUI "Void Protocol"
+  // (src/shaders/neuform-isolated/sources/void-protocol.html, MIT): matriz de
+  // pontos com distorção barrel, respiração radial, scanlines e flicker.
+  // Adaptação: o `uMouse` do upstream foi removido — o runtime do Sonara é
+  // determinístico e sem ponteiro (paridade preview↔export é regra dura).
+  // O palette fixo roxo foi substituído pelas cores do preset.
+  "void-field": `${shaderPrelude}
+vec2 barrel(vec2 uv, float amount) {
+  vec2 center = uv - 0.5;
+  float r = dot(center, center);
+  return uv + center * r * amount;
+}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  uv = barrel(uv, 0.12 + u_param0 * 0.22);
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    return;
+  }
+  vec2 gridCount = vec2(70.0 + u_param1 * 90.0);
+  gridCount.y *= u_resolution.y / u_resolution.x;
+  vec2 gridUv = fract(uv * gridCount);
+  vec2 id = floor(uv * gridCount);
+  vec2 cellCenter = id / gridCount - 0.5;
+  float dist = length(cellCenter);
+  float breathe = sin(u_time * (0.5 + u_speed * 0.9) - dist * 10.0) * 0.5 + 0.5;
+  float dotSize = (0.18 + u_param2 * 0.28) * breathe;
+  float circle = smoothstep(dotSize, dotSize - 0.05, length(gridUv - 0.5));
+  float scanline = sin(uv.y * (420.0 + u_param3 * 700.0)) * 0.03;
+  // Flicker determinístico: depende só de u_time e da linha da célula.
+  float flicker = hash(vec2(floor(u_time * 12.0), id.y)) > 0.97 ? 0.45 : 1.0;
+  vec3 tint = mix(u_colorB, u_accentColor, smoothstep(0.0, 0.9, dist));
+  vec3 col = tint * circle * breathe * flicker;
+  col = max(col - scanline, 0.0);
+  // Vinheta suave: o upstream usava smoothstep(0.8, 0.2) e um offset de
+  // 0.05px que apagavam a borda da matriz quase inteira num preset 16:9.
+  // A vinheta foi alargada e a matriz ganhou um brilho de campo fraco, para
+  // que a grade continue legível até as bordas.
+  col *= smoothstep(1.05, 0.25, dist);
+  col += tint * 0.045;
+  col += u_colorB * pow(breathe, 6.0) * (0.06 + u_param4 * 0.18) * pulse(u_audioMid, 0.3);
+  gl_FragColor = vec4(finish(col, uv), 1.0);
+}`,
+  // Técnica `laser` adaptada de ThreeUI "Laser"
+  // (src/shaders/laser/laserShaders.ts, MIT): 4 variantes (lâmina atmosférica,
+  // array que some, abertura prismática, relé halftone) com perfil gaussiano de
+  // feixe, névoa por fbm e retícula. Adaptação: o `u_pointer` do upstream — que
+  // seguia o cursor por lerp de frame (não-determinístico) — foi FIXADO em um
+  // ponto centrado com deriva função apenas de `u_time` (ver
+  // `.dev/tasks/backlog/threeui-library/candidato-laser.md`). O runtime do Sonara
+  // é determinístico e sem ponteiro (paridade preview↔export é regra dura); a
+  // diferença para o upstream é declarada no NOTICE. Os uniforms `u_hue`/
+  // `u_saturation` viraram as cores do preset e o tonemap do upstream foi
+  // absorvido por `finish()`.
+  laser: `${shaderPrelude}
+vec2 laserProfile(float distanceToLine, float coreWidth, float glowWidth) {
+  float core = exp(-pow(distanceToLine / max(coreWidth, 0.0002), 2.0));
+  float glow = exp(-pow(distanceToLine / max(glowWidth, 0.001), 1.25));
+  return vec2(core, glow);
+}
+mat2 laserRotate(float angle) {
+  float s = sin(angle), c = cos(angle);
+  return mat2(c, -s, s, c);
+}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  vec2 p = (gl_FragCoord.xy * 2.0 - u_resolution.xy) / min(u_resolution.x, u_resolution.y);
+  // Controle de posicionamento do elemento central: deslocamento X/Y e rotação
+  // aplicados pelo usuário (params 4/5/6). Substituem o "ponteiro" do upstream de
+  // forma determinística: o offset move a âncora, a rotação gira o espaço em
+  // volta do centro. A deriva temporal continua por baixo (movimento vivo).
+  //
+  // A âncora mora no MESMO espaço de p (centrado em 0, ~[-1,1]) e não em
+  // [0,1] como o u_pointer do upstream. A diferença importa: p é
+  // normalizado por min(resolution), então uma âncora 0..1 ficava fora do
+  // enquadramento em telas largas — o fbm era amostrado fora da cena, a névoa
+  // sumia e sobrava só o brilho central (leitura de lens flare, sem laser).
+  vec2 offset = vec2((u_param4 - 0.5) * 0.7, (u_param5 - 0.5) * 0.7);
+  p = laserRotate((u_param6 - 0.5) * 6.2831853) * p;
+  vec2 pointer = vec2(sin(u_time * 0.34) * 0.16, cos(u_time * 0.26) * 0.11) + offset;
+  float variant = u_param0;                 // 0..3, arredondado nos 4 ramos
+  float size = 0.35 + u_param1 * 2.15;      // u_size   (clamp 0.35..2.5)
+  // "span" e nao "length": length e palavra reservada em GLSL (builtin) e o
+  // driver rejeita a compilacao com "function name expected". Erro pego pelo
+  // probe de afinacao, nao pelo smoke de render.
+  float span = 0.35 + u_param2 * 2.15;         // u_length (clamp 0.35..2.5)
+  float density = 0.25 + u_param3 * 2.25;  // u_density(clam 0.25..2.5)
+  float t = u_time * (0.6 + u_speed * 0.8);
+  vec3 color = u_colorA * 0.012;
+
+  if (variant < 0.5) {
+    // atmospheric-blade
+    float drift = sin(t * 0.21) * 0.025;
+    float center = pointer.x * 0.16 + drift;
+    float tilt = pointer.x * 0.055 + sin(t * 0.13) * 0.018;
+    float dist = abs(p.x - center - p.y * tilt);
+    float vMask = 1.0 - smoothstep(0.68 * span, 1.35 * span, abs(p.y));
+    vec2 beam = laserProfile(dist, 0.0028 * size, 0.052 * size);
+    vec2 fogUv = vec2(p.x * 2.1, p.y * 1.35 - t * 0.055);
+    fogUv.x += sin(p.y * 2.1 - t * 0.12) * 0.14;
+    float fogNoise = fbm(fogUv + pointer * 0.35);
+    // Névoa: a pluma larga é a assinatura visual do laser. Três ajustes sobre o
+    // upstream, todos medidos: o fbm de 6 oitavas tem massa concentrada em
+    // 0.3–0.4 (pouca área passa do smoothstep), o envelope 0.24*size era
+    // estreito em espaço p, e a fumaça somava 0.34 contra 1.65 do núcleo.
+    // O fog é amostrado numa frequência menor que a do feixe, para a pluma ter
+    // volume contínuo em vez de pontos isolados.
+    float fog = smoothstep(0.16, 0.62, fogNoise) * exp(-pow(dist / (0.46 * size), 1.05)) * density * vMask;
+    float mirageDist = abs(abs(p.x - center + p.y * tilt * 0.35) - 0.105 * span);
+    vec2 mirage = laserProfile(mirageDist, 0.0011 * size, 0.016 * size);
+    float mirageMask = (1.0 - smoothstep(0.08, 1.2, abs(p.y))) * (0.35 + 0.65 * fogNoise);
+    // A fumaça precisa pesar mais que o brilho: é ela que dá a leitura de
+    // "laser dentro de fumaça". O upstream somava a névoa em 0.34 contra 1.65
+    // do núcleo, então mesmo com o envelope largo ela ficava apagada. Aqui a
+    // fumaça é a massa dominante e o núcleo é o realce em cima.
+    color += u_colorB * fog * 0.82;
+    color += u_colorB * beam.y * vMask * (0.52 + 0.06 * sin(t * 1.1));
+    color += mix(u_colorB, u_accentColor, 0.88) * beam.x * vMask * 1.65;
+    color += u_colorB * mirage.y * mirageMask * 0.12 * density;
+    color += u_accentColor * mirage.x * mirageMask * 0.35 * density;
+    color += u_colorB * exp(-length(vec2((p.x - center) * 2.5, p.y + 0.77 * span)) * 7.0) * 0.45;
+  } else if (variant < 1.5) {
+    // vanishing-array
+    vec2 origin = vec2(pointer.x * 0.16, 0.12 + pointer.y * 0.075);
+    vec2 q = p - origin;
+    float radius = length(q);
+    float angle = atan(q.y, q.x);
+    float spokeCount = floor(11.0 + density * 10.0);
+    float angularDistance = abs(sin(angle * spokeCount));
+    float spoke = exp(-angularDistance * max(radius, 0.06) / (0.0075 * size));
+    float reach = smoothstep(0.035, 0.16, radius) * (1.0 - smoothstep(0.42 * span, 1.55 * span, radius));
+    float lowerField = 1.0 - smoothstep(-0.12, 0.22, q.y);
+    float upperField = smoothstep(0.02, 0.52, q.y) * 0.48;
+    float fieldMask = max(lowerField, upperField);
+    float carrier = 0.55 + 0.45 * sin(radius * 16.0 - t * 4.1 + angle * 2.0);
+    carrier = pow(max(carrier, 0.0), 7.0);
+    float rail = spoke * reach * fieldMask;
+    float railCore = pow(rail, 2.1);
+    float ringPhase = abs(sin((radius * 13.0 - t * 1.5) / max(span, 0.35)));
+    float rings = exp(-ringPhase / (0.035 * size)) * (1.0 - smoothstep(0.1, 1.2, radius)) * lowerField;
+    float horizon = exp(-abs(q.y) / (0.0035 * size)) * (1.0 - smoothstep(0.12, 1.15, abs(q.x)));
+    // Gradiente do trilho entre as duas pontas da paleta, modulado pelo ângulo:
+    // é o que dá a leitura de "arco-íris que gira" do upstream.
+    vec3 railTint = mix(u_colorB, u_accentColor, 0.5 + 0.5 * sin(angle * 3.0));
+    color += railTint * rail * (0.24 + carrier * 0.72);
+    color += mix(railTint, u_accentColor, 0.9) * railCore * (0.52 + carrier * 0.92);
+    color += u_colorB * rings * 0.14 * density;
+    color += mix(u_colorB, u_accentColor, 0.75) * horizon * 0.38;
+    color += u_colorB * exp(-radius * 15.0) * 0.95;
+  } else if (variant < 2.5) {
+    // prism-aperture
+    vec2 center = pointer * vec2(0.12, 0.08);
+    vec2 q = p - center;
+    float breathing = 0.46 * span + sin(t * 0.72) * 0.012;
+    float warp = (fbm(q * 3.2 + vec2(0.0, -t * 0.08)) - 0.5) * 0.025 * density;
+    float diamond = abs(q.x * 0.82) + abs(q.y) - breathing - warp;
+    float innerDiamond = abs(q.x * 0.82) + abs(q.y) - breathing * 0.66 + warp * 0.45;
+    vec2 outer = laserProfile(abs(diamond), 0.0024 * size, 0.046 * size);
+    vec2 inner = laserProfile(abs(innerDiamond), 0.0012 * size, 0.018 * size);
+    float edgeMask = 1.0 - smoothstep(0.25, 1.18, length(q));
+    float perimeterPhase = sin((q.x - q.y) * 15.0 - t * 3.3);
+    float packets = pow(max(perimeterPhase, 0.0), 10.0) * outer.y;
+    float axisX = exp(-abs(q.x) / (0.002 * size)) * (1.0 - smoothstep(0.04, breathing, abs(q.y)));
+    float axisY = exp(-abs(q.y) / (0.002 * size)) * (1.0 - smoothstep(0.04, breathing, abs(q.x)));
+    // Franjas de dispersão: o upstream usava accent(0.98,·) e accent(0.54,·);
+    // aqui viram as duas pontas da paleta do preset.
+    float redFringe = exp(-pow(abs(diamond - 0.011 * size) / (0.011 * size), 1.4));
+    float blueFringe = exp(-pow(abs(diamond + 0.011 * size) / (0.011 * size), 1.4));
+    color += u_colorB * outer.y * edgeMask * 0.5;
+    color += mix(u_colorB, u_accentColor, 0.9) * outer.x * edgeMask * 1.5;
+    color += u_colorB * inner.y * edgeMask * 0.18 * density;
+    color += u_accentColor * inner.x * edgeMask * 0.48 * density;
+    color += u_accentColor * redFringe * 0.13;
+    color += mix(u_colorB, u_accentColor, 0.5) * blueFringe * 0.16;
+    color += mix(u_colorB, u_accentColor, 0.8) * (axisX + axisY) * 0.2;
+    color += u_colorB * packets * 0.85;
+    color += u_colorB * exp(-length(q) * 9.0) * 0.22;
+  } else {
+    // halftone-relay
+    float center = 0.29 + pointer.x * 0.12;
+    float bend = sin(p.y * 2.1 - t * 0.25) * 0.018;
+    float mainDist = abs(p.x - center - bend);
+    float relayDist = abs(p.x - center + 0.075 * span + bend * 0.45);
+    vec2 mainBeam = laserProfile(mainDist, 0.0022 * size, 0.072 * size);
+    vec2 relayBeam = laserProfile(relayDist, 0.0012 * size, 0.025 * size);
+    vec2 fogUv = vec2(p.x * 3.0, p.y * 2.5 - t * 0.1);
+    float fogNoise = fbm(fogUv + vec2(sin(t * 0.16), 0.0));
+    float fog = smoothstep(0.28, 0.78, fogNoise) * exp(-mainDist * 9.5 / size) * density;
+    float dotScale = mix(9.0, 4.5, clamp((density - 0.25) / 2.25, 0.0, 1.0));
+    vec2 dotCell = fract(gl_FragCoord.xy / dotScale) - 0.5;
+    float dot = 1.0 - smoothstep(0.08, 0.34, length(dotCell));
+    float dotMask = dot * smoothstep(0.08, 0.68, fog + mainBeam.y * 0.65);
+    float pulseLine = pow(max(0.0, sin(p.y * 9.0 - t * 4.0)), 12.0);
+    float horizontalRelay = exp(-abs(p.y + 0.34 - pointer.y * 0.08) / (0.0024 * size));
+    horizontalRelay *= 1.0 - smoothstep(0.1, 1.05 * span, abs(p.x - center));
+    color += u_colorB * fog * 0.24;
+    color += u_colorB * mainBeam.y * 0.54;
+    color += mix(u_colorB, u_accentColor, 0.9) * mainBeam.x * 1.48;
+    color += u_colorB * relayBeam.y * 0.2;
+    color += u_accentColor * relayBeam.x * 0.5;
+    color += mix(u_colorB, u_accentColor, 0.6) * dotMask * (0.3 + pulseLine * 0.42);
+    color += mix(u_colorB, u_accentColor, 0.8) * horizontalRelay * (0.22 + pulseLine * 0.58);
+  }
+
+  float vignette = 1.0 - smoothstep(0.24, 1.45, length(p * vec2(0.72, 0.88)));
+  color *= 0.55 + vignette * 0.45;
+  // Tonemap Reinhard do upstream (color / (color + 0.72)). Sem ele o quadro
+  // fica como névoa cinza chapada: ele é o que mantém o fundo preto e faz o
+  // núcleo do feixe estourar em branco — é o que faz o laser LER como luz.
+  color = color / (color + vec3(0.72));
+  gl_FragColor = vec4(finish(color, uv), 1.0);
+}`,
+  // Técnica `halftone-flow` adaptada de ThreeUI "Nexus Unified Flow"
+  // (src/shaders/neuform-isolated/sources/nexus-unified-flow.html, MIT):
+  // campo de fluxo com domain warping, pintado em retícula halftone cuja
+  // área do ponto segue a intensidade. Adaptação: contador de loop `int`
+  // (GLSL ES 1.00 não aceita `float`) e paleta vinda do preset.
+  "halftone-flow": `${shaderPrelude}
+mat2 rot(float a) {
+  float s = sin(a), c = cos(a);
+  return mat2(c, -s, s, c);
+}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  vec2 p = uv * 2.0 - 1.0;
+  p.x *= u_resolution.x / u_resolution.y;
+  vec2 flowUv = p;
+  float t = u_time * (0.12 + u_speed * 0.4);
+  for (int index = 1; index < 4; index++) {
+    float f = float(index);
+    flowUv *= rot(t * 0.1);
+    flowUv.x += sin(flowUv.y * 2.0 * f + t) * (0.25 + u_param0 * 0.5);
+    flowUv.y += cos(flowUv.x * 1.5 * f - t * 0.8) * (0.25 + u_param0 * 0.5);
+  }
+  float intensity = sin(flowUv.x * 2.0 + flowUv.y * 3.0) * 0.5 + 0.5;
+  intensity = clamp(intensity * (0.55 + u_param1 * 0.8), 0.0, 1.0);
+  vec3 fluidColor = mix(u_colorA * 0.35, u_colorB, smoothstep(0.2, 0.6, intensity));
+  fluidColor = mix(fluidColor, u_accentColor, smoothstep(0.65, 1.0, intensity));
+  float gridSize = 4.0 + u_param2 * 8.0;
+  vec2 cellUv = fract(gl_FragCoord.xy / gridSize) - 0.5;
+  float radius = intensity * (0.20 + u_param3 * 0.30);
+  float dotMask = smoothstep(radius, radius - 0.1, length(cellUv));
+  vec3 finalColor = mix(u_colorA * 0.1, fluidColor, dotMask);
+  finalColor += fluidColor * (0.06 + u_param4 * 0.16) * pulse(u_audioMid, 0.28);
+  gl_FragColor = vec4(finish(finalColor, uv), 1.0);
+}`,
+  // Técnica `amber-halftone` adaptada de ThreeUI "Amber Halftone"
+  // (src/shaders/neuform-isolated/sources/amber-halftone.html, MIT):
+  // retícula de pontos cujo brilho é uma onda radial senoidal, em gradiente
+  // vertical. Adaptação: o point-field three.js (gl_PointSize + atributo
+  // `scale`) virou grade procedural no fragment shader; a cor fixa do
+  // upstream foi substituída pelas cores do preset. O upstream semeava 4000
+  // pontos preenchendo o quadro; numa grade procedural o raio zera onde
+  // `scale` cai, então o raio ganhou um piso e o campo ganhou uma névoa de
+  // fósforo — sem isso a maior parte do frame fica preta morta.
+  "amber-halftone": `${shaderPrelude}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  float cells = 18.0 + u_param0 * 42.0;
+  vec2 gridUv = uv * cells;
+  gridUv.x *= u_resolution.x / u_resolution.y;
+  vec2 cellUv = fract(gridUv) - 0.5;
+  float dist = length(uv - 0.5) * 2.0;
+  float scale = sin(dist * 6.0 - u_time * (0.6 + u_speed * 1.8)) * 0.5 + 0.5;
+  float radius = (0.10 + u_param1 * 0.32) * (0.45 + scale * 0.55);
+  float dot = smoothstep(radius, radius * 0.18, length(cellUv));
+  vec3 phosphor = mix(u_colorB, u_accentColor, clamp(uv.y + u_param2 * 0.4, 0.0, 1.0));
+  vec3 col = phosphor * (0.05 + dot * (0.35 + scale * 0.65));
+  float scan = 0.92 + 0.08 * sin(uv.y * (300.0 + u_param3 * 500.0));
+  col *= scan;
+  col += u_accentColor * pow(scale, 8.0) * u_param4 * 0.28 * pulse(u_audioMid, 0.26);
+  gl_FragColor = vec4(finish(col, uv), 1.0);
 }`,
   "color-mesh": `${shaderPrelude}
 void main() {
@@ -960,6 +1288,547 @@ void main() {
   tone *= 1.0 + u_audioEnergy * u_audioReaction * 0.3;
   gl_FragColor = vec4(finish(tone, frag), 1.0);
 }`,
+  // CRT / tubo de fósforo. A TÉCNICA (curva, scanline, máscara tríade, halation,
+  // barra de rolagem, sheen, vinheta, flicker, grão) é o shader upstream do ThreeUI
+  // (crtShaders.ts, MIT). O CONTEÚDO é gerado aqui, no próprio shader: o upstream
+  // amostrava uma textura com telas de terceiros (BSOD do Windows, terminal ZION do
+  // Matrix) e isso foi excluído na auditoria SH12. Gerar o conteúdo no shader é o que
+  // torna a exclusão estrutural em vez de uma promessa: não existe textura onde
+  // possa haver tela de terceiro. Ver .dev/tasks/completed/legal-audit/.
+  //
+  // Contrato de params (avançado = contrato com o shader, controls = camada de UI).
+  // São 7 slots: param0..param6. O 0 é o variant (índice cru, do picker), então
+  // restam 6 controles. A velocidade NÃO é um deles — vem do controle comum `speed`.
+  //   param0 variant (índice cru 0..3, nunca normalizado)
+  //   param1 curve      param2 scanDensity  param3 scanDepth
+  //   param4 chroma     param5 grain        param6 vignette
+  crt: `${shaderPrelude}
+// Duas funções de ruído com corpos diferentes, de propósito: crtHash é
+// determinística por célula (o conteúdo do scope precisa ser estável no tempo),
+// crtHash21 é o grão de estática e muda a cada frame.
+float crtHash(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float crtHash21(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+
+// O slot de movimento não existe: o runtime expõe u_param0..u_param6 (7 slots, e
+// o 0 é o variant), então o oitavo controle seria o nono. A velocidade do tubo vem
+// do controle COMUM "speed", que já existe e é exatamente onde o usuário espera
+// regular velocidade — um "Movimento" duplicando isso seria um slider a mais.
+float motionOf(){ return 0.30 + u_speed * 0.9; }
+
+// Conteúdo autoral, desenhado no espaço da tela. Os 4 ramos são formas de scope
+// de áudio: onda, espectro, grade+varredura, anéis. Nenhuma letra, nenhum logo.
+vec3 crtContent(vec2 uv, float t) {
+  vec2 p = uv - 0.5;
+  float energy = u_audioEnergy;
+  int v = int(u_param0 + 0.5);
+
+  if (v == 0) {
+    // scope de onda: traço de fósforo com brilho e cauda
+    float f = 1.6 + u_audioMid * 2.2;
+    float wave = sin(uv.x * f * 6.28318 + t * 1.7) * 0.5;
+    wave += sin(uv.x * f * 2.1 * 6.28318 - t * 1.1) * 0.22 * (0.4 + energy);
+    float y = 0.5 + wave * (0.16 + u_audioBass * 0.20);
+    float d = abs(uv.y - y);
+    float core = smoothstep(0.012, 0.0, d);
+    float tail = smoothstep(0.075, 0.0, d) * 0.30;
+    float axis = smoothstep(0.0015, 0.0, abs(p.y)) * 0.22;
+    float tick = step(0.965, fract(uv.x * 8.0)) * 0.06;
+    return vec3(0.16, 1.0, 0.42) * (core + tail) + vec3(0.10, 0.55, 0.26) * (axis + tick);
+  }
+
+  if (v == 1) {
+    // espectro: barras com pico suavizado
+    float bins = 34.0;
+    float idx = floor(uv.x * bins);
+    float f = crtHash21(vec2(idx, 3.0));
+    float h = 0.10 + f * 0.20 + u_audioEnergy * (0.20 + f * 0.34);
+    float inBar = step(uv.y, h) * step(0.18, fract(uv.x * bins));
+    float peak = smoothstep(0.010, 0.0, abs(uv.y - h));
+    float floorLine = smoothstep(0.002, 0.0, abs(uv.y - 0.09)) * 0.30;
+    vec3 tint = mix(vec3(0.20, 1.0, 0.55), vec3(0.35, 0.85, 1.0), uv.x);
+    return tint * (inBar * 0.42 + peak * 0.85) + vec3(0.10, 0.42, 0.28) * floorLine;
+  }
+
+  if (v == 2) {
+    // grade + linha de varredura girando a partir do centro
+    vec2 g = abs(fract(uv * vec2(12.0, 8.0)) - 0.5);
+    float grid = smoothstep(0.055, 0.0, min(g.x, g.y)) * 0.20;
+    float a = t * 0.55 * (0.4 + motionOf());
+    float r = length(p);
+    // um raio girando: distância angular ao ângulo atual, 0 = sobre o raio
+    float sweep = abs(fract((atan(p.y, p.x) + a) * 0.1592) - 0.5);
+    float line = smoothstep(0.045, 0.0, sweep) * smoothstep(0.46, 0.10, r);
+    float dot0 = smoothstep(0.030, 0.0, r) * 0.9;
+    return vec3(1.0, 0.68, 0.22) * (grid + line * 0.85) + vec3(0.9, 0.55, 0.15) * dot0;
+  }
+
+  // Túnel: anéis recuando para o centro. O aspect precisa entrar pelo X (não pelo
+  // Y) para o resultado ser um círculo e não um disco achatado — escalando o Y a
+  // forma vira uma elipse larga e a leitura perde a profundidade.
+  float aspect = u_resolution.x / max(u_resolution.y, 1.0);
+  float r = length(vec2(p.x * aspect, p.y)) / max(aspect, 1.0) * 1.9;
+  float spin = t * 0.55 * (0.4 + motionOf());
+  // anéis finos e nítidos, com brilho caindo para fora
+  float band = abs(fract(r * 6.0 - spin) - 0.5) * 2.0;
+  float ring = smoothstep(0.42, 0.02, band);
+  float depth = smoothstep(1.05, 0.06, r);
+  // núcleo: o ponto de fuga do túnel
+  float core = smoothstep(0.13, 0.0, r);
+  vec3 cold = vec3(0.30, 0.62, 1.0);
+  vec3 hot = vec3(0.92, 0.97, 1.0);
+  vec3 col = cold * ring * depth * 1.55;
+  col += hot * core * (0.85 + u_audioEnergy * 0.9);
+  // luz do anel mais próximo de dentro, para o profundidade aparecer
+  col += cold * smoothstep(0.30, 0.0, r) * 0.20;
+  return col;
+}
+
+void main() {
+  vec2 res = max(u_resolution, vec2(1.0));
+  vec2 raw = gl_FragCoord.xy / res;
+  float t = u_time;
+  float motion = motionOf();
+
+  // --- técnica do tubo (upstream) -------------------------------------------
+  float curve = 0.06 + u_param1 * 0.26;
+  vec2 uv = raw * 2.0 - 1.0;
+  vec2 o = uv.yx * uv.yx;
+  uv += uv * o * curve;
+  uv = uv * 0.5 + 0.5;
+
+  // dentro/fora da tela (a curvatura empurra as bordas para fora)
+  vec2 inb = step(vec2(0.0), uv) * step(uv, vec2(1.0));
+  float inside = inb.x * inb.y;
+  vec2 ed = min(uv, 1.0 - uv);
+  inside *= smoothstep(0.0, 0.020, min(ed.x, ed.y));
+
+  // aberração cromática radial
+  vec2 dir = uv - 0.5;
+  float d2 = dot(dir, dir);
+  vec2 ab = dir * (0.0012 + 0.0085 * d2) * (0.4 + u_param4 * 1.6);
+  vec3 col;
+  col.r = crtContent(uv + ab, t).r;
+  col.g = crtContent(uv, t).g;
+  col.b = crtContent(uv - ab, t).b;
+
+  // halation: anel largo de amostras para o fósforo florescer no vidro
+  float halo = 0.045 + u_audioEnergy * 0.05;
+  float hs = 0.0042;
+  vec3 wide = crtContent(uv + vec2(hs, 0.0), t) + crtContent(uv - vec2(hs, 0.0), t)
+            + crtContent(uv + vec2(0.0, hs), t) + crtContent(uv - vec2(0.0, hs), t);
+  col += wide * (halo / 4.0);
+
+  // scanline: seno ao longo de y, rolando com o tempo
+  // Scanline: a densidade é medida em PIXELS, não em linhas absolutas. Com um
+  // número fixo (194 linhas), a 270px de altura isso dá 2,8px por ciclo e cai
+  // acima de Nyquist: a grade vira ruído e mudar o controle não muda nada — foi
+  // medido como inerte. Derivando da altura, o ciclo fica entre ~24px e ~7px em
+  // qualquer resolução, então o controle volta a ter efeito e a aparência
+  // continua igual entre o preview e o export.
+  float density = (u_resolution.y / 6.0) * (0.5 + u_param2 * 1.2);
+  float sl = sin(uv.y * 3.14159265 * density + t * 4.0 * motion);
+  col *= mix(1.0 - u_param3 * 0.62, 1.0, sl * sl);
+
+  // máscara tríade (grade de abertura de fósforo)
+  float triad = 180.0 + u_param4 * 120.0;
+  float gx = gl_FragCoord.x * (6.2831853 / triad);
+  float grille = 0.10 + u_param4 * 0.22;
+  vec3 mask = (1.0 - grille) + grille * cos(gx + vec3(0.0, 2.094, 4.188));
+  col *= mix(vec3(1.0), mask, 0.85);
+
+  // barra de rolagem + flicker
+  float bar = fract(uv.y * 0.5 - t * 0.07 * motion);
+  bar = smoothstep(0.0, 0.05, bar) * smoothstep(0.18, 0.05, bar);
+  col += bar * 0.022 * motion;
+  col *= 1.0 - (0.012 + u_audioOnset * 0.02) * sin(t * 8.0);
+
+  // brilho de vidro no topo + vinheta
+  float sheen = smoothstep(0.55, 0.0, distance(uv, vec2(0.50, 0.15)));
+  col += sheen * 0.028;
+  // Vinheta: o falloff precisa cobrir área VISÍVEL. Começando em 0.98, o controle
+  // só agia onde a sala já era preta, então não havia pixel para escurecer e ele
+  // media 0.0002 — inerte. Escurecendo a partir de 1.15 e com o alcance todo,
+  // ele passa a actuar sobre a parte útil da imagem.
+  float vig = smoothstep(1.15, 0.15, length((uv - 0.5) * vec2(1.05, 1.0)));
+  col *= mix(1.0 - u_param6 * 0.85, 1.0, vig);
+
+  // grão
+  col += (crtHash(raw * res * 0.5 + vec2(floor(t * 24.0))) - 0.5) * u_param5 * 0.20;
+
+  // sala escura fora do tubo
+  vec3 room = vec3(0.016, 0.020, 0.030);
+  col = mix(room, col, inside);
+  col = max(col, room * 0.5);
+  gl_FragColor = vec4(col, 1.0);
+}`,
+  // Liquid Form / metal líquido. Metaball raymarched com deslocamento por simplex
+  // noise e iluminação de ambiente (key + rim + fill + painel), do ThreeUI
+  // (src/shaders/liquid-form/liquidFormShaders.ts, MIT). Sem texto, sem marca, sem
+  // asset: técnica pura.
+  //
+  // Diferença em relação ao upstream, que não é cosmética: ele interpola a
+  // CÂMERA pelo mouse a cada frame (u_mouse + u_mouse_amount). Isso não é
+  // reproduzível e export determinístico é regra do Sonara — o mesmo motivo que
+  // trocou o ponteiro do laser por controles (ver SH11). Aqui vira rotateX/rotateY/
+  // rotate, com deriva por u_time por baixo para não ficar estático.
+  //
+  // Contrato de params (avançado = contrato com o shader, controls = camada de UI):
+  //   param0 variant (índice cru 0..3, nunca normalizado)
+  //   param1 morph     param2 noiseScale  param3 camera
+  //   param4 rotateX   param5 rotateY    param6 rotate
+  //
+  // Custo: MAX_STEPS 48 (o upstream usa 70) x 3 snoise por map(), e calcNormal
+  // chama map() mais 4x. São ~340 avaliações de simplex por pixel. Baixei de 70
+  // para 48 porque o ganho visual era imperceptível e o custo é linear nos passos.
+  liquidform: `${shaderPrelude}
+#define LF_STEPS 72
+#define LF_MAX_DIST 20.0
+#define LF_SURF_DIST 0.0025
+// Com morph alto o campo deixa de ser um SDF válido (o gradiente não é mais 1),
+// e o passo "d += ds" passa a dar overshoot: o raio pula a superfície e aparece
+// uma costura fina cortando o blob. Backlog de Marching Marchando: dividir o
+// passo por uma cota do gradiente. 0.72 é o menor valor que remove a costura
+// sem custar passos extras.
+#define LF_STEP 0.72
+
+vec3 lfMod289(vec3 x){ return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec4 lfMod289(vec4 x){ return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec4 lfPermute(vec4 x){ return lfMod289(((x * 34.0) + 1.0) * x); }
+vec4 lfTaylorInvSqrt(vec4 r){ return 1.79284291400159 - 0.85373472095314 * r; }
+
+// simplex noise 3D (Ashima/Gustavson, como o upstream)
+float lfSnoise(vec3 v){
+  const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+  const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+  vec3 i = floor(v + dot(v, C.yyy));
+  vec3 x0 = v - i + dot(i, C.xxx);
+  vec3 g = step(x0.yzx, x0.xyz);
+  vec3 l = 1.0 - g;
+  vec3 i1 = min(g.xyz, l.zxy);
+  vec3 i2 = max(g.xyz, l.zxy);
+  vec3 x1 = x0 - i1 + C.xxx;
+  vec3 x2 = x0 - i2 + C.yyy;
+  vec3 x3 = x0 - D.yyy;
+  i = lfMod289(i);
+  vec4 p = lfPermute(lfPermute(lfPermute(i.z + vec4(0.0, i1.z, i2.z, 1.0))
+        + i.y + vec4(0.0, i1.y, i2.y, 1.0)) + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+  float n_ = 0.142857142857;
+  vec3 ns = n_ * D.wyz - D.xzx;
+  vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+  vec4 x_ = floor(j * ns.z);
+  vec4 y_ = floor(j - 7.0 * x_);
+  vec4 x = x_ * ns.x + ns.yyyy;
+  vec4 y = y_ * ns.x + ns.yyyy;
+  vec4 h = 1.0 - abs(x) - abs(y);
+  vec4 b0 = vec4(x.xy, y.xy);
+  vec4 b1 = vec4(x.zw, y.zw);
+  vec4 s0 = floor(b0) * 2.0 + 1.0;
+  vec4 s1 = floor(b1) * 2.0 + 1.0;
+  vec4 sh = -step(h, vec4(0.0));
+  vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+  vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+  vec3 p0 = vec3(a0.xy, h.x);
+  vec3 p1 = vec3(a0.zw, h.y);
+  vec3 p2 = vec3(a1.xy, h.z);
+  vec3 p3 = vec3(a1.zw, h.w);
+  vec4 norm = lfTaylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+  p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+  vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+  m = m * m;
+  return 42.0 * dot(m * m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+}
+
+// Orientação da câmera vinda dos controles, com deriva lenta por u_time.
+mat2 lfRot(float a){ float s = sin(a), c = cos(a); return mat2(c, -s, s, c); }
+
+float lfMap(vec3 p, float t) {
+  float morph = lfSnoise(p * (0.8 * u_param2) + t * 0.1) * 0.2;
+  morph += lfSnoise(p * (1.5 * u_param2) - t * 0.05 + 10.0) * 0.08;
+  morph += lfSnoise(p * (3.0 * u_param2) + t * 0.02) * 0.02;
+  return length(p) - 1.8 + morph * u_param1;
+}
+
+vec3 lfNormal(vec3 p, float t) {
+  // O epsilon da normal é 0.002 (o do upstream) e isso é pequeno demais para um
+  // campo com ruído: a diferença finita passa a ser dominada pela variação rápida
+  // do noise, a normal fica ruidosa, e aparece um filete escuro onde ela gira —
+  // uma linha fina cortando o metal. Confirmado por teste: com noiseScale=0 a
+  // esfera sai limpa, então o filete vem do ruído, não da geometria. 0.012 é uma
+  // fração da menor estrutura do noise (~0.76 em espaço p), então ainda resolve
+  // a forma, mas não mede o ruído.
+  vec2 e = vec2(0.012, 0.0);
+  return normalize(vec3(
+    lfMap(p + e.xyy, t) - lfMap(p - e.xyy, t),
+    lfMap(p + e.yxy, t) - lfMap(p - e.yxy, t),
+    lfMap(p + e.yyx, t) - lfMap(p - e.yyx, t)
+  ));
+}
+
+// O material vem da VARIANTE, não de um slider: é o que define se o blob é
+// cromo, mercúrio, óleo ou cobre. Key/rim/fill são o mesmo rig nos quatro, mas
+// o GANHO e o AMBIENTE diferem por material — sem isso o cromo sai perlado em vez
+// de espelhado, porque o ambiente preenche os shadows e não sobra preto.
+vec3 lfEnv(vec3 rd, vec2 aim, int v) {
+  vec3 col;
+  vec3 keyTint, rimTint, fillTint, specTint;
+  float keyGain, ambient;
+  if (v == 1) {          // mercúrio: contraste alto, quase sem preenchimento
+    keyTint = vec3(0.86, 0.88, 0.95); rimTint = vec3(0.55, 0.60, 0.70);
+    fillTint = vec3(0.10); specTint = vec3(1.0);
+    keyGain = 1.9; ambient = 0.012;
+  } else if (v == 2) {   // película de óleo: iridescente por espessura
+    keyTint = vec3(0.70, 0.55, 0.95); rimTint = vec3(0.25, 0.70, 0.75);
+    fillTint = vec3(0.12, 0.10, 0.16); specTint = vec3(0.95, 0.90, 1.0);
+    keyGain = 1.4; ambient = 0.035;
+  } else if (v == 3) {   // cobre: quente, com sombra oca
+    keyTint = vec3(1.0, 0.72, 0.48); rimTint = vec3(0.70, 0.34, 0.18);
+    fillTint = vec3(0.16, 0.08, 0.04); specTint = vec3(1.0, 0.85, 0.70);
+    keyGain = 1.7; ambient = 0.025;
+  } else {               // cromo polido: especular duro, sombra profunda
+    keyTint = vec3(0.98, 0.97, 0.95); rimTint = vec3(0.52, 0.56, 0.62);
+    fillTint = vec3(0.14); specTint = vec3(1.0);
+    keyGain = 2.4; ambient = 0.008;
+  }
+  col = vec3(ambient);
+  vec3 keyDir = normalize(vec3(0.5 + aim.x, 1.0 + aim.y * 0.5, 1.2));
+  float key = pow(max(dot(rd, keyDir), 0.0), 12.0);
+  float rim = pow(max(dot(rd, normalize(vec3(-0.8, -0.2, -1.0))), 0.0), 6.0);
+  float fill = pow(max(dot(rd, normalize(vec3(-1.0, 0.5, 0.5))), 0.0), 3.0);
+  float panel = exp(-pow((rd.y - 0.2) * 4.0, 2.0)) * smoothstep(-0.5, 0.5, rd.z);
+  col += keyTint * key * keyGain;
+  col += rimTint * rim * 0.8;
+  col += fillTint * fill * 0.6;
+  col += vec3(0.15) * panel;
+  return col;
+}
+
+void main() {
+  vec2 res = max(u_resolution, vec2(1.0));
+  vec2 frag = gl_FragCoord.xy;
+  vec2 uv = (frag - res * 0.5) / min(res.x, res.y);
+  float t = u_time * 0.8 * (0.4 + u_speed * 0.5);
+  int v = int(u_param0 + 0.5);
+
+  // Câmera: os controles viram a mira, com deriva lenta por baixo para o blob
+  // nunca ficar parado. É aqui que o u_mouse do upstream morre.
+  vec2 aim = (vec2(u_param4, u_param5) - 0.5) * 2.0;
+  aim += vec2(sin(t * 0.31), cos(t * 0.23)) * 0.10;
+  float roll = (u_param6 - 0.5) * 3.14159 + sin(t * 0.17) * 0.05;
+  vec2 ruv = lfRot(roll) * uv;
+
+  vec3 ro = vec3(0.0, 0.0, 2.6 + u_param3 * 2.4);
+  vec3 fwd = normalize(vec3(aim.x, aim.y, 0.0) - ro);
+  vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), fwd));
+  vec3 up = cross(fwd, right);
+  vec3 rd = normalize(fwd + ruv.x * right + ruv.y * up);
+
+  vec3 col = mix(vec3(0.02), vec3(0.05), length(ruv) * 0.5);
+  float d = 0.0;
+  for (int i = 0; i < LF_STEPS; i++) {
+    vec3 p = ro + rd * d;
+    float ds = lfMap(p, t);
+    d += ds * LF_STEP;
+    if (d > LF_MAX_DIST || abs(ds) < LF_SURF_DIST) break;
+  }
+  if (d < LF_MAX_DIST) {
+    vec3 p = ro + rd * d;
+    vec3 n = lfNormal(p, t);
+    vec3 ref = reflect(rd, n);
+    float fresnel = pow(1.0 - max(dot(n, -rd), 0.0), 4.0);
+    fresnel = mix(0.4, 1.0, fresnel);
+    vec3 env = lfEnv(ref, aim, v);
+    col = env * fresnel * 1.8;
+    vec3 lightPos = normalize(vec3(0.5 + aim.x, 1.0, 1.0));
+    // O upstream usa pow(..., 60.0). Exponente alto num vetor de reflexão é
+    // ALIASING ESPECULAR: o pico é tão estreito que a menor variação numérica de
+    // "ref" entre pixels vizinhos o liga e desliga, e o resultado é um filete
+    // escuro cortando o metal. O outro shader do proprio runtime já usava 48 como
+    // teto (mix(8.0, 48.0, ...)) — aqui o teto é 32, e o ganho compensa o pico
+    // mais largo para o brilho não cair.
+    float spec = pow(max(dot(ref, lightPos), 0.0), 32.0);
+    col += lfEnv(vec3(0.0, 0.0, 1.0), aim, v) * spec * 2.6;
+    // a película de óleo tem cor dependente da espessura (distância ao núcleo)
+    if (v == 2) {
+      float film = clamp(1.0 - (length(p) - 1.8) * 1.6, 0.0, 1.0);
+      col *= 0.65 + 0.55 * cos(6.2831 * (film * 2.2 + vec3(0.0, 0.33, 0.67)));
+    }
+    // O upstream usa isto como pista de profundidade na silhueta:
+    //   col *= mix(0.7, 1.0, smoothstep(-0.1, 0.1, disp))
+    // Mas "disp" é exatamente o deslocamento do noise, então o smoothstep
+    // desenha a CURVA DE NÍVEL ZERO do ruído — uma linha fina cortando o blob.
+    // Com o morph do upstream (fraco) ela ficava imperceptível; com morph alto
+    // virou um risco visível atravessando o metal. Alargar o intervalo e
+    // reduzir a força devolve um gradiente suave em vez de um contorno.
+    float disp = lfMap(p, t) - (length(p) - 1.8);
+    col *= mix(0.88, 1.0, smoothstep(-0.45, 0.45, disp));
+  }
+  col += vec3(0.02, 0.02, 0.02) * exp(-length(ruv) * 2.5);
+  // Tonemap do upstream (col/(col+0.5) + gamma 2.2): é o que mantém o fundo preto
+  // e o cromo lendo como metal em vez de plástico.
+  col = col / (col + 0.5);
+  col = pow(max(col, 0.0), vec3(1.0 / 2.2));
+  gl_FragColor = vec4(col, 1.0);
+}`,
+  // Bell Field — figura de Chladni: as linhas nodais (onde o metal fica parado) e
+  // os antinós (onde ele se move e brilha) de um disco de metal solicitado. Do
+  // ThreeUI (src/shaders/bell-field/bellFieldShaders.ts, MIT). Física de domínio
+  // público, sem texto, marca ou asset.
+  //
+  // O u_mouse do upstream Sai: ele desloca o padrão inteiro conforme o mouse, o
+  // que torna o export irreprodutível (mesmo motivo do laser e do metal líquido).
+  // Num padrão radialmente simétrico, "o mouse moveu o padrão 0.11" e "o
+  // controle de offset moveu o padrão" são a mesma coisa — sem determinismo.
+  //
+  // O u_strike deixa de ser parâmetro solto e vira FASE: o sino é golpeado
+  // periodicamente a partir de u_time, a onda de choque expande e morre. E a
+  // amplitude da onda soma u_audioOnset, então o sino toca no beat — o áudio faz
+  // parte do envelope de render, então isso não quebra o determinismo.
+  //
+  // Contrato de params (avançado = contrato com o shader, controls = camada de UI):
+  //   param0 variant (índice cru 0..3, nunca normalizado)
+  //   param1 density    param2 spokes   param3 detail
+  //   param4 lineWidth  param5 glow     param6 strikeRate
+  bellfield: `${shaderPrelude}
+float bfHash(vec2 p){ return fract(sin(dot(p, vec2(23.71, 91.37))) * 41537.1234); }
+
+// aproximação de cosseno amortecido para o envelope de Bessel (como o upstream)
+float bfBess(float x){ return cos(x - 0.785398) / sqrt(1.0 + abs(x)); }
+
+// Paleta por variante: o padrão é o mesmo, o metal que muda.
+void bfPalette(int v, out vec3 deep, out vec3 patina, out vec3 hot, out vec3 ash) {
+  if (v == 1) {            // aço: frio e neutro
+    deep = vec3(0.035, 0.045, 0.055); patina = vec3(0.42, 0.50, 0.58);
+    hot = vec3(0.72, 0.80, 0.90); ash = vec3(0.95, 0.97, 1.0);
+  } else if (v == 2) {     // cobre: alaranjado e lustroso
+    deep = vec3(0.055, 0.032, 0.020); patina = vec3(0.72, 0.42, 0.22);
+    hot = vec3(1.0, 0.62, 0.30); ash = vec3(1.0, 0.90, 0.74);
+  } else if (v == 3) {     // obsidiana: quase preto, só o brilho
+    deep = vec3(0.012, 0.012, 0.016); patina = vec3(0.16, 0.15, 0.22);
+    hot = vec3(0.55, 0.42, 0.85); ash = vec3(0.92, 0.90, 1.0);
+  } else {                 // bronze: patina verde, quente
+    deep = vec3(0.031, 0.055, 0.051); patina = vec3(0.306, 0.608, 0.541);
+    hot = vec3(0.847, 0.608, 0.247); ash = vec3(0.937, 0.914, 0.863);
+  }
+}
+
+void main() {
+  vec2 res = max(u_resolution, vec2(1.0));
+  vec2 uv = gl_FragCoord.xy / res;
+  vec2 p = uv * 2.0 - 1.0;
+  p.x *= res.x / res.y;
+  p.y += 0.08;
+
+  float t = u_time * 0.09 * (0.35 + u_speed * 0.8);
+  int v = int(u_param0 + 0.5);
+
+  float r = length(p);
+  float a = atan(p.y, p.x);
+
+  // O sino deriva entre parciais, como um sino realmente golpeado deriva.
+  float ang = 1.6 + u_param2 * 4.4 + 1.6 * sin(t * 0.37) + sin(t * 0.19 + 1.7);
+  float k   = 1.2 + u_param1 * 4.6 + 1.0 * sin(t * 0.23 + 0.6);
+
+  // O golpe é uma FASE, não um parâmetro: toca, a onda expande, morre. O ritmo
+  // vem do strikeRate e é determinístico, então o sino SEMPRE toca. O áudio
+  // (onset) só ACENTUA o golpe quando o usuário liga o audioReaction — que é
+  // zerado por default em todos os presets, então depender dele para existir
+  // deixaria o efeito mudo.
+  float rate = 0.10 + u_param6 * 0.55;
+  float strike = fract(u_time * rate);
+  float onset = u_audioOnset * u_audioReaction;
+  float amp = (1.0 + onset * 1.6) * (1.0 - strike * 0.55);
+
+  float f1 = bfBess(r * k * 3.14159265 - t * 2.2) * cos(ang * a + t * 0.5);
+  float f2 = bfBess(r * k * 1.6 * 3.14159265 + t * 1.4) * cos((ang * 2.0 + 1.0) * a - t * 0.31);
+  float f = (f1 + f2 * (0.10 + u_param3 * 0.45)) * amp;
+
+  // linha nodal — onde o metal fica parado
+  float node = 1.0 - smoothstep(0.0, 0.030 + u_param4 * 0.16, abs(f));
+  // antinó — onde ele se move, e brilha quente
+  float anti = smoothstep(0.40, 0.95, abs(f));
+
+  // a coroa fica quieta: abre uma zona de leitura no centro
+  float open = smoothstep(0.14, 0.92, r);
+  node *= open;
+  anti *= open;
+
+  vec3 deep, patina, hot, ash;
+  bfPalette(v, deep, patina, hot, ash);
+
+  vec3 col = deep;
+  col = mix(col, patina, node * 0.50);
+  col = mix(col, hot, anti * (0.10 + u_param5 * 0.34));
+  col += ash * pow(node, 3.0) * 0.13;
+
+  // onda de choque expandindo a partir do golpe
+  float ring = smoothstep(0.06, 0.0, abs(r - strike * 2.3)) * (1.0 - strike);
+  col += mix(hot, ash, 0.4) * ring * (0.45 + onset * 0.9);
+
+  col *= mix(0.10, 1.0, smoothstep(2.0, 0.28, r));
+  col += (bfHash(gl_FragCoord.xy) - 0.5) * 0.022;
+
+  gl_FragColor = vec4(col, 1.0);
+}`,
+  // Stream Convergence — 3 camadas de onda senoidal que convergem, com um
+  // smoothstep que as transforma em linhas finas. Do ThreeUI
+  // (src/shaders/stream-convergence/streamConvergenceShaders.ts, MIT). Sem texto,
+  // marca ou asset.
+  //
+  // O upstream chama o controle de "u_interactive_fidelity", o que sugere ponteiro
+  // — e não é. Verifiquei: é um número (default 0.5) que só pesa o spread das
+  // camadas, passado como prop. Logo NÃO há o que remover aqui, ao contrário do
+  // laser, do metal líquido e do sino. Nome enganoso, comportamento limpo.
+  //
+  // O shader upstream tem só 1 uniform de controle, então os 6 slots livres foram
+  // preenchidos com grandes que a onda realmente tem. E as 4 variações são temas
+  // de cor: no upstream a mistura r/g/b por camada são 3 linhas fixas ("the
+  // violet-indigo theme"), entãovariar a cor É a forma natural de variar.
+  //
+  // Contrato de params (avançado = contrato com o shader, controls = camada de UI):
+  //   param0 variant (índice cru 0..3, nunca normalizado)
+  //   param1 spread     param2 waveFreq  param3 waveSpeed
+  //   param4 lateral    param5 thickness param6 rotation
+  streamconvergence: `${shaderPrelude}
+mat2 scRot(float a){ return mat2(cos(a), -sin(a), sin(a), cos(a)); }
+
+// Peso por camada (r, g, b) — é a identidade da variação, não um slider.
+vec3 scLayerTint(int v, int i) {
+  if (v == 1) {            // ciano / teal
+    return i == 0 ? vec3(0.15, 1.10, 1.30) : (i == 1 ? vec3(0.55, 0.95, 0.70) : vec3(0.10, 0.60, 1.40));
+  } else if (v == 2) {     // âmbar / dourado
+    return i == 0 ? vec3(1.40, 0.85, 0.20) : (i == 1 ? vec3(1.00, 0.45, 0.55) : vec3(0.75, 0.30, 0.95));
+  } else if (v == 3) {     // monócrono
+    return vec3(1.15, 1.18, 1.25);
+  }
+  return i == 0 ? vec3(1.20, 0.00, 0.00) : (i == 1 ? vec3(0.00, 0.50, 0.00) : vec3(0.00, 0.00, 1.80));
+}
+
+void main() {
+  vec2 res = max(u_resolution, vec2(1.0));
+  vec2 p = (gl_FragCoord.xy / res) * 2.0 - 1.0;
+  p.x *= res.x / res.y;
+  p = scRot(0.18 + u_param6 * 1.2) * p;
+
+  int v = int(u_param0 + 0.5);
+  vec3 color = vec3(0.0);
+  float spread = 0.012 + u_param1 * 0.13;
+  float t = u_time * (0.5 + u_speed * 0.6);
+
+  for (int i = 0; i < 3; i++) {
+    float offset = float(1 - i) * spread;
+    // A onda lateral é o que impede as 3 camadas de serem cópias deslocadas.
+    float y = p.y + offset + sin(p.x * (1.2 + u_param4 * 3.4) - t * 1.5) * (0.03 + u_param4 * 0.16);
+    float phase = y * (2.5 + u_param2 * 9.0) + t * (0.8 + u_param3 * 2.6);
+    // A janela do smoothstep é a ESPESSURA da linha: estreita = fio, larga = banda.
+    float hi = 0.995 - u_param5 * 0.14;
+    float wave = smoothstep(hi - 0.045, hi, sin(phase) * 0.5 + 0.5);
+    color += scLayerTint(v, i) * wave;
+  }
+
+  float vignette = exp(-length(gl_FragCoord.xy / res * 2.0 - 1.0) * 0.8);
+  color *= vignette;
+  gl_FragColor = vec4(color, 1.0);
+}`,
 };
 
 const blendModes = {
@@ -1322,6 +2191,46 @@ export function createSceneRuntime(
         time,
         rendererCache,
       );
+    } else if (scene.rendererId === "predictive-arc") {
+      drawPredictiveArc(
+        context,
+        width,
+        height,
+        scene,
+        audio,
+        time,
+        rendererCache,
+      );
+    } else if (scene.rendererId === "data-pixel-arc") {
+      drawDataPixelArc(
+        context,
+        width,
+        height,
+        scene,
+        audio,
+        time,
+        rendererCache,
+      );
+    } else if (scene.rendererId === "signal-particles") {
+      drawSignalParticles(
+        context,
+        width,
+        height,
+        scene,
+        audio,
+        time,
+        rendererCache,
+      );
+    } else if (scene.rendererId === "override-grid") {
+      drawOverrideGrid(
+        context,
+        width,
+        height,
+        scene,
+        audio,
+        time,
+        rendererCache,
+      );
     } else {
       drawDarkSurface(context, width, height, scene, audio, time);
     }
@@ -1551,6 +2460,44 @@ function waitFor(target, event) {
   });
 }
 
+// Introspecção para testes: existe um renderer DEDICADO para este id?
+//
+// Existe porque um erro aqui é INVISÍVEL: um preset cujo `rendererId` não bate
+// com nenhuma chave do mapa cai no `else` genérico (`drawDarkSurface`) e
+// renderiza uma superfície escura genérica — sem exceção, sem warning, e o
+// smoke de render "passa" porque só checa que o vídeo foi gerado. Foi
+// exatamente o que aconteceu em SH11 com os 4 presets do laser.
+//
+// `false` NÃO significa "vazio": significa "cai no fallback genérico", que é
+// intencional para presets de fundo liso (ex.: `audio-dark`).
+export function sceneRuntimeHasRenderer(rendererId) {
+  if (Object.hasOwn(fragmentShaders, rendererId)) return true;
+  if (isPaperShaderRenderer(rendererId)) return true;
+  if (canvas2dRendererIds().includes(rendererId)) return true;
+  return false;
+}
+
+export const sceneRuntimeRendererIds = () => [
+  ...Object.keys(fragmentShaders),
+  ...canvas2dRendererIds(),
+];
+
+// Os renderers Canvas 2D são os ids que caem nos ramos `draw*` do dispatch,
+// e não estão em `fragmentShaders`. Deduzidos do código em vez de duplicados
+// numa lista, para a introspecção não divergir do dispatch.
+function canvas2dRendererIds() {
+  return [
+    "vinyl",
+    "vector-aura",
+    "playful-shapes",
+    "piano-ribbons",
+    "predictive-arc",
+    "data-pixel-arc",
+    "signal-particles",
+    "override-grid",
+  ];
+}
+
 function createWebglRenderer(canvas) {
   const gl = canvas.getContext("webgl", {
     alpha: false,
@@ -1613,6 +2560,7 @@ function createWebglRenderer(canvas) {
       "param3",
       "param4",
       "param5",
+      "param6",
       "cloudSunEnabled",
       "cloudSunIntensity",
       "cloudSunX",
@@ -1703,7 +2651,11 @@ function createWebglRenderer(canvas) {
       set3fv("colorA", uniforms.colorA);
       set3fv("colorB", uniforms.colorB);
       set3fv("accentColor", uniforms.accentColor);
-      for (let index = 0; index < 6; index += 1) {
+      // 7 = o tamanho do array em `buildUniforms` e o que o prelude declara.
+      // Este loop usava < 6: o uniform `u_param6` era criado, receberia valor,
+      // e nunca era escrito — o control de rotação aparecia no inspector e não
+      // fazia nada. Os três lugares (prelude, array, loop) precisam concordar.
+      for (let index = 0; index < 7; index += 1) {
         set1f(`param${index}`, uniforms.params[index] ?? 0);
       }
       set1f("cloudSunEnabled", uniforms.cloudSunEnabled);
@@ -1793,8 +2745,24 @@ function createWebglRenderer(canvas) {
     const cached = sceneUniformCache.get(scene);
     if (cached) return cached;
     const cloudLight = scene.cloudLight ?? {};
-    const values = scene.controls.map(
-      ({ key }) => (scene.advanced[key] ?? 0) / 100,
+    // Mapeia pela ORDEM DE advanced, não de controls — igual ao
+    // `visualUniforms`. `advanced` é o contrato com o shader (Nª chave =
+    // u_paramN); `controls` é a camada de UI e pode ter menos entradas.
+    //
+    // Este era o bug que fazia o laser "virar lens flare": com `variant`
+    // fora de controls, o size ocupava u_param0, o shader lia variant=0.55,
+    // caía no ramo `array` (raios radiais = lens flare) e nunca chegava na
+    // blade (a plumosa de fumaça). O preset padrão renderizava a variação
+    // errada sem erro nenhum. `visualUniforms` já estava certo; este caminho
+    // — o que realmente renderiza — não.
+    const values = Object.keys(scene.advanced ?? {}).map(
+      // `variant` é índice de ramo (0..3), não percentual — ver o comentário
+      // equivalente em visualUniforms. Dividir por 100 fazia variant=3 virar
+      // 0.03 e o shader cair no ramo errado.
+      (key) =>
+        key === "variant"
+          ? (scene.advanced[key] ?? 0)
+          : (scene.advanced[key] ?? 0) / 100,
     );
     const uniforms = {
       intensity: scene.common.intensity / 100,
@@ -1806,7 +2774,10 @@ function createWebglRenderer(canvas) {
       colorA: hexToRgb(scene.colors.base),
       colorB: hexToRgb(scene.colors.effect),
       accentColor: hexToRgb(scene.colors.light),
-      params: Array.from({ length: 6 }, (_, index) => values[index] ?? 0),
+      // 7 posições = o que o prelude declara (u_param0..u_param6). Aumentar
+      // aqui e no prelude juntos: se o array for maior que o declarado, o
+      // uniform é criado e nunca escrito (controle na UI que não faz nada).
+      params: Array.from({ length: 7 }, (_, index) => values[index] ?? 0),
       cloudSunEnabled: cloudLight.enabled ? 1 : 0,
       cloudSunIntensity: (cloudLight.intensity ?? 0) / 100,
       cloudSunX: (cloudLight.x ?? 28) / 100,
@@ -2019,6 +2990,306 @@ function getVectorAuraRenderState(scene, rendererCache) {
   };
   if (rendererCache) rendererCache.vectorState = state;
   return state;
+}
+
+// Técnica `dot-grid-arc-field` (adaptada de ThreeUI "Predictive Arc", MIT):
+// grid de pontos amostrando uma curva de arco paramétrica, com queda radial,
+// modulação senoidal e blend aditivo. Reimplementada para o runtime compartilhado.
+function getPredictiveArcRenderState(scene, rendererCache) {
+  if (rendererCache?.predictiveArcState)
+    return rendererCache.predictiveArcState;
+  const state = {
+    audioReaction: (scene.common.audioReaction / 100) * 0.3,
+    base: scene.colors.base,
+    brightness: 0.6 + (scene.common.brightness / 100) * 0.9,
+    spacing: 3 + (scene.advanced.spacing / 100) * 14,
+    dotSize: 1 + (scene.advanced.dotSize / 100) * 9,
+    archHeight: 0.35 + (scene.advanced.archHeight / 100) * 0.55,
+    thickness: 40 + (scene.advanced.thickness / 100) * 200,
+    glow: 0.4 + (scene.advanced.glow / 100) * 0.6,
+    speed: 0.5 + (scene.common.speed / 100) * 2.5,
+    effectRgb: hexToRgb(scene.colors.effect),
+    lightRgb: hexToRgb(scene.colors.light),
+  };
+  if (rendererCache) rendererCache.predictiveArcState = state;
+  return state;
+}
+
+function drawPredictiveArc(
+  context,
+  width,
+  height,
+  scene,
+  audio,
+  time,
+  rendererCache,
+) {
+  const state = getPredictiveArcRenderState(scene, rendererCache);
+  const pulse = 1 + (audio.mid ?? 0) * state.audioReaction;
+  context.fillStyle = state.base;
+  context.fillRect(0, 0, width, height);
+  const centerX = width / 2;
+  const archPeakY = height * 0.35;
+  const archWidth = width * 1.5;
+  const archHeight = height * state.archHeight;
+  const spacing = state.spacing;
+  const baseThickness = state.thickness;
+  const dotSize = state.dotSize * pulse;
+  const effect = state.effectRgb;
+  const light = state.lightRgb;
+  const drift = time * state.speed;
+  context.globalCompositeOperation = "lighter";
+  for (let x = 0; x < width; x += spacing) {
+    const normX = (x - centerX) / (archWidth / 2);
+    const radial = Math.max(0, 1 - Math.pow(Math.abs(normX), 2.5));
+    if (radial <= 0.02) continue;
+    const curveY = archPeakY + normX * normX * archHeight;
+    const thickness = baseThickness * (1 + (1 - Math.abs(normX)) * 0.6);
+    for (let y = 0; y < height; y += spacing) {
+      const distance = Math.abs(y - curveY);
+      if (distance >= thickness) continue;
+      let intensity = 1 - distance / thickness;
+      const waveX = Math.sin(x * 0.015 + drift);
+      const waveY = Math.cos(y * 0.02 + drift);
+      intensity = intensity * 0.7 + waveX * waveY * 0.3 * intensity;
+      intensity *= radial;
+      if (intensity <= 0.02) continue;
+      const mix = Math.min(1, intensity * state.glow);
+      const red = (effect[0] * (1 - mix) + light[0] * mix) * state.brightness;
+      const green = (effect[1] * (1 - mix) + light[1] * mix) * state.brightness;
+      const blue = (effect[2] * (1 - mix) + light[2] * mix) * state.brightness;
+      context.fillStyle = `rgb(${Math.min(255, Math.floor(red * 255))},${Math.min(255, Math.floor(green * 255))},${Math.min(255, Math.floor(blue * 255))})`;
+      const size = dotSize * intensity;
+      context.fillRect(x, y, size, size);
+    }
+  }
+  context.globalCompositeOperation = "source-over";
+}
+
+// Técnica `data-pixel-arc` (adaptada de ThreeUI "Predictive Arc" / variante
+// Data Pixel, MIT): grid de blocos grosso sobre um arco, com queda radial e
+// alfa por bloco. Reimplementada para o runtime compartilhado (cores do preset).
+function getDataPixelArcRenderState(scene, rendererCache) {
+  if (rendererCache?.dataPixelArcState) return rendererCache.dataPixelArcState;
+  const state = {
+    audioReaction: (scene.common.audioReaction / 100) * 0.3,
+    base: scene.colors.base,
+    brightness: 0.6 + (scene.common.brightness / 100) * 0.9,
+    pixelSize: 4 + (scene.advanced.pixelSize / 100) * 14,
+    arcCenter: 0.25 + (scene.advanced.arcCenter / 100) * 0.4,
+    arcDrop: 0.4 + (scene.advanced.arcDrop / 100) * 0.7,
+    thickness: 0.12 + (scene.advanced.thickness / 100) * 0.45,
+    speed: 0.5 + (scene.common.speed / 100) * 2.5,
+    effectRgb: hexToRgb(scene.colors.effect),
+    lightRgb: hexToRgb(scene.colors.light),
+  };
+  if (rendererCache) rendererCache.dataPixelArcState = state;
+  return state;
+}
+
+function drawDataPixelArc(
+  context,
+  width,
+  height,
+  scene,
+  audio,
+  time,
+  rendererCache,
+) {
+  const state = getDataPixelArcRenderState(scene, rendererCache);
+  const layerAlpha = context.globalAlpha;
+  const pulse = 1 + (audio.mid ?? 0) * state.audioReaction;
+  const cols = Math.ceil(width / state.pixelSize);
+  const rows = Math.ceil(height / state.pixelSize);
+  const arcCenterY = height * state.arcCenter;
+  const arcDrop = height * state.arcDrop;
+  const thickness = height * state.thickness;
+  const gap = Math.max(1, Math.round(state.pixelSize * 0.12));
+  const cell = Math.max(1, state.pixelSize - gap);
+  const effect = state.effectRgb;
+  const light = state.lightRgb;
+  const drift = time * state.speed;
+  context.globalAlpha = 1;
+  context.fillStyle = state.base;
+  context.fillRect(0, 0, width, height);
+  for (let x = 0; x < cols; x += 1) {
+    for (let y = 0; y < rows; y += 1) {
+      const px = x * state.pixelSize;
+      const py = y * state.pixelSize;
+      const nx = (px / width) * 2 - 1;
+      const curveY = arcCenterY + Math.pow(Math.abs(nx), 1.8) * arcDrop;
+      let intensity = Math.max(0, 1 - Math.abs(py - curveY) / thickness);
+      if (intensity <= 0.01) continue;
+      const wave1 = Math.sin(nx * 4 - drift * 1.5) * 0.1;
+      const wave2 = Math.cos(py * 0.01 + drift) * 0.1;
+      intensity = Math.max(0, Math.min(1, intensity + wave1 + wave2));
+      intensity *= Math.max(0, 1 - Math.pow(Math.abs(nx), 2.5));
+      if (intensity <= 0.02) continue;
+      const core = Math.pow(intensity, 3);
+      const mix = Math.min(1, Math.pow(intensity, 1.5) * pulse);
+      const red =
+        (effect[0] * (1 - mix) + light[0] * mix + core * 0.35) *
+        state.brightness;
+      const green =
+        (effect[1] * (1 - mix) + light[1] * mix + core * 0.35) *
+        state.brightness;
+      const blue =
+        (effect[2] * (1 - mix) + light[2] * mix + core * 0.35) *
+        state.brightness;
+      context.fillStyle = `rgb(${Math.min(255, Math.floor(red * 255))},${Math.min(255, Math.floor(green * 255))},${Math.min(255, Math.floor(blue * 255))})`;
+      context.globalAlpha = layerAlpha * Math.min(1, intensity);
+      context.fillRect(px, py, cell, cell);
+    }
+  }
+  context.globalAlpha = layerAlpha;
+}
+
+// Técnica `signal-particles` adaptada de ThreeUI "Signal Particles"
+// (src/shaders/neuform-isolated/sources/signal-particles.html, MIT): grade de
+// pontos cuja ativação vem de duas ondas cruzadas, com "highlights" raros
+// sorteados por hash das coordenadas da célula. Adaptação: o tempo por frame
+// do upstream virou o tempo determinístico do runtime compartilhado, e as
+// três cores fixas viraram as cores do preset.
+function getSignalParticlesRenderState(scene, rendererCache) {
+  if (rendererCache?.signalParticlesState)
+    return rendererCache.signalParticlesState;
+  const state = {
+    audioReaction: (scene.common.audioReaction / 100) * 0.3,
+    base: scene.colors.base,
+    brightness: 0.6 + (scene.common.brightness / 100) * 0.9,
+    spacing: 8 + (scene.advanced.spacing / 100) * 34,
+    dotSize: 1 + (scene.advanced.dotSize / 100) * 6,
+    highlight: scene.advanced.highlight / 100,
+    speed: 0.6 + (scene.common.speed / 100) * 2.0,
+    effectRgb: hexToRgb(scene.colors.effect),
+    lightRgb: hexToRgb(scene.colors.light),
+  };
+  if (rendererCache) rendererCache.signalParticlesState = state;
+  return state;
+}
+
+function drawSignalParticles(
+  context,
+  width,
+  height,
+  scene,
+  audio,
+  time,
+  rendererCache,
+) {
+  const state = getSignalParticlesRenderState(scene, rendererCache);
+  const layerAlpha = context.globalAlpha;
+  const t = time * state.speed;
+  const cols = Math.floor(width / state.spacing);
+  const rows = Math.floor(height / state.spacing);
+  const offsetX = (width - cols * state.spacing) / 2;
+  const offsetY = (height - rows * state.spacing) / 2;
+  const dotSize = state.dotSize * (1 + (audio.mid ?? 0) * state.audioReaction);
+  const effect = state.effectRgb;
+  const light = state.lightRgb;
+  const highlightCut = 0.995 - state.highlight * 0.02;
+  context.fillStyle = state.base;
+  context.fillRect(0, 0, width, height);
+  for (let i = 0; i <= cols; i += 1) {
+    for (let j = 0; j <= rows; j += 1) {
+      const nx = i * 0.1;
+      const ny = j * 0.1;
+      const wave1 = Math.sin(nx + t * 0.5) * Math.cos(ny - t * 0.3);
+      const wave2 = Math.sin(nx * 0.5 - ny * 0.5 + t * 0.8);
+      const value = wave1 + wave2;
+      if (value <= 0.1) continue;
+      // Mesmo sorteio de destaque do upstream (sin/cos das coordenadas da
+      // célula), com o limiar parametrizado em vez de fixo em 0.98. O
+      // contrato de preset tem 3 cores, então os dois raros do upstream
+      // (azul e violeta) viram a cor de luz e a mesma cor puxada 55% para a
+      // cor de efeito — as duas classes continuam distinguíveis.
+      const highlight = Math.sin(i * 12.34) * Math.cos(j * 56.78);
+      const x = offsetX + i * state.spacing;
+      const y = offsetY + j * state.spacing;
+      let rgb = effect;
+      let alpha = Math.min(0.6, (value - 0.1) * 0.8);
+      if (highlight > highlightCut) {
+        rgb = light;
+        alpha = 0.95;
+      } else if (highlight < -highlightCut) {
+        rgb = [
+          light[0] * 0.45 + effect[0] * 0.55,
+          light[1] * 0.45 + effect[1] * 0.55,
+          light[2] * 0.45 + effect[2] * 0.55,
+        ];
+        alpha = 0.9;
+      }
+      const k = alpha * state.brightness;
+      context.fillStyle = `rgb(${Math.min(255, Math.floor(rgb[0] * 255 * k))},${Math.min(255, Math.floor(rgb[1] * 255 * k))},${Math.min(255, Math.floor(rgb[2] * 255 * k))})`;
+      context.beginPath();
+      context.arc(x, y, dotSize, 0, Math.PI * 2);
+      context.fill();
+    }
+  }
+  context.globalAlpha = layerAlpha;
+}
+
+// Técnica `override-grid` adaptada de ThreeUI "Override Grid"
+// (src/shaders/neuform-isolated/sources/override-grid.html, MIT): grade de
+// blocos pulsando com uma onda radial que sai do centro, com escala e alfa
+// derivados da fase. Adaptação: o tamanho de bloco fixo em px do upstream
+// virou um parâmetro 0–100, o laranja fixo virou a cor do preset e o tempo
+// por frame virou o tempo determinístico do runtime.
+// O upstream desenha isto como overlay a 50% de opacidade ATRÁS de conteúdo
+// (alfa máximo 0.15). Como preset autonome o efeito precisa se sustentar
+// sozinho, então o alfa foi elevado — a curva `wave` e a escala Z-depth são
+// as mesmas do upstream.
+function getOverrideGridRenderState(scene, rendererCache) {
+  if (rendererCache?.overrideGridState) return rendererCache.overrideGridState;
+  const state = {
+    audioReaction: (scene.common.audioReaction / 100) * 0.3,
+    base: scene.colors.base,
+    brightness: 0.6 + (scene.common.brightness / 100) * 0.9,
+    blockSize: 10 + (scene.advanced.blockSize / 100) * 46,
+    gap: 1 + (scene.advanced.gap / 100) * 7,
+    depth: 0.2 + (scene.advanced.depth / 100) * 0.8,
+    speed: 0.4 + (scene.common.speed / 100) * 1.6,
+    effectRgb: hexToRgb(scene.colors.effect),
+  };
+  if (rendererCache) rendererCache.overrideGridState = state;
+  return state;
+}
+
+function drawOverrideGrid(
+  context,
+  width,
+  height,
+  scene,
+  audio,
+  time,
+  rendererCache,
+) {
+  const state = getOverrideGridRenderState(scene, rendererCache);
+  const layerAlpha = context.globalAlpha;
+  const t = time * state.speed;
+  const pitch = state.blockSize + state.gap;
+  const cols = Math.ceil(width / pitch);
+  const rows = Math.ceil(height / pitch);
+  const centerX = cols / 2;
+  const centerY = rows / 2;
+  const effect = state.effectRgb;
+  context.fillStyle = state.base;
+  context.fillRect(0, 0, width, height);
+  context.globalAlpha = layerAlpha;
+  for (let i = 0; i < cols; i += 1) {
+    for (let j = 0; j < rows; j += 1) {
+      const dist = Math.sqrt((i - centerX) ** 2 + (j - centerY) ** 2);
+      const wave = Math.sin(t - dist * 0.4);
+      if (wave <= 0) continue;
+      const alpha = wave * (0.3 + state.depth * 0.45);
+      const size = state.blockSize * (wave * 0.7 + 0.3);
+      const offset = (pitch - size) / 2;
+      const k = (1 + (audio.mid ?? 0) * state.audioReaction) * state.brightness;
+      context.fillStyle = `rgba(${Math.min(255, Math.floor(effect[0] * 255 * k))},${Math.min(255, Math.floor(effect[1] * 255 * k))},${Math.min(255, Math.floor(effect[2] * 255 * k))},${alpha})`;
+      context.fillRect(i * pitch + offset, j * pitch + offset, size, size);
+    }
+  }
+  context.globalAlpha = layerAlpha;
 }
 
 function drawPlayfulShapes(

@@ -26,7 +26,7 @@ import {
 } from "./render-benchmark-matrix.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const benchRoot = path.join(root, ".dev", "bench");
+const benchRoot = path.join(root, ".dev", "runtime", "bench");
 const runsDir = path.join(benchRoot, "runs");
 const historyPath = path.join(benchRoot, "render-history.jsonl");
 const latestReportPath = path.join(benchRoot, "latest-render-report.md");
@@ -1210,7 +1210,7 @@ ${warnings}
 - \`--repeat=N\` runs each case multiple times and reports per-case medians in this Markdown report and in \`render.json\`.
 - \`--matrix=1\` runs the A/B/C/D GPU x encoder matrix (software/hardware WebGL x libx264/hardware H.264) over representative 720p/1080p cases; failed cells are listed with their error code instead of failing the whole run. Use \`--cells=A,C\` to restrict cells and \`--case=<id>\` to choose cases.
 - Regression warnings are warn-only and now compare the main phase timings when matching history exists. Functional failures still fail the benchmark process.
-- Baseline uses previous local runs with the same case and parameter hash from \`.dev/bench/render-history.jsonl\`.
+- Baseline uses previous local runs with the same case and parameter hash from \`.dev/runtime/bench/render-history.jsonl\`.
 `;
 }
 

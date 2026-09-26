@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   loadJobHistory,
+  removeJobHistoryTemp,
   restoreInterruptedJobs,
   saveJobHistory,
 } from "../server/job-store.mjs";
@@ -125,4 +126,47 @@ test("job store writes atomically and keeps only recent jobs", async () => {
     { id: "recent", status: "done" },
   ]);
   await fs.rm(root, { recursive: true, force: true });
+});
+
+test("job store removes the atomic-write temp file on success", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-jobs-"));
+  const filePath = path.join(root, "data", "jobs.local.json");
+
+  await saveJobHistory(filePath, [{ id: "a", status: "done" }]);
+
+  assert.equal(await removeJobHistoryTemp(`${filePath}.tmp`), true);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("job store treats an already absent temp file as cleaned", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-jobs-"));
+  const missing = path.join(root, "data", "jobs.local.json.tmp");
+
+  assert.equal(await removeJobHistoryTemp(missing), true);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("job store reports a temp file it could not remove instead of swallowing it", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-jobs-"));
+  // unlink on a directory fails deterministically (EPERM on Windows, EISDIR
+  // elsewhere) with no code to special-case, so this exercises the warn path
+  // that used to be a silent .catch(() => undefined).
+  const stuck = path.join(root, "jobs.local.json.tmp");
+  await fs.mkdir(stuck);
+
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    assert.equal(await removeJobHistoryTemp(stuck), false);
+  } finally {
+    console.warn = originalWarn;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /\[job-store\]/);
+  assert.match(warnings[0], /jobs\.local\.json\.tmp/);
+  // The caller must not be told a save failed: the copy already landed.
+  assert.doesNotMatch(warnings[0], /Falha ao persistir/);
 });

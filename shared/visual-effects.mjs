@@ -129,6 +129,17 @@ const commonSupportsByRenderer = new Map([
   ["vector-aura", ["speed", "direction", "audioReaction", "shade"]],
   ["playful-shapes", ["speed", "direction", "audioReaction", "shade"]],
   ["piano-ribbons", ["speed", "direction", "audioReaction", "shade"]],
+  ["predictive-arc", ["speed", "brightness", "audioReaction", "shade"]],
+  ["data-pixel-arc", ["speed", "brightness", "audioReaction", "shade"]],
+  ["ribbon-field", ["speed", "brightness", "audioReaction", "shade"]],
+  ["signal-particles", ["speed", "brightness", "audioReaction", "shade"]],
+  ["override-grid", ["speed", "brightness", "audioReaction", "shade"]],
+  ["void-field", ["speed", "brightness", "audioReaction", "shade"]],
+  ["halftone-flow", ["speed", "brightness", "audioReaction", "shade"]],
+  ["amber-halftone", ["speed", "brightness", "audioReaction", "shade"]],
+  // As 4 variantes do laser compartilham o rendererId "laser" (a variante é
+  // escolhida por u_param0), então o mapa de common controls tem UMA entrada.
+  ["laser", ["speed", "brightness", "audioReaction", "shade"]],
   ["vinyl", ["speed", "shade"]],
   ["audio-dark", ["speed", "shade"]],
   // V5 Lote 1 (etéreo × CodePen)
@@ -182,10 +193,12 @@ const visualCategoryIdsByLabel = new Map([
   ["Infantil", "playful"],
   ["Lava", "lava"],
   ["Luz & Gradiente", "light-gradient"],
+  ["Luz & Pixels", "light-pixels"],
   ["Minimalista", "minimal"],
   ["Paisagem", "landscape"],
   ["Superficies", "surfaces"],
   ["Efeitos simples", "simple-effects"],
+  ["Telas", "screens"],
 ]);
 
 const paletteProfiles = [
@@ -219,12 +232,265 @@ const paletteProfiles = [
   },
 ];
 
-const control = (key, label, min = 0, max = 100, unit = "%") => ({
+// ---------------------------------------------------------------------------
+// Coleções curadas (SH9C)
+// ---------------------------------------------------------------------------
+//
+// NÃO confundir com `family` nem com `category`:
+//   - `category`    = onde o efeito foi listado por tradição do catálogo (12 grupos)
+//   - `family`      = eixo técnico do renderer (54 valores, 44 deles com 1 só preset)
+//   - `collections` = curadoria de sabor/uso, feita à mão, multi-membro por preset
+//
+// `family` não serve para agrupar: 44 dos 54 valores são singletons, o que
+// produziria um filtro inútil. Estas coleções são o agrupamento de descoberta.
+export const VISUAL_COLLECTIONS = [
+  {
+    id: "dados",
+    label: "Dados",
+    summary:
+      "Grades, matrizes e campos de pontos com leitura de dado ou terminal.",
+  },
+  {
+    id: "espaco",
+    label: "Cósmico",
+    summary: "Profundidade, galáxias, plasma e movimento orbital.",
+  },
+  {
+    id: "fluido",
+    label: "Fluido",
+    summary: "Líquidos, lava, fluxes e distorções que escorrem.",
+  },
+  {
+    id: "atmosfera",
+    label: "Atmosfera",
+    summary: "Céu, nuvens e terreno: fundos que situam uma cena.",
+  },
+  {
+    id: "textura",
+    label: "Superfície",
+    summary: "Ruído, grão e matéria difusa para usar como camada de fundo.",
+  },
+  {
+    id: "luz",
+    label: "Luz & Cor",
+    summary: "Gradientes, raios, brilhos e molduras de cor.",
+  },
+  {
+    id: "calmo",
+    label: "Calmo",
+    summary: "Movimento lento e contemplativo, sem competir com o conteúdo.",
+  },
+  {
+    id: "vetorial",
+    label: "Vetorial",
+    summary: "Traço cheio e formas geométricas lúdicas.",
+  },
+];
+
+// Curadoria explícita: preset id -> coleções. Um preset pode estar em mais de
+// uma. `tests/visual-effects.test.mjs` garante cobertura total (nenhum preset
+// órfão) e que todo id usado aqui existe em VISUAL_COLLECTIONS.
+export const PRESET_COLLECTIONS = {
+  // Cósmico
+  starfield: ["espaco"],
+  "vortex-galaxy": ["espaco"],
+  "vortex-whirlpool": ["espaco"],
+  "plasma-nebula": ["espaco"],
+  "ether-birth": ["espaco"],
+  "fractal-sphere": ["espaco", "calmo"],
+  "iridescent-bloom": ["espaco", "luz"],
+  // Fluido
+  "liquid-mesh": ["fluido"],
+  "liquid-chrome": ["fluido", "textura"],
+  "fluid-volume": ["fluido"],
+  "liquid-form": ["fluido", "textura"],
+  "bell-field": ["atmosfera", "dados"],
+  "stream-convergence": ["fluido", "dados"],
+  "fluid-flow": ["fluido"],
+  "endless-shallows": ["fluido"],
+  "lava-lamp": ["fluido"],
+  "plasma-lava": ["fluido"],
+  "paper-metaballs": ["fluido"],
+  "paper-warp": ["fluido"],
+  "paper-swirl": ["fluido"],
+  "paper-water": ["fluido"],
+  "paper-liquid-metal": ["fluido", "textura"],
+  // Atmosfera
+  "volumetric-clouds": ["atmosfera"],
+  "aurora-ribbons": ["atmosfera", "luz"],
+  "storybook-dream": ["atmosfera"],
+  "terrain-magic": ["atmosfera"],
+  "terrain-flight": ["atmosfera"],
+  "stratosphere-flight": ["atmosfera"],
+  // Anel e fumaça de gema foram para a categoria Composicoes: são elementos
+  // que se sobrepõem a algo, não fundos. A coleção "atmosfera" é definida como
+  // "fundos que situam uma cena", então ficaria incoerente mantê-los lá.
+  "paper-smoke-ring": ["textura"],
+  "paper-gem-smoke": ["textura"],
+  // Dados — a família dot-grid-arc-field inteira mora aqui
+  "predictive-arc": ["dados"],
+  "data-pixel-arc": ["dados", "calmo"],
+  "ribbon-field": ["dados", "luz"],
+  "signal-particles": ["dados"],
+  "override-grid": ["dados"],
+  "void-field": ["dados", "calmo"],
+  "halftone-flow": ["dados"],
+  "amber-halftone": ["dados"],
+  laser: ["dados", "luz"],
+  crt: ["dados", "luz"],
+  "holo-topography": ["dados", "luz"],
+  vinyl: ["dados"],
+  "paper-dot-grid": ["dados"],
+  "paper-dot-orbit": ["dados", "calmo"],
+  "paper-halftone-dots": ["dados"],
+  "paper-halftone-cmyk": ["dados"],
+  "paper-dithering": ["dados", "textura"],
+  "paper-image-dithering": ["dados", "textura"],
+  "paper-heatmap": ["dados", "luz"],
+  "light-trails": ["dados", "luz"],
+  // Superfície
+  "neural-haze": ["textura", "calmo"],
+  "paper-neuro-noise": ["textura"],
+  "paper-simplex-noise": ["textura"],
+  "paper-perlin-noise": ["textura"],
+  "paper-voronoi": ["textura"],
+  "paper-paper-texture": ["textura"],
+  "paper-fluted-glass": ["textura", "calmo"],
+  "paper-grain-gradient": ["textura", "luz"],
+  // Luz & Cor
+  "shambhala-passage": ["luz", "calmo"],
+  "paper-god-rays": ["luz"],
+  "paper-pulsing-border": ["luz"],
+  "paper-color-panels": ["luz"],
+  "paper-mesh-gradient": ["luz"],
+  "paper-static-mesh-gradient": ["luz"],
+  "paper-static-radial-gradient": ["luz", "calmo"],
+  // Calmo
+  "audio-dark": ["calmo"],
+  "paper-waves": ["calmo"],
+  "paper-spiral": ["calmo"],
+  // Vetorial
+  "playful-shapes": ["vetorial"],
+  "color-mesh": ["vetorial"],
+  "piano-ribbons": ["vetorial"],
+  "vector-aura": ["vetorial"],
+};
+
+// ---------------------------------------------------------------------------
+// Proveniência (SH9C)
+// ---------------------------------------------------------------------------
+//
+// `source: "builtin"` não dizia nada — só marcava "é embutido, não custom".
+// Estas são as origens reais, extraídas do NOTICE.
+//
+// `code` distingue o que importa juridicamente e editorialmente:
+//   "ported"   = reimplementado a partir de código-fonte de terceiros
+//   "inspired" = o visual foi inspirado em estudos públicos; nenhum código copiado
+//   "original" = técnica escrita do zero para o runtime do Sonara
+export const VISUAL_ORIGINS = {
+  sonara: {
+    id: "sonara",
+    label: "Sonara original",
+    license: "Original",
+    holder: "sonara-hub",
+    code: "original",
+    summary: "Técnica escrita do zero para o runtime compartilhado do Sonara.",
+  },
+  threeui: {
+    id: "threeui",
+    label: "ThreeUI",
+    license: "MIT",
+    holder: "Design+Code · MengTo",
+    code: "ported",
+    url: "https://github.com/MengTo/threeui",
+    summary:
+      "Técnica portada e reescrita para a interface u_* do Sonara. Sem dependência do pacote threeui.",
+  },
+  "paper-shaders": {
+    id: "paper-shaders",
+    label: "Paper Shaders",
+    license: "Apache-2.0",
+    holder: "Lost Coast Labs, Inc.",
+    code: "ported",
+    url: "https://shaders.paper.design",
+    summary:
+      "Fork vendorizado de Paper Shaders 0.0.76, com mapeamento determinístico de áudio e tradução de paleta.",
+  },
+  lumen: {
+    id: "lumen",
+    label: "LUMEN",
+    license: "MIT",
+    holder: "lumenshaders",
+    code: "ported",
+    summary:
+      "Técnica de height-field com normal map anisotrópico, portada para a interface fullscreen do Sonara.",
+  },
+  inspired: {
+    id: "inspired",
+    label: "Referência artística",
+    license: "—",
+    holder: "estudos públicos",
+    code: "inspired",
+    summary:
+      "O visual foi inspirado em estudos públicos; nenhum código de terceiros é usado ou redistribuído.",
+  },
+};
+
+// Exceções explícitas ao derivamento por regra. O resto é deduzido de
+// `rendererId`/`family`, e o teste trava a distribuição resultante
+// (26 sonara / 29 paper-shaders / 8 threeui / 1 lumen / 3 inspired) para que uma
+// alteração silenciosa de catálogo não mude a atribuição.
+export const PRESET_ORIGIN_OVERRIDES = {
+  "liquid-chrome": "lumen",
+  "fluid-volume": "inspired",
+  "endless-shallows": "inspired",
+  "iridescent-bloom": "inspired",
+};
+
+// A origem é propriedade da TÉCNICA, não do preset resultante: um custom
+// derivado de `liquid-chrome` continua sendo um port de LUMEN. Por isso a
+// exceção é sempre procurada por `techniqueId`, nunca pelo id novo do custom.
+function resolveOriginId(techniqueId, rendererId, normalizedFamily) {
+  const override = PRESET_ORIGIN_OVERRIDES[techniqueId];
+  if (override) return override;
+  if (normalizeIdentifier(rendererId, "").startsWith("paper-"))
+    return "paper-shaders";
+  if (normalizedFamily === "predictive-arc") return "threeui";
+  if (normalizedFamily === "laser") return "threeui";
+  if (normalizedFamily === "crt") return "threeui";
+  if (normalizedFamily === "liquid-form") return "threeui";
+  if (normalizedFamily === "bell-field") return "threeui";
+  if (normalizedFamily === "stream-convergence") return "threeui";
+  return "sonara";
+}
+
+const visualCollectionIdSet = new Set(
+  VISUAL_COLLECTIONS.map((collection) => collection.id),
+);
+
+// Aceita só coleções que existem no catálogo e descarta ordem/parência inválida,
+// para que um `data/*.local.json` editado à mão não quebre a UI.
+function normalizeCollections(value, fallback = []) {
+  const source = Array.isArray(value) ? value : fallback;
+  const result = [];
+  for (const item of source) {
+    const id = normalizeIdentifier(item, "");
+    if (!visualCollectionIdSet.has(id) || result.includes(id)) continue;
+    result.push(id);
+  }
+  return result;
+}
+
+const control = (key, label, min = 0, max = 100, unit = "%", raw = false) => ({
   key,
   label,
   min,
   max,
   unit,
+  // `raw`: o valor vai para o shader como está, sem dividir por 100. Para índices
+  // e enums (ex.: `variant` do laser, que é 0..3 e não 0%..100%). Sem isto o
+  // variant=3 chegava como 0.03 e o shader caía no ramo errado.
+  raw,
 });
 
 function preset({
@@ -268,15 +534,23 @@ function preset({
     ...variant,
     common: { ...variant.common, audioReaction: 0 },
   }));
+  // Normaliza `family` UMA vez e usa para o campo e para a proveniência. Antes
+  // `resolveOriginId` recebia o valor cru enquanto o preset recebia o
+  // normalizado: `predictive-arc` não declara `family` (cai no fallback para o
+  // rendererId), então era classificado como `sonara` apesar de o campo lido
+  // dizer "predictive-arc". Um valor, uma normalização.
+  const normalizedFamily = normalizeIdentifier(family, rendererId);
   return {
     schemaVersion: VISUAL_SCHEMA_VERSION,
     id,
     name,
     rendererId,
     source: "builtin",
+    originId: resolveOriginId(id, rendererId, normalizedFamily),
+    collections: PRESET_COLLECTIONS[id] ?? [],
     category,
     categoryId: normalizeCategoryId(categoryId, category),
-    family: normalizeIdentifier(family, rendererId),
+    family: normalizedFamily,
     tags: normalizeTags(tags),
     variants: normalizedVariants,
     performanceTier: normalizePerformanceTier(performanceTier),
@@ -1170,6 +1444,606 @@ export const builtinVisualPresets = [
       control("fog", "Névoa"),
     ],
   }),
+  preset({
+    id: "predictive-arc",
+    name: "Arco preditivo",
+    category: "Luz & Pixels",
+    note: "Campo de pontos amostrando um arco parametrico, com nucleo luminoso, deriva senoidal e leitura de dados. Adaptado do ThreeUI (MIT, colecao Predictive Arc).",
+    tags: ["pontos", "arco", "dados", "procedural", "threeui"],
+    performanceTier: 2,
+    colors: { base: "#050507", effect: "#3c1e8a", light: "#8fc9ff" },
+    common: { speed: 22, brightness: 78, audioReaction: 0, shade: 0 },
+    advanced: {
+      spacing: 30,
+      dotSize: 45,
+      archHeight: 55,
+      thickness: 40,
+      glow: 60,
+    },
+    controls: [
+      control("spacing", "Espaçamento"),
+      control("dotSize", "Ponto"),
+      control("archHeight", "Arco"),
+      control("thickness", "Espessura"),
+      control("glow", "Brilho"),
+    ],
+  }),
+  preset({
+    id: "data-pixel-arc",
+    name: "Arco em pixels",
+    category: "Luz & Pixels",
+    family: "predictive-arc",
+    note: "Variante em blocos do arco preditivo: grid grosso, nucleo esmeralda e leitura retrô de dados. Adaptado do ThreeUI (MIT, colecao Predictive Arc).",
+    tags: ["pontos", "pixel", "arco", "dados", "retro", "threeui"],
+    performanceTier: 1,
+    colors: { base: "#030308", effect: "#0a3d1f", light: "#7cffa8" },
+    common: { speed: 26, brightness: 80, audioReaction: 0, shade: 0 },
+    advanced: {
+      pixelSize: 30,
+      arcCenter: 40,
+      arcDrop: 55,
+      thickness: 45,
+    },
+    controls: [
+      control("pixelSize", "Pixel"),
+      control("arcCenter", "Centro"),
+      control("arcDrop", "Queda"),
+      control("thickness", "Espessura"),
+    ],
+  }),
+  preset({
+    id: "ribbon-field",
+    name: "Campo de fitas",
+    category: "Luz & Pixels",
+    family: "predictive-arc",
+    note: "Fitas luminosas com distorcao procedural, grade de pontos e bloom. Adaptado do ThreeUI (MIT, colecao Predictive Arc).",
+    tags: ["fitas", "ribbon", "brilho", "grade", "procedural", "threeui"],
+    performanceTier: 2,
+    colors: { base: "#050508", effect: "#3a5cff", light: "#41e3d8" },
+    common: { speed: 22, brightness: 60, audioReaction: 0, shade: 0 },
+    advanced: { dot: 40, glow: 55, bloom: 45, contrast: 50 },
+    controls: [
+      control("dot", "Grade"),
+      control("glow", "Brilho"),
+      control("bloom", "Bloom"),
+      control("contrast", "Contraste"),
+    ],
+  }),
+  preset({
+    id: "signal-particles",
+    name: "Partículas de sinal",
+    category: "Luz & Pixels",
+    family: "predictive-arc",
+    note: "Grade de pontos ativada por ondas cruzadas, com destaque raro sorteado por hash das células. Adaptado do ThreeUI (MIT, coleção Predictive Arc / Signal Particles).",
+    tags: ["pontos", "sinal", "onda", "grade", "procedural", "threeui"],
+    performanceTier: 2,
+    colors: { base: "#0a0d16", effect: "#8fa3bd", light: "#3b82f6" },
+    common: { speed: 20, brightness: 72, audioReaction: 0, shade: 0 },
+    advanced: { spacing: 26, dotSize: 30, highlight: 40 },
+    controls: [
+      control("spacing", "Espaçamento"),
+      control("dotSize", "Ponto"),
+      control("highlight", "Destaque"),
+    ],
+  }),
+  preset({
+    id: "override-grid",
+    name: "Grade em pulso",
+    category: "Luz & Pixels",
+    family: "predictive-arc",
+    note: "Blocos em grade pulsando com uma onda radial vinda do centro, com escala e alfa derivados da fase. Adaptado do ThreeUI (MIT, coleção Predictive Arc / Override Grid).",
+    tags: ["grade", "blocos", "pulso", "radial", "threeui"],
+    performanceTier: 1,
+    colors: { base: "#0b0806", effect: "#f97316", light: "#fed7aa" },
+    common: { speed: 18, brightness: 68, audioReaction: 0, shade: 0 },
+    advanced: { blockSize: 26, gap: 22, depth: 55 },
+    controls: [
+      control("blockSize", "Bloco"),
+      control("gap", "Vão"),
+      control("depth", "Profundidade"),
+    ],
+  }),
+  preset({
+    id: "void-field",
+    name: "Campo do vazio",
+    category: "Luz & Pixels",
+    family: "predictive-arc",
+    note: "Matriz de pontos com distorção barrel, respiração radial, scanlines e flicker determinístico. Adaptado do ThreeUI (MIT, coleção Predictive Arc / Void Protocol).",
+    tags: ["pontos", "vazio", "scanline", "matriz", "monocromo", "threeui"],
+    performanceTier: 1,
+    colors: { base: "#05040b", effect: "#4c1d95", light: "#c4b5fd" },
+    common: { speed: 16, brightness: 74, audioReaction: 0, shade: 0 },
+    advanced: {
+      curvature: 40,
+      density: 45,
+      dotSize: 45,
+      scanline: 35,
+      core: 30,
+    },
+    controls: [
+      control("curvature", "Curvatura"),
+      control("density", "Densidade"),
+      control("dotSize", "Ponto"),
+      control("scanline", "Scanline"),
+      control("core", "Núcleo"),
+    ],
+  }),
+  preset({
+    id: "halftone-flow",
+    name: "Fluxo em retícula",
+    category: "Luz & Pixels",
+    family: "predictive-arc",
+    note: "Campo de fluxo com domain warping, pintado em retícula halftone cuja área do ponto segue a intensidade. Adaptado do ThreeUI (MIT, coleção Predictive Arc / Nexus Unified Flow).",
+    tags: ["halftone", "fluxo", "reticula", "campo", "quente", "threeui"],
+    performanceTier: 2,
+    colors: { base: "#0a0305", effect: "#c2410c", light: "#fdba74" },
+    common: { speed: 20, brightness: 70, audioReaction: 0, shade: 0 },
+    advanced: {
+      warp: 45,
+      intensity: 55,
+      gridSize: 40,
+      dotRadius: 45,
+      glow: 35,
+    },
+    controls: [
+      control("warp", "Distorção"),
+      control("intensity", "Intensidade"),
+      control("gridSize", "Retícula"),
+      control("dotRadius", "Raio"),
+      control("glow", "Brilho"),
+    ],
+  }),
+  preset({
+    id: "amber-halftone",
+    name: "Retícula âmbar",
+    category: "Luz & Pixels",
+    family: "predictive-arc",
+    note: "Retícula de pontos cujo brilho é uma onda radial senoidal, em gradiente vertical com varredura de fósforo. Adaptado do ThreeUI (MIT, coleção Predictive Arc / Amber Halftone).",
+    tags: ["halftone", "ambar", "fosforo", "reticula", "pontos", "threeui"],
+    performanceTier: 1,
+    colors: { base: "#0d0803", effect: "#fde68a", light: "#fbbf24" },
+    common: { speed: 16, brightness: 76, audioReaction: 0, shade: 0 },
+    advanced: {
+      density: 42,
+      dotSize: 40,
+      gradient: 50,
+      scanline: 30,
+      core: 30,
+    },
+    controls: [
+      control("density", "Densidade"),
+      control("dotSize", "Ponto"),
+      control("gradient", "Gradiente"),
+      control("scanline", "Varredura"),
+      control("core", "Núcleo"),
+    ],
+  }),
+  // Technique `laser` adapted from ThreeUI "Laser"
+  // (src/shaders/laser/laserShaders.ts, MIT). Four variants of the same shader,
+  // selected by u_param0; the pointer of the upstream was fixed to a
+  // deterministic center with drift (see the candidato). The order of `advanced`
+  // defines u_param0..N, so `variant` MUST stay first.
+  // Técnica `laser` adaptada de ThreeUI "Laser"
+  // (src/shaders/laser/laserShaders.ts, MIT). UM preset com 4 variações: as
+  // quatro são o mesmo efeito (feixe/elemento central de laser) com geometria
+  // diferente, então são variações de parâmetro, não presets separados — como
+  // os Paper Shaders. O `variant` é a PRIMEIRA chave de `advanced` (define
+  // u_param0) e a variação escolhe o ramo do shader.
+  //
+  // Controles além dos do upstream: `offsetX`, `offsetY` e `rotation` permitem
+  // posicionar e girar o elemento central — no upstream isso vinha do mouse
+  // (u_pointer), que é não-determinístico. Aqui o usuário controla de forma
+  // determinística, mantendo export reproduzível.
+  preset({
+    id: "laser",
+    rendererId: "laser",
+    name: "Laser",
+    category: "Luz & Pixels",
+    family: "laser",
+    note: "Feixe de laser com quatro variações (lâmina atmosférica, array radial, abertura prismática, relé halftone). O elemento central é deslocável em X/Y e rotacionável; o ponteiro do upstream virou controle determinístico. Adaptado do ThreeUI (MIT, coleção Laser).",
+    tags: ["laser", "feixe", "nevoa", "threeui"],
+    performanceTier: 1,
+    colors: { base: "#05070a", effect: "#7dd3fc", light: "#e0f2fe" },
+    common: { speed: 18, brightness: 78, audioReaction: 0, shade: 0 },
+    advanced: {
+      variant: 0,
+      size: 55,
+      length: 60,
+      density: 50,
+      offsetX: 50,
+      offsetY: 50,
+      rotation: 50,
+    },
+    controls: [
+      // `variant` NAO aparece como control: a escolha da variação é feita pelo
+      // picker do browser (que tem rótulo, cor e preview), não por um slider
+      // numérico que a duplicaria. Pior: como o preset tem `advanced` próprio e
+      // a variação mescla por cima, um control aqui seria sobrescrito a cada
+      // normalização — pareceria vivo e não faria nada. O param continua em
+      // `advanced` (é o que o shader lê via u_param0), só não é editável por
+      // slider.
+      control("size", "Espessura"),
+      control("length", "Alcance"),
+      control("density", "Densidade"),
+      control("offsetX", "Deslocar X"),
+      control("offsetY", "Deslocar Y"),
+      control("rotation", "Girar"),
+    ],
+    variants: [
+      {
+        id: "blade",
+        name: "Lâmina",
+        tags: ["laser", "feixe", "nevoa"],
+        colors: { base: "#05070a", effect: "#7dd3fc", light: "#e0f2fe" },
+        advanced: { variant: 0, size: 55, length: 60, density: 50 },
+      },
+      {
+        id: "array",
+        name: "Array",
+        tags: ["laser", "raios", "anel"],
+        colors: { base: "#0a0512", effect: "#a78bfa", light: "#fde68a" },
+        advanced: { variant: 1, size: 50, length: 62, density: 55 },
+      },
+      {
+        id: "prism",
+        name: "Prisma",
+        tags: ["laser", "prisma", "dispersao"],
+        colors: { base: "#0b0710", effect: "#c084fc", light: "#f0abfc" },
+        advanced: { variant: 2, size: 52, length: 58, density: 48 },
+      },
+      {
+        id: "relay",
+        name: "Relé",
+        tags: ["laser", "halftone", "reticula"],
+        colors: { base: "#05080d", effect: "#67e8f9", light: "#fef9c3" },
+        advanced: { variant: 3, size: 54, length: 60, density: 56 },
+      },
+    ],
+  }),
+  // ---- CRT / tubo de fósforo ---------------------------------------------
+  // Porta a TÉCNICA do CRT do ThreeUI (MIT): curvatura de vidro, scanline, máscara
+  // de tríade, halation de fósforo, barra de rolagem, sheen, vinheta, flicker e grão.
+  //
+  // O CONTEÚDO não é portado, e isso é deliberado (auditoria SH12). O upstream
+  // amostrava uma textura preenchida com telas de terceiros: a blue screen do
+  // Windows (fundo #161d92, "A fault was detected…", STOP: 0x…) e um terminal com
+  // o ZION/Nebuchadnezzar de The Matrix. Aqui o conteúdo é gerado dentro do shader
+  // (scope de áudio: onda, espectro, grade+varredura, anéis) — sem letra, sem logo,
+  // sem marca. A exclusão é estrutural: não existe textura onde possa haver tela de
+  // terceiro, então não há como reintroduzir o problema por descuido.
+  //
+  // Os 4 ramos são variação de conteúdo, não de vidro: o vidro (curva, máscara,
+  // grão) é o mesmo e é o que o usuário controla. `variant` é a primeira chave de
+  // `advanced` = u_param0, e chega como índice cru.
+  preset({
+    id: "crt",
+    rendererId: "crt",
+    name: "CRT",
+    category: "Telas",
+    family: "crt",
+    note: "Tubo de fósforo com quatro scopes de áudio (onda, espectro, varredura, anéis). Curvatura de vidro, scanline, máscara de tríade, halation, flicker e grão. Conteúdo gerado no shader — nenhuma tela de terceiro. Técnica adaptada do ThreeUI (MIT, coleção CRT).",
+    tags: ["crt", "fosforo", "scope", "analogico", "threeui"],
+    performanceTier: 1,
+    colors: { base: "#050806", effect: "#4ade80", light: "#dcfce7" },
+    common: { speed: 12, brightness: 82, audioReaction: 0, shade: 0 },
+    advanced: {
+      variant: 0,
+      curve: 45,
+      scanDensity: 40,
+      scanDepth: 34,
+      chroma: 40,
+      grain: 26,
+      vignette: 45,
+    },
+    controls: [
+      // `variant` não é control: a escolha é do picker. Como no laser, um slider
+      // aqui seria sobrescrito pela variação a cada normalização.
+      // A velocidade do tubo é o controle COMUM `speed` — 7 slots no total
+      // (param0..param6) e o 0 é o variant, então são 6 controles, não 7.
+      control("curve", "Curvatura"),
+      control("scanDensity", "Scanlines"),
+      control("scanDepth", "Profundidade"),
+      control("chroma", "Aberração"),
+      control("grain", "Grão"),
+      control("vignette", "Vinheta"),
+    ],
+    variants: [
+      {
+        id: "oscillo",
+        name: "Onda",
+        tags: ["crt", "scope", "onda"],
+        colors: { base: "#050806", effect: "#4ade80", light: "#dcfce7" },
+        advanced: {
+          variant: 0,
+          curve: 45,
+          scanDensity: 40,
+          scanDepth: 34,
+          chroma: 40,
+        },
+      },
+      {
+        id: "spectrum",
+        name: "Espectro",
+        tags: ["crt", "scope", "espectro"],
+        colors: { base: "#04080c", effect: "#22d3ee", light: "#cffafe" },
+        advanced: {
+          variant: 1,
+          curve: 38,
+          scanDensity: 52,
+          scanDepth: 42,
+          chroma: 52,
+        },
+      },
+      {
+        id: "vector",
+        name: "Varredura",
+        tags: ["crt", "scope", "varredura"],
+        colors: { base: "#0a0704", effect: "#fbbf24", light: "#fef3c7" },
+        advanced: {
+          variant: 2,
+          curve: 50,
+          scanDensity: 34,
+          scanDepth: 30,
+          chroma: 34,
+        },
+      },
+      {
+        id: "tunnel",
+        name: "Anéis",
+        tags: ["crt", "scope", "anéis"],
+        colors: { base: "#04060c", effect: "#60a5fa", light: "#e0f2fe" },
+        advanced: {
+          variant: 3,
+          curve: 58,
+          scanDensity: 46,
+          scanDepth: 38,
+          chroma: 58,
+        },
+      },
+    ],
+  }),
+  // ---- Liquid Form / metal líquido ----------------------------------------
+  // Metaball raymarched com deslocamento por simplex noise e iluminação de
+  // ambiente (key + rim + fill + painel). ThreeUI
+  // (src/shaders/liquid-form/liquidFormShaders.ts, MIT).
+  //
+  // Auditado por CONTEÚDO antes de portar (a lição do SH-N15, aplicada antes em
+  // vez de depois): zero texto, zero logo, zero svg, zero asset de terceiro. É
+  // técnica pura — o oposto do CRT.
+  //
+  // O `u_mouse` do upstream NÃO vem: ele interpola a câmera pelo mouse a cada
+  // frame, o que não é reproduzível, e export determinístico é regra do Sonara
+  // (o mesmo motivo que trocou o ponteiro do laser por controles). A câmera
+  // vira rotateX/rotateY/rotate, com deriva lenta por u_time por baixo.
+  // `u_mouse_amount` morre junto — existia só para pesar o mouse.
+  //
+  // As 4 variações são MATERIAIS, não formas: a metaball é a mesma, o que muda
+  // é o tint do rig de luz e o reflexo. `metal` não é slider — é a identidade
+  // da variação.
+  preset({
+    id: "liquid-form",
+    rendererId: "liquidform",
+    name: "Metal Líquido",
+    category: "Fluidos",
+    family: "liquid-form",
+    note: "Blob metálico raymarched com quatro materiais (cromo, mercúrio, película de óleo, cobre). A câmera é controlada por sliders em vez do ponteiro do upstream, para o export ser reproduzível. Adaptado do ThreeUI (MIT, coleção Liquid Form).",
+    tags: ["metal", "liquido", "raymarch", "cromo", "threeui"],
+    performanceTier: 3,
+    colors: { base: "#05060a", effect: "#dfe7f2", light: "#ffffff" },
+    common: { speed: 16, brightness: 80, audioReaction: 0, shade: 0 },
+    advanced: {
+      variant: 0,
+      morph: 68,
+      noiseScale: 42,
+      camera: 45,
+      rotateX: 50,
+      rotateY: 50,
+      rotate: 50,
+    },
+    controls: [
+      // `variant` não é control: a escolha é do picker.
+      control("morph", "Deformação"),
+      control("noiseScale", "Escala do ruído"),
+      control("camera", "Distância"),
+      control("rotateX", "Mirar X"),
+      control("rotateY", "Mirar Y"),
+      control("rotate", "Girar"),
+    ],
+    variants: [
+      {
+        id: "chrome",
+        name: "Cromo",
+        tags: ["metal", "cromo", "espelho"],
+        colors: { base: "#05060a", effect: "#dfe7f2", light: "#ffffff" },
+        advanced: { variant: 0, morph: 68, noiseScale: 44, camera: 45 },
+      },
+      {
+        id: "mercury",
+        name: "Mercúrio",
+        tags: ["metal", "mercurio", "liquido"],
+        colors: { base: "#06070c", effect: "#aab4c8", light: "#e8eef8" },
+        advanced: { variant: 1, morph: 64, noiseScale: 54, camera: 54 },
+      },
+      {
+        id: "oil",
+        name: "Óleo",
+        tags: ["metal", "oleo", "iridescente"],
+        colors: { base: "#07060e", effect: "#8b7ad6", light: "#c4f1ea" },
+        advanced: { variant: 2, morph: 82, noiseScale: 60, camera: 42 },
+      },
+      {
+        id: "copper",
+        name: "Cobre",
+        tags: ["metal", "cobre", "quente"],
+        colors: { base: "#0a0605", effect: "#c97b4a", light: "#ffd9b0" },
+        advanced: { variant: 3, morph: 70, noiseScale: 48, camera: 48 },
+      },
+    ],
+  }),
+  // ---- Bell Field / figura de Chladni --------------------------------------
+  // As linhas nodais (onde o metal fica parado) e os antinós (onde ele se move e
+  // brilha) de um disco de metal solicitado. ThreeUI
+  // (src/shaders/bell-field/bellFieldShaders.ts, MIT). Física de domínio público.
+  //
+  // Auditado por CONTEÚDO antes de portar (lição do SH-N15, aplicada antes):
+  // fillText, logo, brand, svg, trademark, @font-face = zero. Legalmente limpo.
+  //
+  // O `u_mouse` do upstream sai: ele desloca o padrão inteiro conforme o mouse
+  // (p -= m * 0.11), o que torna o export irreprodutível. Num padrão
+  // radialmente simétrico isso é visualmente idêntico a um controle de offset —
+  // e sem determinismo.
+  //
+  // O `u_strike` deixa de ser parâmetro solto e vira fase: o sino é golpeado
+  // periodicamente a partir de u_time, a onda de choque expande e morre. E a
+  // amplitude soma `u_audioOnset`, então o sino toca no beat — o áudio faz parte
+  // do envelope de render, então o export continua reproduzível.
+  //
+  // O upstream só tem 1 uniform controlável. Os 6 slots livres foram preenchidos
+  // com parâmetros que o padrão de Chladni realmente tem (frequência radial, modo
+  // angular, peso do 2º parcial, largura da linha, brilho do antinó, frequência do
+  // golpe) — melhor que deixar controles decorativos.
+  preset({
+    id: "bell-field",
+    rendererId: "bellfield",
+    name: "Campo de Sino",
+    category: "Atmosferas",
+    family: "bell-field",
+    note: "Figura de Chladni: linhas nodais e antinós de um disco de metal solicitado, em quatro metais (bronze, aço, cobre, obsidiana). O sino é golpeado periodicamente e a onda de choque reage ao audio — o que faz o padrao tocar no beat. Sem ponteiro, para o export ser reproduzível. Adaptado do ThreeUI (MIT, coleção Bell Field).",
+    tags: ["sino", "chladni", "onda", "metal", "threeui"],
+    performanceTier: 1,
+    colors: { base: "#08100e", effect: "#4e9b8a", light: "#ebeadc" },
+    // audioReaction é zerado pela normalização de todos os presets (é controle
+    // do usuário, não default do autor), então o golpe NÃO pode depender dele
+    // para existir — só para intensificar. O que faz o sino tocar no beat é o
+    // `audioReaction` que o usuário liga no inspector; desligado, o sino segue
+    // batendo no ritmo do `strikeRate`, que é determinístico.
+    common: { speed: 22, brightness: 84, audioReaction: 0, shade: 0 },
+    advanced: {
+      variant: 0,
+      density: 40,
+      spokes: 34,
+      detail: 30,
+      lineWidth: 32,
+      glow: 45,
+      strikeRate: 28,
+    },
+    controls: [
+      // `variant` não é control: a escolha é do picker.
+      control("density", "Densidade"),
+      control("spokes", "Raios"),
+      control("detail", "Detalhe"),
+      control("lineWidth", "Largura da linha"),
+      control("glow", "Brilho"),
+      control("strikeRate", "Frequência do golpe"),
+    ],
+    variants: [
+      {
+        id: "bronze",
+        name: "Bronze",
+        tags: ["sino", "bronze", "patina"],
+        colors: { base: "#08100e", effect: "#4e9b8a", light: "#ebeadc" },
+        advanced: { variant: 0, density: 40, spokes: 34, lineWidth: 32 },
+      },
+      {
+        id: "steel",
+        name: "Aço",
+        tags: ["sino", "aco", "frio"],
+        colors: { base: "#090b0e", effect: "#6b8095", light: "#f2f7ff" },
+        advanced: { variant: 1, density: 52, spokes: 22, lineWidth: 26 },
+      },
+      {
+        id: "copper",
+        name: "Cobre",
+        tags: ["sino", "cobre", "quente"],
+        colors: { base: "#0e0805", effect: "#b86b38", light: "#ffe6bd" },
+        advanced: { variant: 2, density: 34, spokes: 44, lineWidth: 38 },
+      },
+      {
+        id: "obsidian",
+        name: "Obsidiana",
+        tags: ["sino", "obsidiana", "escuro"],
+        colors: { base: "#050508", effect: "#2a2640", light: "#eae6ff" },
+        advanced: { variant: 3, density: 62, spokes: 30, lineWidth: 22 },
+      },
+    ],
+  }),
+  // ---- Stream Convergence ---------------------------------------------------
+  // Três camadas de onda senoidal que convergem, com um smoothstep que as
+  // transforma em linhas finas. ThreeUI
+  // (src/shaders/stream-convergence/streamConvergenceShaders.ts, MIT). Auditado
+  // por CONTEÚDO antes (lição do SH-N15 aplicada antes): sem texto, marca, svg ou
+  // asset. Legalmente limpo.
+  //
+  // Diferente dos outros: aqui o upstream só tem 3 uniforms, e o
+  // "u_interactive_fidelity" apesar do nome não é ponteiro — verifiquei, é um
+  // número (default 0.5) que só pesa o spread das camadas, passado como prop.
+  // Nome enganoso, comportamento limpo: não há o que remover.
+  //
+  // As 4 variações são temas de cor, que é a forma natural de variar aqui: no
+  // upstream a mistura r/g/b por camada sao 3 linhas fixas ("the violet-indigo
+  // theme"). E os 6 slots livres foram preenchidos com grandezas que a onda
+  // realmente tem (spread, frequência, velocidade, onda lateral, espessura da
+  // linha pela janela do smoothstep e rotação).
+  preset({
+    id: "stream-convergence",
+    rendererId: "streamconvergence",
+    name: "Convergência",
+    category: "Fluidos",
+    family: "stream-convergence",
+    note: "Três camadas de onda que convergem em linhas finas, em quatro temas (violeta, ciano, âmbar, monócrono). A espessura da linha é a janela do smoothstep. O controle 'fidelity' do upstream Despite nome enganoso ser um número, não o mouse — então o export continua reproduzível. Adaptado do ThreeUI (MIT, coleção Stream Convergence).",
+    tags: ["onda", "convergencia", "linhas", "fluido", "threeui"],
+    performanceTier: 1,
+    colors: { base: "#0a0618", effect: "#a855f7", light: "#e9d5ff" },
+    common: { speed: 24, brightness: 86, audioReaction: 0, shade: 0 },
+    advanced: {
+      variant: 0,
+      spread: 34,
+      waveFreq: 38,
+      waveSpeed: 30,
+      lateral: 42,
+      thickness: 26,
+      rotation: 30,
+    },
+    controls: [
+      // `variant` não é control: a escolha é o picker (aqui a cor É a variação).
+      control("spread", "Separação"),
+      control("waveFreq", "Frequência"),
+      control("waveSpeed", "Velocidade da onda"),
+      control("lateral", "Onda lateral"),
+      control("thickness", "Espessura"),
+      control("rotation", "Rotação"),
+    ],
+    variants: [
+      {
+        id: "violet",
+        name: "Violeta",
+        tags: ["onda", "violeta", "indigo"],
+        colors: { base: "#0a0618", effect: "#a855f7", light: "#e9d5ff" },
+        advanced: { variant: 0, spread: 34, waveFreq: 38, thickness: 26 },
+      },
+      {
+        id: "cyan",
+        name: "Ciano",
+        tags: ["onda", "ciano", "teal"],
+        colors: { base: "#04121a", effect: "#22d3ee", light: "#cffafe" },
+        advanced: { variant: 1, spread: 44, waveFreq: 52, thickness: 20 },
+      },
+      {
+        id: "amber",
+        name: "Âmbar",
+        tags: ["onda", "ambar", "dourado"],
+        colors: { base: "#140c04", effect: "#f59e0b", light: "#fef3c7" },
+        advanced: { variant: 2, spread: 28, waveFreq: 30, thickness: 34 },
+      },
+      {
+        id: "mono",
+        name: "Monócrono",
+        tags: ["onda", "monocromo", "neutro"],
+        colors: { base: "#0b0b0d", effect: "#d4d4d8", light: "#fafafa" },
+        advanced: { variant: 3, spread: 52, waveFreq: 62, thickness: 16 },
+      },
+    ],
+  }),
   ...paperShaderPresetConfigs.map((item) => preset(item)),
 ];
 
@@ -1222,6 +2096,40 @@ export const removedEffectIds = [
 
 export function getBuiltinPreset(id) {
   return builtinPresetMap.get(id) ?? builtinVisualPresets[0];
+}
+
+// Lookups de proveniência/coleção para a UI (SH9C). Desconhecido cai em
+// `sonara`/`undefined` em vez de lançar: um preset custom de um `*.local.json`
+// antigo pode não ter o campo, e a UI não pode quebrar por isso.
+export function getVisualOrigin(id) {
+  const key = normalizeIdentifier(id, "sonara");
+  return VISUAL_ORIGINS[key] ?? VISUAL_ORIGINS.sonara;
+}
+
+export function getVisualCollection(id) {
+  return VISUAL_COLLECTIONS.find(
+    (collection) => collection.id === normalizeIdentifier(id, ""),
+  );
+}
+
+// Contagem por coleção, para os chips mostrarem o tamanho real do grupo.
+export function countPresetsByCollection(presets = builtinVisualPresets) {
+  const counts = new Map(VISUAL_COLLECTIONS.map((item) => [item.id, 0]));
+  for (const preset of presets) {
+    for (const id of preset.collections ?? []) {
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+export function countPresetsByOrigin(presets = builtinVisualPresets) {
+  const counts = new Map(Object.keys(VISUAL_ORIGINS).map((id) => [id, 0]));
+  for (const preset of presets) {
+    const id = getVisualOrigin(preset.originId).id;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return counts;
 }
 
 export function normalizeVisualPresetList(value = builtinVisualPresets) {
@@ -1292,17 +2200,42 @@ export function normalizeVisualSettings(input = {}) {
       ? source
       : (selectedVariant?.common ?? aliasPalette?.common)) ??
     source;
+  // Mesma regra do `advanced`: a variação pinta no momento da escolha, depois
+  // o usuário é dono. Se a cor da fonte já difere do base, foi editada.
+  const variantColors = selectedVariant?.colors;
+  const sourceColors = hasColorFields(source) ? {} : (source.colors ?? {});
+  const colorsEdited = Object.keys(sourceColors).some(
+    (key) => sourceColors[key] !== base.colors[key],
+  );
   const incomingColors =
-    source.colors ??
-    (hasColorFields(source)
-      ? {}
-      : (selectedVariant?.colors ?? aliasPalette?.colors)) ??
-    {};
-  const incomingAdvanced =
-    source.advanced ??
-    selectedVariant?.advanced ??
-    aliasPalette?.advanced ??
-    {};
+    variantColors && !colorsEdited
+      ? variantColors
+      : ((hasColorFields(source) ? {} : source.colors) ??
+        aliasPalette?.colors ??
+        {});
+  // Semântica da variação: ela define os parâmetros NO MOMENTO da escolha e
+  // depois o usuário é dono deles.
+  //
+  // A variação prevalece sobre o preset base, mas NÃO sobre uma edição do
+  // usuário. O sinal é comparar com o base: se `source.advanced[k]` difere do
+  // `base.advanced[k]`, alguém mexeu e esse valor tem de ser respeitado.
+  // Sem isso, os controles ficavam presos — o usuário arrastava "Espessura" e
+  // o valor voltava para o da variação a cada normalização, sem erro nenhum
+  // (o slider respondia, só não mantinha).
+  const variantAdvanced = selectedVariant?.advanced ?? {};
+  const sourceAdvanced = source.advanced ?? {};
+  const editedKeys = new Set(
+    Object.keys(sourceAdvanced).filter(
+      (key) => sourceAdvanced[key] !== base.advanced[key],
+    ),
+  );
+  const incomingAdvanced = {
+    ...(aliasPalette?.advanced ?? {}),
+    ...(sourceAdvanced ?? {}),
+    ...Object.fromEntries(
+      Object.entries(variantAdvanced).filter(([key]) => !editedKeys.has(key)),
+    ),
+  };
   const incomingCloudLight = source.cloudLight ?? selectedVariant?.cloudLight;
   const incomingWaveform = source.waveform ?? {};
   const incomingWaveformAdvanced = incomingWaveform.advanced ?? {};
@@ -1314,6 +2247,17 @@ export function normalizeVisualSettings(input = {}) {
       source.source === "custom" ? String(source.name ?? base.name) : base.name,
     rendererId: base.rendererId,
     source: source.source === "custom" ? "custom" : "builtin",
+    // Um preset custom derivado de um builtin herda a proveniência da técnica do
+    // pai (por rendererId), mas continua sendo `sonara` no espírito: ninguém
+    // reimplementou a técnica de terceiros — adaptation de params não é
+    // reimplementação. As coleções sim são herdadas, porque descrevem o
+    // caráter visual, que o usuário não mudou ao trocar cor.
+    originId: resolveOriginId(
+      base.id,
+      base.rendererId,
+      normalizeIdentifier(source.family ?? base.family, base.rendererId),
+    ),
+    collections: normalizeCollections(source.collections, base.collections),
     category: String(source.category ?? base.category),
     categoryId: normalizeCategoryId(
       source.categoryId ?? base.categoryId,
@@ -1529,7 +2473,22 @@ function normalizeLayerScene(input = {}) {
 
 export function visualUniforms(settings) {
   const visual = normalizeVisualSettings(settings);
-  const values = visual.controls.map(({ key }) => visual.advanced[key] / 100);
+  // Mapeia por ORDEM DE `advanced`, não por ordem de `controls`.
+  //
+  // `advanced` é o contrato com o shader: a Nª chave é `u_paramN`. `controls`
+  // é só a camada de UI (o que aparece como slider), e pode legitimamente ter
+  // menos entradas que `advanced` — o laser esconde `variant` porque a escolha
+  // da variação é do picker. Mapear por `controls` fazia o `size` ocupar
+  // `u_param0` (que o shader lê como `variant`) e o `rotation` caíam fora do
+  // array: dois controles quebrados, silenciosamente.
+  const values = Object.keys(visual.advanced).map((key) =>
+    // `variant` é um ÍNDICE de ramo (0..3), não um percentual: dividir por
+    // 100 mandava variant=3 como 0.03 e o shader caía no ramo errado — o
+    // preset de laser renderizava a variação errada sem erro.
+    key === "variant"
+      ? visual.advanced[key]
+      : (visual.advanced[key] ?? 0) / 100,
+  );
   return {
     rendererId: visual.rendererId,
     common: {
@@ -1541,7 +2500,10 @@ export function visualUniforms(settings) {
       shade: visual.common.shade / 100,
     },
     colors: visual.colors,
-    advanced: Array.from({ length: 6 }, (_, index) => values[index] ?? 0),
+    // 7 posições = u_param0..u_param6 no prelude do runtime. Os três pontos
+    // (length 6 aqui e no runtime) truncavam `rotation`: o control aparecia no
+    // inspector e não chegava ao shader. Ao mexer num, mexer no outro.
+    advanced: Array.from({ length: 7 }, (_, index) => values[index] ?? 0),
     waveform: visual.waveform,
     cloudLight: visual.cloudLight,
   };

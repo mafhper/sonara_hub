@@ -178,6 +178,14 @@ export type SceneRendererId =
   | "fluid-flow"
   | "terrain-magic"
   | "terrain-flight"
+  | "predictive-arc"
+  | "data-pixel-arc"
+  | "ribbon-field"
+  | "signal-particles"
+  | "override-grid"
+  | "void-field"
+  | "halftone-flow"
+  | "amber-halftone"
   | PaperShaderRendererId;
 
 export type VisualPostSettings = {
@@ -200,12 +208,35 @@ export type VisualVariant = {
   cloudLight?: Partial<CloudLightSettings>;
 };
 
+export type VisualOriginId =
+  "sonara" | "threeui" | "paper-shaders" | "lumen" | "inspired";
+
+export type VisualOrigin = {
+  id: VisualOriginId;
+  label: string;
+  license: string;
+  holder: string;
+  code: "ported" | "inspired" | "original";
+  url?: string;
+  summary: string;
+};
+
+export type VisualCollection = {
+  id: string;
+  label: string;
+  summary: string;
+};
+
 export type ScenePresetV5 = {
   schemaVersion: 5;
   id: string;
   name: string;
   rendererId: SceneRendererId;
   source: "builtin" | "custom";
+  /** Curadoria de sabor/uso. Aberta e multi-membro; ver `VISUAL_COLLECTIONS`. */
+  collections: string[];
+  /** Origem real do efeito. Distinto de `source`, que só diz builtin vs custom. */
+  originId: VisualOriginId;
   category: string;
   categoryId: string;
   family: string;
@@ -242,6 +273,16 @@ export const visualCommonControlKeys: VisualCommonControlKey[];
 export const builtinVisualPresets: ScenePresetV5[];
 export const effectIds: string[];
 export const removedEffectIds: string[];
+/** Coleções curadas da biblioteca (SH9C). Aberta e editável. */
+export const VISUAL_COLLECTIONS: VisualCollection[];
+/** Curadoria explícita preset id -> coleções. Chaveado por id, nunca gerado. */
+export const PRESET_COLLECTIONS: Record<string, string[]>;
+/** Origens reais dos efeitos, com licença e quem fez. */
+export const VISUAL_ORIGINS: Record<VisualOriginId, VisualOrigin>;
+/** Exceções ao derivamento de origem por regra (rendererId / family). */
+export const PRESET_ORIGIN_OVERRIDES: Record<string, VisualOriginId>;
+export function getVisualOrigin(id?: unknown): VisualOrigin;
+export function getVisualCollection(id?: unknown): VisualCollection | undefined;
 export function getBuiltinPreset(id: string): ScenePresetV5;
 export function normalizeVisualPresetList(input?: unknown): ScenePresetV5[];
 export function normalizeVisualSettings(input?: unknown): ScenePresetV5;

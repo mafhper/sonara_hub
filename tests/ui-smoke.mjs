@@ -12,8 +12,8 @@ import { publicationAssetPresets } from "../shared/publication-assets.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const clientUrl = process.env.SONARA_CLIENT_URL ?? "http://127.0.0.1:5173";
 const focusTextProfiles = process.env.SONARA_UI_SMOKE_FOCUS === "text-profiles";
-const screenshotDir = path.join(root, ".dev", "screenshots");
-const assetDir = path.join(root, ".dev", "ui-smoke-assets");
+const screenshotDir = path.join(root, ".dev", "runtime", "screenshots");
+const assetDir = path.join(root, ".dev", "runtime", "ui-smoke-assets");
 const publicationClipPresetCount = publicationAssetPresets.filter(
   (preset) => preset.kind === "clip",
 ).length;
@@ -239,6 +239,127 @@ smoke: try {
   await page
     .getByRole("button", { name: "Selecionar atmosfera Aura vetorial" })
     .click();
+
+  // SH9C — coleções curadas e proveniência. As dimensões de filtro são
+  // disclosures colapsados (padrão), então abrimos Coleção e Origem antes de
+  // clicar. Filtros não mudam a seleção: o bloco limpa tudo no fim.
+  const fullCount = await page.locator(".visual-preset-card").count();
+  await page.getByText("Coleção", { exact: true }).click();
+  await page.getByText("Origem", { exact: true }).click();
+  // O número do chip vem da API, não de uma constante aqui. Hard-coded foi o que
+  // quebrou quando os presets novos entraram em `dados` — e um número fixo neste
+  // arquivo só pode ser corrigido à mão, um preset por vez, toda vez que a
+  // curadoria muda. Derivado, ele acompanha.
+  const dadosCountExpected = await page.evaluate(async () => {
+    const res = await fetch("/api/visual-presets");
+    const json = await res.json();
+    return json.presets.filter((p) => (p.collections || []).includes("dados"))
+      .length;
+  });
+  assert.equal(
+    await page
+      .getByRole("button", {
+        name: new RegExp(`^Dados\\s*${dadosCountExpected}$`, "u"),
+      })
+      .count(),
+    1,
+    `chip da coleção Dados deveria anunciar ${dadosCountExpected} presets (derivado da API)`,
+  );
+  await page
+    .getByRole("button", {
+      name: new RegExp(`^Dados\\s*${dadosCountExpected}$`, "u"),
+    })
+    .click();
+  const dadosCount = await page.locator(".visual-preset-card").count();
+  assert.ok(
+    dadosCount > 0 && dadosCount <= fullCount,
+    `filtro Dados mostrou ${dadosCount} de ${fullCount}`,
+  );
+  // Com um filtro ativo, ele aparece como chip removível fora do grupo colapsado
+  // — é o que torna colapsar os grupos seguro em vez de enganoso.
+  await page.getByRole("button", { name: "Remover filtro Dados" }).waitFor();
+  // As facetas são AND entre si, então "Dados" precisa sair antes de LUMEN:
+  // Cromo líquido não está em Dados e a interseção daria vazio sem causa visível.
+  await page.getByRole("button", { name: "Remover filtro Dados" }).click();
+  await page.getByRole("button", { name: /^LUMEN\s*1$/u }).click();
+  const lumenNames = await page
+    .locator(".visual-preset-name")
+    .allTextContents();
+  assert.deepEqual(
+    lumenNames,
+    ["Cromo líquido"],
+    `filtro de origem deveria mostrar 1 preset, mostrou ${lumenNames.length}`,
+  );
+  await page.locator(".visual-preset-search-input").fill("");
+  // A linha de proveniência é sempre visível: responde "por que este efeito
+  // existe" e não pode depender de hover, que não existe no toque.
+  await page.locator(".visual-preset-origin-row").waitFor();
+  assert.ok(
+    (await page.locator(".visual-preset-origin-why").textContent())?.trim(),
+    "linha de proveniência sem resumo de origem",
+  );
+
+  // Rolagem horizontal é proibida: a barra lateral é acessória e o conteúdo tem
+  // que adaptar por reflow. Este teste cobre **apenas** o que dá para medir com
+  // segurança aqui — o `overflow-x: clip` da grade e a ausência de transbordo
+  // horizontal em .inspector-scroll.
+  //
+  // Ele **não** cobre a regressão do corte na borda direita. Aquela depende de
+  // `min-width: auto` de item de grid e da coluna implícita `auto`, que só
+  // aparecem quando a largura vem do *track* do grid — e forçar `width` no painel
+  // (o que este teste faz) neutraliza os dois, dando espaço de sobra ao
+  // conteúdo. Ver SH-N10. A cobertura real desse bug exige arrastar a alça do
+  // inspetor, que é o caminho fiel (SH-N11).
+  const readHorizontalOverflow = () =>
+    page.evaluate(() => {
+      const grid = document.querySelector(".visual-preset-grid");
+      const scroller = document.querySelector(".inspector-scroll");
+      return {
+        grid: Math.round((grid?.scrollWidth ?? 0) - (grid?.clientWidth ?? 0)),
+        scroller: Math.round(
+          (scroller?.scrollWidth ?? 0) - (scroller?.clientWidth ?? 0),
+        ),
+      };
+    });
+  for (const width of [560, 440, 360]) {
+    await page.evaluate((value) => {
+      const panel = document.querySelector(".inspector-panel");
+      if (panel) panel.style.width = `${value}px`;
+    }, width);
+    await page.waitForTimeout(180);
+    const measured = await readHorizontalOverflow();
+    assert.ok(
+      measured.grid <= 1,
+      `grade abriu ${measured.grid}px de rolagem horizontal em ${width}px`,
+    );
+    assert.ok(
+      measured.scroller <= 1,
+      `painel abriu ${measured.scroller}px de rolagem horizontal em ${width}px — rolagem lateral não é solução de responsividade`,
+    );
+  }
+  await page.evaluate(() => {
+    document.querySelector(".inspector-panel")?.style.setProperty("width", "");
+  });
+  await page.waitForTimeout(150);
+  // Limpa o filtro LUMEN antes dos testes de selo — com ele ativo a grade
+  // mostra só "Cromo líquido" e a contagem de selos não quer dizer nada
+  const lumenChip = page.getByRole("button", { name: "Remover filtro LUMEN" });
+  if (await lumenChip.count()) await lumenChip.click();
+  // Só efeitos de terceiros ganham selo de licença. "Infantil" tem 3 presets,
+  // todos originais; "Efeitos simples" tem vários Paper Shaders (Apache-2.0).
+  await page.getByRole("tab", { name: /Infantil/ }).click();
+  assert.equal(
+    await page.locator(".visual-preset-thumb-badge.license").count(),
+    0,
+    "efeitos originais não deveriam ter selo de licença",
+  );
+  await page.getByRole("tab", { name: /Efeitos simples/ }).click();
+  assert.ok(
+    (await page.locator(".visual-preset-thumb-badge.license").count()) > 0,
+    "efeitos de Paper Shaders deveriam exibir a licença",
+  );
+
+  await page.getByRole("tab", { name: /Superficies/ }).click();
   await page.waitForTimeout(450);
   const centerPixel = await page
     .locator("canvas.scene-canvas")
@@ -1927,6 +2048,20 @@ async function assertPanelResize(page) {
     inspectorAfter.width > inspectorBefore.width + 32 &&
       inspectorAfter.width <= 620,
     `inspector panel should resize within bounds, before=${inspectorBefore.width}, after=${inspectorAfter.width}`,
+  );
+  // O gesto de arrastar é o único caminho em que `min-width: auto` de grid item e
+  // a coluna implícita `auto` se manifestam de verdade — forçar `width` no
+  // painel neutraliza os dois (ver SH-N10). Por isso a medição de transbordo
+  // fica AQUI, logo após o arraste real, e não numa manipulação sintética.
+  const inspectorOverflow = await page.evaluate(() => {
+    const scroller = document.querySelector(".inspector-scroll");
+    return Math.round(
+      (scroller?.scrollWidth ?? 0) - (scroller?.clientWidth ?? 0),
+    );
+  });
+  assert.ok(
+    inspectorOverflow <= 1,
+    `inspetor arrastado abriu ${inspectorOverflow}px de rolagem horizontal — a barra é acessória e o conteúdo tem que caber nela`,
   );
 }
 

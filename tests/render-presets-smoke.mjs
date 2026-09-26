@@ -16,7 +16,7 @@ const root = path.resolve(
   path.dirname(new URL(import.meta.url).pathname.slice(1)),
   "..",
 );
-const outputDir = path.join(root, ".dev", "render-smoke");
+const outputDir = path.join(root, ".dev", "runtime", "render-smoke");
 await fs.mkdir(outputDir, { recursive: true });
 
 const smokeProfile = normalizeSmokeProfile(
@@ -42,6 +42,19 @@ const quickPresetIds = new Set([
   "vector-aura",
   "playful-shapes",
   "piano-ribbons",
+  "predictive-arc",
+  "data-pixel-arc",
+  "ribbon-field",
+  "signal-particles",
+  "override-grid",
+  "void-field",
+  "halftone-flow",
+  "amber-halftone",
+  "laser",
+  "crt",
+  "liquid-form",
+  "bell-field",
+  "stream-convergence",
   "audio-dark",
   "lava-lamp",
   "starfield",

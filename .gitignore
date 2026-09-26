@@ -1,30 +1,27 @@
+# build e dependências
 node_modules/
 dist/
 site/dist/
+
+# artefatos locais de execução (ver .dev/README.md → "Caminhos de runtime")
 outputs/
 input/
 .dev/
-_dev/
 test-results/
-.superpowers/
 .worktrees/
-data/custom-presets.local.json
-data/jobs.local.json
-data/render-preferences.local.json
+
+# estado local do app (presets, histórico de jobs, preferências).
+# Ignora o diretório inteiro de propósito: arquivos .tmp de escrita atômica
+# (server/job-store.mjs grava em <arquivo>.tmp e renomeia) escapariam de um
+# padrão por nome e apareceriam como não rastreados.
+data/
+
 .env
 AGENTS.md
-GEMINI.md
-CLAUDE.md
-QWEN.md
-KIMI.md
-.agents/
-.gemini/
-.gemini-clipboard/
-.claude/
-.qwen/
-.kimi/
-.roo/
-.cursor/
-.windsurf/
-.claude-code/
 docs/
+
+# sistema operacional / editores
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp

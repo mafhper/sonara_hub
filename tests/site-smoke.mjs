@@ -7,7 +7,7 @@ import { chromium } from "playwright";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const distIndex = path.join(root, "site", "dist", "index.html");
-const screenshotDir = path.join(root, ".dev", "site-smoke");
+const screenshotDir = path.join(root, ".dev", "runtime", "site-smoke");
 const port = 64931;
 const baseUrl = `http://127.0.0.1:${port}/sonara_hub/`;
 

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   ATMOSPHERE_BASE_LAYER_ID,
   ATMOSPHERE_EXTRA_LAYER_ID,
@@ -7,14 +9,22 @@ import {
   atmosphereStackPerformance,
   builtinPresetMap,
   builtinVisualPresets,
+  countPresetsByCollection,
+  countPresetsByOrigin,
   effectIds,
+  getVisualCollection,
+  getVisualOrigin,
   normalizeAtmosphereBlendMode,
   normalizeAtmosphereLayers,
   normalizeVisualPresetList,
   normalizeVisualSettings,
   parseVisualCollection,
+  PRESET_COLLECTIONS,
+  PRESET_ORIGIN_OVERRIDES,
   resolveAtmosphereLayers,
   removedEffectIds,
+  VISUAL_COLLECTIONS,
+  VISUAL_ORIGINS,
   VISUAL_SCHEMA_VERSION,
   visualCommonControlKeys,
   visualPostDefaults,
@@ -25,6 +35,7 @@ import {
   paperShaderDefinitions,
   paperShaderPresetCount,
 } from "../shared/paper-shaders.mjs";
+import { sceneRuntimeHasRenderer } from "../shared/canvas-scene-runtime.mjs";
 
 test("visual settings reject non-object JSON and bound custom variants", () => {
   assert.doesNotThrow(() => normalizeVisualSettings(null));
@@ -71,6 +82,19 @@ const expectedIds = [
   "fluid-flow",
   "terrain-magic",
   "terrain-flight",
+  "predictive-arc",
+  "data-pixel-arc",
+  "ribbon-field",
+  "signal-particles",
+  "override-grid",
+  "void-field",
+  "halftone-flow",
+  "amber-halftone",
+  "laser",
+  "crt",
+  "liquid-form",
+  "bell-field",
+  "stream-convergence",
   ...paperShaderDefinitions.map((definition) => definition.rendererId),
 ];
 
@@ -85,6 +109,888 @@ test("catalog exposes the broad families plus the ported shader presets", () => 
   assert.ok(removedEffectIds.includes("rain-window"));
   assert.ok(removedEffectIds.includes("volumetric-clouds-dawn"));
   assert.equal(new Set(expectedIds).size, builtinVisualPresets.length);
+});
+
+// ---------------------------------------------------------------------------
+// SH9C — coleções curadas e proveniência
+// ---------------------------------------------------------------------------
+
+test("toda coleção curada tem rótulo, resumo e id único", () => {
+  assert.ok(VISUAL_COLLECTIONS.length >= 5);
+  const ids = VISUAL_COLLECTIONS.map((collection) => collection.id);
+  assert.equal(new Set(ids).size, ids.length, "ids de coleção duplicados");
+  for (const collection of VISUAL_COLLECTIONS) {
+    assert.ok(collection.label.trim(), `coleção ${collection.id} sem rótulo`);
+    assert.ok(collection.summary.trim(), `coleção ${collection.id} sem resumo`);
+    assert.match(collection.id, /^[a-z0-9-]+$/);
+  }
+});
+
+test("nenhum preset fica fora das coleções (curadoria sem órfãos)", () => {
+  const orphans = builtinVisualPresets.filter(
+    (preset) => !preset.collections.length,
+  );
+  assert.deepEqual(
+    orphans.map((preset) => preset.id),
+    [],
+    "presets sem nenhuma coleção — adicionar a curadoria em PRESET_COLLECTIONS",
+  );
+});
+
+test("curadoria referencia só coleções e presets que existem", () => {
+  const known = new Set(builtinVisualPresets.map((preset) => preset.id));
+  const collectionIds = new Set(VISUAL_COLLECTIONS.map((item) => item.id));
+  const stale = Object.keys(PRESET_COLLECTIONS).filter((id) => !known.has(id));
+  assert.deepEqual(stale, [], "chaves mortas em PRESET_COLLECTIONS");
+  for (const [id, collections] of Object.entries(PRESET_COLLECTIONS)) {
+    for (const collection of collections) {
+      assert.ok(
+        collectionIds.has(collection),
+        `${id} aponta para coleção inexistente "${collection}"`,
+      );
+    }
+    assert.equal(
+      new Set(collections).size,
+      collections.length,
+      `${id} repete a mesma coleção`,
+    );
+  }
+});
+
+test("as contagens por coleção batem com a curadoria declarada", () => {
+  const counts = countPresetsByCollection(builtinVisualPresets);
+  const expected = new Map(VISUAL_COLLECTIONS.map((item) => [item.id, 0]));
+  for (const preset of builtinVisualPresets) {
+    for (const id of preset.collections) expected.set(id, expected.get(id) + 1);
+  }
+  assert.deepEqual(
+    [...counts.entries()].sort(),
+    [...expected.entries()].sort(),
+  );
+  // Coleção vazia não deve aparecer como chip: seria um filtro sem resultado.
+  for (const [id, count] of counts) {
+    assert.ok(count > 0, `coleção "${id}" está vazia`);
+  }
+});
+
+test("proveniência deriva a origem real de cada preset", () => {
+  const counts = Object.fromEntries(countPresetsByOrigin(builtinVisualPresets));
+  // Distribuição travada de propósito: a origem vem de regra
+  // (rendererId/family) com 4 exceções explícitas. Se um preset novo entrar
+  // sem revisar a regra, este número muda e o teste pede revisão.
+  // 2026-09-25: threeui 8 → 12 com a família `laser` (SH11); depois 12 → 9
+  // quando as 4 variantes viraram UM preset com 4 variações (`laser`).
+  assert.deepEqual(counts, {
+    sonara: 26,
+    "paper-shaders": 29,
+    threeui: 13,
+    lumen: 1,
+    inspired: 3,
+  });
+});
+
+test("o runtime escreve todos os params que o prelude declara (u_param0..N)", () => {
+  // Regressão real (SH11), quatro vezes: o limite de 6 params aparecia em
+  // quatro lugares independentes — declaração no prelude, tamanho do array em
+  // `visualUniforms`, tamanho do array em `buildUniforms` (o JS do runtime) e o
+  // `for` que escreve cada uniform. Cada um destes sozinho produzia o mesmo
+  // modo de falha SILENCIOSO: o control aparece no inspector, o uniform existe,
+  // e nada acontece. A rotação media exatamente 0.0000 de diferença.
+  //
+  // Este teste amarra as pontas: se qualquer um dos quatro divergir, ele falha.
+  const laser = builtinVisualPresets.find(
+    (preset) => preset.family === "laser",
+  );
+  // Conta `advanced`, não `controls`: `controls` é a camada de UI e pode ter
+  // menos entradas (o laser esconde `variant`, que o picker escolhe).
+  const params = Object.keys(laser.advanced).length;
+  assert.ok(
+    params >= 7,
+    `o laser usa ${params} params; se subir, os quatro pontos precisam subir juntos`,
+  );
+  // O array posicional precisa ter lugar para todos.
+  const uniforms = visualUniforms(normalizeVisualSettings(laser));
+  assert.ok(
+    uniforms.advanced.length >= params,
+    `o array de uniforms (${uniforms.advanced.length}) não comporta ${params} params`,
+  );
+  // E o runtime precisa ter o renderer (o resto é verificado compilando GLSL
+  // no probe `provar-controles.mjs`, que é o que pega a divergência de verdade).
+  assert.ok(sceneRuntimeHasRenderer(laser.rendererId));
+  // A lista de nomes de uniform do runtime precisa cobrir todos os params que o
+  // shader declara. Esta é a QUARTA ocorrência do limite de 6 — as outras três
+  // (prelude, array em visualUniforms, array em buildUniforms) o teste acima
+  // cobre; esta verificação cala a boca no teste unitário. A divergência real
+  // desta só aparece compilando GLSL, que é o probe.
+  const runtimeSource = readFileSync(
+    fileURLToPath(
+      new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
+    ),
+    "utf8",
+  );
+  const declared = [
+    ...runtimeSource.matchAll(/uniform float u_param(\d+);/g),
+  ].map((m) => Number(m[1]));
+  const maxDeclared = Math.max(...declared);
+  const collected = [...runtimeSource.matchAll(/"param(\d+)",/g)].map((m) =>
+    Number(m[1]),
+  );
+  for (let i = 0; i <= maxDeclared; i += 1) {
+    assert.ok(
+      collected.includes(i),
+      `u_param${i} é declarado no shader mas não está na lista de nomes do runtime — o uniform nunca é escrito (controle decorativo)`,
+    );
+  }
+});
+
+test("a variação escolhida manda no preset (cores e advanced), preservando o resto", () => {
+  // Regressão real (SH11): o picker de variações do laser não fazia nada. O
+  // merge era `source.advanced ?? variant.advanced` e o preset TEM advanced
+  // próprio, então a variante era sempre ignorada — as 4 variações renderizavam
+  // a mesma, sem erro. Corrigido para mesclar por chave, com a variante
+  // prevalecendo (ela é a escolha do usuário).
+  const laser = builtinVisualPresets.find(
+    (preset) => preset.family === "laser",
+  );
+  const seenVariants = new Set();
+  const seenColors = new Set();
+  for (const variant of laser.variants) {
+    const applied = normalizeVisualSettings({
+      ...laser,
+      appliedVariantId: variant.id,
+    });
+    assert.equal(
+      applied.advanced.variant,
+      variant.advanced.variant,
+      `${variant.id}: a variação tem de escolher o ramo do shader`,
+    );
+    assert.equal(applied.colors.effect, variant.colors.effect, variant.id);
+    // As chaves que a variação NÃO declara (o posicionamento) sobrevivem do base.
+    assert.equal(
+      applied.advanced.offsetX,
+      50,
+      `${variant.id} perdeu o offsetX`,
+    );
+    assert.equal(
+      applied.advanced.rotation,
+      50,
+      `${variant.id} perdeu o rotation`,
+    );
+    seenVariants.add(applied.advanced.variant);
+    seenColors.add(applied.colors.effect);
+  }
+  assert.equal(
+    seenVariants.size,
+    4,
+    "as 4 variações precisam cair em ramos distintos",
+  );
+  assert.equal(
+    seenColors.size,
+    4,
+    "as 4 variações precisam ter cores distintas",
+  );
+});
+
+test("todo control de todo preset existe em `advanced` (o mapeamento u_paramN)", () => {
+  // `u_paramN` é a Nª chave de `advanced`; `controls` é só a camada de UI e
+  // pode ter MENOS entradas (o laser esconde `variant`). Se um control
+  // apontar para uma chave que não existe em `advanced`, o uniform recebe
+  // `undefined` e o slider não faz nada — silenciosamente.
+  for (const preset of builtinVisualPresets) {
+    for (const control of preset.controls) {
+      assert.ok(
+        Object.hasOwn(preset.advanced, control.key),
+        `${preset.id}: control "${control.key}" não existe em advanced`,
+      );
+    }
+  }
+});
+
+test("controles que o shader não lê são um problema de catálogo, não de UI", () => {
+  // Um control só é real se o `u_paramN` correspondente é lido pelo fragment
+  // shader. Medido em 2026-09-25: 0 controles inertes nos 39 presets WebGL de
+  // `src/`, então isto é uma trava de regressão, não uma correção pendente.
+  // A verificação real (compilando GLSL) está em
+  // `.dev/tasks/active/laser-collection/probes/controles-inertes.mjs`.
+  const runtimeSource = readFileSync(
+    fileURLToPath(
+      new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
+    ),
+    "utf8",
+  );
+  const readShader = (rendererId) => {
+    if (rendererId.startsWith("paper-")) return null;
+    const at = runtimeSource.indexOf(
+      `  ${JSON.stringify(rendererId)}: \`\${shaderPrelude}`,
+    );
+    if (at < 0) return null;
+    const start = runtimeSource.indexOf("`", at) + 1;
+    return runtimeSource.slice(start, runtimeSource.indexOf("`", start));
+  };
+  for (const preset of builtinVisualPresets) {
+    const body = readShader(preset.rendererId);
+    if (!body) continue; // Canvas 2D não usa u_paramN
+    preset.controls.forEach((control, index) => {
+      const advancedKeys = Object.keys(preset.advanced);
+      const position = advancedKeys.indexOf(control.key);
+      assert.ok(
+        body.includes(`u_param${position}`),
+        `${preset.id}: control "${control.key}" ocupa u_param${position}, que o shader não lê — controle decorativo`,
+      );
+    });
+  }
+});
+
+test("o runtime mapeia u_paramN pela ordem de `advanced`, não de `controls`", () => {
+  // Regressão real relatada pelo usuário: o laser "virou lens flare". Causa:
+  // o runtime WebGL montava os params por `scene.controls`, e como `variant`
+  // foi escondido do inspector (a escolha é do picker), o `size` passou a
+  // ocupar `u_param0` — que o shader lê como `variant`. Resultado: variant
+  // chegava 0.55, o ramo `< 0.5` falhava e TODAS as renderizações caíam no
+  // array (raios radiais = lens flare). `visualUniforms` já mapeava certo; o
+  // caminho que realmente renderiza é que estava errado.
+  //
+  // Este teste cobre os DOIS pontos de normalização pela mesma ordem.
+  const laser = builtinVisualPresets.find(
+    (preset) => preset.family === "laser",
+  );
+  const runtimeSource = readFileSync(
+    fileURLToPath(
+      new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
+    ),
+    "utf8",
+  );
+  assert.ok(
+    !/const values = scene\.controls\.map/.test(runtimeSource),
+    "o runtime webgl ainda mapeia params por controls — o size ocuparia u_param0",
+  );
+  // E o caminho principal tem de mandar o índice de variante cru.
+  const byId = ["blade", "array", "prism", "relay"];
+  byId.forEach((id, index) => {
+    const applied = normalizeVisualSettings({
+      ...laser,
+      appliedVariantId: id,
+    });
+    const uniforms = visualUniforms(applied);
+    assert.equal(
+      uniforms.advanced[0],
+      index,
+      `variação "${id}" deve chegar como u_param0=${index} (índice cru, não 0..1)`,
+    );
+  });
+  // A variante é um ÍNDICE: não pode ser normalizada como percentual. A prova é
+  // o caso 3 acima (3 cru vs 0.03 se fosse dividido) — `variant=0` não
+  // distingue nada porque 0 e 0/100 são o mesmo número.
+  assert.equal(visualUniforms(laser).advanced[0], 0);
+});
+
+test("o stream-convergence tem 4 temas e nenhum uniform de ponteiro", () => {
+  const sc = builtinVisualPresets.find(
+    (preset) => preset.family === "stream-convergence",
+  );
+  assert.ok(sc, "deve existir um preset da família stream-convergence");
+  assert.equal(sc.rendererId, "streamconvergence");
+  assert.equal(sc.originId, "threeui", sc.id);
+  assert.equal(sc.performanceTier, 1);
+
+  assert.deepEqual(
+    sc.variants.map((v) => v.id),
+    ["violet", "cyan", "amber", "mono"],
+  );
+  assert.deepEqual(
+    sc.variants.map((v) => v.advanced.variant),
+    [0, 1, 2, 3],
+  );
+
+  const keys = Object.keys(sc.advanced);
+  assert.equal(keys.length, 7);
+  assert.deepEqual(keys, [
+    "variant",
+    "spread",
+    "waveFreq",
+    "waveSpeed",
+    "lateral",
+    "thickness",
+    "rotation",
+  ]);
+  assert.ok(!sc.controls.some((c) => c.key === "variant"));
+  assert.deepEqual(
+    sc.controls.map((c) => c.key),
+    keys.slice(1),
+  );
+  sc.variants.forEach((variant, index) => {
+    const uniforms = visualUniforms(
+      normalizeVisualSettings({ ...sc, appliedVariantId: variant.id }),
+    );
+    assert.equal(
+      uniforms.advanced[0],
+      index,
+      `${variant.id} → u_param0=${index}`,
+    );
+  });
+
+  // O upstream tem SÓ 3 uniforms, um deles "u_interactive_fidelity" — nome que
+  // sugere ponteiro mas é um número (default 0.5) que pesa o spread. Não há
+  // mouse para remover aqui, mas a regra do projeto é não depender de ponteiro,
+  // então o teste garante que nenhum uniform dele entrou por outra via.
+  const runtimeSource = readFileSync(
+    fileURLToPath(
+      new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
+    ),
+    "utf8",
+  );
+  const stripComments = (source) =>
+    source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+  const start = runtimeSource.indexOf("streamconvergence: `${shaderPrelude}");
+  assert.ok(start > 0, "não achei o shader streamconvergence");
+  const shader = stripComments(
+    runtimeSource.slice(
+      start,
+      runtimeSource.indexOf("gl_FragColor = vec4(color, 1.0);\n}`,\n};", start),
+    ),
+  );
+  assert.ok(shader.includes("scRot"), "stripper comeu código");
+  for (const needle of ["u_mouse", "u_pointer", "u_interactive_fidelity"]) {
+    assert.ok(
+      !shader.includes(needle),
+      `"${needle}" não pode aparecer no stream-convergence`,
+    );
+  }
+});
+
+test("o bell-field tem 4 metais, 6 controles reais e nenhum ponteiro", () => {
+  const bf = builtinVisualPresets.find(
+    (preset) => preset.family === "bell-field",
+  );
+  assert.ok(bf, "deve existir um preset da família bell-field");
+  assert.equal(bf.rendererId, "bellfield");
+  assert.equal(bf.originId, "threeui", bf.id);
+  // Sem raymarch: custo desprezível.
+  assert.equal(bf.performanceTier, 1);
+
+  assert.deepEqual(
+    bf.variants.map((v) => v.id),
+    ["bronze", "steel", "copper", "obsidian"],
+  );
+  assert.deepEqual(
+    bf.variants.map((v) => v.advanced.variant),
+    [0, 1, 2, 3],
+  );
+
+  // O upstream tem SÓ 1 uniform controlável (u_strike). Os 6 slots livres foram
+  // preenchidos com parâmetros que a figura de Chladni realmente tem — em vez
+  // de controles decorativos, que é o modo de falha do SH-N13.
+  const keys = Object.keys(bf.advanced);
+  assert.equal(keys.length, 7, "advanced não pode passar de 7 slots");
+  assert.deepEqual(keys, [
+    "variant",
+    "density",
+    "spokes",
+    "detail",
+    "lineWidth",
+    "glow",
+    "strikeRate",
+  ]);
+  assert.ok(!bf.controls.some((c) => c.key === "variant"));
+  assert.deepEqual(
+    bf.controls.map((c) => c.key),
+    keys.slice(1),
+  );
+
+  // O golpe tem de acontecer SEMPRE, a partir de u_time — `audioReaction` é
+  // zerado pela normalização em todos os presets, então um shader que só toca no
+  // onset fica permanentemente mudo com o default.
+  assert.equal(
+    bf.common.audioReaction,
+    0,
+    "audioReaction é zerado por normalização; o shader não pode depender dele",
+  );
+
+  const runtimeSource = readFileSync(
+    fileURLToPath(
+      new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
+    ),
+    "utf8",
+  );
+  const stripComments = (source) =>
+    source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+  const start = runtimeSource.indexOf("bellfield: `${shaderPrelude}");
+  assert.ok(start > 0, "não achei o shader bellfield no runtime");
+  const shader = stripComments(
+    runtimeSource.slice(
+      start,
+      runtimeSource.indexOf("gl_FragColor = vec4(col, 1.0);\n}`,\n};", start),
+    ),
+  );
+  assert.ok(
+    shader.includes("bfMap") || shader.includes("bfBess"),
+    "stripper comeu código",
+  );
+  for (const needle of ["u_mouse", "u_pointer"]) {
+    assert.ok(
+      !shader.includes(needle),
+      `"${needle}" não pode aparecer no bell-field: export determinístico é regra`,
+    );
+  }
+  // E o golpe tem de vir de u_time, não de um uniform solto.
+  assert.ok(
+    shader.includes("fract(u_time"),
+    "o golpe deveria ser uma fase derivada de u_time, para ser automático e determinístico",
+  );
+});
+
+test("o liquid-form é UM preset com 4 MATERIAIS e nenhum ponteiro", () => {
+  const lf = builtinVisualPresets.find(
+    (preset) => preset.family === "liquid-form",
+  );
+  assert.ok(lf, "deve existir um preset da família liquid-form");
+  assert.equal(lf.id, "liquid-form");
+  assert.equal(lf.rendererId, "liquidform");
+  assert.equal(lf.originId, "threeui", lf.id);
+  // Raymarch é caro: o tier 3 é o mesmo do terrain-flight, que já é aceito.
+  assert.equal(lf.performanceTier, 3, "raymarch tem de ficar no tier 3");
+
+  assert.equal(lf.variants.length, 4);
+  assert.deepEqual(
+    lf.variants.map((v) => v.id),
+    ["chrome", "mercury", "oil", "copper"],
+  );
+  assert.deepEqual(
+    lf.variants.map((v) => v.advanced.variant),
+    [0, 1, 2, 3],
+  );
+
+  // 7 slots, o 0 é o variant -> 6 controles. `metal` NÃO é control: é a
+  // identidade do material, que é o que a variante carrega.
+  const keys = Object.keys(lf.advanced);
+  assert.equal(keys.length, 7, "advanced não pode passar de 7 slots");
+  assert.equal(keys[0], "variant");
+  assert.deepEqual(keys, [
+    "variant",
+    "morph",
+    "noiseScale",
+    "camera",
+    "rotateX",
+    "rotateY",
+    "rotate",
+  ]);
+  assert.ok(
+    !lf.controls.some((c) => c.key === "metal"),
+    "metal é a identidade da variante, não um slider",
+  );
+  assert.ok(!lf.controls.some((c) => c.key === "variant"));
+  assert.deepEqual(
+    lf.controls.map((c) => c.key),
+    keys.slice(1),
+  );
+
+  // `variant` cru: 3, nunca 0.03.
+  lf.variants.forEach((variant, index) => {
+    const uniforms = visualUniforms(
+      normalizeVisualSettings({ ...lf, appliedVariantId: variant.id }),
+    );
+    assert.equal(
+      uniforms.advanced[0],
+      index,
+      `${variant.id} → u_param0=${index}`,
+    );
+  });
+
+  // DETERMINISMO DE EXPORT. O upstream interpola a câmera pelo MOUSE a cada
+  // frame (u_mouse + u_mouse_amount), o que torna o export irreprodutível — foi o
+  // mesmo motivo que trocou o ponteiro do laser por controles. A câmera aqui é
+  // rotateX/rotateY/rotate. Nenhum vestígio de ponteiro pode existir no shader.
+  const runtimeSource = readFileSync(
+    fileURLToPath(
+      new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
+    ),
+    "utf8",
+  );
+  // Só o shader do liquidform: outros renderers legítimamente usam ponteiro.
+  // E só o CÓDIGO, sem comentários — o bloco que explica por que o ponteiro
+  // saiu precisa poder citar "u_mouse", senão o teste acusa a própria documentação
+  // de infração e acaba tolerando o uniform de volta.
+  const stripComments = (source) =>
+    source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+  const lfStart = runtimeSource.indexOf("liquidform: `${shaderPrelude}");
+  assert.ok(lfStart > 0, "não achei o shader liquidform no runtime");
+  const lfShader = stripComments(
+    runtimeSource.slice(
+      lfStart,
+      runtimeSource.indexOf("gl_FragColor = vec4(col, 1.0);\n}`,\n};", lfStart),
+    ),
+  );
+  assert.ok(lfShader.length > 0, "não consegui isolar o shader do liquidform");
+  assert.ok(lfShader.includes("lfMap"), "o stripper comeu código demais");
+  for (const needle of ["u_mouse", "u_pointer", "mouseAmount"]) {
+    assert.ok(
+      !lfShader.includes(needle),
+      `"${needle}" não pode aparecer no liquid-form: export determinístico é regra`,
+    );
+  }
+
+  // pow(x, 2.0) com x possivelmente negativo é INDEFINIDO em GLSL (pow é
+  // exp2(y*log2(x)), e log2 de negativo é NaN). O upstream usava isso no termo
+  // de painel, com base negativa na maior parte da esfera. O conserto é
+  // multiplicar. Se alguém reintroduzir o pow, o teste pega.
+  assert.ok(
+    !/pow\(\s*\([^,]*-[\d.]+\s*\)\s*\*[\d.]+\s*,\s*2\.0\s*\)/.test(lfShader),
+    "pow() com base possivelmente negativa e expoente fracionário/2.0: use x*x",
+  );
+});
+
+test("o crt é UM preset com 4 scopes e NENHUMA tela de terceiro", () => {
+  const crt = builtinVisualPresets.find((preset) => preset.family === "crt");
+  assert.ok(crt, "deve existir um preset da família crt");
+  assert.equal(crt.id, "crt");
+  assert.equal(crt.rendererId, "crt");
+  assert.equal(crt.originId, "threeui", crt.id);
+  assert.ok(crt.collections.includes("dados"), crt.id);
+  assert.ok(crt.collections.includes("luz"), crt.id);
+
+  // 4 variações, cada uma um ramo distinto do shader.
+  assert.equal(crt.variants.length, 4);
+  assert.deepEqual(
+    crt.variants.map((v) => v.id),
+    ["oscillo", "spectrum", "vector", "tunnel"],
+  );
+  assert.deepEqual(
+    crt.variants.map((v) => v.advanced.variant),
+    [0, 1, 2, 3],
+  );
+
+  // SÓ 7 SLOTS. u_param0..u_param6, e o 0 é o variant — então 6 controles, não
+  // 7. Já caiu neste limite uma vez (declarar u_param7 e o shader não compilava:
+  // "ERROR: 0:114: 'u_param7' : undeclared identifier"). A velocidade do tubo é
+  // o controle COMUM `speed`, não um sétimo param.
+  const advancedKeys = Object.keys(crt.advanced);
+  assert.equal(advancedKeys.length, 7, "advanced não pode passar de 7 slots");
+  assert.equal(advancedKeys[0], "variant", "variant precisa ser u_param0");
+  assert.deepEqual(advancedKeys, [
+    "variant",
+    "curve",
+    "scanDensity",
+    "scanDepth",
+    "chroma",
+    "grain",
+    "vignette",
+  ]);
+  assert.ok(
+    !advancedKeys.includes("motion"),
+    "motion não existe como param: a velocidade vem do controle comum speed",
+  );
+  assert.ok(
+    crt.common.speed > 0,
+    "a velocidade do tubo tem de vir do controle comum speed",
+  );
+  assert.ok(
+    !crt.controls.some((c) => c.key === "motion"),
+    "motion não deve ser um control duplicado do speed comum",
+  );
+
+  // `variant` não é um control: a escolha é do picker.
+  assert.ok(
+    !crt.controls.some((c) => c.key === "variant"),
+    "variant não deve ser um control: a variação é escolhida pelo picker",
+  );
+  // Os 6 controles são exatamente as 6 chaves depois de `variant`.
+  assert.deepEqual(
+    crt.controls.map((c) => c.key),
+    advancedKeys.slice(1),
+  );
+
+  // `variant` chega como índice CRU. Foi exatamente assim que o laser renderizou
+  // a variação errada antes: normalizado como percentual, 3 virava 0.03.
+  crt.variants.forEach((variant, index) => {
+    const uniforms = visualUniforms(
+      normalizeVisualSettings({ ...crt, appliedVariantId: variant.id }),
+    );
+    assert.equal(
+      uniforms.advanced[0],
+      index,
+      `${variant.id} → u_param0=${index}`,
+    );
+  });
+
+  // REGRA LEGAL (auditoria SH12). O CRT upstream pinta a blue screen do Windows e
+  // um terminal com o ZION/Nebuchadnezzar de The Matrix. Nenhum vestígio pode
+  // Cuidado ao ler isto: o arquivo do runtime CONTÉM a palavra "ZION" e
+  // "nintendo" — no comentário que documenta justamente a exclusão, que é onde
+  // elas têm que estar. Então o teste varre o CÓDIGO do shader (sem comentários) e
+  // o preset inteiro. Se incluísse o comentário, ele acusaria a própria
+  // documentação de infração e acabaria tolheando a exclusão.
+  const stripComments = (source) =>
+    source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+  const crtSources = [
+    stripComments(
+      readFileSync(
+        fileURLToPath(
+          new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
+        ),
+        "utf8",
+      ),
+    ),
+    JSON.stringify(crt),
+  ];
+  const forbidden = [
+    "161d92", // cor de fundo do BSOD do Windows
+    "0x0000CA7E", // código de erro real do Windows
+    "RASTER.SYS", // módulo do Windows
+    "SIGNAL HALTED", // cabeçalho do BSOD
+    "ZION", // Matrix
+    "Nebuchadnezzar", // Matrix
+    "/dev/mind", // Matrix
+    "nintendo",
+  ];
+  for (const needle of forbidden) {
+    for (const [index, source] of crtSources.entries()) {
+      assert.ok(
+        !source.toLowerCase().includes(needle.toLowerCase()),
+        `"${needle}" não pode aparecer no CRT (fonte #${index}) — ver .dev/tasks/completed/legal-audit/`,
+      );
+    }
+  }
+  // Sanidade do stripper: se ele parasse de remover comentários, o teste acima
+  // passaria por acidente. Garante que um termo de exclusão escrito em um
+  // comentário NÃO conta como infração, e que o resto do texto continua visível.
+  assert.ok(
+    !crtSources[0].includes("terminal ZION"),
+    "o stripper de comentários não está funcionando",
+  );
+  assert.ok(
+    crtSources[0].includes("crtContent"),
+    "o stripper comeu código demais",
+  );
+});
+
+test("o laser é UM preset com 4 variações e controle de posicionamento", () => {
+  const laser = builtinVisualPresets.find(
+    (preset) => preset.family === "laser",
+  );
+  assert.ok(laser, "deve existir um preset da família laser");
+  // UM preset, não quatro: as quatro são o mesmo efeito (feixe/elemento central)
+  // com geometria diferente, então são variações (como os Paper Shaders), não
+  // presets separados. Consolidar reduz o ruído da lista e expõe o picker de
+  // variações, que já existe na UI.
+  assert.equal(laser.id, "laser");
+  assert.equal(laser.rendererId, "laser");
+  assert.equal(laser.originId, "threeui", laser.id);
+  assert.ok(laser.collections.includes("dados"), laser.id);
+  assert.ok(laser.collections.includes("luz"), laser.id);
+  assert.equal(laser.common.audioReaction, 0, "reação musical default 0");
+
+  // As 4 variações, cada uma apontando para um ramo distinto do shader.
+  assert.equal(laser.variants.length, 4);
+  assert.deepEqual(
+    laser.variants.map((v) => v.id),
+    ["blade", "array", "prism", "relay"],
+  );
+  assert.deepEqual(
+    laser.variants.map((v) => v.advanced.variant),
+    [0, 1, 2, 3],
+  );
+
+  // `variant` é a PRIMEIRA chave de `advanced` (define u_param0) e a ordem
+  // inteira é fixa: os params de posicionamento vêm depois de size/length/density.
+  assert.deepEqual(Object.keys(laser.advanced), [
+    "variant",
+    "size",
+    "length",
+    "density",
+    "offsetX",
+    "offsetY",
+    "rotation",
+  ]);
+
+  // `variant` NÃO é um control: a escolha é do picker de variações do browser.
+  // Um slider aqui duplicaria a escolha e, pior, a variação mescla por cima a
+  // cada normalização — então ele pareceria vivo e não faria nada.
+  assert.ok(
+    !laser.controls.some((c) => c.key === "variant"),
+    "variant não deve ser um control: a variação é escolhida pelo picker",
+  );
+  // E `controls` pode legitimamente ter MENOS entradas que `advanced` — o
+  // mapeamento u_paramN é pela ordem de `advanced`, não de `controls`. Se um
+  // preset esconder um control, nenhum param pode se deslocar.
+  const advancedKeys = Object.keys(laser.advanced);
+  for (const control of laser.controls) {
+    const position = advancedKeys.indexOf(control.key);
+    assert.ok(
+      position >= 0,
+      `control "${control.key}" não existe em advanced — mapeamento quebrado`,
+    );
+  }
+
+  // Controle de posicionamento do elemento central: no upstream isso vinha do
+  // mouse (u_pointer, não-determinístico); aqui é determinístico e ajustável.
+  for (const key of ["offsetX", "offsetY", "rotation"]) {
+    assert.equal(laser.advanced[key], 50, `${key} deveria começar centrado`);
+    assert.ok(
+      laser.controls.some((c) => c.key === key),
+      `${key} precisa de um control visível no inspector`,
+    );
+  }
+});
+
+test("os params de posicionamento do laser chegam ao shader", () => {
+  // Declarar o param não basta: ele tem que sobreviver à normalização e chegar
+  // ao array posicional de uniforms. É o mesmo caminho que o `variant` percorre.
+  const laser = builtinVisualPresets.find(
+    (preset) => preset.family === "laser",
+  );
+  assert.ok(laser, "preset laser presente");
+  assert.ok(
+    sceneRuntimeHasRenderer(laser.rendererId),
+    "o runtime precisa ter o renderer 'laser'",
+  );
+  const uniforms = visualUniforms(normalizeVisualSettings(laser));
+  assert.equal(uniforms.rendererId, "laser");
+  assert.ok(Array.isArray(uniforms.advanced));
+  assert.ok(
+    uniforms.advanced.length >= 7,
+    `os 7 params precisam chegar ao shader (veio ${uniforms.advanced.length})`,
+  );
+});
+
+test("todo preset com shader tem renderer registrado (fallback genérico não é bug)", () => {
+  // Regressão real (SH11): os 4 presets do laser nasceram com rendererId = id
+  // ("laser-blade") enquanto o shader estava registrado só como "laser".
+  // `fragmentShaders[id]` dava undefined → o runtime caía no `else` genérico
+  // (drawDarkSurface) e o smoke "passava" renderizando 4 superfícies
+  // genéricas IGUAIS, sem erro. O teste de introspecção transforma esse erro
+  // invisível em falha de CI.
+  //
+  // Distinção necessária: `sceneRuntimeHasRenderer === false` significa
+  // "cai no fallback de fundo liso", que é intencional para presets como
+  // `audio-dark`. O que NÃO pode acontecer é um preset que pede um shader de
+  // verdade (tem `advanced` não-trivial e family que exige renderer) ficar sem
+  // registro. O laser é o caso: exige shader dedicado para não virar fundo.
+  const requiresDedicatedRenderer = (preset) =>
+    preset.family === "laser" ||
+    preset.family === "predictive-arc" ||
+    preset.family === "terrain" ||
+    preset.family === "fluid-volume";
+  for (const preset of builtinVisualPresets) {
+    if (!requiresDedicatedRenderer(preset)) continue;
+    assert.ok(
+      sceneRuntimeHasRenderer(preset.rendererId),
+      `${preset.id} (rendererId=${preset.rendererId}) exige renderer dedicado mas não tem — cairia no fallback de fundo liso e renderizaria uma superfície genérica`,
+    );
+  }
+});
+
+test("os presets de laser apontam para o mesmo renderer, com variantes distintas", () => {
+  const laser = builtinVisualPresets.filter((p) => p.family === "laser");
+  const rendererIds = new Set(laser.map((p) => p.rendererId));
+  assert.deepEqual(
+    [...rendererIds],
+    ["laser"],
+    "um único renderer compartilhado",
+  );
+  // E o mapa do runtime tem que ter essa chave.
+  assert.ok(
+    sceneRuntimeHasRenderer("laser"),
+    "o runtime precisa ter o renderer 'laser'",
+  );
+});
+
+test("toda origem declara licença, titular e se houve port de código", () => {
+  const codeKinds = new Set(["ported", "inspired", "original"]);
+  for (const [id, origin] of Object.entries(VISUAL_ORIGINS)) {
+    assert.equal(origin.id, id);
+    assert.ok(origin.label.trim(), `${id} sem rótulo`);
+    assert.ok(origin.license.trim(), `${id} sem licença`);
+    assert.ok(origin.holder.trim(), `${id} sem titular`);
+    assert.ok(origin.summary.trim(), `${id} sem resumo`);
+    assert.ok(codeKinds.has(origin.code), `${id} com code "${origin.code}"`);
+    // "inspirado" nunca pode virar "portado": é a distinção legal que importa.
+    if (origin.code === "inspired") {
+      assert.equal(
+        origin.license,
+        "—",
+        `${id} não pode declarar licença concreta`,
+      );
+    }
+  }
+});
+
+test("exceções de origem apontam para origens existentes e são intencionais", () => {
+  for (const [id, originId] of Object.entries(PRESET_ORIGIN_OVERRIDES)) {
+    assert.ok(
+      builtinPresetMap.has(id),
+      `PRESET_ORIGIN_OVERRIDES cita preset inexistente "${id}"`,
+    );
+    assert.ok(
+      Object.hasOwn(VISUAL_ORIGINS, originId),
+      `${id} aponta para origem inexistente "${originId}"`,
+    );
+  }
+  // A regra por família não pode esconder predefinição: o preset `predictive-arc`
+  // não declara `family` e cai no fallback para o rendererId.
+  assert.equal(
+    builtinPresetMap.get("predictive-arc").originId,
+    "threeui",
+    "o fallback de family=|rendererId classificou predictive-arc como sonara",
+  );
+});
+
+test("a família dot-grid-arc-field inteira é da origem ThreeUI e mora em Dados", () => {
+  const family = builtinVisualPresets.filter(
+    (preset) => preset.family === "predictive-arc",
+  );
+  assert.equal(family.length, 8);
+  for (const preset of family) {
+    assert.equal(preset.originId, "threeui", preset.id);
+    // Só a presença em "dados" é invariante; coleções secundárias são curadoria.
+    assert.ok(
+      preset.collections.includes("dados"),
+      `${preset.id} fora de "dados"`,
+    );
+  }
+});
+
+test("lookup de origem e coleção degrada sem lançar", () => {
+  assert.equal(getVisualOrigin("paper-shaders").license, "Apache-2.0");
+  assert.equal(getVisualOrigin("inexistente").id, "sonara");
+  assert.equal(getVisualOrigin(undefined).id, "sonara");
+  assert.equal(getVisualCollection("dados").label, "Dados");
+  assert.equal(getVisualCollection("inexistente"), undefined);
+});
+
+test("coleções inválidas são descartadas ao normalizar presets custom", () => {
+  const base = builtinPresetMap.get("starfield");
+  const custom = normalizeVisualSettings({
+    ...base,
+    id: "meu-starfield",
+    source: "custom",
+    collections: ["espaco", "colecao-que-nao-existe", "espaco", "dados"],
+  });
+  assert.deepEqual(
+    custom.collections,
+    ["espaco", "dados"],
+    "deduplicou e validou",
+  );
+  // Sem o campo (um *.local.json antigo) herda do pai em vez de esvaziar.
+  const inherited = normalizeVisualSettings({ ...base, source: "custom" });
+  assert.deepEqual(inherited.collections, base.collections);
+});
+
+test("presets custom não reimplementam a técnica de terceiros", () => {
+  // Ajustar cores/parâmetros de um preset Apache/MIT não torna o preset custom
+  // uma obra derivada: a origem continua sendo a da técnica.
+  const custom = normalizeVisualSettings({
+    ...builtinPresetMap.get("paper-waves"),
+    id: "meu-waves",
+    source: "custom",
+  });
+  assert.equal(custom.source, "custom");
+  assert.equal(custom.originId, "paper-shaders");
+  const original = normalizeVisualSettings({
+    ...builtinPresetMap.get("liquid-chrome"),
+    id: "meu-chrome",
+    source: "custom",
+  });
+  assert.equal(original.originId, "lumen");
 });
 
 test("Paper Shaders catalog exposes every official shader and preset", () => {
@@ -134,13 +1040,50 @@ test("every builtin atmosphere and reusable option starts with music reaction di
   );
 });
 
-test("static Paper shaders are grouped as simple effects", () => {
+test("efeitos de composição (camadas) ficam em Composicoes, não em fundos", () => {
+  // Anel, moldura, retícula, dithering, metal e fumaça de gema se sobrepõem a
+  // algo — não são fundos que situam a cena. A curadoria é explícita e travada.
+  const composicoes = new Set([
+    "paper-gem-smoke",
+    "paper-liquid-metal",
+    "paper-dithering",
+    "paper-smoke-ring",
+    "paper-pulsing-border",
+    "paper-water",
+  ]);
+  for (const preset of builtinVisualPresets) {
+    if (composicoes.has(preset.id)) {
+      assert.equal(preset.categoryId, "compositions", preset.id);
+    }
+  }
+  // Nenhum deles pode continuar numa coleção definida como "fundo de cena".
+  for (const preset of builtinVisualPresets) {
+    if (composicoes.has(preset.id)) {
+      assert.ok(
+        !preset.collections.includes("atmosfera"),
+        `${preset.id} virou composição mas ainda está na coleção de fundos`,
+      );
+    }
+  }
+});
+
+test("efeitos de composição (camadas) ficam em Composicoes, não em fundos", () => {
   const visual = normalizeVisualSettings({ id: "paper-dot-grid" });
   assert.equal(visual.category, "Efeitos simples");
   assert.equal(visual.categoryId, "simple-effects");
+  // Animações preservam a categoria upstream (Superficies)…
+  assert.equal(
+    normalizeVisualSettings({ id: "paper-neuro-noise" }).category,
+    "Superficies",
+  );
+  // …exceto as curadas para Composicoes, que são camadas, não fundos.
   assert.equal(
     normalizeVisualSettings({ id: "paper-water" }).category,
-    "Fluidos",
+    "Composicoes",
+  );
+  assert.equal(
+    normalizeVisualSettings({ id: "paper-water" }).categoryId,
+    "compositions",
   );
 });
 
