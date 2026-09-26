@@ -137,6 +137,9 @@ const commonSupportsByRenderer = new Map([
   ["void-field", ["speed", "brightness", "audioReaction", "shade"]],
   ["halftone-flow", ["speed", "brightness", "audioReaction", "shade"]],
   ["amber-halftone", ["speed", "brightness", "audioReaction", "shade"]],
+  // As 4 variantes do laser compartilham o rendererId "laser" (a variante é
+  // escolhida por u_param0), então o mapa de common controls tem UMA entrada.
+  ["laser", ["speed", "brightness", "audioReaction", "shade"]],
   ["vinyl", ["speed", "shade"]],
   ["audio-dark", ["speed", "shade"]],
   // V5 Lote 1 (etéreo × CodePen)
@@ -329,6 +332,10 @@ export const PRESET_COLLECTIONS = {
   "void-field": ["dados", "calmo"],
   "halftone-flow": ["dados"],
   "amber-halftone": ["dados"],
+  "laser-blade": ["dados", "luz"],
+  "laser-array": ["dados", "luz"],
+  "laser-prism": ["dados", "luz"],
+  "laser-relay": ["dados", "luz"],
   "holo-topography": ["dados", "luz"],
   vinyl: ["dados"],
   "paper-dot-grid": ["dados"],
@@ -447,6 +454,7 @@ function resolveOriginId(techniqueId, rendererId, normalizedFamily) {
   if (normalizeIdentifier(rendererId, "").startsWith("paper-"))
     return "paper-shaders";
   if (normalizedFamily === "predictive-arc") return "threeui";
+  if (normalizedFamily === "laser") return "threeui";
   return "sonara";
 }
 
@@ -1598,6 +1606,87 @@ export const builtinVisualPresets = [
       control("gradient", "Gradiente"),
       control("scanline", "Varredura"),
       control("core", "Núcleo"),
+    ],
+  }),
+  // Technique `laser` adapted from ThreeUI "Laser"
+  // (src/shaders/laser/laserShaders.ts, MIT). Four variants of the same shader,
+  // selected by u_param0; the pointer of the upstream was fixed to a
+  // deterministic center with drift (see the candidato). The order of `advanced`
+  // defines u_param0..N, so `variant` MUST stay first.
+  preset({
+    id: "laser-blade",
+    rendererId: "laser",
+    name: "Lâmina de laser",
+    category: "Luz & Pixels",
+    family: "laser",
+    note: "Feixe de laser atmosférico com névoa por fbm, miragem e ponto de contato. O ponteiro do upstream foi fixado em um centro com deriva temporal para manter o export determinístico. Adaptado do ThreeUI (MIT, coleção Laser / Atmospheric Blade).",
+    tags: ["laser", "feixe", "nevoa", "threeui"],
+    performanceTier: 1,
+    colors: { base: "#05070a", effect: "#7dd3fc", light: "#e0f2fe" },
+    common: { speed: 18, brightness: 78, audioReaction: 0, shade: 0 },
+    advanced: { variant: 0, size: 55, length: 60, density: 50 },
+    controls: [
+      control("variant", "Variante", 0, 3, ""),
+      control("size", "Espessura"),
+      control("length", "Alcance"),
+      control("density", "Densidade"),
+    ],
+  }),
+  preset({
+    id: "laser-array",
+    rendererId: "laser",
+    name: "Array laser",
+    category: "Luz & Pixels",
+    family: "laser",
+    note: "Arranjo de raios angulares que somem na distância, com anéis e horizonte girando ao redor de um centro. Adaptado do ThreeUI (MIT, coleção Laser / Vanishing Array).",
+    tags: ["laser", "raios", "anéis", "threeui"],
+    performanceTier: 1,
+    colors: { base: "#0a0512", effect: "#a78bfa", light: "#fde68a" },
+    common: { speed: 20, brightness: 76, audioReaction: 0, shade: 0 },
+    advanced: { variant: 1, size: 50, length: 62, density: 55 },
+    controls: [
+      control("variant", "Variante", 0, 3, ""),
+      control("size", "Espessura"),
+      control("length", "Alcance"),
+      control("density", "Raios"),
+    ],
+  }),
+  preset({
+    id: "laser-prism",
+    rendererId: "laser",
+    name: "Abertura prismática",
+    category: "Luz & Pixels",
+    family: "laser",
+    note: "Losango de laser com franjas de dispersão vermelha e azul nas bordas, eixos de luz e pacotes perimetrais. Adaptado do ThreeUI (MIT, coleção Laser / Prism Aperture).",
+    tags: ["laser", "prisma", "dispersao", "losango", "threeui"],
+    performanceTier: 1,
+    colors: { base: "#0b0710", effect: "#c084fc", light: "#f0abfc" },
+    common: { speed: 16, brightness: 80, audioReaction: 0, shade: 0 },
+    advanced: { variant: 2, size: 52, length: 58, density: 48 },
+    controls: [
+      control("variant", "Variante", 0, 3, ""),
+      control("size", "Espessura"),
+      control("length", "Abertura"),
+      control("density", "Dispersão"),
+    ],
+  }),
+  preset({
+    id: "laser-relay",
+    rendererId: "laser",
+    name: "Relé halftone",
+    category: "Luz & Pixels",
+    family: "laser",
+    note: "Feixe duplo com relé horizontal, névoa por fbm e retícula de pontos cuja área segue a intensidade do feixe. Adaptado do ThreeUI (MIT, coleção Laser / Halftone Relay).",
+    tags: ["laser", "halftone", "reticula", "threeui"],
+    performanceTier: 1,
+    colors: { base: "#05080d", effect: "#67e8f9", light: "#fef9c3" },
+    common: { speed: 22, brightness: 74, audioReaction: 0, shade: 0 },
+    advanced: { variant: 3, size: 54, length: 60, density: 56 },
+    controls: [
+      control("variant", "Variante", 0, 3, ""),
+      control("size", "Espessura"),
+      control("length", "Alcance"),
+      control("density", "Retícula"),
     ],
   }),
   ...paperShaderPresetConfigs.map((item) => preset(item)),

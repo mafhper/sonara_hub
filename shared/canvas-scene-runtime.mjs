@@ -255,6 +255,158 @@ void main() {
   col += u_colorB * pow(breathe, 6.0) * (0.06 + u_param4 * 0.18) * pulse(u_audioMid, 0.3);
   gl_FragColor = vec4(finish(col, uv), 1.0);
 }`,
+  // Técnica `laser` adaptada de ThreeUI "Laser"
+  // (src/shaders/laser/laserShaders.ts, MIT): 4 variantes (lâmina atmosférica,
+  // array que some, abertura prismática, relé halftone) com perfil gaussiano de
+  // feixe, névoa por fbm e retícula. Adaptação: o `u_pointer` do upstream — que
+  // seguia o cursor por lerp de frame (não-determinístico) — foi FIXADO em um
+  // ponto centrado com deriva função apenas de `u_time` (ver
+  // `.dev/tasks/backlog/threeui-library/candidato-laser.md`). O runtime do Sonara
+  // é determinístico e sem ponteiro (paridade preview↔export é regra dura); a
+  // diferença para o upstream é declarada no NOTICE. Os uniforms `u_hue`/
+  // `u_saturation` viraram as cores do preset e o tonemap do upstream foi
+  // absorvido por `finish()`.
+  laser: `${shaderPrelude}
+vec2 laserAnchor() {
+  // Ponto "vivo" sem ponteiro: centro + deriva lenta e limitada por u_time.
+  // Substitui o cursor do upstream mantendo a leitura de algo que se move.
+  // A amplitude é maior que a deriva do upstream de propósito: aqui o
+  // movimento é a única fonte de vida (sem cursor), então precisa ser visível.
+  float a = u_time * 0.34;
+  float b = u_time * 0.26;
+  return vec2(0.5 + sin(a) * 0.22, 0.5 + cos(b) * 0.16);
+}
+vec2 laserProfile(float distanceToLine, float coreWidth, float glowWidth) {
+  float core = exp(-pow(distanceToLine / max(coreWidth, 0.0002), 2.0));
+  float glow = exp(-pow(distanceToLine / max(glowWidth, 0.001), 1.25));
+  return vec2(core, glow);
+}
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  vec2 p = (gl_FragCoord.xy * 2.0 - u_resolution.xy) / min(u_resolution.x, u_resolution.y);
+  vec2 pointer = laserAnchor();
+  float variant = u_param0;                 // 0..3, arredondado nos 4 ramos
+  float size = 0.35 + u_param1 * 2.15;      // u_size   (clamp 0.35..2.5)
+  // "span" e nao "length": length e palavra reservada em GLSL (builtin) e o
+  // driver rejeita a compilacao com "function name expected". Erro pego pelo
+  // probe de afinacao, nao pelo smoke de render.
+  float span = 0.35 + u_param2 * 2.15;         // u_length (clamp 0.35..2.5)
+  float density = 0.25 + u_param3 * 2.25;  // u_density(clam 0.25..2.5)
+  float t = u_time * (0.6 + u_speed * 0.8);
+  vec3 color = u_colorA * 0.012;
+
+  if (variant < 0.5) {
+    // atmospheric-blade
+    float drift = sin(t * 0.21) * 0.025;
+    float center = pointer.x * 0.16 + drift;
+    float tilt = pointer.x * 0.055 + sin(t * 0.13) * 0.018;
+    float dist = abs(p.x - center - p.y * tilt);
+    float vMask = 1.0 - smoothstep(0.68 * span, 1.35 * span, abs(p.y));
+    vec2 beam = laserProfile(dist, 0.0028 * size, 0.052 * size);
+    vec2 fogUv = vec2(p.x * 3.4, p.y * 2.15 - t * 0.075);
+    fogUv.x += sin(p.y * 3.2 - t * 0.17) * 0.18;
+    float fogNoise = fbm(fogUv + pointer * 0.35);
+    float fog = smoothstep(0.34, 0.78, fogNoise) * exp(-pow(dist / (0.24 * size), 1.35)) * density * vMask;
+    float mirageDist = abs(abs(p.x - center + p.y * tilt * 0.35) - 0.105 * span);
+    vec2 mirage = laserProfile(mirageDist, 0.0011 * size, 0.016 * size);
+    float mirageMask = (1.0 - smoothstep(0.08, 1.2, abs(p.y))) * (0.35 + 0.65 * fogNoise);
+    color += u_colorB * fog * 0.34;
+    color += u_colorB * beam.y * vMask * (0.48 + 0.06 * sin(t * 1.1));
+    color += mix(u_colorB, u_accentColor, 0.88) * beam.x * vMask * 1.65;
+    color += u_colorB * mirage.y * mirageMask * 0.12 * density;
+    color += u_accentColor * mirage.x * mirageMask * 0.35 * density;
+    color += u_colorB * exp(-length(vec2((p.x - center) * 2.5, p.y + 0.77 * span)) * 7.0) * 0.45;
+  } else if (variant < 1.5) {
+    // vanishing-array
+    vec2 origin = vec2(pointer.x * 0.16, 0.12 + pointer.y * 0.075);
+    vec2 q = p - origin;
+    float radius = length(q);
+    float angle = atan(q.y, q.x);
+    float spokeCount = floor(11.0 + density * 10.0);
+    float angularDistance = abs(sin(angle * spokeCount));
+    float spoke = exp(-angularDistance * max(radius, 0.06) / (0.0075 * size));
+    float reach = smoothstep(0.035, 0.16, radius) * (1.0 - smoothstep(0.42 * span, 1.55 * span, radius));
+    float lowerField = 1.0 - smoothstep(-0.12, 0.22, q.y);
+    float upperField = smoothstep(0.02, 0.52, q.y) * 0.48;
+    float fieldMask = max(lowerField, upperField);
+    float carrier = 0.55 + 0.45 * sin(radius * 16.0 - t * 4.1 + angle * 2.0);
+    carrier = pow(max(carrier, 0.0), 7.0);
+    float rail = spoke * reach * fieldMask;
+    float railCore = pow(rail, 2.1);
+    float ringPhase = abs(sin((radius * 13.0 - t * 1.5) / max(span, 0.35)));
+    float rings = exp(-ringPhase / (0.035 * size)) * (1.0 - smoothstep(0.1, 1.2, radius)) * lowerField;
+    float horizon = exp(-abs(q.y) / (0.0035 * size)) * (1.0 - smoothstep(0.12, 1.15, abs(q.x)));
+    // Gradiente do trilho entre as duas pontas da paleta, modulado pelo ângulo:
+    // é o que dá a leitura de "arco-íris que gira" do upstream.
+    vec3 railTint = mix(u_colorB, u_accentColor, 0.5 + 0.5 * sin(angle * 3.0));
+    color += railTint * rail * (0.24 + carrier * 0.72);
+    color += mix(railTint, u_accentColor, 0.9) * railCore * (0.52 + carrier * 0.92);
+    color += u_colorB * rings * 0.14 * density;
+    color += mix(u_colorB, u_accentColor, 0.75) * horizon * 0.38;
+    color += u_colorB * exp(-radius * 15.0) * 0.95;
+  } else if (variant < 2.5) {
+    // prism-aperture
+    vec2 center = pointer * vec2(0.12, 0.08);
+    vec2 q = p - center;
+    float breathing = 0.46 * span + sin(t * 0.72) * 0.012;
+    float warp = (fbm(q * 3.2 + vec2(0.0, -t * 0.08)) - 0.5) * 0.025 * density;
+    float diamond = abs(q.x * 0.82) + abs(q.y) - breathing - warp;
+    float innerDiamond = abs(q.x * 0.82) + abs(q.y) - breathing * 0.66 + warp * 0.45;
+    vec2 outer = laserProfile(abs(diamond), 0.0024 * size, 0.046 * size);
+    vec2 inner = laserProfile(abs(innerDiamond), 0.0012 * size, 0.018 * size);
+    float edgeMask = 1.0 - smoothstep(0.25, 1.18, length(q));
+    float perimeterPhase = sin((q.x - q.y) * 15.0 - t * 3.3);
+    float packets = pow(max(perimeterPhase, 0.0), 10.0) * outer.y;
+    float axisX = exp(-abs(q.x) / (0.002 * size)) * (1.0 - smoothstep(0.04, breathing, abs(q.y)));
+    float axisY = exp(-abs(q.y) / (0.002 * size)) * (1.0 - smoothstep(0.04, breathing, abs(q.x)));
+    // Franjas de dispersão: o upstream usava accent(0.98,·) e accent(0.54,·);
+    // aqui viram as duas pontas da paleta do preset.
+    float redFringe = exp(-pow(abs(diamond - 0.011 * size) / (0.011 * size), 1.4));
+    float blueFringe = exp(-pow(abs(diamond + 0.011 * size) / (0.011 * size), 1.4));
+    color += u_colorB * outer.y * edgeMask * 0.5;
+    color += mix(u_colorB, u_accentColor, 0.9) * outer.x * edgeMask * 1.5;
+    color += u_colorB * inner.y * edgeMask * 0.18 * density;
+    color += u_accentColor * inner.x * edgeMask * 0.48 * density;
+    color += u_accentColor * redFringe * 0.13;
+    color += mix(u_colorB, u_accentColor, 0.5) * blueFringe * 0.16;
+    color += mix(u_colorB, u_accentColor, 0.8) * (axisX + axisY) * 0.2;
+    color += u_colorB * packets * 0.85;
+    color += u_colorB * exp(-length(q) * 9.0) * 0.22;
+  } else {
+    // halftone-relay
+    float center = 0.29 + pointer.x * 0.12;
+    float bend = sin(p.y * 2.1 - t * 0.25) * 0.018;
+    float mainDist = abs(p.x - center - bend);
+    float relayDist = abs(p.x - center + 0.075 * span + bend * 0.45);
+    vec2 mainBeam = laserProfile(mainDist, 0.0022 * size, 0.072 * size);
+    vec2 relayBeam = laserProfile(relayDist, 0.0012 * size, 0.025 * size);
+    vec2 fogUv = vec2(p.x * 3.0, p.y * 2.5 - t * 0.1);
+    float fogNoise = fbm(fogUv + vec2(sin(t * 0.16), 0.0));
+    float fog = smoothstep(0.28, 0.78, fogNoise) * exp(-mainDist * 9.5 / size) * density;
+    float dotScale = mix(9.0, 4.5, clamp((density - 0.25) / 2.25, 0.0, 1.0));
+    vec2 dotCell = fract(gl_FragCoord.xy / dotScale) - 0.5;
+    float dot = 1.0 - smoothstep(0.08, 0.34, length(dotCell));
+    float dotMask = dot * smoothstep(0.08, 0.68, fog + mainBeam.y * 0.65);
+    float pulseLine = pow(max(0.0, sin(p.y * 9.0 - t * 4.0)), 12.0);
+    float horizontalRelay = exp(-abs(p.y + 0.34 - pointer.y * 0.08) / (0.0024 * size));
+    horizontalRelay *= 1.0 - smoothstep(0.1, 1.05 * span, abs(p.x - center));
+    color += u_colorB * fog * 0.24;
+    color += u_colorB * mainBeam.y * 0.54;
+    color += mix(u_colorB, u_accentColor, 0.9) * mainBeam.x * 1.48;
+    color += u_colorB * relayBeam.y * 0.2;
+    color += u_accentColor * relayBeam.x * 0.5;
+    color += mix(u_colorB, u_accentColor, 0.6) * dotMask * (0.3 + pulseLine * 0.42);
+    color += mix(u_colorB, u_accentColor, 0.8) * horizontalRelay * (0.22 + pulseLine * 0.58);
+  }
+
+  float vignette = 1.0 - smoothstep(0.24, 1.45, length(p * vec2(0.72, 0.88)));
+  color *= 0.55 + vignette * 0.45;
+  // Tonemap Reinhard do upstream (color / (color + 0.72)). Sem ele o quadro
+  // fica como névoa cinza chapada: ele é o que mantém o fundo preto e faz o
+  // núcleo do feixe estourar em branco — é o que faz o laser LER como luz.
+  color = color / (color + vec3(0.72));
+  gl_FragColor = vec4(finish(color, uv), 1.0);
+}`,
   // Técnica `halftone-flow` adaptada de ThreeUI "Nexus Unified Flow"
   // (src/shaders/neuform-isolated/sources/nexus-unified-flow.html, MIT):
   // campo de fluxo com domain warping, pintado em retícula halftone cuja
@@ -1731,6 +1883,44 @@ function waitFor(target, event) {
     target.addEventListener(event, resolve, { once: true });
     target.addEventListener("error", reject, { once: true });
   });
+}
+
+// Introspecção para testes: existe um renderer DEDICADO para este id?
+//
+// Existe porque um erro aqui é INVISÍVEL: um preset cujo `rendererId` não bate
+// com nenhuma chave do mapa cai no `else` genérico (`drawDarkSurface`) e
+// renderiza uma superfície escura genérica — sem exceção, sem warning, e o
+// smoke de render "passa" porque só checa que o vídeo foi gerado. Foi
+// exatamente o que aconteceu em SH11 com os 4 presets do laser.
+//
+// `false` NÃO significa "vazio": significa "cai no fallback genérico", que é
+// intencional para presets de fundo liso (ex.: `audio-dark`).
+export function sceneRuntimeHasRenderer(rendererId) {
+  if (Object.hasOwn(fragmentShaders, rendererId)) return true;
+  if (isPaperShaderRenderer(rendererId)) return true;
+  if (canvas2dRendererIds().includes(rendererId)) return true;
+  return false;
+}
+
+export const sceneRuntimeRendererIds = () => [
+  ...Object.keys(fragmentShaders),
+  ...canvas2dRendererIds(),
+];
+
+// Os renderers Canvas 2D são os ids que caem nos ramos `draw*` do dispatch,
+// e não estão em `fragmentShaders`. Deduzidos do código em vez de duplicados
+// numa lista, para a introspecção não divergir do dispatch.
+function canvas2dRendererIds() {
+  return [
+    "vinyl",
+    "vector-aura",
+    "playful-shapes",
+    "piano-ribbons",
+    "predictive-arc",
+    "data-pixel-arc",
+    "signal-particles",
+    "override-grid",
+  ];
 }
 
 function createWebglRenderer(canvas) {

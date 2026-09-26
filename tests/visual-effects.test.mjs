@@ -33,6 +33,7 @@ import {
   paperShaderDefinitions,
   paperShaderPresetCount,
 } from "../shared/paper-shaders.mjs";
+import { sceneRuntimeHasRenderer } from "../shared/canvas-scene-runtime.mjs";
 
 test("visual settings reject non-object JSON and bound custom variants", () => {
   assert.doesNotThrow(() => normalizeVisualSettings(null));
@@ -87,6 +88,10 @@ const expectedIds = [
   "void-field",
   "halftone-flow",
   "amber-halftone",
+  "laser-blade",
+  "laser-array",
+  "laser-prism",
+  "laser-relay",
   ...paperShaderDefinitions.map((definition) => definition.rendererId),
 ];
 
@@ -170,13 +175,88 @@ test("proveniência deriva a origem real de cada preset", () => {
   // Distribuição travada de propósito: a origem vem de regra
   // (rendererId/family) com 4 exceções explícitas. Se um preset novo entrar
   // sem revisar a regra, este número muda e o teste pede revisão.
+  // 2026-09-25: threeui 8 → 12 com a família `laser` (SH11).
   assert.deepEqual(counts, {
     sonara: 26,
     "paper-shaders": 29,
-    threeui: 8,
+    threeui: 12,
     lumen: 1,
     inspired: 3,
   });
+});
+
+test("as famílias do ThreeUI (dot-grid-arc-field e laser) são da origem threeui", () => {
+  const laser = builtinVisualPresets.filter(
+    (preset) => preset.family === "laser",
+  );
+  assert.equal(laser.length, 4, "a família laser tem 4 variantes");
+  for (const preset of laser) {
+    assert.equal(preset.originId, "threeui", preset.id);
+    assert.ok(preset.collections.includes("dados"), preset.id);
+    assert.ok(preset.collections.includes("luz"), preset.id);
+  }
+  // Cada variante do laser seleciona um ramo distinto do shader por u_param0,
+  // e `variant` tem que ser a PRIMEIRA chave de `advanced` (define u_param0).
+  const variants = laser.map((preset) => preset.advanced.variant);
+  assert.deepEqual(variants, [0, 1, 2, 3]);
+  for (const preset of laser) {
+    assert.equal(
+      Object.keys(preset.advanced)[0],
+      "variant",
+      `${preset.id}: 'variant' precisa ser a primeira chave de advanced`,
+    );
+  }
+  // As 4 variantes compartilham UM rendererId (o shader é único, a variante vem
+  // de u_param0). Se um preset pedir um rendererId que não existe no runtime,
+  // o frame sai VAZIO sem erro — por isso o runtime é importado aqui e a
+  // cobertura é conferida de verdade, não presumida.
+  assert.deepEqual(
+    [...new Set(laser.map((preset) => preset.rendererId))],
+    ["laser"],
+    "as 4 variantes devem compartilhar o rendererId",
+  );
+});
+
+test("todo preset com shader tem renderer registrado (fallback genérico não é bug)", () => {
+  // Regressão real (SH11): os 4 presets do laser nasceram com rendererId = id
+  // ("laser-blade") enquanto o shader estava registrado só como "laser".
+  // `fragmentShaders[id]` dava undefined → o runtime caía no `else` genérico
+  // (drawDarkSurface) e o smoke "passava" renderizando 4 superfícies
+  // genéricas IGUAIS, sem erro. O teste de introspecção transforma esse erro
+  // invisível em falha de CI.
+  //
+  // Distinção necessária: `sceneRuntimeHasRenderer === false` significa
+  // "cai no fallback de fundo liso", que é intencional para presets como
+  // `audio-dark`. O que NÃO pode acontecer é um preset que pede um shader de
+  // verdade (tem `advanced` não-trivial e family que exige renderer) ficar sem
+  // registro. O laser é o caso: exige shader dedicado para não virar fundo.
+  const requiresDedicatedRenderer = (preset) =>
+    preset.family === "laser" ||
+    preset.family === "predictive-arc" ||
+    preset.family === "terrain" ||
+    preset.family === "fluid-volume";
+  for (const preset of builtinVisualPresets) {
+    if (!requiresDedicatedRenderer(preset)) continue;
+    assert.ok(
+      sceneRuntimeHasRenderer(preset.rendererId),
+      `${preset.id} (rendererId=${preset.rendererId}) exige renderer dedicado mas não tem — cairia no fallback de fundo liso e renderizaria uma superfície genérica`,
+    );
+  }
+});
+
+test("os presets de laser apontam para o mesmo renderer, com variantes distintas", () => {
+  const laser = builtinVisualPresets.filter((p) => p.family === "laser");
+  const rendererIds = new Set(laser.map((p) => p.rendererId));
+  assert.deepEqual(
+    [...rendererIds],
+    ["laser"],
+    "um único renderer compartilhado",
+  );
+  // E o mapa do runtime tem que ter essa chave.
+  assert.ok(
+    sceneRuntimeHasRenderer("laser"),
+    "o runtime precisa ter o renderer 'laser'",
+  );
 });
 
 test("toda origem declara licença, titular e se houve port de código", () => {
