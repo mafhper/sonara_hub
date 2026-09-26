@@ -337,6 +337,49 @@ test("controles que o shader não lê são um problema de catálogo, não de UI"
   }
 });
 
+test("o runtime mapeia u_paramN pela ordem de `advanced`, não de `controls`", () => {
+  // Regressão real relatada pelo usuário: o laser "virou lens flare". Causa:
+  // o runtime WebGL montava os params por `scene.controls`, e como `variant`
+  // foi escondido do inspector (a escolha é do picker), o `size` passou a
+  // ocupar `u_param0` — que o shader lê como `variant`. Resultado: variant
+  // chegava 0.55, o ramo `< 0.5` falhava e TODAS as renderizações caíam no
+  // array (raios radiais = lens flare). `visualUniforms` já mapeava certo; o
+  // caminho que realmente renderiza é que estava errado.
+  //
+  // Este teste cobre os DOIS pontos de normalização pela mesma ordem.
+  const laser = builtinVisualPresets.find(
+    (preset) => preset.family === "laser",
+  );
+  const runtimeSource = readFileSync(
+    fileURLToPath(
+      new URL("../shared/canvas-scene-runtime.mjs", import.meta.url),
+    ),
+    "utf8",
+  );
+  assert.ok(
+    !/const values = scene\.controls\.map/.test(runtimeSource),
+    "o runtime webgl ainda mapeia params por controls — o size ocuparia u_param0",
+  );
+  // E o caminho principal tem de mandar o índice de variante cru.
+  const byId = ["blade", "array", "prism", "relay"];
+  byId.forEach((id, index) => {
+    const applied = normalizeVisualSettings({
+      ...laser,
+      appliedVariantId: id,
+    });
+    const uniforms = visualUniforms(applied);
+    assert.equal(
+      uniforms.advanced[0],
+      index,
+      `variação "${id}" deve chegar como u_param0=${index} (índice cru, não 0..1)`,
+    );
+  });
+  // A variante é um ÍNDICE: não pode ser normalizada como percentual. A prova é
+  // o caso 3 acima (3 cru vs 0.03 se fosse dividido) — `variant=0` não
+  // distingue nada porque 0 e 0/100 são o mesmo número.
+  assert.equal(visualUniforms(laser).advanced[0], 0);
+});
+
 test("o laser é UM preset com 4 variações e controle de posicionamento", () => {
   const laser = builtinVisualPresets.find(
     (preset) => preset.family === "laser",

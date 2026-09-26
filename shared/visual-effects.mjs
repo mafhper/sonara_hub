@@ -472,12 +472,16 @@ function normalizeCollections(value, fallback = []) {
   return result;
 }
 
-const control = (key, label, min = 0, max = 100, unit = "%") => ({
+const control = (key, label, min = 0, max = 100, unit = "%", raw = false) => ({
   key,
   label,
   min,
   max,
   unit,
+  // `raw`: o valor vai para o shader como está, sem dividir por 100. Para índices
+  // e enums (ex.: `variant` do laser, que é 0..3 e não 0%..100%). Sem isto o
+  // variant=3 chegava como 0.03 e o shader caía no ramo errado.
+  raw,
 });
 
 function preset({
@@ -1843,27 +1847,41 @@ export function normalizeVisualSettings(input = {}) {
       ? source
       : (selectedVariant?.common ?? aliasPalette?.common)) ??
     source;
-  // Mesma regra do `advanced`: a variação é a presetagem escolhida pelo
-  // usuário e tem precedência sobre o preset base. `hasColorFields` só
-  // protege o caso de um preset de cor plana (campo legado `colorA`), em que
-  // não há `colors` para a variação sobrepor.
+  // Mesma regra do `advanced`: a variação pinta no momento da escolha, depois
+  // o usuário é dono. Se a cor da fonte já difere do base, foi editada.
+  const variantColors = selectedVariant?.colors;
+  const sourceColors = hasColorFields(source) ? {} : (source.colors ?? {});
+  const colorsEdited = Object.keys(sourceColors).some(
+    (key) => sourceColors[key] !== base.colors[key],
+  );
   const incomingColors =
-    selectedVariant?.colors ??
-    (hasColorFields(source) ? {} : source.colors) ??
-    aliasPalette?.colors ??
-    {};
-  // A variante tem MESMO PRECEDIMENTO sobre `advanced` (ela é a presetagem
-  // escolhida pelo usuário), mas MESCLA por chave em vez de substituir:
-  // uma variação que declara só parte das chaves (ex.: a do laser, que troca
-  // só variant/size/length/density e deixa o posicionamento no base) não pode
-  // apagar as chaves que não declarou. Antes o `source.advanced ?? variant`
-  // fazia a variante ser ignorada sempre que o preset tinha advanced próprio —
-  // o picker de variações não fazia nada, e todas as variações renderizavam a
-  // mesma sem erro. `aliasPalette` continua com precedência mais fraca.
+    variantColors && !colorsEdited
+      ? variantColors
+      : ((hasColorFields(source) ? {} : source.colors) ??
+        aliasPalette?.colors ??
+        {});
+  // Semântica da variação: ela define os parâmetros NO MOMENTO da escolha e
+  // depois o usuário é dono deles.
+  //
+  // A variação prevalece sobre o preset base, mas NÃO sobre uma edição do
+  // usuário. O sinal é comparar com o base: se `source.advanced[k]` difere do
+  // `base.advanced[k]`, alguém mexeu e esse valor tem de ser respeitado.
+  // Sem isso, os controles ficavam presos — o usuário arrastava "Espessura" e
+  // o valor voltava para o da variação a cada normalização, sem erro nenhum
+  // (o slider respondia, só não mantinha).
+  const variantAdvanced = selectedVariant?.advanced ?? {};
+  const sourceAdvanced = source.advanced ?? {};
+  const editedKeys = new Set(
+    Object.keys(sourceAdvanced).filter(
+      (key) => sourceAdvanced[key] !== base.advanced[key],
+    ),
+  );
   const incomingAdvanced = {
     ...(aliasPalette?.advanced ?? {}),
-    ...(source.advanced ?? {}),
-    ...(selectedVariant?.advanced ?? {}),
+    ...(sourceAdvanced ?? {}),
+    ...Object.fromEntries(
+      Object.entries(variantAdvanced).filter(([key]) => !editedKeys.has(key)),
+    ),
   };
   const incomingCloudLight = source.cloudLight ?? selectedVariant?.cloudLight;
   const incomingWaveform = source.waveform ?? {};
@@ -2110,8 +2128,13 @@ export function visualUniforms(settings) {
   // da variação é do picker. Mapear por `controls` fazia o `size` ocupar
   // `u_param0` (que o shader lê como `variant`) e o `rotation` caíam fora do
   // array: dois controles quebrados, silenciosamente.
-  const values = Object.keys(visual.advanced).map(
-    (key) => (visual.advanced[key] ?? 0) / 100,
+  const values = Object.keys(visual.advanced).map((key) =>
+    // `variant` é um ÍNDICE de ramo (0..3), não um percentual: dividir por
+    // 100 mandava variant=3 como 0.03 e o shader caía no ramo errado — o
+    // preset de laser renderizava a variação errada sem erro.
+    key === "variant"
+      ? visual.advanced[key]
+      : (visual.advanced[key] ?? 0) / 100,
   );
   return {
     rendererId: visual.rendererId,

@@ -268,15 +268,6 @@ void main() {
   // `u_saturation` viraram as cores do preset e o tonemap do upstream foi
   // absorvido por `finish()`.
   laser: `${shaderPrelude}
-vec2 laserAnchor() {
-  // Ponto "vivo" sem ponteiro: centro + deriva lenta e limitada por u_time.
-  // Substitui o cursor do upstream mantendo a leitura de algo que se move.
-  // A amplitude é maior que a deriva do upstream de propósito: aqui o
-  // movimento é a única fonte de vida (sem cursor), então precisa ser visível.
-  float a = u_time * 0.34;
-  float b = u_time * 0.26;
-  return vec2(0.5 + sin(a) * 0.22, 0.5 + cos(b) * 0.16);
-}
 vec2 laserProfile(float distanceToLine, float coreWidth, float glowWidth) {
   float core = exp(-pow(distanceToLine / max(coreWidth, 0.0002), 2.0));
   float glow = exp(-pow(distanceToLine / max(glowWidth, 0.001), 1.25));
@@ -293,9 +284,15 @@ void main() {
   // aplicados pelo usuário (params 4/5/6). Substituem o "ponteiro" do upstream de
   // forma determinística: o offset move a âncora, a rotação gira o espaço em
   // volta do centro. A deriva temporal continua por baixo (movimento vivo).
-  vec2 offset = vec2((u_param4 - 0.5) * 0.9, (u_param5 - 0.5) * 0.9);
+  //
+  // A âncora mora no MESMO espaço de p (centrado em 0, ~[-1,1]) e não em
+  // [0,1] como o u_pointer do upstream. A diferença importa: p é
+  // normalizado por min(resolution), então uma âncora 0..1 ficava fora do
+  // enquadramento em telas largas — o fbm era amostrado fora da cena, a névoa
+  // sumia e sobrava só o brilho central (leitura de lens flare, sem laser).
+  vec2 offset = vec2((u_param4 - 0.5) * 0.7, (u_param5 - 0.5) * 0.7);
   p = laserRotate((u_param6 - 0.5) * 6.2831853) * p;
-  vec2 pointer = vec2(0.5 + sin(u_time * 0.34) * 0.22, 0.5 + cos(u_time * 0.26) * 0.16) + offset;
+  vec2 pointer = vec2(sin(u_time * 0.34) * 0.16, cos(u_time * 0.26) * 0.11) + offset;
   float variant = u_param0;                 // 0..3, arredondado nos 4 ramos
   float size = 0.35 + u_param1 * 2.15;      // u_size   (clamp 0.35..2.5)
   // "span" e nao "length": length e palavra reservada em GLSL (builtin) e o
@@ -314,15 +311,25 @@ void main() {
     float dist = abs(p.x - center - p.y * tilt);
     float vMask = 1.0 - smoothstep(0.68 * span, 1.35 * span, abs(p.y));
     vec2 beam = laserProfile(dist, 0.0028 * size, 0.052 * size);
-    vec2 fogUv = vec2(p.x * 3.4, p.y * 2.15 - t * 0.075);
-    fogUv.x += sin(p.y * 3.2 - t * 0.17) * 0.18;
+    vec2 fogUv = vec2(p.x * 2.1, p.y * 1.35 - t * 0.055);
+    fogUv.x += sin(p.y * 2.1 - t * 0.12) * 0.14;
     float fogNoise = fbm(fogUv + pointer * 0.35);
-    float fog = smoothstep(0.34, 0.78, fogNoise) * exp(-pow(dist / (0.24 * size), 1.35)) * density * vMask;
+    // Névoa: a pluma larga é a assinatura visual do laser. Três ajustes sobre o
+    // upstream, todos medidos: o fbm de 6 oitavas tem massa concentrada em
+    // 0.3–0.4 (pouca área passa do smoothstep), o envelope 0.24*size era
+    // estreito em espaço p, e a fumaça somava 0.34 contra 1.65 do núcleo.
+    // O fog é amostrado numa frequência menor que a do feixe, para a pluma ter
+    // volume contínuo em vez de pontos isolados.
+    float fog = smoothstep(0.16, 0.62, fogNoise) * exp(-pow(dist / (0.46 * size), 1.05)) * density * vMask;
     float mirageDist = abs(abs(p.x - center + p.y * tilt * 0.35) - 0.105 * span);
     vec2 mirage = laserProfile(mirageDist, 0.0011 * size, 0.016 * size);
     float mirageMask = (1.0 - smoothstep(0.08, 1.2, abs(p.y))) * (0.35 + 0.65 * fogNoise);
-    color += u_colorB * fog * 0.34;
-    color += u_colorB * beam.y * vMask * (0.48 + 0.06 * sin(t * 1.1));
+    // A fumaça precisa pesar mais que o brilho: é ela que dá a leitura de
+    // "laser dentro de fumaça". O upstream somava a névoa em 0.34 contra 1.65
+    // do núcleo, então mesmo com o envelope largo ela ficava apagada. Aqui a
+    // fumaça é a massa dominante e o núcleo é o realce em cima.
+    color += u_colorB * fog * 0.82;
+    color += u_colorB * beam.y * vMask * (0.52 + 0.06 * sin(t * 1.1));
     color += mix(u_colorB, u_accentColor, 0.88) * beam.x * vMask * 1.65;
     color += u_colorB * mirage.y * mirageMask * 0.12 * density;
     color += u_accentColor * mirage.x * mirageMask * 0.35 * density;
@@ -2181,8 +2188,24 @@ function createWebglRenderer(canvas) {
     const cached = sceneUniformCache.get(scene);
     if (cached) return cached;
     const cloudLight = scene.cloudLight ?? {};
-    const values = scene.controls.map(
-      ({ key }) => (scene.advanced[key] ?? 0) / 100,
+    // Mapeia pela ORDEM DE advanced, não de controls — igual ao
+    // `visualUniforms`. `advanced` é o contrato com o shader (Nª chave =
+    // u_paramN); `controls` é a camada de UI e pode ter menos entradas.
+    //
+    // Este era o bug que fazia o laser "virar lens flare": com `variant`
+    // fora de controls, o size ocupava u_param0, o shader lia variant=0.55,
+    // caía no ramo `array` (raios radiais = lens flare) e nunca chegava na
+    // blade (a plumosa de fumaça). O preset padrão renderizava a variação
+    // errada sem erro nenhum. `visualUniforms` já estava certo; este caminho
+    // — o que realmente renderiza — não.
+    const values = Object.keys(scene.advanced ?? {}).map(
+      // `variant` é índice de ramo (0..3), não percentual — ver o comentário
+      // equivalente em visualUniforms. Dividir por 100 fazia variant=3 virar
+      // 0.03 e o shader cair no ramo errado.
+      (key) =>
+        key === "variant"
+          ? (scene.advanced[key] ?? 0)
+          : (scene.advanced[key] ?? 0) / 100,
     );
     const uniforms = {
       intensity: scene.common.intensity / 100,
