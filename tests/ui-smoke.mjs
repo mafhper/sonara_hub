@@ -246,12 +246,30 @@ smoke: try {
   const fullCount = await page.locator(".visual-preset-card").count();
   await page.getByText("Coleção", { exact: true }).click();
   await page.getByText("Origem", { exact: true }).click();
+  // O número do chip vem da API, não de uma constante aqui. Hard-coded foi o que
+  // quebrou quando os presets novos entraram em `dados` — e um número fixo neste
+  // arquivo só pode ser corrigido à mão, um preset por vez, toda vez que a
+  // curadoria muda. Derivado, ele acompanha.
+  const dadosCountExpected = await page.evaluate(async () => {
+    const res = await fetch("/api/visual-presets");
+    const json = await res.json();
+    return json.presets.filter((p) => (p.collections || []).includes("dados"))
+      .length;
+  });
   assert.equal(
-    await page.getByRole("button", { name: /^Dados\s*18$/u }).count(),
+    await page
+      .getByRole("button", {
+        name: new RegExp(`^Dados\\s*${dadosCountExpected}$`, "u"),
+      })
+      .count(),
     1,
-    "chip da coleção Dados deveria anunciar 18 presets",
+    `chip da coleção Dados deveria anunciar ${dadosCountExpected} presets (derivado da API)`,
   );
-  await page.getByRole("button", { name: /^Dados\s*18$/u }).click();
+  await page
+    .getByRole("button", {
+      name: new RegExp(`^Dados\\s*${dadosCountExpected}$`, "u"),
+    })
+    .click();
   const dadosCount = await page.locator(".visual-preset-card").count();
   assert.ok(
     dadosCount > 0 && dadosCount <= fullCount,
