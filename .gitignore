@@ -1,27 +1,80 @@
-# build e dependências
-node_modules/
-dist/
-site/dist/
+# Workspace privado
+.dev/
+_dev/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+QWEN.md
+KIMI.md
+.codex/
+.agents/
+.claude/
+.claude-code/
+.cursor/
+.gemini/
+.gemini-clipboard/
+.kimi/
+.qwen/
+.roo/
+.windsurf/
 
-# artefatos locais de execução (ver .dev/README.md → "Caminhos de runtime")
+# Sistema operacional
+desktop.ini
+Thumbs.db
+ehthumbs.db
+.DS_Store
+*.lnk
+
+# Dependencias
+node_modules/
+
+# Build
+dist/
+dist-ssr/
+build/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+*.local
+
+# Temporarios
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# Logs
+logs/
+*.log
+*.out
+*.err
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Ambiente
+.env
+.env.*
+!*.example
+
+# Editores
+.vscode/
+!/.vscode/
+/.vscode/*
+!/.vscode/extensions.json
+.idea/
+.cache/
+*.sw?
+*.sublime-project
+*.sublime-workspace
 outputs/
 input/
-.dev/
 test-results/
 .worktrees/
-
-# estado local do app (presets, histórico de jobs, preferências).
-# Ignora o diretório inteiro de propósito: arquivos .tmp de escrita atômica
-# (server/job-store.mjs grava em <arquivo>.tmp e renomeia) escapariam de um
-# padrão por nome e apareceriam como não rastreados.
 data/
-
-.env
-AGENTS.md
 docs/
 
-# sistema operacional / editores
-.DS_Store
-Thumbs.db
-Desktop.ini
-*.swp
+# Sondas
+sonda-porta.ts
