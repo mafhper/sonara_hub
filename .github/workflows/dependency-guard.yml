@@ -2,6 +2,13 @@ name: Dependency Guard
 
 on:
   pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    # Toda terça 12:00 UTC (09:00 America/Sao_Paulo), junto do Dependabot.
+    # A main nunca era auditada; advisories novos ficavam invisíveis até um PR.
+    - cron: "0 12 * * 2"
 
 permissions:
   contents: read
@@ -35,6 +42,9 @@ jobs:
         run: npm audit --audit-level=high
 
       - name: Dependency Review
+        # A action de review só funciona em pull_request. Nos eventos push/schedule,
+        # o gate é o `npm audit --audit-level=high` acima.
+        if: github.event_name == 'pull_request'
         continue-on-error: ${{ github.event.repository.private }}
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
