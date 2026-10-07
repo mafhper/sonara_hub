@@ -1,5 +1,6 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { API_ORIGIN, CLIENT_PORT } from "./ports";
 
 export default defineConfig({
   plugins: [react()],
@@ -21,10 +22,11 @@ export default defineConfig({
   },
   server: {
     host: "127.0.0.1",
-    port: 5173,
+    port: CLIENT_PORT,
+    strictPort: true,
     proxy: {
-      "/api": "http://127.0.0.1:4175",
-      "/outputs": "http://127.0.0.1:4175",
+      "/api": API_ORIGIN,
+      "/outputs": API_ORIGIN,
     },
     // The render pipeline writes per-frame scratch files (scene-renderer.html,
     // uploads, webm output) under .dev/ and outputs/. Those live inside the

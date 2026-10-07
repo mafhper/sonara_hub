@@ -1,16 +1,15 @@
-const DEFAULT_API_PORT = 4175;
-const VITE_DEV_PORT = 5173;
+import { API_PORT, CLIENT_PORT } from "../ports.mjs";
 
 export function resolveServerPort(env = process.env) {
   const explicitApiPort = parsePort(env.SONARA_API_PORT);
   if (explicitApiPort) return explicitApiPort;
 
-  const requestedPort = parsePort(env.PORT) ?? DEFAULT_API_PORT;
+  const requestedPort = parsePort(env.PORT) ?? API_PORT;
   if (
     env.npm_lifecycle_event === "dev:server" &&
-    requestedPort === VITE_DEV_PORT
+    requestedPort === CLIENT_PORT
   ) {
-    return DEFAULT_API_PORT;
+    return API_PORT;
   }
   return requestedPort;
 }
