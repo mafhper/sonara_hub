@@ -44,14 +44,13 @@ test("rotas mortas foram removidas (404)", async () => {
         method: route.method,
       });
       const contentType = response.headers.get("content-type") ?? "";
-      // Contrato da ausência: a rota morta, se existisse, responderia JSON
-      // (application/json). Como foi removida, o servidor NÃO a trata na
-      // camada de API: ou o fallback SPA entrega index.html (200 HTML quando
-      // dist existe) ou o Express devolve o 404 padrão. Um 404 rígido não é
-      // viável aqui sem alterar o fallback SPA (comportamento de rota viva).
-      assert.ok(
-        response.status === 404 || !contentType.includes("application/json"),
-        `${route.method} ${route.path} não deveria ser tratado pela API (JSON), obteve ${response.status} ${contentType}`,
+      // Contrato da ausência: a rota morta foi removida, então NÃO é tratada pela
+      // camada de API. O fallback do SPA só serve GET/HEAD (SH24), logo um método
+      // não-GET recebe o 404 padrão do Express — nunca index.html nem JSON.
+      assert.equal(
+        response.status,
+        404,
+        `${route.method} ${route.path} não deveria ser tratado pela API; obteve ${response.status} ${contentType}`,
       );
     }
   } finally {
