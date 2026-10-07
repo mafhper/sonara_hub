@@ -1490,6 +1490,14 @@ app.post("/api/jobs/:id/cancel", async (req, res) => {
 });
 
 app.use((req, res, next) => {
+  // O fallback do SPA só serve documento (GET/HEAD). Deixar POST/PUT/PATCH/DELETE
+  // caírem no `sendFile` fazia uma rota morta responder o index.html em vez de 404
+  // — e o `send` do Express rejeita caminhos com segmento oculto (dotfiles), o que
+  // convertia o 404 esperado num 500. Ver a nota SH-N26.
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    next();
+    return;
+  }
   const distIndex = path.join(rootDir, "dist", "index.html");
   if (!fssync.existsSync(distIndex)) {
     next();
