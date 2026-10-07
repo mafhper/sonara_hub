@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 
-const clientUrl = process.env.SONARA_CLIENT_URL ?? "http://127.0.0.1:5173";
+const clientUrl = process.env.SONARA_CLIENT_URL ?? "http://127.0.0.1:5310";
 const alphaBytes = [...makeWave(220)];
 const betaBytes = [...makeWave(330)];
 

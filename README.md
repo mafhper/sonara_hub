@@ -176,11 +176,11 @@ npm run dev
 
 Esse comando sobe os dois processos do app de uma vez:
 
-- a **interface** (cliente) em `http://127.0.0.1:5173`;
+- a **interface** (cliente) em `http://127.0.0.1:5310`;
 - o **servidor local** (API de áudio, capas e exportação) em
-  `http://127.0.0.1:4175`.
+  `http://127.0.0.1:4310`.
 
-Abra **`http://127.0.0.1:5173`** no navegador e use o Sonara Hub. Para encerrar,
+Abra **`http://127.0.0.1:5310`** no navegador e use o Sonara Hub. Para encerrar,
 pressione `Ctrl+C` no terminal.
 
 ### 5. Gerar o build de produção (opcional)

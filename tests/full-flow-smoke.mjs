@@ -19,8 +19,8 @@ import {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const runId = String(Date.now()).slice(-6);
-const clientUrl = process.env.SONARA_CLIENT_URL ?? "http://127.0.0.1:5173";
-const apiUrl = "http://127.0.0.1:4175";
+const clientUrl = process.env.SONARA_CLIENT_URL ?? "http://127.0.0.1:5310";
+const apiUrl = "http://127.0.0.1:4310";
 const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "sonara-hub-flow-"));
 const screenshotDir = path.join(root, ".dev", "runtime", "flow-smoke");
 const coverPath = path.join(workDir, "album-cover.png");

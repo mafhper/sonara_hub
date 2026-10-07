@@ -10,7 +10,7 @@ import { fetchJsonWithRetry } from "../shared/local-api.mjs";
 import { publicationAssetPresets } from "../shared/publication-assets.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const clientUrl = process.env.SONARA_CLIENT_URL ?? "http://127.0.0.1:5173";
+const clientUrl = process.env.SONARA_CLIENT_URL ?? "http://127.0.0.1:5310";
 const focusTextProfiles = process.env.SONARA_UI_SMOKE_FOCUS === "text-profiles";
 const screenshotDir = path.join(root, ".dev", "runtime", "screenshots");
 const assetDir = path.join(root, ".dev", "runtime", "ui-smoke-assets");
@@ -984,7 +984,7 @@ smoke: try {
     .getByRole("button", { name: "Selecionar atmosfera Aura smoke UI" })
     .waitFor();
   const presetPayload = await fetchJsonWithRetry(
-    "http://127.0.0.1:4175/api/visual-presets",
+    "http://127.0.0.1:4310/api/visual-presets",
     undefined,
     { attempts: 5, delayMs: 300 },
   );
@@ -1291,7 +1291,7 @@ function makeWave(frequency = 220) {
 
 async function cleanupSmokePresets() {
   const { presets } = await fetchJsonWithRetry(
-    "http://127.0.0.1:4175/api/visual-presets",
+    "http://127.0.0.1:4310/api/visual-presets",
     undefined,
     { attempts: 5, delayMs: 300 },
   );
@@ -1300,7 +1300,7 @@ async function cleanupSmokePresets() {
       .filter((preset) => preset.name === "Aura smoke UI")
       .map((preset) =>
         fetchJsonWithRetry(
-          `http://127.0.0.1:4175/api/visual-presets/${preset.id}`,
+          `http://127.0.0.1:4310/api/visual-presets/${preset.id}`,
           { method: "DELETE" },
           { attempts: 5, delayMs: 300 },
         ),
@@ -1314,7 +1314,7 @@ async function reloadApp(page) {
 }
 
 async function assertLocalSettings(page) {
-  const usageResponse = await fetch("http://127.0.0.1:4175/api/storage/usage");
+  const usageResponse = await fetch("http://127.0.0.1:4310/api/storage/usage");
   assert.equal(usageResponse.status, 200);
   assert.deepEqual(Object.keys(await usageResponse.json()).sort(), [
     "generated",
@@ -1322,7 +1322,7 @@ async function assertLocalSettings(page) {
     "temporary",
   ]);
   const invalidCleanup = await fetch(
-    "http://127.0.0.1:4175/api/storage/cleanup",
+    "http://127.0.0.1:4310/api/storage/cleanup",
     {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -1331,7 +1331,7 @@ async function assertLocalSettings(page) {
   );
   assert.equal(invalidCleanup.status, 400);
   const clearedJobs = await fetch(
-    "http://127.0.0.1:4175/api/jobs?scope=video-render",
+    "http://127.0.0.1:4310/api/jobs?scope=video-render",
     { method: "DELETE" },
   );
   assert.equal(clearedJobs.status, 200);
@@ -1478,7 +1478,7 @@ async function assertArtworkPreviewApi(noCoverPath, coverPath) {
     path.basename(noCoverPath),
   );
   const noCoverResponse = await fetch(
-    "http://127.0.0.1:4175/api/audio/artwork-preview",
+    "http://127.0.0.1:4310/api/audio/artwork-preview",
     {
       method: "POST",
       body: noCover,
@@ -1494,7 +1494,7 @@ async function assertArtworkPreviewApi(noCoverPath, coverPath) {
     path.basename(coverPath),
   );
   const coverResponse = await fetch(
-    "http://127.0.0.1:4175/api/audio/artwork-preview",
+    "http://127.0.0.1:4310/api/audio/artwork-preview",
     {
       method: "POST",
       body: cover,
@@ -1504,7 +1504,7 @@ async function assertArtworkPreviewApi(noCoverPath, coverPath) {
   const { artworkUrl } = await coverResponse.json();
   assert.match(artworkUrl, /^\/api\/audio\/artwork-preview\/[0-9a-f-]+\.jpg$/);
   assert.equal(
-    (await fetch(`http://127.0.0.1:4175${artworkUrl}`)).headers.get(
+    (await fetch(`http://127.0.0.1:4310${artworkUrl}`)).headers.get(
       "content-type",
     ),
     "image/jpeg",
@@ -1512,7 +1512,7 @@ async function assertArtworkPreviewApi(noCoverPath, coverPath) {
   assert.equal(
     (
       await fetch(
-        "http://127.0.0.1:4175/api/audio/artwork-preview/token-invalido.jpg",
+        "http://127.0.0.1:4310/api/audio/artwork-preview/token-invalido.jpg",
       )
     ).status,
     404,

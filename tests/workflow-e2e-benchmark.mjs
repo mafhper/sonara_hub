@@ -35,7 +35,7 @@ const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const runDir = path.join(runsDir, `${runId}-workflow-e2e`);
 const artifactsDir = path.join(runDir, "artifacts");
 const screenshotDir = path.join(runDir, "screenshots");
-const clientUrl = process.env.SONARA_CLIENT_URL ?? "http://127.0.0.1:5173";
+const clientUrl = process.env.SONARA_CLIENT_URL ?? "http://127.0.0.1:5310";
 const apiUrl = process.env.SONARA_API_URL ?? defaultApiUrl(clientUrl);
 const selectedSources = normalizeSources(
   option("source") ?? process.env.SONARA_WORKFLOW_E2E_SOURCE ?? "both",
@@ -910,8 +910,8 @@ function normalizeSources(value) {
 
 function defaultApiUrl(url) {
   const parsed = new URL(url);
-  if (parsed.port === "5173") {
-    return `${parsed.protocol}//${parsed.hostname}:4175`;
+  if (parsed.port === "5310") {
+    return `${parsed.protocol}//${parsed.hostname}:4310`;
   }
   return parsed.origin;
 }

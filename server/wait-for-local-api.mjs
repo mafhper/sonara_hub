@@ -1,9 +1,10 @@
 import { isLoopbackHttpUrl } from "./request-security.mjs";
+import { API_ORIGIN } from "../ports.mjs";
 
 const args = process.argv.slice(2);
 const endpoint =
   args.find((argument) => !argument.startsWith("--")) ??
-  "http://127.0.0.1:4175/api/visual-presets";
+  `${API_ORIGIN}/api/visual-presets`;
 if (!isLoopbackHttpUrl(endpoint)) {
   console.error("A verificação de prontidão aceita apenas endpoints loopback.");
   process.exit(2);

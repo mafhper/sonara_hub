@@ -14,7 +14,7 @@ test("local API client rejects remote endpoints", () => {
     /loopback/i,
   );
   assert.equal(
-    assertLocalApiInput("http://127.0.0.1:4175/api").hostname,
+    assertLocalApiInput("http://127.0.0.1:4310/api").hostname,
     "127.0.0.1",
   );
 });

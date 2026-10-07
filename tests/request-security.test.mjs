@@ -36,11 +36,11 @@ function runMiddleware({ method = "POST", origin, fetchSite } = {}) {
 
 test("local mutation origin accepts loopback frontends and non-browser clients", () => {
   assert.equal(
-    runMiddleware({ origin: "http://127.0.0.1:5173" }).nextCalled,
+    runMiddleware({ origin: "http://127.0.0.1:5310" }).nextCalled,
     true,
   );
   assert.equal(
-    runMiddleware({ origin: "http://localhost:4175" }).nextCalled,
+    runMiddleware({ origin: "http://localhost:4310" }).nextCalled,
     true,
   );
   assert.equal(runMiddleware().nextCalled, true);
@@ -58,7 +58,7 @@ test("local mutation origin blocks cross-site and opaque browser origins", () =>
 });
 
 test("loopback URL validation rejects remote and non-HTTP endpoints", () => {
-  assert.equal(isLoopbackHttpUrl("http://[::1]:4175/api"), true);
+  assert.equal(isLoopbackHttpUrl("http://[::1]:4310/api"), true);
   assert.equal(isLoopbackHttpUrl("https://localhost/api"), true);
   assert.equal(isLoopbackHttpUrl("https://example.test/api"), false);
   assert.equal(isLoopbackHttpUrl("file:///tmp/api"), false);
